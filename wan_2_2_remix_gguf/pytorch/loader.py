@@ -7,13 +7,10 @@ Wan 2.2 Remix GGUF model loader implementation.
 
 Loads GGUF-quantized Wan 2.2 Remix transformers from community
 re-uploads (BigDannyPt/Wan-2.2-Remix-GGUF and
-huchukato/Wan2.2-Remix-I2V-v2.1-GGUF) and builds text-to-video or
-image-to-video pipelines.
+huchukato/Wan2.2-Remix-I2V-v2.1-GGUF).
 
 The Wan 2.2 Remix is a community fine-tune of the Wan 2.2 14B model
 supporting both text-to-video (T2V) and image-to-video (I2V) generation.
-Each mode has high-noise and low-noise expert variants following the
-Mixture-of-Experts (MoE) architecture.
 
 Available variants:
 - WAN22_REMIX_T2V_HIGH_V2_Q4_K_M: T2V high-noise expert v2.0, Q4_K_M
@@ -25,23 +22,26 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from PIL import Image
 
 from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 
 BIGDANNYPT_GGUF_REPO = "BigDannyPt/Wan-2.2-Remix-GGUF"
 HUCHUKATO_I2V_V2_1_GGUF_REPO = "huchukato/Wan2.2-Remix-I2V-v2.1-GGUF"
-T2V_BASE_PIPELINE = "Wan-AI/Wan2.2-T2V-A14B-Diffusers"
-I2V_BASE_PIPELINE = "Wan-AI/Wan2.2-I2V-A14B-Diffusers"
+
+# Small spatial dimensions for compile-only testing
+TRANSFORMER_NUM_FRAMES = 2
+TRANSFORMER_HEIGHT = 4
+TRANSFORMER_WIDTH = 4
+TRANSFORMER_TEXT_SEQ_LEN = 8
 
 
 class ModelVariant(StrEnum):
@@ -67,13 +67,6 @@ _GGUF_FILES = {
     ModelVariant.WAN22_REMIX_I2V_LOW_V2_1_Q4_K_M: "Low/wan22RemixT2VI2V_i2vLowV21-Q4_K_M.gguf",
 }
 
-_IS_I2V = {
-    ModelVariant.WAN22_REMIX_T2V_HIGH_V2_Q4_K_M: False,
-    ModelVariant.WAN22_REMIX_I2V_HIGH_V3_Q4_K_M: True,
-    ModelVariant.WAN22_REMIX_I2V_HIGH_V2_1_Q4_K_M: True,
-    ModelVariant.WAN22_REMIX_I2V_LOW_V2_1_Q4_K_M: True,
-}
-
 
 class ModelLoader(ForgeModel):
     """Wan 2.2 Remix GGUF model loader."""
@@ -96,7 +89,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline = None
+        self._transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -117,11 +110,14 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the GGUF-quantized Wan 2.2 Remix transformer and build the pipeline.
+        """Load the GGUF-quantized Wan 2.2 Remix transformer.
 
-        Uses diffusers GGUFQuantizationConfig to load the quantized transformer,
-        then constructs the appropriate pipeline (T2V or I2V) with the base model's
-        VAE in float32 for numerical stability.
+        Uses diffusers GGUFQuantizationConfig to load the quantized transformer.
+        Returns the transformer nn.Module directly for compilation testing.
+
+        The GGUF files may omit certain I2V-specific weights (image cross-attention
+        projections). A patched dispatch_model zero-initialises those missing
+        parameters so the model can be loaded and compiled without errors.
         """
         import importlib.metadata
 
@@ -158,11 +154,7 @@ class ModelLoader(ForgeModel):
         import accelerate.big_modeling as _accel_bm
         import diffusers.loaders.single_file_model as _sfm
         import torch.nn as nn
-        from diffusers import (
-            AutoencoderKLWan,
-            GGUFQuantizationConfig,
-            WanTransformer3DModel,
-        )
+        from diffusers import GGUFQuantizationConfig, WanTransformer3DModel
         from huggingface_hub import hf_hub_download
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
@@ -171,6 +163,8 @@ class ModelLoader(ForgeModel):
         gguf_file = _GGUF_FILES[self._variant]
         gguf_path = hf_hub_download(repo_id=gguf_repo, filename=gguf_file)
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+
+        orig_dispatch = _accel_bm.dispatch_model
 
         def _patched_dispatch(model, device_map=None, **kwargs):
             if device_map:
@@ -185,78 +179,45 @@ class ModelLoader(ForgeModel):
                         torch.zeros(param.shape, dtype=compute_dtype, device="cpu"),
                         requires_grad=param.requires_grad,
                     )
-            return _orig_dispatch(model, device_map=device_map, **kwargs)
+            return orig_dispatch(model, device_map=device_map, **kwargs)
 
-        _orig_dispatch = _accel_bm.dispatch_model
         _accel_bm.dispatch_model = _patched_dispatch
         _sfm.dispatch_model = _patched_dispatch
         try:
-            transformer = WanTransformer3DModel.from_single_file(
+            self._transformer = WanTransformer3DModel.from_single_file(
                 gguf_path,
                 quantization_config=quantization_config,
                 torch_dtype=compute_dtype,
             )
         finally:
-            _accel_bm.dispatch_model = _orig_dispatch
-            _sfm.dispatch_model = _orig_dispatch
+            _accel_bm.dispatch_model = orig_dispatch
+            _sfm.dispatch_model = orig_dispatch
 
-        is_i2v = _IS_I2V[self._variant]
-        base_pipeline = I2V_BASE_PIPELINE if is_i2v else T2V_BASE_PIPELINE
-
-        vae = AutoencoderKLWan.from_pretrained(
-            base_pipeline,
-            subfolder="vae",
-            torch_dtype=torch.float32,
-        )
-
-        if is_i2v:
-            from diffusers import WanImageToVideoPipeline
-
-            self.pipeline = WanImageToVideoPipeline.from_pretrained(
-                base_pipeline,
-                transformer=transformer,
-                vae=vae,
-                torch_dtype=compute_dtype,
-            )
-        else:
-            from diffusers import WanPipeline
-
-            self.pipeline = WanPipeline.from_pretrained(
-                base_pipeline,
-                transformer=transformer,
-                vae=vae,
-                torch_dtype=compute_dtype,
-            )
-
-        return self.pipeline
+        return self._transformer
 
     def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for video generation."""
-        if prompt is None:
-            prompt = (
-                "A cat walking gracefully across a sunlit garden, "
-                "detailed fur texture, cinematic lighting"
-            )
+        """Prepare tensor inputs for the WanTransformer3DModel forward pass."""
+        if self._transformer is None:
+            self.load_model()
 
-        is_i2v = _IS_I2V[self._variant]
-
-        if is_i2v:
-            image = Image.new("RGB", (832, 480), color=(128, 128, 200))
-            return {
-                "prompt": prompt,
-                "image": image,
-                "height": 480,
-                "width": 832,
-                "num_frames": 9,
-                "num_inference_steps": 2,
-                "guidance_scale": 5.0,
-            }
+        dtype = torch.bfloat16
+        config = self._transformer.config
 
         return {
-            "prompt": prompt,
-            "height": 480,
-            "width": 832,
-            "num_frames": 9,
-            "num_inference_steps": 2,
-            "guidance_scale": 5.0,
+            "hidden_states": torch.randn(
+                1,
+                config.in_channels,
+                TRANSFORMER_NUM_FRAMES,
+                TRANSFORMER_HEIGHT,
+                TRANSFORMER_WIDTH,
+                dtype=dtype,
+            ),
+            "encoder_hidden_states": torch.randn(
+                1,
+                TRANSFORMER_TEXT_SEQ_LEN,
+                config.text_dim,
+                dtype=dtype,
+            ),
+            "timestep": torch.tensor([500], dtype=torch.long),
+            "return_dict": False,
         }
