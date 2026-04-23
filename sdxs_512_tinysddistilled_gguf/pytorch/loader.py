@@ -4,9 +4,9 @@
 """
 SDXS-512-tinySDdistilled GGUF model loader implementation.
 
-Loads the GGUF-quantized UNet from concedo/sdxs-512-tinySDdistilled-GGUF and
-builds a text-to-image pipeline using IDKiro/sdxs-512-dreamshaper as the base
-model for the remaining components.
+Loads the GGUF checkpoint from concedo/sdxs-512-tinySDdistilled-GGUF as a
+complete StableDiffusionPipeline. The tinySD architecture (pruned SD1.5 variant)
+is auto-detected from the GGUF tensor indices.
 
 SDXS is a one-step latent diffusion model distilled from Stable Diffusion 1.5
 for fast 512x512 text-to-image generation.
@@ -31,8 +31,6 @@ from ...config import (
 )
 
 GGUF_REPO = "concedo/sdxs-512-tinySDdistilled-GGUF"
-BASE_PIPELINE = "IDKiro/sdxs-512-dreamshaper"
-GGUF_SOURCE_MODEL = "Disty0/sdxs-512-tinySDdistilled"
 
 
 class ModelVariant(StrEnum):
@@ -80,34 +78,20 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the GGUF-quantized UNet and build the SDXS pipeline.
+        """Load the SDXS tinySDdistilled GGUF checkpoint as a full pipeline.
 
-        Uses diffusers GGUFQuantizationConfig to load the quantized UNet,
-        then constructs the StableDiffusionPipeline with the base model's
-        other components.
+        Uses StableDiffusionPipeline.from_single_file which correctly infers
+        the tinySD architecture from the GGUF tensor indices. The GGUF weights
+        are dequantized to the target dtype on load.
         """
-        from diffusers import (
-            GGUFQuantizationConfig,
-            StableDiffusionPipeline,
-            UNet2DConditionModel,
-        )
+        from diffusers import StableDiffusionPipeline
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         gguf_file = _GGUF_FILES[self._variant]
-        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
-        unet = UNet2DConditionModel.from_single_file(
+        self.pipeline = StableDiffusionPipeline.from_single_file(
             f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
-            config=GGUF_SOURCE_MODEL,
-            subfolder="unet",
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
-
-        self.pipeline = StableDiffusionPipeline.from_pretrained(
-            BASE_PIPELINE,
-            unet=unet,
             torch_dtype=compute_dtype,
         )
 
