@@ -67,6 +67,10 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    # The Preview repo uses raw .pth weights (not diffusers format), so we use
+    # Wan-AI/Wan2.1-VACE-1.3B-Diffusers for config and non-Preview components.
+    _DIFFUSERS_CONFIG_REPO = "Wan-AI/Wan2.1-VACE-1.3B-Diffusers"
+
     def load_model(
         self,
         *,
@@ -74,19 +78,34 @@ class ModelLoader(ForgeModel):
         **kwargs,
     ):
         """Load the VACE-Wan2.1-1.3B-Preview pipeline."""
-        from diffusers import AutoencoderKLWan, WanVACEPipeline
+        from diffusers import (
+            AutoencoderKLWan,
+            WanVACEPipeline,
+            WanVACETransformer3DModel,
+        )
+        from huggingface_hub import hf_hub_download
 
         dtype = dtype_override if dtype_override is not None else torch.float32
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        vae = AutoencoderKLWan.from_pretrained(
-            pretrained_model_name,
+        vae = AutoencoderKLWan.from_single_file(
+            hf_hub_download(pretrained_model_name, "Wan2.1_VAE.pth"),
+            config=self._DIFFUSERS_CONFIG_REPO,
             subfolder="vae",
             torch_dtype=torch.float32,
         )
+        transformer = WanVACETransformer3DModel.from_single_file(
+            hf_hub_download(
+                pretrained_model_name, "diffusion_pytorch_model.safetensors"
+            ),
+            config=self._DIFFUSERS_CONFIG_REPO,
+            subfolder="transformer",
+            torch_dtype=dtype,
+        )
         self.pipeline = WanVACEPipeline.from_pretrained(
-            pretrained_model_name,
+            self._DIFFUSERS_CONFIG_REPO,
             vae=vae,
+            transformer=transformer,
             torch_dtype=dtype,
         )
         return self.pipeline
