@@ -9,6 +9,9 @@ unsloth/FLUX.2-klein-base-4B-GGUF. The GGUF transformer is loaded via diffusers'
 Flux2Transformer2DModel.from_single_file.
 """
 
+import json
+import os
+import tempfile
 from typing import Optional
 
 import torch
@@ -27,6 +30,25 @@ from ...config import (
 )
 
 GGUF_REPO = "unsloth/FLUX.2-klein-base-4B-GGUF"
+
+# black-forest-labs/FLUX.2-dev is gated; provide config inline derived from GGUF tensor shapes
+_FLUX2_KLEIN_4B_CONFIG = {
+    "_class_name": "Flux2Transformer2DModel",
+    "patch_size": 1,
+    "in_channels": 128,
+    "out_channels": None,
+    "num_layers": 5,
+    "num_single_layers": 20,
+    "attention_head_dim": 128,
+    "num_attention_heads": 24,
+    "joint_attention_dim": 7680,
+    "timestep_guidance_channels": 256,
+    "mlp_ratio": 3.0,
+    "axes_dims_rope": [32, 32, 32, 32],
+    "rope_theta": 2000,
+    "eps": 1e-6,
+    "guidance_embeds": False,
+}
 
 
 class ModelVariant(StrEnum):
@@ -91,11 +113,18 @@ class ModelLoader(ForgeModel):
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
-        self.transformer = Flux2Transformer2DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            transformer_dir = os.path.join(tmpdir, "transformer")
+            os.makedirs(transformer_dir)
+            with open(os.path.join(transformer_dir, "config.json"), "w") as f:
+                json.dump(_FLUX2_KLEIN_4B_CONFIG, f)
+
+            self.transformer = Flux2Transformer2DModel.from_single_file(
+                f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
+                config=tmpdir,
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
+            )
 
         return self.transformer
 
