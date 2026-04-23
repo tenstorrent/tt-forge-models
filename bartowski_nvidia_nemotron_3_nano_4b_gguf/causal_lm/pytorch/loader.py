@@ -116,6 +116,11 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load
             except Exception:
                 pass
 
+        # Ensure GGUF-derived values are Python ints (GGUF shapes are np.uint64).
+        for key in ("mamba_num_heads", "head_dim", "num_attention_heads"):
+            if key in cfg:
+                cfg[key] = int(cfg[key])
+
         # Derive mamba_head_dim from ssm.inner_size and mamba_num_heads.
         try:
             from gguf import GGUFReader
@@ -124,9 +129,9 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load
             inner_size_field = _reader.fields.get("nemotron_h.ssm.inner_size")
             if inner_size_field is not None:
                 inner_size = int(inner_size_field.parts[-1][0])
-                mamba_num_heads = cfg.get("mamba_num_heads", 96)
+                mamba_num_heads = int(cfg.get("mamba_num_heads", 96))
                 if mamba_num_heads > 0:
-                    cfg["mamba_head_dim"] = inner_size // mamba_num_heads
+                    cfg["mamba_head_dim"] = int(inner_size // mamba_num_heads)
         except Exception:
             pass
 
@@ -136,11 +141,13 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load
                 from gguf import GGUFReader
 
                 _reader = GGUFReader(gguf_path)
-                head_dim = cfg.get("head_dim", 128)
+                head_dim = int(cfg.get("head_dim", 128))
                 for t in _reader.tensors:
                     if re.match(r"blk\.\d+\.attn_k\.weight", t.name):
-                        k_out_dim = t.shape[1] if len(t.shape) >= 2 else t.shape[0]
-                        cfg["num_key_value_heads"] = k_out_dim // head_dim
+                        k_out_dim = (
+                            int(t.shape[1]) if len(t.shape) >= 2 else int(t.shape[0])
+                        )
+                        cfg["num_key_value_heads"] = int(k_out_dim // head_dim)
                         break
             except Exception:
                 cfg["num_key_value_heads"] = 8
