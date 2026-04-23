@@ -74,6 +74,11 @@ class MapperatorinatorWrapper(nn.Module):
         self.model = model
 
     def forward(self, frames, decoder_input_ids, difficulty, mapper_idx, song_position):
+        # nnAudio's STFT filters are always kept in float32. Cast frames to float32
+        # before the spectrogram; the model's forward casts the output back to the
+        # transformer dtype afterwards.
+        if hasattr(self.model, "spectrogram"):
+            frames = frames.to(dtype=torch.float32)
         return self.model(
             frames=frames,
             decoder_input_ids=decoder_input_ids,
@@ -150,6 +155,12 @@ class ModelLoader(ForgeModel):
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
+
+        # Newer transformers loads weights in the target dtype directly (bypassing
+        # _apply), so MelSpectrogram._apply's float32 guard is skipped. Restore it
+        # explicitly so nnAudio's STFT conv1d gets float32 filters as expected.
+        if hasattr(model, "spectrogram") and hasattr(model.spectrogram, "transform"):
+            model.spectrogram.transform.to(torch.float32)
 
         return MapperatorinatorWrapper(model)
 
