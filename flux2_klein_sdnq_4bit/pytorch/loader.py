@@ -4,9 +4,16 @@
 """
 FLUX.2 Klein SDNQ 4-bit model loader implementation for text-to-image generation
 """
+import os
+
 import torch
 from diffusers.models import Flux2Transformer2DModel
 from typing import Optional
+
+try:
+    import sdnq  # noqa: F401 - registers SDNQ quantizer with diffusers on import
+except ImportError:
+    pass
 
 from ...base import ForgeModel
 from ...config import (
@@ -57,18 +64,24 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        load_kwargs = {"use_safetensors": True}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        self.transformer = Flux2Transformer2DModel.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            subfolder="transformer",
-            **load_kwargs,
-        )
-
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
+        if os.environ.get("TT_COMPILE_ONLY_SYSTEM_DESC"):
+            # Compile-only: load from cached config with random weights to skip
+            # downloading multi-GB SDNQ-quantized weights.
+            config = Flux2Transformer2DModel.load_config(
+                self._variant_config.pretrained_model_name,
+                subfolder="transformer",
+            )
+            config.pop("quantization_config", None)
+            self.transformer = Flux2Transformer2DModel.from_config(config).to(dtype)
+        else:
+            load_kwargs = {"use_safetensors": True, "torch_dtype": dtype}
+            self.transformer = Flux2Transformer2DModel.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                subfolder="transformer",
+                **load_kwargs,
+            )
 
         return self.transformer
 
