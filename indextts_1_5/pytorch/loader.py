@@ -34,9 +34,12 @@ class IndexTTS15GPTWrapper(nn.Module):
         self.gpt = gpt
 
     def forward(self, inputs_embeds):
-        outputs = self.gpt.gpt.transformer(inputs_embeds=inputs_embeds)
+        # tts.gpt = UnifiedVoice; inference_model wraps UnifiedVoice.gpt with
+        # the paired transformer (GPT2Model) and lm_head (norm + mel_head).
+        inference_model = self.gpt.gpt.inference_model
+        outputs = inference_model.transformer(inputs_embeds=inputs_embeds)
         hidden_states = outputs.last_hidden_state
-        logits = self.gpt.gpt.lm_head(hidden_states)
+        logits = inference_model.lm_head(hidden_states)
         return logits
 
 
@@ -72,7 +75,19 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import sys
+        import types
+
         from huggingface_hub import snapshot_download
+
+        # transformers ≥5.0 removed model_parallel_utils; provide a stub so
+        # indextts can import without error (only used in parallelize() calls).
+        if "transformers.utils.model_parallel_utils" not in sys.modules:
+            _stub = types.ModuleType("transformers.utils.model_parallel_utils")
+            _stub.assert_device_map = lambda *a, **kw: None
+            _stub.get_device_map = lambda *a, **kw: {}
+            sys.modules["transformers.utils.model_parallel_utils"] = _stub
+
         from indextts.infer import IndexTTS
 
         model_dir = snapshot_download(

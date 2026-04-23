@@ -1,0 +1,3 @@
+indextts @ https://github.com/index-tts/index-tts/archive/refs/tags/v1.5.0.tar.gz
+pynini
+WeTextProcessing
