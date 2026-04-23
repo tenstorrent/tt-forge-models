@@ -14,6 +14,23 @@ from typing import Optional
 if not hasattr(transformers.modeling_utils, "Conv1D"):
     transformers.modeling_utils.Conv1D = Conv1D
 
+# transformers 5.x added all_tied_weights_keys (set via post_init), but remote model code
+# (codesage) predates this and doesn't call post_init(); ensure it's present before loading
+_orig_adjust_tied = (
+    transformers.modeling_utils.PreTrainedModel._adjust_tied_keys_with_tied_pointers
+)
+
+
+def _patched_adjust_tied(self, missing_mismatched):
+    if not hasattr(self, "all_tied_weights_keys"):
+        self.all_tied_weights_keys = {}
+    return _orig_adjust_tied(self, missing_mismatched)
+
+
+transformers.modeling_utils.PreTrainedModel._adjust_tied_keys_with_tied_pointers = (
+    _patched_adjust_tied
+)
+
 from ....base import ForgeModel
 from ....config import (
     ModelConfig,
@@ -64,15 +81,10 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
             add_eos_token=True,
-            **tokenizer_kwargs,
         )
 
         return self.tokenizer
@@ -82,7 +94,7 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = AutoModel.from_pretrained(
