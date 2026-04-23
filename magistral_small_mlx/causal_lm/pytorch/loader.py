@@ -4,8 +4,9 @@
 """
 Magistral Small MLX model loader implementation for causal language modeling.
 """
+
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoTokenizer, AutoConfig, Mistral3ForConditionalGeneration
 from typing import Optional
 
 from ....base import ForgeModel
@@ -89,7 +90,7 @@ class ModelLoader(ForgeModel):
 
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
+        model = Mistral3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
 
