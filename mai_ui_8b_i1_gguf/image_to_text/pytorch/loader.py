@@ -3,6 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 MAI-UI-8B i1 GGUF model loader implementation for image to text.
+
+Note: The qwen3vl GGUF architecture is not yet supported by the transformers
+GGUF loader, so we load from the HF-native base checkpoint instead.
 """
 
 from transformers import (
@@ -22,6 +25,8 @@ from ....config import (
     StrEnum,
 )
 
+BASE_MODEL = "Tongyi-MAI/MAI-UI-8B"
+
 
 class ModelVariant(StrEnum):
     """Available MAI-UI-8B i1 GGUF model variants for image to text."""
@@ -35,26 +40,20 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.MAI_UI_8B_I1_GGUF: LLMModelConfig(
-            pretrained_model_name="mradermacher/MAI-UI-8B-i1-GGUF",
+            pretrained_model_name=BASE_MODEL,
             max_length=128,
         ),
         ModelVariant.MAI_UI_8B_GGUF: LLMModelConfig(
-            pretrained_model_name="mradermacher/MAI-UI-8B-GGUF",
+            pretrained_model_name=BASE_MODEL,
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.MAI_UI_8B_I1_GGUF
 
-    _GGUF_FILES = {
-        ModelVariant.MAI_UI_8B_I1_GGUF: "MAI-UI-8B.i1-Q4_K_M.gguf",
-        ModelVariant.MAI_UI_8B_GGUF: "MAI-UI-8B.Q4_K_M.gguf",
-    }
-
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.processor = None
-        self.gguf_file = self._GGUF_FILES[self._variant]
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -75,11 +74,9 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs["gguf_file"] = self.gguf_file
         model_kwargs |= kwargs
 
-        # GGUF repos do not ship a processor; use the base model
-        self.processor = AutoProcessor.from_pretrained("Tongyi-MAI/MAI-UI-8B")
+        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
