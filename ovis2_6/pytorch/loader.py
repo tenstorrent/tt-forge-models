@@ -153,9 +153,11 @@ class ModelLoader(ForgeModel):
         input_ids, pixel_values, grid_thws = self.model.preprocess_inputs(
             messages=messages, add_generation_prompt=True
         )
+        attention_mask = torch.ones_like(input_ids)
 
         inputs = {
-            "inputs": input_ids,
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
             "pixel_values": pixel_values,
             "grid_thws": grid_thws,
         }
@@ -165,7 +167,10 @@ class ModelLoader(ForgeModel):
                 inputs["pixel_values"] = pixel_values.to(dtype_override)
 
         if batch_size > 1:
-            inputs["inputs"] = input_ids.repeat_interleave(batch_size, dim=0)
+            inputs["input_ids"] = input_ids.repeat_interleave(batch_size, dim=0)
+            inputs["attention_mask"] = attention_mask.repeat_interleave(
+                batch_size, dim=0
+            )
             if pixel_values is not None:
                 inputs["pixel_values"] = inputs["pixel_values"].repeat_interleave(
                     batch_size, dim=0
