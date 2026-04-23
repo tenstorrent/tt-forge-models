@@ -7,6 +7,8 @@ StarVector model loader implementation for image-to-SVG generation.
 
 from typing import Optional
 
+import torch
+import torch.nn as nn
 from PIL import Image
 from transformers import AutoModelForCausalLM, AutoProcessor
 
@@ -119,6 +121,37 @@ def _patch_starcoder_init():
     PreTrainedModel._adjust_tied_keys_with_tied_pointers = _patched_adjust
 
 
+class _StarVectorWrapper(nn.Module):
+    """Wraps StarVectorForCausalLM to accept raw pixel_values.
+
+    StarVectorForCausalLM.forward() requires pre-encoded vision_embeds plus
+    text token tensors.  This wrapper encodes the image through the model's own
+    image encoder and supplies fixed dummy token inputs so the test harness can
+    call model(pixel_values) directly.
+    """
+
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+        # Store a reference to the svg_transformer tokenizer for building dummy inputs.
+        self._tokenizer = model.model.svg_transformer.tokenizer
+
+    def forward(self, pixel_values):
+        sv = self.model.model
+        vision_embeds = sv.image_encoder(pixel_values.to(sv.model_precision))
+        vision_embeds = sv.image_projection(vision_embeds)
+        svg_start_id = sv.svg_transformer.svg_start_token_id
+        input_ids = torch.tensor(
+            [[svg_start_id]], dtype=torch.long, device=pixel_values.device
+        )
+        return self.model(
+            vision_embeds=vision_embeds,
+            input_ids=input_ids,
+            num_generations=1,
+            num_logits_to_keep=1,
+        )
+
+
 class ModelVariant(StrEnum):
     """Available StarVector model variants."""
 
@@ -172,7 +205,7 @@ class ModelLoader(ForgeModel):
 
         self.processor = getattr(model.model, "processor", None)
 
-        return model
+        return _StarVectorWrapper(model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.processor is None:
