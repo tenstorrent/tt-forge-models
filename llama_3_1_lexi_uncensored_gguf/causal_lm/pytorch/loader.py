@@ -4,9 +4,13 @@
 """
 Llama 3.1 8B Lexi Uncensored GGUF model loader implementation for causal language modeling.
 """
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import importlib
+import sys
 from typing import Optional
+
+import torch
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
@@ -105,9 +109,26 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        # Other GGUF loaders monkey-patch load_gguf_checkpoint at import time with
+        # signatures that drop model_to_load (added in transformers 5.2). Bypass the
+        # broken patch chain by temporarily installing a fresh, unpatched copy of the
+        # function so that model_to_load is forwarded correctly.
+        _mod_key = "transformers.modeling_gguf_pytorch_utils"
+        _patched_mod = sys.modules.get(_mod_key)
+        sys.modules.pop(_mod_key, None)
+        _fresh_mod = importlib.import_module(_mod_key)
+        _true_load_gguf = _fresh_mod.load_gguf_checkpoint
+        if _patched_mod is not None:
+            sys.modules[_mod_key] = _patched_mod
+
+        _prev_load_gguf = _gguf_utils.load_gguf_checkpoint
+        _gguf_utils.load_gguf_checkpoint = _true_load_gguf
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _gguf_utils.load_gguf_checkpoint = _prev_load_gguf
 
         self.config = model.config
         self.model = model
