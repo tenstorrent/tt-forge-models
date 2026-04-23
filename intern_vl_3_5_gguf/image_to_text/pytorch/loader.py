@@ -5,6 +5,7 @@
 InternVL3.5 GGUF model loader implementation for image to text.
 """
 
+from huggingface_hub import hf_hub_download
 from transformers import AutoModelForImageTextToText, AutoProcessor
 from typing import Optional
 
@@ -34,21 +35,29 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.INTERN_VL3_5_4B_Q4_K_M: LLMModelConfig(
-            pretrained_model_name="bartowski/OpenGVLab_InternVL3_5-4B-GGUF",
+            pretrained_model_name="OpenGVLab/InternVL3_5-4B-HF",
             max_length=128,
         ),
         ModelVariant.INTERN_VL3_5_4B_Q8_0: LLMModelConfig(
-            pretrained_model_name="bartowski/OpenGVLab_InternVL3_5-4B-GGUF",
+            pretrained_model_name="OpenGVLab/InternVL3_5-4B-HF",
             max_length=128,
         ),
         ModelVariant.INTERN_VL3_5_14B_Q4_K_M: LLMModelConfig(
-            pretrained_model_name="bartowski/OpenGVLab_InternVL3_5-14B-GGUF",
+            pretrained_model_name="OpenGVLab/InternVL3_5-14B-HF",
             max_length=128,
         ),
         ModelVariant.INTERN_VL3_5_14B_Q8_0: LLMModelConfig(
-            pretrained_model_name="bartowski/OpenGVLab_InternVL3_5-14B-GGUF",
+            pretrained_model_name="OpenGVLab/InternVL3_5-14B-HF",
             max_length=128,
         ),
+    }
+
+    # bartowski GGUF repos lack config.json; download weights separately
+    _GGUF_REPOS = {
+        ModelVariant.INTERN_VL3_5_4B_Q4_K_M: "bartowski/OpenGVLab_InternVL3_5-4B-GGUF",
+        ModelVariant.INTERN_VL3_5_4B_Q8_0: "bartowski/OpenGVLab_InternVL3_5-4B-GGUF",
+        ModelVariant.INTERN_VL3_5_14B_Q4_K_M: "bartowski/OpenGVLab_InternVL3_5-14B-GGUF",
+        ModelVariant.INTERN_VL3_5_14B_Q8_0: "bartowski/OpenGVLab_InternVL3_5-14B-GGUF",
     }
 
     _GGUF_FILES = {
@@ -56,13 +65,6 @@ class ModelLoader(ForgeModel):
         ModelVariant.INTERN_VL3_5_4B_Q8_0: "OpenGVLab_InternVL3_5-4B-Q8_0.gguf",
         ModelVariant.INTERN_VL3_5_14B_Q4_K_M: "OpenGVLab_InternVL3_5-14B-Q4_K_M.gguf",
         ModelVariant.INTERN_VL3_5_14B_Q8_0: "OpenGVLab_InternVL3_5-14B-Q8_0.gguf",
-    }
-
-    _HF_PROCESSORS = {
-        ModelVariant.INTERN_VL3_5_4B_Q4_K_M: "OpenGVLab/InternVL3_5-4B-HF",
-        ModelVariant.INTERN_VL3_5_4B_Q8_0: "OpenGVLab/InternVL3_5-4B-HF",
-        ModelVariant.INTERN_VL3_5_14B_Q4_K_M: "OpenGVLab/InternVL3_5-14B-HF",
-        ModelVariant.INTERN_VL3_5_14B_Q8_0: "OpenGVLab/InternVL3_5-14B-HF",
     }
 
     DEFAULT_VARIANT = ModelVariant.INTERN_VL3_5_4B_Q4_K_M
@@ -88,17 +90,20 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
-        gguf_file = self._GGUF_FILES[self._variant]
+        gguf_path = hf_hub_download(
+            repo_id=self._GGUF_REPOS[self._variant],
+            filename=self._GGUF_FILES[self._variant],
+        )
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
-        model_kwargs["gguf_file"] = gguf_file
+        model_kwargs["gguf_file"] = gguf_path
         model_kwargs |= kwargs
 
         self.processor = AutoProcessor.from_pretrained(
-            self._HF_PROCESSORS[self._variant],
+            pretrained_model_name,
             trust_remote_code=True,
         )
 
