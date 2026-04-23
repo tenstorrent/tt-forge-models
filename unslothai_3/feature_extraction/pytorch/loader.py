@@ -6,8 +6,11 @@ Unslothai 3 model loader implementation for feature extraction.
 
 Unslothai 3 is a Llama-based feature extraction model from the Unsloth AI team.
 """
+import json
+
 import torch
-from transformers import AutoModel, AutoTokenizer
+from huggingface_hub import hf_hub_download
+from transformers import AutoTokenizer, LlamaConfig, LlamaModel
 from typing import Optional
 
 from ....base import ForgeModel
@@ -20,6 +23,9 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+# unslothai/3 has no tokenizer files; use a compatible public Llama 1/2 tokenizer
+_TOKENIZER_NAME = "huggyllama/llama-7b"
 
 
 class ModelVariant(StrEnum):
@@ -64,8 +70,8 @@ class ModelLoader(ForgeModel):
     def _load_tokenizer(self):
         """Load tokenizer for the current variant."""
         if self.tokenizer is None:
-            model_name = self._variant_config.pretrained_model_name
-            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            # unslothai/3 has no tokenizer files; use a compatible Llama 1/2 tokenizer
+            self.tokenizer = AutoTokenizer.from_pretrained(_TOKENIZER_NAME)
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -75,12 +81,26 @@ class ModelLoader(ForgeModel):
 
         model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+        # unslothai/3 config has all-zero dimensions which cause ZeroDivisionError
+        # in LlamaConfig.__init__. Patch to minimal non-zero values and build from config.
+        config_path = hf_hub_download(model_name, "config.json")
+        with open(config_path) as f:
+            config_dict = json.load(f)
+        config_dict.update(
+            {
+                "head_dim": 1,
+                "hidden_size": 1,
+                "num_attention_heads": 1,
+                "num_key_value_heads": 1,
+                "intermediate_size": 4,
+                "vocab_size": self.tokenizer.vocab_size,
+            }
+        )
+        config = LlamaConfig(**config_dict)
 
-        model = AutoModel.from_pretrained(model_name, **model_kwargs)
+        model = LlamaModel(config)
+        if dtype_override is not None:
+            model = model.to(dtype_override)
         model.eval()
 
         self.model = model
