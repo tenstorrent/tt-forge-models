@@ -5,8 +5,60 @@
 TheBloke Mixtral 8x7B v0.1 GGUF model loader implementation for causal language modeling.
 """
 import torch
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+
+def _find_real_load_gguf_checkpoint(fn):
+    """Traverse patch chain to find the original transformers load_gguf_checkpoint."""
+    seen = set()
+    current = fn
+    while True:
+        fn_id = id(current)
+        if fn_id in seen or not callable(current) or not hasattr(current, "__code__"):
+            return current
+        seen.add(fn_id)
+        if (
+            getattr(current, "__module__", "")
+            == "transformers.modeling_gguf_pytorch_utils"
+        ):
+            return current
+        freevars = current.__code__.co_freevars
+        cells = current.__closure__ or ()
+        next_fn = None
+        for i, varname in enumerate(freevars):
+            if i >= len(cells):
+                break
+            if (
+                "load_gguf_checkpoint" in varname
+                or "orig_load" in varname
+                or "real_fn" in varname
+                or "chain_fn" in varname
+            ):
+                try:
+                    v = cells[i].cell_contents
+                    if callable(v) and id(v) not in seen:
+                        next_fn = v
+                        break
+                except ValueError:
+                    pass
+        if next_fn is None:
+            globs = getattr(current, "__globals__", {})
+            for varname in (
+                "_orig_load_gguf_checkpoint",
+                "_real_load_gguf_checkpoint",
+                "_chain_fn",
+                "_real_fn",
+            ):
+                v = globs.get(varname)
+                if v is not None and callable(v) and id(v) not in seen:
+                    next_fn = v
+                    break
+        if next_fn is None:
+            return current
+        current = next_fn
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -96,9 +148,25 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        _saved_fn = _gguf_utils.load_gguf_checkpoint
+        _real_fn = _find_real_load_gguf_checkpoint(_saved_fn)
+
+        def _patched(
+            gguf_checkpoint_path, return_tensors=False, model_to_load=None, **kw
+        ):
+            return _real_fn(
+                gguf_checkpoint_path,
+                return_tensors=return_tensors,
+                model_to_load=model_to_load,
+            )
+
+        _gguf_utils.load_gguf_checkpoint = _patched
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _gguf_utils.load_gguf_checkpoint = _saved_fn
 
         self.config = model.config
         self.model = model
