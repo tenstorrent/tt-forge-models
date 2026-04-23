@@ -20,7 +20,6 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from .src import SEDD
 
 
 class ModelVariant(StrEnum):
@@ -61,6 +60,8 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from .src import SEDD
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model = SEDD.from_pretrained(pretrained_model_name)
