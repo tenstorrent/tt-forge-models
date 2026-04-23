@@ -15,6 +15,7 @@ Available variants:
 - WAN22_RAPID_AIO_NSFW_V10_Q8_0: Q8_0 quantization
 """
 
+import os
 from typing import Any, Optional
 
 import torch
@@ -31,6 +32,7 @@ from ...config import (
 )
 
 GGUF_REPO = "DoorZekor/WAN2.2-14B-Rapid-AllInOne-GGUF-NSFW-v10"
+BASE_MODEL_REPO = "Wan-AI/Wan2.2-I2V-A14B-Diffusers"
 
 # Small spatial dimensions for compile-only testing
 TRANSFORMER_NUM_FRAMES = 2
@@ -92,30 +94,41 @@ class ModelLoader(ForgeModel):
 
         Uses diffusers GGUFQuantizationConfig to load the quantized transformer.
         Returns the transformer nn.Module directly for compilation testing.
+        When TT_RANDOM_WEIGHTS or TT_COMPILE_ONLY_SYSTEM_DESC is set, loads
+        the architecture config from the base I2V model and uses random weights
+        to avoid downloading the large GGUF file.
         """
-        import diffusers.utils.import_utils as _diffusers_import_utils
-
-        if not _diffusers_import_utils._gguf_available:
-            import importlib.util
-
-            if importlib.util.find_spec("gguf") is not None:
-                _diffusers_import_utils._gguf_available = True
-
-        from diffusers import (
-            GGUFQuantizationConfig,
-            WanTransformer3DModel,
-        )
+        from diffusers import WanTransformer3DModel
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        gguf_file = _GGUF_FILES[self._variant]
-        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+        if os.environ.get("TT_RANDOM_WEIGHTS") or os.environ.get(
+            "TT_COMPILE_ONLY_SYSTEM_DESC"
+        ):
+            config = WanTransformer3DModel.load_config(
+                BASE_MODEL_REPO, subfolder="transformer"
+            )
+            self._transformer = WanTransformer3DModel.from_config(config)
+            self._transformer = self._transformer.to(dtype=compute_dtype)
+        else:
+            import diffusers.utils.import_utils as _diffusers_import_utils
 
-        self._transformer = WanTransformer3DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/{gguf_file}",
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
+            if not _diffusers_import_utils._gguf_available:
+                import importlib.util
+
+                if importlib.util.find_spec("gguf") is not None:
+                    _diffusers_import_utils._gguf_available = True
+
+            from diffusers import GGUFQuantizationConfig
+
+            gguf_file = _GGUF_FILES[self._variant]
+            quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+
+            self._transformer = WanTransformer3DModel.from_single_file(
+                f"https://huggingface.co/{GGUF_REPO}/{gguf_file}",
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
+            )
 
         return self._transformer
 
