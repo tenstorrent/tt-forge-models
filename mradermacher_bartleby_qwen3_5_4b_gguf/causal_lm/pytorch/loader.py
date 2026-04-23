@@ -44,6 +44,17 @@ def _patch_qwen35_support():
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
     """Wrap load_gguf_checkpoint to add qwen35 support and fix model_type."""
     _patch_qwen35_support()
+    # gguf is installed dynamically by RequirementsManager after transformers is
+    # already imported, so PACKAGE_DISTRIBUTION_MAPPING is stale and gguf.__version__
+    # is undefined. Refresh the mapping so is_gguf_available() resolves correctly.
+    import importlib
+    import importlib.metadata
+    import transformers.utils.import_utils as _import_utils
+
+    importlib.invalidate_caches()
+    _import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+        importlib.metadata.packages_distributions()
+    )
     result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
     if result.get("config", {}).get("model_type") == "qwen35":
         result["config"]["model_type"] = "qwen3"
