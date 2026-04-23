@@ -8,8 +8,18 @@ LaViDa-LLaDA model loader implementation for image-text-to-text tasks.
 import contextlib
 import torch
 from PIL import Image
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, PretrainedConfig
 from typing import Optional
+
+# SigLipVisionConfig in the custom modeling code calls cls._set_token_in_kwargs, which was
+# removed in transformers 5.x. Restore it as a no-op so legacy custom model code still works.
+if not hasattr(PretrainedConfig, "_set_token_in_kwargs"):
+
+    @classmethod  # type: ignore[misc]
+    def _set_token_in_kwargs(cls, kwargs, token=None):
+        pass
+
+    PretrainedConfig._set_token_in_kwargs = _set_token_in_kwargs
 
 from ....base import ForgeModel
 from ....config import (
