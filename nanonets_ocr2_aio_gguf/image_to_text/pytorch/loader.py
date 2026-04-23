@@ -4,8 +4,52 @@
 """
 prithivMLmods/Nanonets-OCR2-3B-AIO-GGUF model loader implementation for image to text.
 """
-from transformers import AutoModelForImageTextToText, AutoProcessor, AutoConfig
+import importlib.metadata
 from typing import Optional
+
+from transformers import AutoModelForImageTextToText, AutoProcessor, AutoConfig
+
+
+def _patch_is_gguf_available():
+    """Patch transformers' is_gguf_available to handle gguf packages lacking __version__.
+
+    The gguf package does not define __version__. When gguf is installed after
+    transformers is imported, PACKAGE_DISTRIBUTION_MAPPING is already cached without
+    it, causing the version fallback to return 'N/A' and crash packaging.version.parse.
+    We override is_gguf_available to use importlib.metadata.version directly.
+    """
+    try:
+        import transformers.utils.import_utils as _tf_utils
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+        from packaging import version as _packaging_version
+
+        def _patched_is_gguf_available(min_version=None):
+            try:
+                if min_version is None:
+                    return _orig_is_gguf_available()
+                return _orig_is_gguf_available(min_version)
+            except Exception:
+                try:
+                    _min = (
+                        min_version
+                        if min_version is not None
+                        else _tf_utils.GGUF_MIN_VERSION
+                    )
+                    gguf_ver = importlib.metadata.version("gguf")
+                    return _packaging_version.parse(
+                        gguf_ver
+                    ) >= _packaging_version.parse(_min)
+                except Exception:
+                    return False
+
+        _orig_is_gguf_available = _tf_utils.is_gguf_available
+        _tf_utils.is_gguf_available = _patched_is_gguf_available
+        _gguf_utils.is_gguf_available = _patched_is_gguf_available
+    except Exception:
+        pass
+
+
+_patch_is_gguf_available()
 
 from ....base import ForgeModel
 from ....config import (
@@ -110,7 +154,10 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
+        # GGUF repos do not ship a processor; load from the base model.
+        self.processor = AutoProcessor.from_pretrained(
+            "prithivMLmods/Nanonets-OCR2-3B-AIO"
+        )
 
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
