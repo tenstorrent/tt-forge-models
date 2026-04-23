@@ -19,20 +19,35 @@ if not hasattr(_tug, "check_model_inputs"):
 
 
 def _patch_ouro_modules():
-    """Inject compute_default_rope_parameters into the Ouro custom module namespace.
+    """Patch the cached modeling_ouro.py to fix a missing module-level name.
 
-    The model's modeling_ouro.py references compute_default_rope_parameters as a
-    bare name inside OuroRotaryEmbedding.__init__, but it is only defined as a
-    @staticmethod on that class, causing a NameError. We fix this after the
-    module is loaded by AutoConfig by binding the static method at module level.
+    modeling_ouro.py references compute_default_rope_parameters as a bare name
+    inside OuroRotaryEmbedding.__init__, but the name is only a @staticmethod on
+    that class — never defined at module level. We append a one-line alias to the
+    cached file so subsequent loads work correctly.
     """
-    for mod in sys.modules.values():
-        if hasattr(mod, "OuroRotaryEmbedding") and not hasattr(
-            mod, "compute_default_rope_parameters"
-        ):
-            mod.compute_default_rope_parameters = (
-                mod.OuroRotaryEmbedding.compute_default_rope_parameters
-            )
+    import os
+
+    hf_home = os.environ.get(
+        "HF_HOME", os.path.join(os.path.expanduser("~"), ".cache", "huggingface")
+    )
+    modules_dir = os.path.join(hf_home, "modules", "transformers_modules")
+    sentinel = "# _ouro_patch_compute_default_rope_parameters"
+
+    for dirpath, _dirs, fnames in os.walk(modules_dir):
+        if "modeling_ouro.py" in fnames:
+            path = os.path.join(dirpath, "modeling_ouro.py")
+            with open(path) as f:
+                content = f.read()
+            if sentinel not in content:
+                patch = (
+                    f"\n{sentinel}\n"
+                    "compute_default_rope_parameters = "
+                    "OuroRotaryEmbedding.compute_default_rope_parameters\n"
+                )
+                with open(path, "a") as f:
+                    f.write(patch)
+            break
 
 
 from ....base import ForgeModel
