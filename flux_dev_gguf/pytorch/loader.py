@@ -145,10 +145,10 @@ class ModelLoader(ForgeModel):
 
         # Write config locally so from_single_file doesn't fall back to the
         # gated black-forest-labs/FLUX.1-dev repo for architecture metadata.
+        # When config= is passed explicitly, diffusers looks for config.json
+        # at the root of the given directory (no subfolder applied).
         with tempfile.TemporaryDirectory() as config_dir:
-            transformer_dir = Path(config_dir) / "transformer"
-            transformer_dir.mkdir()
-            (transformer_dir / "config.json").write_text(
+            (Path(config_dir) / "config.json").write_text(
                 json.dumps(self._TRANSFORMER_CONFIG)
             )
             self.transformer = FluxTransformer2DModel.from_single_file(
