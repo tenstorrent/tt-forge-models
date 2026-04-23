@@ -11,6 +11,140 @@ import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
+
+
+def _fix_gguf_availability():
+    """Patch transformers to handle gguf installed after transformers was imported.
+
+    When gguf is installed by RequirementsManager after transformers is already
+    cached in sys.modules, PACKAGE_DISTRIBUTION_MAPPING won't include gguf,
+    causing is_gguf_available() to return version 'N/A' and crash on parse.
+    """
+    import importlib.metadata
+
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    import transformers.utils.import_utils as import_utils
+    from packaging.version import InvalidVersion
+
+    try:
+        gguf_version = importlib.metadata.version("gguf")
+        if "gguf" not in import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+            import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+        import_utils.is_gguf_available.cache_clear()
+    except importlib.metadata.PackageNotFoundError:
+        pass
+
+    orig_is_gguf_available = import_utils.is_gguf_available
+
+    def safe_is_gguf_available(min_version=import_utils.GGUF_MIN_VERSION):
+        try:
+            return orig_is_gguf_available(min_version)
+        except InvalidVersion:
+            try:
+                from packaging import version
+
+                return version.parse(
+                    importlib.metadata.version("gguf")
+                ) >= version.parse(min_version)
+            except Exception:
+                return False
+
+    gguf_utils.is_gguf_available = safe_is_gguf_available
+
+
+_fix_gguf_availability()
+
+
+def _patch_transformers_deepseek2_gguf():
+    """Monkey-patch transformers to add deepseek2/deepseek_v2 GGUF support.
+
+    The mradermacher GGUF of GLM-4.7-Flash-Derestricted uses deepseek2 as
+    the model architecture and deepseek_v2 as the tokenizer class name.
+    Transformers lacks converters for both; this registers them using the
+    qwen2-based converter which is compatible with the DeepSeek V2 tokenizer.
+    """
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "deepseek2" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("deepseek2")
+
+        GGUF_TO_TRANSFORMERS_MAPPING["config"]["deepseek2"] = {
+            "context_length": "max_position_embeddings",
+            "block_count": "num_hidden_layers",
+            "feed_forward_length": "intermediate_size",
+            "embedding_length": "hidden_size",
+            "rope.freq_base": "rope_theta",
+            "rope.dimension_count": "qk_rope_head_dim",
+            "attention.head_count": "num_attention_heads",
+            "attention.head_count_kv": "num_key_value_heads",
+            "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+            "attention.key_length": None,
+            "attention.value_length": None,
+            "attention.key_length_mla": "qk_nope_head_dim",
+            "attention.value_length_mla": "v_head_dim",
+            "attention.q_lora_rank": "q_lora_rank",
+            "attention.kv_lora_rank": "kv_lora_rank",
+            "vocab_size": "vocab_size",
+            "expert_count": "n_routed_experts",
+            "expert_used_count": "num_experts_per_tok",
+            "expert_shared_count": "n_shared_experts",
+            "expert_group_count": "n_group",
+            "expert_group_used_count": "topk_group",
+            "expert_weights_scale": "routed_scaling_factor",
+            "expert_weights_norm": "norm_topk_prob",
+            "leading_dense_block_count": "first_k_dense_replace",
+            "expert_feed_forward_length": "moe_intermediate_size",
+        }
+
+        orig_load = gguf_utils.load_gguf_checkpoint
+
+        def patched_load_gguf_checkpoint(*args, **kwargs):
+            result = orig_load(*args, **kwargs)
+            config = result.get("config", {})
+            if config.get("model_type") == "deepseek2":
+                config["model_type"] = "deepseek_v2"
+            return result
+
+        gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+        import transformers.configuration_utils as config_utils
+        import transformers.modeling_utils as modeling_utils
+        import transformers.models.auto.tokenization_auto as tok_auto
+
+        for mod in (tok_auto, config_utils, modeling_utils):
+            if hasattr(mod, "load_gguf_checkpoint"):
+                mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    if "deepseek2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["deepseek2"] = GGUFQwen2Converter
+    if "deepseek_v2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["deepseek_v2"] = GGUFQwen2Converter
+
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type == "deepseek_v2":
+            model_type = "deepseek2"
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+
+_patch_transformers_deepseek2_gguf()
+
 from ....config import (
     Framework,
     LLMModelConfig,
@@ -88,6 +222,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs.setdefault("ignore_mismatched_sizes", True)
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
