@@ -62,6 +62,11 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        import importlib.metadata
+        import transformers.utils.import_utils as _tfu
+
+        _tfu.PACKAGE_DISTRIBUTION_MAPPING = importlib.metadata.packages_distributions()
+
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -125,6 +130,11 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
+        import importlib.metadata
+        import transformers.utils.import_utils as _tfu
+
+        _tfu.PACKAGE_DISTRIBUTION_MAPPING = importlib.metadata.packages_distributions()
+
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
