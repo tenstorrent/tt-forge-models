@@ -43,6 +43,22 @@ def _refresh_gguf_detection():
         import_utils.is_gguf_available.cache_clear()
 
 
+_GLM4_GGUF_CONFIG_MAPPING = {
+    "context_length": "max_position_embeddings",
+    "block_count": "num_hidden_layers",
+    "feed_forward_length": "intermediate_size",
+    "embedding_length": "hidden_size",
+    "rope.dimension_count": None,
+    "rope.freq_base": "rope_theta",
+    "attention.head_count": "num_attention_heads",
+    "attention.head_count_kv": "num_key_value_heads",
+    "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+    "attention.key_length": "head_dim",
+    "attention.value_length": None,
+    "vocab_size": "vocab_size",
+}
+
+
 def _patch_transformers_glm_ocr_gguf():
     """Patch transformers to support GLM-OCR GGUF loading.
 
@@ -50,34 +66,33 @@ def _patch_transformers_glm_ocr_gguf():
     The get_gguf_hf_weights_map function expects num_hidden_layers and a known
     GGUF model_type at the top-level config, but GlmOcrConfig only has these in
     text_config.  We redirect to the text config values and map the model type to
-    the underlying chatglm GGUF architecture used by the text backbone.
+    the underlying glm4 GGUF architecture used by the text backbone.
+
+    Also registers the glm4 GGUF architecture if not already registered, since the
+    GLM-OCR GGUF uses the glm4 architecture identifier.
     """
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
-    from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
 
     if getattr(gguf_utils.get_gguf_hf_weights_map, "_patched_for_glm_ocr", False):
         return
 
-    if "chatglm" not in GGUF_SUPPORTED_ARCHITECTURES:
-        GGUF_SUPPORTED_ARCHITECTURES.append("chatglm")
-        from transformers.modeling_gguf_pytorch_utils import (
-            GGUF_TO_TRANSFORMERS_MAPPING,
-        )
+    for arch in ("chatglm", "glm4"):
+        if arch not in GGUF_SUPPORTED_ARCHITECTURES:
+            GGUF_SUPPORTED_ARCHITECTURES.append(arch)
+            GGUF_TO_TRANSFORMERS_MAPPING["config"][arch] = _GLM4_GGUF_CONFIG_MAPPING
 
-        GGUF_TO_TRANSFORMERS_MAPPING["config"]["chatglm"] = {
-            "context_length": "max_position_embeddings",
-            "block_count": "num_hidden_layers",
-            "feed_forward_length": "intermediate_size",
-            "embedding_length": "hidden_size",
-            "rope.dimension_count": None,
-            "rope.freq_base": "rope_theta",
-            "attention.head_count": "num_attention_heads",
-            "attention.head_count_kv": "num_key_value_heads",
-            "attention.layer_norm_rms_epsilon": "rms_norm_eps",
-            "attention.key_length": "head_dim",
-            "attention.value_length": None,
-            "vocab_size": "vocab_size",
-        }
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    for arch in ("chatglm", "glm4"):
+        if arch not in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS[arch] = GGUFQwen2Converter
 
     orig_get_map = gguf_utils.get_gguf_hf_weights_map
 
@@ -91,7 +106,7 @@ def _patch_transformers_glm_ocr_gguf():
                 cfg = hf_model.config
                 if hasattr(cfg, "text_config"):
                     num_layers = cfg.text_config.num_hidden_layers
-            model_type = "chatglm"
+            model_type = "glm4"
         return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
 
     patched_get_gguf_hf_weights_map._patched_for_glm_ocr = True
@@ -149,8 +164,20 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, gguf_file=self.GGUF_FILE
         )
         base_config = AutoConfig.from_pretrained(self._BASE_PROCESSOR_MODEL)
+
+        # The GGUF config omits mrope_section from rope_parameters; copy it from
+        # the base model so the multimodal RoPE sections (text / image / video)
+        # match the rotary embedding dimensionality.
+        text_config_dict = text_config.to_dict()
+        base_mrope_section = base_config.text_config.rope_parameters.get(
+            "mrope_section"
+        )
+        if base_mrope_section is not None:
+            rope_params = text_config_dict.setdefault("rope_parameters", {})
+            rope_params.setdefault("mrope_section", base_mrope_section)
+
         return GlmOcrConfig(
-            text_config=text_config.to_dict(),
+            text_config=text_config_dict,
             vision_config=base_config.vision_config.to_dict(),
         )
 
