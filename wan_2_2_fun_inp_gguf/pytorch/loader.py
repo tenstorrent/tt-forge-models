@@ -93,12 +93,43 @@ class ModelLoader(ForgeModel):
             cache_dir=cache_dir,
         )
 
-        self.transformer = WanTransformer3DModel.from_single_file(
-            gguf_path,
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-            config="Wan-AI/Wan2.2-T2V-A14B-Diffusers",
-            subfolder="transformer",
+        # WanRotaryPosEmbed registers freqs_cos/freqs_sin as non-persistent buffers
+        # during __init__. With init_empty_weights (used by low_cpu_mem_usage=True)
+        # these become meta tensors that are absent from the GGUF state dict, causing
+        # dispatch_model to fail. Patch dispatch_model to materialise such meta buffers
+        # as zeros so loading can complete, then re-init the rope module with real values.
+        import diffusers.loaders.single_file_model as _sfm
+        from diffusers.models.transformers.transformer_wan import WanRotaryPosEmbed
+
+        _orig_dispatch = getattr(_sfm, "dispatch_model", None)
+
+        def _patched_dispatch(model, **dkw):
+            for name, buf in list(model.named_buffers()):
+                if buf.is_meta:
+                    parts = name.rsplit(".", 1)
+                    parent = model.get_submodule(parts[0]) if len(parts) > 1 else model
+                    parent._buffers[parts[-1]] = torch.zeros(buf.shape, dtype=buf.dtype)
+            if _orig_dispatch is not None:
+                return _orig_dispatch(model, **dkw)
+
+        if _orig_dispatch is not None:
+            _sfm.dispatch_model = _patched_dispatch
+        try:
+            self.transformer = WanTransformer3DModel.from_single_file(
+                gguf_path,
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
+            )
+        finally:
+            if _orig_dispatch is not None:
+                _sfm.dispatch_model = _orig_dispatch
+
+        # Replace the rope module so freqs_cos/freqs_sin are properly computed.
+        old_rope = self.transformer.rope
+        self.transformer.rope = WanRotaryPosEmbed(
+            old_rope.attention_head_dim,
+            old_rope.patch_size,
+            old_rope.max_seq_len,
         )
 
         return self.transformer
