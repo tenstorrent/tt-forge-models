@@ -6,9 +6,6 @@ ESM Cambrian (ESM C) model loader implementation for protein representation lear
 """
 from typing import Optional
 
-from esm.models.esmc import ESMC
-from esm.sdk.api import ESMProtein
-
 from ....base import ForgeModel
 from ....config import (
     ModelConfig,
@@ -65,6 +62,8 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from esm.models.esmc import ESMC
+
         shortname = _ESM_SHORTNAMES[self._variant]
         model = ESMC.from_pretrained(shortname, **kwargs)
 
@@ -78,6 +77,8 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, dtype_override=None):
         if self.model is None:
             self.load_model(dtype_override=dtype_override)
+
+        from esm.sdk.api import ESMProtein
 
         protein = ESMProtein(sequence=self.sample_sequence)
         protein_tensor = self.model.encode(protein)
