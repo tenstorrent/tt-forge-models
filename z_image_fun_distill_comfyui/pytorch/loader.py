@@ -31,7 +31,7 @@ from ...config import (
 )
 
 
-BASE_MODEL_ID = "alibaba-pai/Z-Image"
+BASE_MODEL_ID = "Tongyi-MAI/Z-Image"
 LORA_REPO = "UDCAI/Z-Image-Fun-Distill-ComfyUI"
 
 
