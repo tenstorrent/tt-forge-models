@@ -136,6 +136,8 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        # Qwen3.5 "thinking" layers have different head counts; allow reinitialization
+        model_kwargs["ignore_mismatched_sizes"] = True
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
