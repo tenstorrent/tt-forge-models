@@ -4,6 +4,9 @@
 """
 Japanese StableLM Base Gamma 7B GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
+import inspect
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -42,6 +45,50 @@ class ModelLoader(ForgeModel):
 
     sample_text = "What is your favorite city?"
 
+    @staticmethod
+    def _fix_gguf_version_detection():
+        """Fix gguf version detection when installed at runtime by RequirementsManager."""
+        import transformers.utils.import_utils as _import_utils
+
+        if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+            try:
+                importlib.metadata.version("gguf")
+                _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+                _import_utils.is_gguf_available.cache_clear()
+            except importlib.metadata.PackageNotFoundError:
+                pass
+
+    @staticmethod
+    def _fix_gguf_model_to_load_compat():
+        """Wrap load_gguf_checkpoint to accept model_to_load added in transformers>=5.
+
+        Other GGUF loaders monkey-patch load_gguf_checkpoint with signatures that
+        pre-date the model_to_load kwarg. This wraps whichever version is currently
+        installed so the kwarg is accepted and silently dropped.
+        """
+        import transformers.modeling_gguf_pytorch_utils as gguf_utils
+        import transformers.models.auto.tokenization_auto as tok_auto
+        import transformers.configuration_utils as config_utils
+        import transformers.modeling_utils as modeling_utils
+
+        current_fn = gguf_utils.load_gguf_checkpoint
+        sig = inspect.signature(current_fn)
+        params = sig.parameters
+        if "model_to_load" in params or any(
+            p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+        ):
+            return
+
+        _orig = current_fn
+
+        def _patched(*args, model_to_load=None, **kwargs):
+            return _orig(*args, **kwargs)
+
+        gguf_utils.load_gguf_checkpoint = _patched
+        for mod in (tok_auto, config_utils, modeling_utils):
+            if hasattr(mod, "load_gguf_checkpoint"):
+                mod.load_gguf_checkpoint = _patched
+
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
     ):
@@ -62,6 +109,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        self._fix_gguf_version_detection()
+        self._fix_gguf_model_to_load_compat()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
