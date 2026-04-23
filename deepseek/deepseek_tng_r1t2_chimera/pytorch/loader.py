@@ -54,6 +54,12 @@ class ModelLoader(ForgeModel):
         if hasattr(config, "auto_map"):
             del config.auto_map
 
+        # Custom configuration_deepseek.py computes qk_head_dim as a property
+        # (qk_nope_head_dim + qk_rope_head_dim), but DeepseekV3Config registered in
+        # transformers expects it as a direct attribute
+        if not hasattr(config, "qk_head_dim"):
+            config.qk_head_dim = config.qk_nope_head_dim + config.qk_rope_head_dim
+
         # Reduce model dimensions for testing
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
