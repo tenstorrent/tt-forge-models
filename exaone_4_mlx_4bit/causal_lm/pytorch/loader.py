@@ -4,7 +4,9 @@
 """
 EXAONE 4.0 MLX 4-bit model loader implementation for causal language modeling.
 """
+import json
 import torch
+from huggingface_hub import hf_hub_download
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -59,6 +61,19 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _get_layer_types_kwargs(self, pretrained_model_name: str) -> dict:
+        """Compute layer_types from string sliding_window_pattern (transformers 5.2 workaround)."""
+        config_path = hf_hub_download(pretrained_model_name, "config.json")
+        with open(config_path) as f:
+            raw = json.load(f)
+        pattern = raw.get("sliding_window_pattern")
+        if not isinstance(pattern, str) or raw.get("layer_types") is not None:
+            return {}
+        num_layers = raw["num_hidden_layers"]
+        mapping = {"L": "sliding_attention", "G": "full_attention"}
+        layer_types = [mapping[pattern[i % len(pattern)]] for i in range(num_layers)]
+        return {"layer_types": layer_types}
+
     def _load_tokenizer(self, dtype_override=None):
         tokenizer_kwargs = {}
         if dtype_override is not None:
@@ -83,10 +98,15 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        layer_types_kwargs = self._get_layer_types_kwargs(pretrained_model_name)
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, **layer_types_kwargs
+            )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
+        else:
+            model_kwargs |= layer_types_kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -142,7 +162,9 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        pretrained_model_name = self._variant_config.pretrained_model_name
+        layer_types_kwargs = self._get_layer_types_kwargs(pretrained_model_name)
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
+            pretrained_model_name, **layer_types_kwargs
         )
         return self.config
