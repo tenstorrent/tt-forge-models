@@ -279,6 +279,10 @@ class ModelLoader(ForgeModel):
         if self._needs_remote_code():
             model_kwargs["trust_remote_code"] = True
 
+        # NVFP4 packed weights have halved input dims vs model definition
+        if self._is_nvfp4_variant():
+            model_kwargs["ignore_mismatched_sizes"] = True
+
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
             if hasattr(config, "text_config"):
@@ -359,9 +363,22 @@ class ModelLoader(ForgeModel):
         ), "Attention heads must be divisible by the model axis size"
         return mesh_shape, ("batch", "model")
 
+    # NVFP4 packed weights have halved input dimensions vs the model definition.
+    _NVFP4_VARIANTS = {
+        ModelVariant.QWEN_3_5_27B_NVFP4,
+        ModelVariant.QWEN_3_5_27B_NVFP4_BERKERDOOO,
+        ModelVariant.QWEN_3_5_27B_TEXT_NVFP4_MTP,
+        ModelVariant.QWEN_3_5_35B_A3B_NVFP4,
+        ModelVariant.QWEN_3_5_35B_A3B_NVFP4_SBULL_DELL,
+    }
+
     def _is_gguf_variant(self):
         """Check if the current variant uses GGUF quantization."""
         return self._variant in self._GGUF_FILES
+
+    def _is_nvfp4_variant(self):
+        """Check if the current variant uses NVFP4 packed quantization."""
+        return self._variant in self._NVFP4_VARIANTS
 
     @property
     def _gguf_file(self):
