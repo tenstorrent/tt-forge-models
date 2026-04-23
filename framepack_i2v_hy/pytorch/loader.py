@@ -135,10 +135,14 @@ class ModelLoader(ForgeModel):
         latent_num_frames = 2
         latent_height = 2
         latent_width = 2
-        video_seq_len = latent_num_frames * latent_height * latent_width
 
         hidden_states = torch.randn(
-            batch_size, video_seq_len, config.in_channels, dtype=dtype
+            batch_size,
+            config.in_channels,
+            latent_num_frames,
+            latent_height,
+            latent_width,
+            dtype=dtype,
         )
 
         encoder_hidden_states = torch.randn(
@@ -146,15 +150,25 @@ class ModelLoader(ForgeModel):
         )
         encoder_attention_mask = torch.ones(batch_size, 8, dtype=dtype)
 
-        timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
+        timestep = torch.tensor([1], dtype=torch.long).expand(batch_size)
 
-        return {
+        pooled_projections = torch.randn(
+            batch_size, config.pooled_projection_dim, dtype=dtype
+        )
+
+        inputs = {
             "hidden_states": hidden_states,
             "encoder_hidden_states": encoder_hidden_states,
             "encoder_attention_mask": encoder_attention_mask,
+            "pooled_projections": pooled_projections,
             "timestep": timestep,
             "return_dict": False,
         }
+
+        if config.guidance_embeds:
+            inputs["guidance"] = torch.tensor([3.5], dtype=dtype).expand(batch_size)
+
+        return inputs
 
     def _load_vae_decoder_inputs(self, dtype: torch.dtype) -> dict:
         """Prepare synthetic decoder inputs for the HunyuanVideo VAE."""
