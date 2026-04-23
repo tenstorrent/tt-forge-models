@@ -1,0 +1,5 @@
+results:
+- test_name: "tests/runner/test_models.py::test_all_models_torch[qwen_image_edit_2511_anime/pytorch-Anime-single_device-inference]"
+  status: "MAX_FAILED_ATTEMPTS"
+  date: "20260423_045332"
+  branch: "ip-172-31-23-5-tt-xla-dev/ubuntu/2026-04-23_02-28/hf-bringup-6"
