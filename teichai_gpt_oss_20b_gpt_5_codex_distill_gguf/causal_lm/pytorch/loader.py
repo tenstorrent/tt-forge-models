@@ -29,7 +29,12 @@ from ....config import (
 
 
 def _find_original_load_gguf():
-    """Walk the closure chain of patches to find the original transformers function."""
+    """Walk the _orig_load_gguf_checkpoint globals chain to find the original transformers function.
+
+    Other GGUF loaders capture the previous patch as a module-level global named
+    _orig_load_gguf_checkpoint before installing their own patch, so we can walk
+    that chain to reach the real transformers implementation.
+    """
     func = _gguf_utils.load_gguf_checkpoint
     seen = set()
     while True:
@@ -42,31 +47,10 @@ def _find_original_load_gguf():
             == "transformers.modeling_gguf_pytorch_utils"
         ):
             break
-        if not func.__closure__:
+        orig = func.__globals__.get("_orig_load_gguf_checkpoint")
+        if orig is None or not callable(orig):
             break
-        freevars = func.__code__.co_freevars
-        next_func = None
-        for i, varname in enumerate(freevars):
-            if "orig" in varname:
-                try:
-                    candidate = func.__closure__[i].cell_contents
-                    if callable(candidate):
-                        next_func = candidate
-                        break
-                except ValueError:
-                    pass
-        if next_func is None:
-            for cell in func.__closure__:
-                try:
-                    content = cell.cell_contents
-                    if callable(content) and hasattr(content, "__module__"):
-                        next_func = content
-                        break
-                except ValueError:
-                    pass
-        if next_func is None:
-            break
-        func = next_func
+        func = orig
     return func
 
 
