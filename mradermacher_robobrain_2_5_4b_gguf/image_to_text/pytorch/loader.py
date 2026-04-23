@@ -56,11 +56,30 @@ def _patch_transformers_qwen3vl_gguf():
 
     orig_load = gguf_utils.load_gguf_checkpoint
 
+    _TEXT_CONFIG_KEYS = {
+        "hidden_size",
+        "num_hidden_layers",
+        "intermediate_size",
+        "num_attention_heads",
+        "num_key_value_heads",
+        "rms_norm_eps",
+        "rope_theta",
+        "max_position_embeddings",
+        "vocab_size",
+        "head_dim",
+    }
+
     def _patched_load_gguf_checkpoint(*args, **kwargs):
         result = orig_load(*args, **kwargs)
         config = result.get("config", {})
         if config.get("model_type") == "qwen3vl":
             config["model_type"] = "qwen3_vl"
+            # Qwen3VLConfig stores text-model dims in a nested text_config dict;
+            # promote the flat GGUF-parsed keys into that structure so the
+            # correct architecture is instantiated.
+            text_cfg = {k: config.pop(k) for k in _TEXT_CONFIG_KEYS if k in config}
+            if text_cfg:
+                config["text_config"] = text_cfg
         return result
 
     gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
