@@ -77,7 +77,15 @@ def get_file(path):
         cache_dir = cache_dir_fallback
         file_path = cache_dir / file_name
 
-    cache_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+    except (OSError, FileExistsError):
+        # Fall back to /tmp if cache dir can't be created (e.g. broken symlink in path)
+        import tempfile
+
+        cache_dir = Path(tempfile.gettempdir()) / "tt_forge_cache" / rel_path
+        file_path = cache_dir / file_name
+        cache_dir.mkdir(parents=True, exist_ok=True)
 
     # If file is not found in cache, download URL from web, or get file from IRD_LF_CACHE web server.
     if not file_path.exists():
