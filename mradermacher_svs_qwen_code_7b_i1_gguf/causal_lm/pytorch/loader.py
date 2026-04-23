@@ -97,17 +97,29 @@ class ModelLoader(ForgeModel):
             model_kwargs["config"] = config
 
         _prev_load_gguf = _gguf_utils.load_gguf_checkpoint
+        _prev_get_map = _gguf_utils.get_gguf_hf_weights_map
+        _captured = [None]
 
         def _compat_load_gguf(gguf_path, return_tensors=False, model_to_load=None):
+            _captured[0] = model_to_load
             return _prev_load_gguf(gguf_path, return_tensors=return_tensors)
 
+        def _compat_get_map(
+            hf_model, processor, model_type=None, num_layers=None, qual_name=""
+        ):
+            if hf_model is None:
+                hf_model = _captured[0]
+            return _prev_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
         _gguf_utils.load_gguf_checkpoint = _compat_load_gguf
+        _gguf_utils.get_gguf_hf_weights_map = _compat_get_map
         try:
             model = AutoModelForCausalLM.from_pretrained(
                 pretrained_model_name, **model_kwargs
             ).eval()
         finally:
             _gguf_utils.load_gguf_checkpoint = _prev_load_gguf
+            _gguf_utils.get_gguf_hf_weights_map = _prev_get_map
 
         self.config = model.config
         self.model = model
