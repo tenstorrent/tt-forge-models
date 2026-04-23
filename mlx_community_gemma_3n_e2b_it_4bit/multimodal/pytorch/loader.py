@@ -8,6 +8,7 @@ mlx-community/gemma-3n-E2B-it-4bit model loader implementation for multimodal mo
 from typing import Optional
 
 from transformers import (
+    AutoConfig,
     AutoProcessor,
     Gemma3nForConditionalGeneration,
 )
@@ -93,8 +94,14 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        if hasattr(config, "quantization_config"):
+            delattr(config, "quantization_config")
         model = Gemma3nForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name,
+            config=config,
+            ignore_mismatched_sizes=True,
+            **model_kwargs,
         )
 
         model.eval()
