@@ -65,6 +65,28 @@ if not hasattr(DynamicCache, "to_legacy_cache"):
 
     DynamicCache.to_legacy_cache = _to_legacy_cache
 
+import transformers.models.gpt2.tokenization_gpt2 as _gpt2_tok
+
+if not hasattr(_gpt2_tok, "bytes_to_unicode"):
+
+    def _bytes_to_unicode():
+        bs = (
+            list(range(ord("!"), ord("~") + 1))
+            + list(range(ord("¡"), ord("¬") + 1))
+            + list(range(ord("®"), ord("ÿ") + 1))
+        )
+        cs = bs[:]
+        n = 0
+        for b in range(2**8):
+            if b not in bs:
+                bs.append(b)
+                cs.append(2**8 + n)
+                n += 1
+        cs = [chr(n) for n in cs]
+        return dict(zip(bs, cs))
+
+    _gpt2_tok.bytes_to_unicode = _bytes_to_unicode
+
 from transformers import AutoConfig, AutoTokenizer
 from transformers.dynamic_module_utils import get_class_from_dynamic_module, get_imports
 
