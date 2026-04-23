@@ -62,6 +62,7 @@ def _patch_qwen3next_support():
         ] = _QWEN3NEXT_CONFIG_MAPPING
     if "qwen3_moe" in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["qwen3next"] = GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
+        GGUF_TO_FAST_CONVERTERS["qwen3_next"] = GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
     if hasattr(_gguf_utils, "GGUF_CONFIG_DEFAULTS_MAPPING"):
         _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["qwen3next"] = {"norm_topk_prob": True}
 
