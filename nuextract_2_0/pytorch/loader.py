@@ -43,7 +43,9 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.NUEXTRACT_2_0_8B
 
-    # Sample extraction messages using an image input
+    # Sample extraction messages using an image input.
+    # NuExtract's chat template drops images when text is also present in the content list,
+    # so we use image-only content and provide the extraction schema via the template kwarg.
     messages = [
         {
             "role": "user",
@@ -52,10 +54,10 @@ class ModelLoader(ForgeModel):
                     "type": "image",
                     "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
                 },
-                {"type": "text", "text": "Describe this image."},
             ],
         }
     ]
+    extraction_template = '{"description": ""}'
 
     # Vision processing parameters
     min_pixels = 56 * 56
@@ -119,7 +121,10 @@ class ModelLoader(ForgeModel):
             self._load_processor()
 
         text = self.processor.apply_chat_template(
-            self.messages, tokenize=False, add_generation_prompt=True
+            self.messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            template=self.extraction_template,
         )
 
         from qwen_vl_utils import process_vision_info
