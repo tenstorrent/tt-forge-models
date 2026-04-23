@@ -8,6 +8,73 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    Lfm2TensorProcessor,
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+_LFM2MOE_CONFIG_MAPPING = {
+    "context_length": "max_position_embeddings",
+    "block_count": "num_hidden_layers",
+    "feed_forward_length": "intermediate_size",
+    "embedding_length": "hidden_size",
+    "rope.dimension_count": None,
+    "rope.freq_base": "rope_theta",
+    "attention.head_count": "num_attention_heads",
+    "attention.head_count_kv": "num_key_value_heads",
+    "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+    "vocab_size": "vocab_size",
+    "shortconv.l_cache": "conv_L_cache",
+    "expert_count": "num_experts",
+    "expert_used_count": "num_experts_per_tok",
+    "expert_feed_forward_length": "moe_intermediate_size",
+    "leading_dense_block_count": "num_dense_layers",
+}
+
+
+def _patch_lfm2moe_support():
+    """Register lfm2moe GGUF architecture for the lfm2_moe transformers model."""
+    if "lfm2moe" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+    GGUF_SUPPORTED_ARCHITECTURES.append("lfm2moe")
+    _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"][
+        "lfm2moe"
+    ] = _LFM2MOE_CONFIG_MAPPING
+    _gguf_utils.TENSOR_PROCESSORS["lfm2moe"] = Lfm2TensorProcessor
+    if "lfm2" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["lfm2moe"] = GGUF_TO_FAST_CONVERTERS["lfm2"]
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    """Wrap load_gguf_checkpoint to add lfm2moe architecture support."""
+    _patch_lfm2moe_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
+    if result.get("config", {}).get("model_type") == "lfm2moe":
+        gguf_num_kv_heads = result["config"].get("num_key_value_heads")
+        if isinstance(gguf_num_kv_heads, list):
+            result["config"]["num_key_value_heads"] = max(gguf_num_kv_heads)
+            result["config"]["full_attn_idxs"] = [
+                i for i, n in enumerate(gguf_num_kv_heads) if n > 0
+            ]
+        result["config"]["block_auto_adjust_ff_dim"] = False
+        result["config"]["model_type"] = "lfm2_moe"
+    return result
+
+
+_patch_lfm2moe_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
