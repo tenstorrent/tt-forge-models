@@ -15,7 +15,6 @@ from typing import Optional
 
 import torch
 from transformers import M2M100ForConditionalGeneration, NllbTokenizer
-from transformers.modeling_outputs import BaseModelOutput
 
 from ....base import ForgeModel
 from ....config import (
@@ -104,7 +103,10 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             embeddings = embeddings.to(dtype_override)
 
-        encoder_outputs = BaseModelOutput(last_hidden_state=embeddings)
+        # Tuple rather than BaseModelOutput: transformers 5.x M2M100Model.forward does
+        # `decoder_outputs + encoder_outputs` when return_dict=False, which fails if
+        # encoder_outputs is a BaseModelOutput. A tuple works for both return_dict modes.
+        encoder_outputs = (embeddings,)
 
         # Seq2seq decoding starts from the target language BOS token.
         target_lang_id = self.tokenizer.convert_tokens_to_ids(self.target_lang)
