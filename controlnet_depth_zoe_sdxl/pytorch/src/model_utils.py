@@ -219,6 +219,8 @@ def controlnet_depth_zoe_sdxl_preprocessing(
 
     # 7. Run controlnet to get residuals
     controlnet_cond_scale = controlnet_conditioning_scale
+    controlnet_dtype = pipe.controlnet.dtype
+    latent_model_input = latent_model_input.to(controlnet_dtype)
     down_block_additional_residuals, mid_block_additional_residual = pipe.controlnet(
         latent_model_input,
         timesteps[0],
