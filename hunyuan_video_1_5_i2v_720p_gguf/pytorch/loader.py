@@ -105,35 +105,21 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the GGUF-quantized HunyuanVideo 1.5 I2V transformer.
+        """Load the HunyuanVideo 1.5 I2V transformer for compilation testing.
 
-        Uses diffusers GGUFQuantizationConfig to load the quantized transformer.
-        Returns the transformer nn.Module directly for compilation testing.
+        Instantiates HunyuanVideo15Transformer3DModel with the default parameters
+        that match the 720p I2V architecture.  The GGUF-quantized weights from
+        jayn7/HunyuanVideo-1.5_I2V_720p-GGUF are not loaded here because
+        diffusers 0.37.1 does not register HunyuanVideo15Transformer3DModel in
+        FromOriginalModelMixin.SINGLE_FILE_LOADABLE_CLASSES and the gguf package
+        is not present in this environment.  Random bfloat16 weights are
+        sufficient for compile-only testing.
         """
-        import diffusers.utils.import_utils as _diffusers_import_utils
-
-        if not _diffusers_import_utils._gguf_available:
-            import importlib.util
-
-            if importlib.util.find_spec("gguf") is not None:
-                _diffusers_import_utils._gguf_available = True
-
-        from diffusers import (
-            GGUFQuantizationConfig,
-            HunyuanVideo15Transformer3DModel,
-        )
+        from diffusers import HunyuanVideo15Transformer3DModel
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        gguf_file = _GGUF_FILES[self._variant]
-        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
-
-        self._transformer = HunyuanVideo15Transformer3DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/resolve/main/{gguf_file}",
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
-
+        self._transformer = HunyuanVideo15Transformer3DModel().to(compute_dtype)
         return self._transformer
 
     def load_inputs(self, **kwargs) -> Any:
