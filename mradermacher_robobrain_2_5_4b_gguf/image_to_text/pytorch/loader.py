@@ -179,8 +179,10 @@ class ModelLoader(ForgeModel):
         # GGUF repos do not ship a processor; use the base model
         self.processor = AutoProcessor.from_pretrained("BAAI/RoboBrain2.5-4B")
 
+        # The GGUF visual.merger.norm uses text hidden_size (2560) while the
+        # default Qwen3VLConfig vision_config uses 1152; allow loading anyway.
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         )
         model.eval()
 
