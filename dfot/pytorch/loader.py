@@ -66,13 +66,26 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.DFOT_RE10K
 
-    # Default DiT-XL configuration used by all DFoT pretrained models.
+    # DiT-XL configuration used by RE10K and K600 pretrained models.
     _DEFAULT_CFG = DiT3DConfig(
         in_channels=4,
         patch_size=2,
         hidden_size=1152,
         depth=28,
         num_heads=16,
+        mlp_ratio=4.0,
+        max_tokens=16,
+        spatial_resolution=32,
+        external_cond_dim=0,
+    )
+
+    # DiT-B configuration used by the MCRAFT pretrained model.
+    _MCRAFT_CFG = DiT3DConfig(
+        in_channels=4,
+        patch_size=2,
+        hidden_size=768,
+        depth=12,
+        num_heads=12,
         mlp_ratio=4.0,
         max_tokens=16,
         spatial_resolution=32,
@@ -112,8 +125,15 @@ class ModelLoader(ForgeModel):
         # Download checkpoint from HuggingFace
         ckpt_path = hf_hub_download(repo_id=HF_REPO_ID, filename=ckpt_filename)
 
+        # Select architecture config: MCRAFT uses DiT-B, others use DiT-XL
+        cfg = (
+            self._MCRAFT_CFG
+            if self._variant == ModelVariant.DFOT_MCRAFT
+            else self._DEFAULT_CFG
+        )
+
         # Load model from checkpoint
-        model = load_dit3d_from_checkpoint(ckpt_path, self._DEFAULT_CFG)
+        model = load_dit3d_from_checkpoint(ckpt_path, cfg)
         model.eval()
 
         if dtype_override is not None:
@@ -136,7 +156,11 @@ class ModelLoader(ForgeModel):
                 - x: (1, T, 4, 32, 32) noisy latent video frames
                 - noise_levels: (1, T) per-frame noise levels
         """
-        cfg = self._DEFAULT_CFG
+        cfg = (
+            self._MCRAFT_CFG
+            if self._variant == ModelVariant.DFOT_MCRAFT
+            else self._DEFAULT_CFG
+        )
         T = num_frames or self.DEFAULT_NUM_FRAMES
         dtype = dtype_override or torch.float32
 
