@@ -102,7 +102,10 @@ def _patch_transformers_qwen35moe_gguf():
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
-    # 6. Patch get_gguf_hf_weights_map to handle qwen3_5_moe_text -> qwen35moe
+    # 6. Patch get_gguf_hf_weights_map to handle qwen3_5_moe_text -> qwen3moe
+    # GGUF files for Qwen3.5 MoE store expert tensors as separate ffn_gate_exps/
+    # ffn_up_exps (qwen3moe convention) rather than the combined ffn_gate_up_exps
+    # that the newer qwen35moe gguf-py arch expects.
     orig_get_map = gguf_utils.get_gguf_hf_weights_map
 
     def patched_get_gguf_hf_weights_map(
@@ -111,7 +114,7 @@ def _patch_transformers_qwen35moe_gguf():
         if model_type is None:
             model_type = hf_model.config.model_type
         if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
-            model_type = "qwen35moe"
+            model_type = "qwen3moe"
         return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
