@@ -24,27 +24,46 @@ from transformers.modeling_gguf_pytorch_utils import (
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
 
-def _patch_qwen3next_support():
-    """Register qwen3next architecture as an alias for qwen3_moe.
+_QWEN3NEXT_CONFIG_MAPPING = {
+    "context_length": "max_position_embeddings",
+    "block_count": "num_hidden_layers",
+    "feed_forward_length": "intermediate_size",
+    "embedding_length": "hidden_size",
+    "rope.dimension_count": None,
+    "rope.freq_base": "rope_theta",
+    "attention.key_length": "head_dim",
+    "attention.head_count": "num_attention_heads",
+    "attention.head_count_kv": "num_key_value_heads",
+    "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+    "vocab_size": "vocab_size",
+    "expert_count": "num_experts",
+    "expert_used_count": "num_experts_per_tok",
+    "expert_feed_forward_length": "moe_intermediate_size",
+    "expert_shared_feed_forward_length": "shared_expert_intermediate_size",
+    "ssm.conv_kernel": "linear_conv_kernel_dim",
+    "ssm.group_count": "linear_num_key_heads",
+    "ssm.state_size": "linear_key_head_dim",
+}
 
-    Qwen3 Coder Next uses the MoE architecture but the GGUF file declares
-    architecture as 'qwen3next' which transformers does not recognise yet.
+
+def _patch_qwen3next_support():
+    """Register qwen3next as a supported GGUF architecture mapping to qwen3_next.
+
+    Qwen3 Coder Next is a hybrid SSM+MoE model. Its GGUF files declare architecture
+    as 'qwen3next', which transformers 5.x implements as 'qwen3_next'. We add the
+    necessary mapping so load_gguf_checkpoint can parse the config and weights.
     """
     if "qwen3next" in GGUF_SUPPORTED_ARCHITECTURES:
         return
     GGUF_SUPPORTED_ARCHITECTURES.append("qwen3next")
-    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
-        if "qwen3_moe" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
-            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3next"] = dict(
-                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3_moe"]
-            )
+    if "config" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"][
+            "qwen3next"
+        ] = _QWEN3NEXT_CONFIG_MAPPING
     if "qwen3_moe" in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["qwen3next"] = GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
     if hasattr(_gguf_utils, "GGUF_CONFIG_DEFAULTS_MAPPING"):
-        if "qwen3_moe" in _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING:
-            _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING[
-                "qwen3next"
-            ] = _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["qwen3_moe"]
+        _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["qwen3next"] = {"norm_topk_prob": True}
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
@@ -54,7 +73,7 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
         gguf_path, return_tensors=return_tensors, **kwargs
     )
     if result.get("config", {}).get("model_type") == "qwen3next":
-        result["config"]["model_type"] = "qwen3_moe"
+        result["config"]["model_type"] = "qwen3_next"
     return result
 
 
