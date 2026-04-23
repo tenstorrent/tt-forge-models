@@ -42,6 +42,41 @@ def _refresh_gguf_detection():
         import_utils.is_gguf_available.cache_clear()
 
 
+def _patch_glm_ocr_gguf_weights_map():
+    """Patch get_gguf_hf_weights_map to handle GlmOcrConfig.
+
+    GlmOcrConfig (model_type="glm_ocr") is a composite config wrapping
+    text_config (GlmOcrTextConfig, model_type="glm_ocr_text") and vision_config.
+    The GGUF file only contains the glm4 text backbone, so we remap the
+    composite model types to "glm4" (the GGUF arch name) and resolve
+    num_hidden_layers from text_config.
+    """
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+    if getattr(orig_get_map, "_glm_ocr_gguf_patched", False):
+        return
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = getattr(hf_model.config, "model_type", None)
+        if model_type in ("glm_ocr", "glm_ocr_text"):
+            model_type = "glm4"
+        if num_layers is None and not hasattr(hf_model.config, "num_hidden_layers"):
+            text_cfg = getattr(hf_model.config, "text_config", None)
+            if text_cfg is not None:
+                num_layers = getattr(text_cfg, "num_hidden_layers", None)
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    patched_get_gguf_hf_weights_map._glm_ocr_gguf_patched = True
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+
+_patch_glm_ocr_gguf_weights_map()
+
+
 class ModelVariant(StrEnum):
     """Available GLM-OCR GGUF model variants for image-to-text tasks."""
 
@@ -90,8 +125,15 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, gguf_file=self.GGUF_FILE
         )
         base_config = AutoConfig.from_pretrained(self._BASE_PROCESSOR_MODEL)
+
+        # The GGUF chatglm mapping assigns incorrect rope_parameters (mrope_section=[8,12,12]
+        # from GLM-4-9B defaults) for GLM-OCR which needs mrope_section=[16,24,24] to match
+        # its head_dim=128 architecture. Override with base model values.
+        text_config_dict = text_config.to_dict()
+        text_config_dict["rope_parameters"] = base_config.text_config.rope_parameters
+
         return GlmOcrConfig(
-            text_config=text_config.to_dict(),
+            text_config=text_config_dict,
             vision_config=base_config.vision_config.to_dict(),
         )
 
