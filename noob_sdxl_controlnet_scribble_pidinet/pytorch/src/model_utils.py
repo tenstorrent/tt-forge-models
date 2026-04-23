@@ -219,13 +219,17 @@ def controlnet_scribble_pidinet_sdxl_preprocessing(
 
     # 7. Run controlnet to get residuals
     controlnet_cond_scale = controlnet_conditioning_scale
+    controlnet_dtype = pipe.controlnet.dtype
     down_block_additional_residuals, mid_block_additional_residual = pipe.controlnet(
-        latent_model_input,
-        timesteps[0],
-        encoder_hidden_states=prompt_embeds,
-        controlnet_cond=control_image,
+        latent_model_input.to(controlnet_dtype),
+        timesteps[0].to(controlnet_dtype),
+        encoder_hidden_states=prompt_embeds.to(controlnet_dtype),
+        controlnet_cond=control_image.to(controlnet_dtype),
         conditioning_scale=controlnet_cond_scale,
-        added_cond_kwargs=added_cond_kwargs,
+        added_cond_kwargs={
+            k: v.to(controlnet_dtype) if isinstance(v, torch.Tensor) else v
+            for k, v in added_cond_kwargs.items()
+        },
         return_dict=False,
     )
 
