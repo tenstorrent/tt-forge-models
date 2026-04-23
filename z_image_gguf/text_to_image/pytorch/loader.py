@@ -11,7 +11,7 @@ from gguf-org/z-image-gguf.
 from typing import Optional
 
 import torch
-from diffusers import AutoencoderKL, FluxTransformer2DModel, GGUFQuantizationConfig
+from diffusers import AutoencoderKL, GGUFQuantizationConfig, ZImageTransformer2DModel
 from huggingface_hub import hf_hub_download
 
 from ....base import ForgeModel
@@ -118,7 +118,7 @@ class ModelLoader(ForgeModel):
             filename=self._gguf_file,
         )
         quantization_config = GGUFQuantizationConfig(compute_dtype=dtype)
-        transformer = FluxTransformer2DModel.from_single_file(
+        transformer = ZImageTransformer2DModel.from_single_file(
             gguf_path,
             quantization_config=quantization_config,
             torch_dtype=dtype,
