@@ -8,8 +8,6 @@ MantisV2 model loader implementation for time series classification.
 import torch
 from typing import Optional
 
-from mantis import MantisV2
-
 from ...config import (
     ModelConfig,
     ModelInfo,
@@ -63,6 +61,8 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The MantisV2 model instance.
         """
+        from mantis import MantisV2
+
         model = MantisV2.from_pretrained(self._variant_config.pretrained_model_name)
         model.eval()
 
