@@ -81,7 +81,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             self.pipeline = self.pipeline.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the ObjectClear UNet.
@@ -117,7 +117,7 @@ class ModelLoader(ForgeModel):
 
         return [
             scaled_latent_model_input,
-            timesteps,
+            timesteps[0:1],
             prompt_embeds,
             added_cond_kwargs,
         ]
