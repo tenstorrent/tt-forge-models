@@ -21,6 +21,48 @@ from ....config import (
 )
 
 
+def _patch_nemotron_h_blocks_for_cpu(model):
+    """Patch NemotronHBlock.forward to remove CUDA stream dependency on non-CUDA devices."""
+    if torch.cuda.is_available():
+        return
+    for module in model.modules():
+        cls = type(module)
+        if cls.__name__ == "NemotronHBlock" and not getattr(cls, "_cpu_patched", False):
+
+            def _forward(
+                self,
+                hidden_states,
+                cache_params=None,
+                cache_position=None,
+                attention_mask=None,
+            ):
+                residual = hidden_states
+                hidden_states = self.norm(
+                    hidden_states.to(dtype=self.norm.weight.dtype)
+                )
+                if self.residual_in_fp32:
+                    residual = residual.to(torch.float32)
+                if self.block_type == "mamba":
+                    hidden_states = self.mixer(
+                        hidden_states,
+                        cache_params=cache_params,
+                        cache_position=cache_position,
+                    )
+                elif self.block_type == "attention":
+                    hidden_states = self.mixer(
+                        hidden_states, cache_position=cache_position
+                    )[0]
+                elif self.block_type in ["mlp", "moe"]:
+                    hidden_states = self.mixer(hidden_states)
+                else:
+                    raise ValueError(f"Invalid block_type: {self.block_type}")
+                return residual + hidden_states
+
+            cls.forward = _forward
+            cls._cpu_patched = True
+            break
+
+
 class ModelVariant(StrEnum):
     """Available Nemotron-Cascade model variants for causal language modeling."""
 
@@ -100,6 +142,8 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
         self.config = model.config
+
+        _patch_nemotron_h_blocks_for_cpu(model)
 
         return model
 
