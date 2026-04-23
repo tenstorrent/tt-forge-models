@@ -18,7 +18,7 @@ _real_load_gguf_checkpoint = _gguf_utils.load_gguf_checkpoint
 
 def _patch_qwen35_support():
     """Register qwen35 as an alias for qwen3 in the GGUF reader mappings."""
-    from transformers.integrations.ggml import GGUF_SUPPORTED_ARCHITECTURES
+    from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
     from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
     if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
