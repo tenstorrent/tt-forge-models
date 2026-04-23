@@ -107,8 +107,11 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
 
-        # transformers 5.x expects _tied_weights_keys as a dict {target: source}.
-        # The cached model code uses the old list format, so patch it before loading.
+        # transformers 5.x made two breaking changes to the custom model code:
+        # 1. _tied_weights_keys must be a dict {target: source}, not a list.
+        # 2. init_weights() calls tie_weights(recompute_mapping=False), but the
+        #    custom tie_weights() doesn't accept **kwargs.
+        # Patch both before loading so from_pretrained succeeds.
         _model_cls = get_class_from_dynamic_module(
             "modeling_diffusionvl_qwen2_5_vl.DiffusionVL_Qwen2_5_VL_ForConditionalGeneration",
             pretrained_model_name,
@@ -118,6 +121,14 @@ class ModelLoader(ForgeModel):
             _model_cls._tied_weights_keys = {
                 "lm_head.weight": "model.embed_tokens.weight"
             }
+        _orig_tie_weights = _model_cls.tie_weights
+        if not getattr(_orig_tie_weights, "_kwargs_patched", False):
+
+            def _tie_weights_compat(self, **kwargs):
+                _orig_tie_weights(self)
+
+            _tie_weights_compat._kwargs_patched = True
+            _model_cls.tie_weights = _tie_weights_compat
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
