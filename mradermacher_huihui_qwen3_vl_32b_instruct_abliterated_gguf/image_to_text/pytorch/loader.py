@@ -5,11 +5,25 @@
 mradermacher Huihui-Qwen3-VL-32B-Instruct-abliterated GGUF model loader implementation for image to text.
 """
 
+import importlib.metadata
+
 from transformers import (
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
 )
 from typing import Optional
+
+
+def _refresh_gguf_detection():
+    """Refresh transformers' gguf package detection if the package was installed after import."""
+    from transformers.utils import import_utils
+
+    if "gguf" not in import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+        import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+            importlib.metadata.packages_distributions()
+        )
+        import_utils.is_gguf_available.cache_clear()
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -61,6 +75,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _refresh_gguf_detection()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
