@@ -77,9 +77,12 @@ class UniK3DWrapper(nn.Module):
         self.model = model
 
     def forward(self, image):
-        inputs = {"image": image, "camera": None}
+        # Several unik3d ops (antialias interpolation, coords_grid) do not
+        # support bfloat16 on CPU.  Run in float32 and cast output to match.
+        orig_dtype = image.dtype
+        inputs = {"image": image.float(), "camera": None}
         _, outputs = self.model.encode_decode(inputs, image_metas=[])
-        return outputs["depth"]
+        return outputs["depth"].to(orig_dtype)
 
 
 @dataclass
@@ -128,9 +131,6 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        import types
-
-        import unik3d.models.decoder as _decoder_mod
         from unik3d.models import UniK3D
 
         # build_losses imports pkg_resources which is unavailable at inference time
@@ -145,43 +145,14 @@ class ModelLoader(ForgeModel):
             UniK3D.build_losses = original_build_losses
         model.eval()
 
-        # coords_grid in the decoder always returns float32, but the decoder
-        # mixes it with bfloat16 model parameters in an einsum.  Patch
-        # run_camera on this decoder instance so it temporarily replaces
-        # coords_grid with a dtype-aware version during the call.
-        original_run_camera = model.pixel_decoder.__class__.run_camera
-
-        def _patched_run_camera(self, cls_tokens, original_shapes, rays_gt):
-            import unik3d.utils.coordinate as _coord_mod
-
-            _orig_cg = _coord_mod.coords_grid
-
-            def _cast_coords_grid(b, h, w, homogeneous=False, device=None, noisy=False):
-                grid = _orig_cg(
-                    b, h, w, homogeneous=homogeneous, device=device, noisy=noisy
-                )
-                param_dtype = next(self.angular_module.parameters()).dtype
-                return grid.to(param_dtype)
-
-            _coord_mod.coords_grid = _cast_coords_grid
-            _decoder_mod.coords_grid = _cast_coords_grid
-            try:
-                return original_run_camera(self, cls_tokens, original_shapes, rays_gt)
-            finally:
-                _coord_mod.coords_grid = _orig_cg
-                _decoder_mod.coords_grid = _orig_cg
-
-        model.pixel_decoder.run_camera = types.MethodType(
-            _patched_run_camera, model.pixel_decoder
-        )
-
         self._shape_constraints = model.shape_constraints
 
         wrapper = UniK3DWrapper(model)
         wrapper.eval()
 
-        if dtype_override is not None:
-            wrapper = wrapper.to(dtype_override)
+        # unik3d has pervasive ops that don't support bfloat16 on CPU
+        # (antialias interpolation, hardcoded float32 in coords_grid).
+        # The wrapper.forward already casts at the boundary, so keep model in float32.
 
         return wrapper
 
