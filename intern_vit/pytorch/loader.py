@@ -5,7 +5,7 @@
 InternViT model loader implementation for image feature extraction (PyTorch).
 """
 import torch
-from transformers import AutoModel, CLIPImageProcessor
+from transformers import AutoModel, CLIPImageProcessor, PreTrainedModel
 from datasets import load_dataset
 from typing import Optional
 
@@ -104,7 +104,26 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        # transformers 5.x always adds torch.device("meta") in get_init_context, but
+        # InternViT's __init__ calls .item() on linspace tensors which fails on meta.
+        # Patch get_init_context to strip meta device contexts for this load.
+        _orig_get_init_context = PreTrainedModel.get_init_context
+
+        @classmethod  # type: ignore[misc]
+        def _no_meta_get_init_context(cls, dtype, is_quantized, _is_ds_init_called):
+            return [
+                ctx
+                for ctx in _orig_get_init_context.__func__(
+                    cls, dtype, is_quantized, _is_ds_init_called
+                )
+                if not (isinstance(ctx, torch.device) and ctx.type == "meta")
+            ]
+
+        PreTrainedModel.get_init_context = _no_meta_get_init_context
+        try:
+            model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        finally:
+            PreTrainedModel.get_init_context = _orig_get_init_context
         model.eval()
 
         return model
