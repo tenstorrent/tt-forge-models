@@ -53,12 +53,17 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     return result
 
 
-_patch_mistral3_support()
-_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_modeling_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+def _install_patches():
+    """Re-apply all module patches. Called at import time and before each load."""
+    _patch_mistral3_support()
+    _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _modeling_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+
+_install_patches()
 
 from ....base import ForgeModel
 from ....config import (
@@ -116,6 +121,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _install_patches()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -130,6 +136,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _install_patches()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
