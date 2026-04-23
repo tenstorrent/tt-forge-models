@@ -52,6 +52,16 @@ def _patch_mistral3_support():
         GGUF_TO_FAST_CONVERTERS.setdefault("mistral", GGUF_TO_FAST_CONVERTERS["llama"])
         GGUF_TO_FAST_CONVERTERS.setdefault("mistral3", GGUF_TO_FAST_CONVERTERS["llama"])
 
+    # gguf may not be installed at import time (installed dynamically by RequirementsManager).
+    # Remap MISTRAL3 arch name to "mistral" in gguf-py's MODEL_ARCH_NAMES so that
+    # get_gguf_hf_weights_map can find the weight mapping when model_type="mistral".
+    try:
+        from gguf import MODEL_ARCH, MODEL_ARCH_NAMES
+
+        MODEL_ARCH_NAMES[MODEL_ARCH.MISTRAL3] = "mistral"
+    except (ImportError, AttributeError):
+        pass
+
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     _patch_mistral3_support()
