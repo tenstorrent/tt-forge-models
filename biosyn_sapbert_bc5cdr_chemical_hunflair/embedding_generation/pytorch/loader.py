@@ -77,7 +77,32 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from flair.models import EntityMentionLinker
+        import os
+        import sys
+
+        # The worktree root is prepended to sys.path and contains a local
+        # `flair/` model-category directory that shadows the installed flair
+        # library.  Temporarily remove any sys.path entry whose `flair/`
+        # sub-directory lacks the `models` sub-package (i.e. is the stub),
+        # then clear any cached stub import so the real package is loaded.
+        stub_paths = [
+            p
+            for p in sys.path
+            if p
+            and os.path.isdir(os.path.join(p, "flair"))
+            and not os.path.isdir(os.path.join(p, "flair", "models"))
+        ]
+        for p in stub_paths:
+            sys.path.remove(p)
+        for key in list(sys.modules):
+            if key == "flair" or key.startswith("flair."):
+                del sys.modules[key]
+
+        try:
+            from flair.models import EntityMentionLinker
+        finally:
+            for p in stub_paths:
+                sys.path.insert(0, p)
 
         if self.tokenizer is None:
             self._load_tokenizer()
