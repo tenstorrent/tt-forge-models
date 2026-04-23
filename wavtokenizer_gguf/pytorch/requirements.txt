@@ -1,3 +1,1 @@
---extra-index-url https://download.pytorch.org/whl/cpu
 gguf>=0.10.0
-torchaudio==2.9.0
