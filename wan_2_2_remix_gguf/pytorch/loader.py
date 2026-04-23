@@ -211,19 +211,11 @@ class ModelLoader(ForgeModel):
 
         if is_i2v:
             from diffusers import WanImageToVideoPipeline
-            from transformers import CLIPVisionModel
-
-            image_encoder = CLIPVisionModel.from_pretrained(
-                base_pipeline,
-                subfolder="image_encoder",
-                torch_dtype=torch.float32,
-            )
 
             self.pipeline = WanImageToVideoPipeline.from_pretrained(
                 base_pipeline,
                 transformer=transformer,
                 vae=vae,
-                image_encoder=image_encoder,
                 torch_dtype=compute_dtype,
             )
         else:
