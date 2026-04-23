@@ -4,8 +4,14 @@
 """
 SAINEMO-reMIX GGUF model loader implementation for causal language modeling.
 """
+import inspect
+
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -75,6 +81,38 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    @staticmethod
+    def _patch_load_gguf_checkpoint_compat():
+        """Wrap load_gguf_checkpoint so it accepts model_to_load (new in transformers 5.2).
+
+        Other loaders install patches with the old signature that lack this kwarg.
+        We wrap whatever is currently installed to silently accept and drop it before
+        passing into the (potentially broken) patch chain.
+        """
+        for mod in [_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils]:
+            fn = getattr(mod, "load_gguf_checkpoint", None)
+            if fn is None:
+                continue
+            sig = inspect.signature(fn)
+            params = sig.parameters
+            has_var_kw = any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+            )
+            if "model_to_load" in params or has_var_kw:
+                continue
+            _fn = fn
+
+            def _compat(
+                gguf_checkpoint_path,
+                return_tensors=False,
+                model_to_load=None,
+                _fn=_fn,
+                **kw,
+            ):
+                return _fn(gguf_checkpoint_path, return_tensors=return_tensors, **kw)
+
+            mod.load_gguf_checkpoint = _compat
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -94,6 +132,7 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
+        self._patch_load_gguf_checkpoint_compat()
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
