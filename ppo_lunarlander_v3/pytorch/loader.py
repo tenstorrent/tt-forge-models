@@ -59,17 +59,14 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         """Load and return the PPO LunarLander-v3 policy network.
 
         Uses stable-baselines3 to load the pretrained PPO model from HuggingFace,
         then extracts the policy network as a standard PyTorch module.
 
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-
         Returns:
-            torch.nn.Module: The PPO policy network.
+            torch.nn.Module: The PPO policy network in float32.
         """
         from huggingface_sb3 import load_from_hub
         from stable_baselines3 import PPO
@@ -87,19 +84,15 @@ class ModelLoader(ForgeModel):
         policy = sb3_model.policy
         policy.eval()
 
-        if dtype_override is not None:
-            policy = policy.to(dtype_override)
-
         return policy
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
+    def load_inputs(self, batch_size=1, **kwargs):
         """Load and return sample inputs for the PPO LunarLander-v3 model.
 
         LunarLander-v3 observations are 8-dimensional:
         [x, y, vx, vy, angle, angular_velocity, left_leg_contact, right_leg_contact].
 
         Args:
-            dtype_override: Optional torch.dtype to override the inputs' default dtype.
             batch_size: Batch size for the inputs.
 
         Returns:
@@ -107,12 +100,7 @@ class ModelLoader(ForgeModel):
         """
         # LunarLander-v3 observation space: 8-dimensional state vector.
         # Positions, velocities, angle, angular velocity, and two boolean leg-contact flags.
-        obs = torch.tensor(
+        return torch.tensor(
             [[0.0, 1.4, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]] * batch_size,
             dtype=torch.float32,
         )
-
-        if dtype_override is not None:
-            obs = obs.to(dtype_override)
-
-        return obs
