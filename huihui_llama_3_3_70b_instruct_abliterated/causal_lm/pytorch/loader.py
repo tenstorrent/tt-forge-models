@@ -9,12 +9,7 @@ import os
 from typing import Optional
 
 import torch
-from transformers import (
-    AutoConfig,
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    LlamaForCausalLM,
-)
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
@@ -88,6 +83,8 @@ class ModelLoader(ForgeModel):
             self._load_tokenizer(dtype_override=dtype_override)
 
         if os.environ.get("TT_RANDOM_WEIGHTS"):
+            from transformers import LlamaForCausalLM
+
             config = AutoConfig.from_pretrained(pretrained_model_name)
             if self.num_layers is not None:
                 config.num_hidden_layers = self.num_layers
