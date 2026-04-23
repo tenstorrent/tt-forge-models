@@ -89,16 +89,19 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
+        # Load config and strip MLX quantization_config which transformers cannot handle
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        config.quantization_config = None
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             if hasattr(config, "text_config"):
                 config.text_config.num_hidden_layers = self.num_layers
             else:
                 config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
+        model_kwargs["config"] = config
+        # MLX variants may have mismatched weight shapes after quantization
+        model_kwargs["ignore_mismatched_sizes"] = True
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
@@ -145,4 +148,5 @@ class ModelLoader(ForgeModel):
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, trust_remote_code=True
         )
+        self.config.quantization_config = None
         return self.config
