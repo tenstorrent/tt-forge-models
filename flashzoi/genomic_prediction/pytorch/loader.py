@@ -7,8 +7,6 @@ Flashzoi model loader implementation for genomic prediction.
 import torch
 from typing import Optional
 
-from borzoi_pytorch import Borzoi
-
 from third_party.tt_forge_models.config import (
     ModelInfo,
     ModelGroup,
@@ -62,6 +60,8 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        from borzoi_pytorch import Borzoi
 
         model = Borzoi.from_pretrained(model_name, **model_kwargs)
         model.eval()
