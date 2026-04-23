@@ -6,9 +6,23 @@ RADIO model loader implementation for feature extraction (PyTorch).
 """
 
 import torch
-from transformers import AutoModel, CLIPImageProcessor
+from transformers import AutoModel, CLIPImageProcessor, PreTrainedModel
 from datasets import load_dataset
 from typing import Optional
+
+# transformers 5.2.0+ requires post_init() to be called to set all_tied_weights_keys.
+# The RADIO model's hf_model.py doesn't call post_init(), so we patch _adjust_tied_keys_with_tied_pointers
+# to initialize all_tied_weights_keys when missing.
+_orig_adjust_tied = PreTrainedModel._adjust_tied_keys_with_tied_pointers
+
+
+def _patched_adjust_tied(self, missing_keys):
+    if not hasattr(self, "all_tied_weights_keys"):
+        self.all_tied_weights_keys = {}
+    return _orig_adjust_tied(self, missing_keys)
+
+
+PreTrainedModel._adjust_tied_keys_with_tied_pointers = _patched_adjust_tied
 
 from ....base import ForgeModel
 from ....config import (
@@ -122,14 +136,13 @@ class ModelLoader(ForgeModel):
         image = dataset[0]["image"]
 
         inputs = self.processor(images=image, return_tensors="pt", do_resize=True)
+        pixel_values = inputs["pixel_values"]
 
-        for key in inputs:
-            if torch.is_tensor(inputs[key]):
-                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+        if batch_size > 1:
+            pixel_values = pixel_values.repeat_interleave(batch_size, dim=0)
 
-        if dtype_override is not None:
-            for key in inputs:
-                if torch.is_tensor(inputs[key]) and inputs[key].dtype.is_floating_point:
-                    inputs[key] = inputs[key].to(dtype_override)
+        if dtype_override is not None and pixel_values.dtype.is_floating_point:
+            pixel_values = pixel_values.to(dtype_override)
 
-        return inputs
+        # RADIOModel.forward() takes `x` as positional, not `pixel_values`
+        return {"x": pixel_values}
