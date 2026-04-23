@@ -89,4 +89,4 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             audio = audio.to(dtype=dtype_override)
 
-        return {"audio": audio}
+        return {"input_values": audio}
