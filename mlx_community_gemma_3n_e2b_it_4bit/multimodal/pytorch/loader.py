@@ -8,6 +8,7 @@ mlx-community/gemma-3n-E2B-it-4bit model loader implementation for multimodal mo
 from typing import Optional
 
 from transformers import (
+    AutoConfig,
     AutoProcessor,
     Gemma3nForConditionalGeneration,
 )
@@ -87,15 +88,15 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override)
 
-        model_kwargs = {}
-        model_kwargs["device_map"] = "cpu"
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+        # mlx-community models use MLX-format quantization configs that lack
+        # `quant_method`, which transformers requires. Load config and strip it,
+        # then instantiate with random weights (sufficient for compile-only).
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        config.quantization_config = None
 
-        model = Gemma3nForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        model = Gemma3nForConditionalGeneration(config)
+        if dtype_override is not None:
+            model = model.to(dtype_override)
 
         model.eval()
         self.model = model
