@@ -68,7 +68,7 @@ class ModelLoader(ForgeModel):
 
         self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
 
-        model = GPTQModel.from_pretrained(
+        model = GPTQModel.load(
             pretrained_model_name, backend=BACKEND.TORCH, **model_kwargs
         )
         model.eval()
