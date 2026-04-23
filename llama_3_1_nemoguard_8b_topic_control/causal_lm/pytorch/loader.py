@@ -44,7 +44,8 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.LLAMA_3_1_NEMOGUARD_8B_TOPIC_CONTROL
 
-    BASE_MODEL_NAME = "meta-llama/Llama-3.1-8B-Instruct"
+    # unsloth provides public (ungated) weights with identical architecture
+    BASE_MODEL_NAME = "unsloth/Meta-Llama-3.1-8B-Instruct"
 
     sample_text = (
         "In the next conversation always use a polite tone and do not engage in "
