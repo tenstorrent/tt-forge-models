@@ -5,7 +5,7 @@
 DeepSeek-OCR 8-bit MLX model loader implementation for document OCR tasks.
 """
 import transformers.models.llama.modeling_llama as _llama_modeling
-from transformers import AutoTokenizer, AutoModel
+from transformers import AutoTokenizer, AutoModel, AutoConfig
 from typing import Optional
 
 # LlamaFlashAttention2 was removed in transformers 5.x; the model's custom code still references it
@@ -76,6 +76,14 @@ class ModelLoader(ForgeModel):
         # MLX quantized variants may have mismatched weight shapes
         model_kwargs["ignore_mismatched_sizes"] = True
         model_kwargs |= kwargs
+
+        # Load config first and strip MLX quantization (incompatible with transformers 5.x)
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        if hasattr(config, "quantization_config"):
+            del config.quantization_config
+        model_kwargs["config"] = config
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
 
