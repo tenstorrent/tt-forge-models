@@ -5,10 +5,16 @@
 Unsloth DeepSeek-R1-Distill-Llama-70B BnB 4-bit model loader implementation for causal language modeling.
 """
 
+import os
 from typing import Optional
 
 import torch
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import (
+    AutoConfig,
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    LlamaForCausalLM,
+)
 
 from ....base import ForgeModel
 from ....config import (
@@ -87,17 +93,27 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model_kwargs["use_cache"] = False
-        model_kwargs["device_map"] = "cpu"
-
-        if self.num_layers is not None:
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
             config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+            if self.num_layers is not None:
+                config.num_hidden_layers = self.num_layers
+            model = LlamaForCausalLM(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            model_kwargs["use_cache"] = False
+            model_kwargs["device_map"] = "cpu"
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+            if self.num_layers is not None:
+                config = AutoConfig.from_pretrained(pretrained_model_name)
+                config.num_hidden_layers = self.num_layers
+                model_kwargs["config"] = config
+
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+
+        model = model.eval()
 
         self.config = model.config
         self.model = model
