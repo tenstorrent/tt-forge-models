@@ -55,14 +55,20 @@ class ModelLoader(ForgeModel):
 
     @staticmethod
     def _patch_surya_for_transformers5():
-        # surya-ocr 0.17.1 has three incompatibilities with transformers 5.2+:
+        # surya-ocr 0.17.1 has four incompatibilities with transformers 5.2+:
         # 1. ROPE_INIT_FUNCTIONS no longer contains 'default'; add it back.
         # 2. SuryaModel._tied_weights_keys is a list but transformers 5.2+ expects
         #    a dict mapping target weight name → source weight name.
-        # 3. SuryaModel.__init__ doesn't call self.post_init(), which is required
+        # 3. SuryaModel.tie_weights() doesn't accept recompute_mapping kwarg.
+        #    Also uses _tie_or_clone_weights which was removed.
+        # 4. SuryaModel.__init__ doesn't call self.post_init(), which is required
         #    by transformers 5.2+ to initialize all_tied_weights_keys.
+        # 5. Qwen2_5_VisionRotaryEmbedding stores inv_freq as a plain attribute;
+        #    transformers 5.2+ uses meta device init so plain attrs stay on meta
+        #    and .to(device) skips them. Fix: register_buffer so it gets moved.
         from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
         from surya.common.surya import SuryaModel
+        from surya.common.surya.encoder import Qwen2_5_VisionRotaryEmbedding
 
         if "default" not in ROPE_INIT_FUNCTIONS:
 
@@ -90,6 +96,17 @@ class ModelLoader(ForgeModel):
             self.lm_head.weight = self.embedder.token_embed.weight
 
         SuryaModel.tie_weights = _patched_tie_weights
+
+        _orig_rot_emb_init = Qwen2_5_VisionRotaryEmbedding.__init__
+
+        def _patched_rot_emb_init(self, dim: int, theta: float = 10000.0) -> None:
+            _orig_rot_emb_init(self, dim, theta)
+            if isinstance(self.inv_freq, torch.Tensor):
+                inv_freq = self.inv_freq
+                del self.inv_freq
+                self.register_buffer("inv_freq", inv_freq, persistent=False)
+
+        Qwen2_5_VisionRotaryEmbedding.__init__ = _patched_rot_emb_init
 
         _orig_surya_init = SuryaModel.__init__
 
