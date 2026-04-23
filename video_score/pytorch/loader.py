@@ -10,10 +10,14 @@ dynamic degree, text-to-video alignment, factual consistency) on a 1.0-4.0
 scale. The Idefics2ForSequenceClassification head is provided by the
 mantis-vl package (https://github.com/TIGER-AI-Lab/Mantis).
 """
+import os
 from typing import Optional
 
 import numpy as np
 import torch
+
+# hf-xet reconstruction fails on this system; fall back to standard HTTPS download.
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 from PIL import Image
 from transformers import AutoProcessor
 
