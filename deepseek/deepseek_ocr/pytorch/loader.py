@@ -5,8 +5,13 @@
 DeepSeek OCR model loader implementation for document OCR tasks.
 """
 import os
+import transformers.models.deepseek_v2.modeling_deepseek_v2 as _dsv2
 from transformers import AutoTokenizer, AutoModel
 from typing import Optional
+
+# transformers>=5.x renamed DeepseekV2MoE -> DeepseekV2Moe; add alias for trust_remote_code compat
+if not hasattr(_dsv2, "DeepseekV2MoE") and hasattr(_dsv2, "DeepseekV2Moe"):
+    _dsv2.DeepseekV2MoE = _dsv2.DeepseekV2Moe
 
 from ....base import ForgeModel
 from ....config import (
