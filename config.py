@@ -123,7 +123,7 @@ class ModelInfo:
     task: ModelTask
     source: ModelSource
     framework: Framework
-    model_name_hf: Optional[str] = None
+    model_name_clean: Optional[str] = None
 
     @property
     def name(self) -> str:
@@ -138,7 +138,7 @@ class ModelInfo:
             "framework": str(self.framework),
             "model_arch": self.model,
             "variant_name": str(self.variant),
-            "model_name_hf": self.model_name_hf,
+            "model_name_clean": self.model_name_clean,
         }
 
     def is_easydel(self) -> bool:
@@ -161,8 +161,8 @@ class ModelConfig:
         pass
 
     @property
-    def model_name_hf(self) -> str:
-        """Model name as it appears on HuggingFace (part after the last '/')."""
+    def model_name_clean(self) -> str:
+        """Model name stripped of any org/repo prefix (part after the last '/')."""
         return self.pretrained_model_name.rsplit("/", 1)[-1]
 
 
