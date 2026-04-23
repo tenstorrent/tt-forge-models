@@ -74,17 +74,19 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["dtype"] = dtype_override
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        # Strip FP8 quantization_config so weights load as plain BF16 — CPU
+        # _scaled_mm only supports per-tensor scaling, not the per-channel
+        # scaling used by this model's torchao float8 quantization.
+        cfg = getattr(config, "text_config", config)
+        cfg.quantization_config = None
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            if hasattr(config, "text_config"):
-                config.text_config.num_hidden_layers = self.num_layers
-            else:
-                config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+            cfg.num_hidden_layers = self.num_layers
+
+        model_kwargs = {"config": config}
+        if dtype_override is not None:
+            model_kwargs["dtype"] = dtype_override
 
         model_kwargs |= kwargs
 
