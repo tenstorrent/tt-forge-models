@@ -105,26 +105,57 @@ def _patch_transformers_qwen3vl_gguf():
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
-    # 5. Patch get_gguf_hf_weights_map so it handles qwen3_vl composite configs
+    # 5. Patch get_gguf_hf_weights_map so it handles qwen3_vl composite configs.
+    # The recursive walk of get_gguf_hf_weights_map would incorrectly map
+    # visual.merger.norm -> output_norm (stealing it from language_model.norm).
+    # For qwen3_vl we only map the language_model submodule directly to avoid
+    # any spurious vision-encoder collisions.
     orig_get_map = gguf_utils.get_gguf_hf_weights_map
 
     def patched_get_gguf_hf_weights_map(
         hf_model, processor, model_type=None, num_layers=None, qual_name=""
     ):
-        if model_type is None:
-            model_type = hf_model.config.model_type
-        if model_type == "qwen3_vl":
-            model_type = "qwen3vl"
-        if num_layers is None:
+        resolved_type = model_type
+        if resolved_type is None and hasattr(hf_model, "config"):
+            resolved_type = getattr(hf_model.config, "model_type", None)
+        if resolved_type == "qwen3_vl":
+            resolved_type = "qwen3vl"
+
+        # Only apply special handling at the top-level call (qual_name == "")
+        if resolved_type == "qwen3vl" and qual_name == "":
+            n_layers = num_layers
+            if n_layers is None:
+                cfg = getattr(hf_model, "config", None)
+                if cfg is not None:
+                    tc = getattr(cfg, "text_config", cfg)
+                    n_layers = getattr(tc, "num_hidden_layers", None)
+            # Map only the language_model submodule so vision encoder tensors
+            # do not collide with text LLM tensor names (e.g. merger.norm
+            # stealing output_norm from language_model.norm).
+            lang_model = None
+            if hasattr(hf_model, "model") and hasattr(hf_model.model, "language_model"):
+                lang_model = hf_model.model.language_model
+            if lang_model is not None:
+                return orig_get_map(
+                    lang_model,
+                    processor,
+                    resolved_type,
+                    n_layers,
+                    qual_name="model.language_model.",
+                )
+
+        # For non-top-level or non-qwen3vl calls, delegate normally
+        if num_layers is None and hasattr(hf_model, "config"):
             cfg = hf_model.config
-            # For composite configs (VL models), fall back to text_config
             if hasattr(cfg, "num_hidden_layers"):
                 num_layers = cfg.num_hidden_layers
             elif hasattr(cfg, "text_config") and hasattr(
                 cfg.text_config, "num_hidden_layers"
             ):
                 num_layers = cfg.text_config.num_hidden_layers
-        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+        return orig_get_map(
+            hf_model, processor, resolved_type or model_type, num_layers, qual_name
+        )
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
     if hasattr(modeling_utils, "get_gguf_hf_weights_map"):
