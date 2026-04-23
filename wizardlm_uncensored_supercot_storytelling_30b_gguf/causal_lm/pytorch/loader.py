@@ -4,9 +4,14 @@
 """
 TheBloke WizardLM Uncensored SuperCOT Storytelling 30B GGUF model loader implementation for causal language modeling.
 """
+import os
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+# hf-xet can hang/crash after completing the GGUF download during chunk
+# finalization; force standard HTTPS download instead.
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
 from ....base import ForgeModel
 from ....config import (
