@@ -7,6 +7,7 @@ Omega Darker Gaslight The Final Forgotten Fever Dream 24B GGUF model loader impl
 
 import os
 import torch
+import huggingface_hub.constants as _hf_constants
 import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
@@ -19,6 +20,10 @@ _GGUF_CACHE_DIR = (
 )
 os.environ["HF_HOME"] = _GGUF_CACHE_DIR
 os.environ["HF_HUB_CACHE"] = os.path.join(_GGUF_CACHE_DIR, "hub")
+_hf_constants.HF_HOME = _GGUF_CACHE_DIR
+_hf_constants.HF_HUB_CACHE = os.path.join(_GGUF_CACHE_DIR, "hub")
+_hf_constants.HF_XET_CACHE = os.path.join(_GGUF_CACHE_DIR, "xet")
+_hf_constants.HUGGINGFACE_HUB_CACHE = os.path.join(_GGUF_CACHE_DIR, "hub")
 
 
 def _find_real_load_gguf_checkpoint():
