@@ -6,21 +6,72 @@ Ovis2.6 model loader implementation for multimodal visual question answering.
 """
 
 import torch
-from transformers import AutoModelForCausalLM
+import torch.nn as nn
 from PIL import Image
+from transformers import AutoImageProcessor, AutoModelForCausalLM, PreTrainedModel
 from typing import Optional
 
 from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 from ...tools.utils import get_file
+
+# Ovis2.6 custom model code was written for older transformers and lacks several attributes/methods
+# required by transformers>=5.x. These patches restore compatibility.
+
+# Patch 1: Qwen3MoeForCausalLM lacks is_parallelizable; Ovis2_6_MoeForCausalLM lacks all_tied_weights_keys
+_original_getattr = nn.Module.__getattr__
+
+
+def _patched_getattr(self, name):
+    if name == "is_parallelizable":
+        return False
+    if name == "all_tied_weights_keys":
+        return {}
+    return _original_getattr(self, name)
+
+
+nn.Module.__getattr__ = _patched_getattr
+
+# Patch 2: tie_weights() in Ovis2.6 custom classes doesn't accept the new missing_keys/recompute_mapping
+# kwargs added in transformers>=5.x. Wrap _finalize_model_loading to handle this gracefully.
+_original_finalize = PreTrainedModel._finalize_model_loading
+
+
+@staticmethod
+def _patched_finalize_model_loading(model, load_config, loading_info):
+    orig_tie = model.tie_weights
+
+    def _compat_tie(**kwargs):
+        try:
+            orig_tie(**kwargs)
+        except TypeError:
+            orig_tie()
+
+    model.tie_weights = _compat_tie
+    return _original_finalize(model, load_config, loading_info)
+
+
+PreTrainedModel._finalize_model_loading = _patched_finalize_model_loading
+
+# Patch 3: The fast SiglipImageProcessor (default in transformers>=5.x) only supports return_tensors="pt",
+# but the Ovis2.6 custom code calls image_processor.preprocess(..., return_tensors="np"). Force slow processor.
+_orig_image_proc_from_pretrained = AutoImageProcessor.from_pretrained
+
+
+def _patched_image_proc_from_pretrained(*args, **kwargs):
+    kwargs.setdefault("use_fast", False)
+    return _orig_image_proc_from_pretrained(*args, **kwargs)
+
+
+AutoImageProcessor.from_pretrained = _patched_image_proc_from_pretrained
 
 
 class ModelVariant(StrEnum):
