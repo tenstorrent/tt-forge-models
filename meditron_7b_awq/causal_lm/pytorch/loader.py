@@ -5,9 +5,10 @@
 Meditron 7B AWQ model loader implementation for causal language modeling.
 """
 
+import os
 from typing import Optional
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
@@ -76,17 +77,29 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {
-            "trust_remote_code": True,
-            "device_map": "cpu",
-        }
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, trust_remote_code=True
+            )
+            config.quantization_config = None
+            from transformers import LlamaForCausalLM
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+            model = LlamaForCausalLM(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+            model.eval()
+        else:
+            model_kwargs = {
+                "trust_remote_code": True,
+                "device_map": "cpu",
+            }
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
@@ -98,20 +111,8 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        messages = [
-            {
-                "role": "user",
-                "content": self.sample_text,
-            }
-        ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-
         inputs = self.tokenizer(
-            text,
+            self.sample_text,
             return_tensors="pt",
             padding=True,
             truncation=True,
