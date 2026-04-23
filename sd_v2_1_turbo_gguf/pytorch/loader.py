@@ -17,9 +17,10 @@ Available variants:
 - Q8_0: 8-bit quantization (~2.32 GB)
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 import torch
+from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -95,7 +96,10 @@ class ModelLoader(ForgeModel):
 
         Uses diffusers GGUFQuantizationConfig to load the quantized UNet,
         then constructs the StableDiffusionPipeline with the base model's
-        other components.
+        other components. Returns the UNet module directly.
+
+        The GGUF uses use_linear_projection=False (conv-based proj_in/proj_out),
+        so we override this from the sd-turbo config which defaults to True.
         """
         from diffusers import (
             GGUFQuantizationConfig,
@@ -108,11 +112,34 @@ class ModelLoader(ForgeModel):
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
+        model_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
         unet = UNet2DConditionModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/resolve/main/{gguf_file}",
+            model_path,
+            config=BASE_PIPELINE,
+            subfolder="unet",
+            use_linear_projection=False,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
+
+        # Dequantize non-linear parameters (e.g. GroupNorm weights stored as Q4_1).
+        # diffusers only replaces nn.Linear with GGUFLinear; other modules that have
+        # quantized weights (GroupNorm, etc.) must be dequantized manually.
+        from diffusers.quantizers.gguf.utils import (
+            GGUFLinear,
+            GGUFParameter,
+            dequantize_gguf_tensor,
+        )
+
+        for module in unet.modules():
+            if isinstance(module, GGUFLinear):
+                continue
+            for pname in list(module._parameters.keys()):
+                param = module._parameters[pname]
+                if isinstance(param, GGUFParameter):
+                    module._parameters[pname] = torch.nn.Parameter(
+                        dequantize_gguf_tensor(param).to(compute_dtype)
+                    )
 
         self.pipeline = StableDiffusionPipeline.from_pretrained(
             BASE_PIPELINE,
@@ -120,15 +147,50 @@ class ModelLoader(ForgeModel):
             torch_dtype=compute_dtype,
         )
 
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for SD-Turbo.
+        """Load and return UNet tensor inputs for SD-Turbo inference.
 
-        Returns:
-            list: A list of sample text prompts.
+        Returns latent noise, timestep, and text encoder hidden states.
         """
-        prompt = [
-            "A cinematic shot of a baby racoon wearing an intricate italian priest robe.",
-        ] * batch_size
-        return prompt
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
+
+        dtype = self.pipeline.unet.dtype
+
+        prompt = "A cinematic shot of a baby racoon wearing an intricate italian priest robe."
+
+        text_inputs = self.pipeline.tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=self.pipeline.tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        with torch.no_grad():
+            encoder_hidden_states = self.pipeline.text_encoder(text_inputs.input_ids)[
+                0
+            ].to(dtype)
+
+        in_channels = self.pipeline.unet.config.in_channels
+        sample_size = self.pipeline.unet.config.sample_size
+        latent_sample = torch.randn(
+            batch_size, in_channels, sample_size, sample_size, dtype=dtype
+        )
+        timestep = torch.tensor([1.0], dtype=dtype)
+
+        if dtype_override:
+            latent_sample = latent_sample.to(dtype_override)
+            timestep = timestep.to(dtype_override)
+            encoder_hidden_states = encoder_hidden_states.to(dtype_override)
+
+        return [latent_sample, timestep, encoder_hidden_states]
+
+    def unpack_forward_output(self, fwd_output: Any) -> torch.Tensor:
+        """Unpack UNet output to the sample tensor."""
+        if isinstance(fwd_output, tuple):
+            return fwd_output[0]
+        if hasattr(fwd_output, "sample"):
+            return fwd_output.sample
+        return fwd_output
