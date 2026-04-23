@@ -63,12 +63,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name
         )
 
         if self.tokenizer.pad_token is None:
@@ -86,8 +82,9 @@ class ModelLoader(ForgeModel):
             from transformers import LlamaForCausalLM
 
             config = AutoConfig.from_pretrained(pretrained_model_name)
-            if self.num_layers is not None:
-                config.num_hidden_layers = self.num_layers
+            config.num_hidden_layers = (
+                self.num_layers if self.num_layers is not None else 1
+            )
             model = LlamaForCausalLM(config)
             if dtype_override is not None:
                 model = model.to(dtype_override)
