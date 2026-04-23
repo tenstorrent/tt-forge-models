@@ -56,8 +56,8 @@ class ModelLoader(ForgeModel):
         from surya.recognition import RecognitionPredictor
 
         foundation_predictor = FoundationPredictor(device="cpu")
-        rec_predictor = RecognitionPredictor(foundation_predictor)
-        model = rec_predictor.model
+        RecognitionPredictor(foundation_predictor)
+        model = foundation_predictor.model
         model.eval()
 
         if dtype_override is not None:
