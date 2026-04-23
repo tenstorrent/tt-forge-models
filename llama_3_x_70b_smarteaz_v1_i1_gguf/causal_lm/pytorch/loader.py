@@ -5,9 +5,10 @@
 Llama 3.x 70B Smarteaz V1 i1 GGUF model loader implementation for causal language modeling.
 """
 
+from typing import Optional
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
-from typing import Optional
 
 from ....base import ForgeModel
 from ....config import (
@@ -19,6 +20,20 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_transformers_gguf_map():
+    # transformers.utils.import_utils.PACKAGE_DISTRIBUTION_MAPPING is built once at module
+    # import time. Since gguf is installed per-test (not in the base venv), it is absent
+    # when the mapping is built. The fallback then reads gguf.__version__ which gguf does
+    # not expose, yielding 'N/A' and causing version.parse('N/A') to raise InvalidVersion.
+    try:
+        import transformers.utils.import_utils as _iu
+
+        if "gguf" not in _iu.PACKAGE_DISTRIBUTION_MAPPING:
+            _iu.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+    except Exception:
+        pass
 
 
 class ModelVariant(StrEnum):
@@ -65,6 +80,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _patch_transformers_gguf_map()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -156,6 +172,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        _patch_transformers_gguf_map()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
