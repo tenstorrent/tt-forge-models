@@ -116,9 +116,24 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load
             except Exception:
                 pass
 
+        # For hybrid models the GGUF loader may produce per-layer lists for
+        # fields like feed_forward_length and attention.head_count when those
+        # values differ across layer types. NemotronHConfig expects scalars, so
+        # collapse any list by taking the max of its non-zero elements.
+        for key in ("intermediate_size", "num_attention_heads"):
+            val = cfg.get(key)
+            if isinstance(val, list):
+                non_zero = [v for v in val if v]
+                cfg[key] = int(max(non_zero)) if non_zero else 0
+
         # Ensure GGUF-derived values are Python ints (GGUF shapes are np.uint64).
-        for key in ("mamba_num_heads", "head_dim", "num_attention_heads"):
-            if key in cfg:
+        for key in (
+            "mamba_num_heads",
+            "head_dim",
+            "num_attention_heads",
+            "intermediate_size",
+        ):
+            if key in cfg and not isinstance(cfg[key], int):
                 cfg[key] = int(cfg[key])
 
         # Derive mamba_head_dim from ssm.inner_size and mamba_num_heads.
