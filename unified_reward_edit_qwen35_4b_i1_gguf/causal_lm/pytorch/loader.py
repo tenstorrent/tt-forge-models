@@ -66,28 +66,57 @@ def _patch_qwen35_support():
         )
 
 
+def _find_base_load_gguf_checkpoint(fn):
+    """Walk the _orig_load_gguf_checkpoint closure chain to find the real transformers function.
+
+    Multiple GGUF loaders chain-patch load_gguf_checkpoint by capturing the previous
+    version as _orig_load_gguf_checkpoint. Some older patches have the signature
+    (gguf_path, return_tensors=False) without model_to_load. We walk the chain until
+    we find the function named 'load_gguf_checkpoint' (the real transformers original).
+    """
+    seen = set()
+    while True:
+        fn_id = id(fn)
+        if fn_id in seen:
+            return fn
+        seen.add(fn_id)
+        if fn.__name__ == "load_gguf_checkpoint":
+            return fn
+        if fn.__closure__:
+            closure_vars = {}
+            for var, cell in zip(fn.__code__.co_freevars, fn.__closure__):
+                try:
+                    closure_vars[var] = cell.cell_contents
+                except ValueError:
+                    pass
+            next_fn = closure_vars.get("_orig_load_gguf_checkpoint")
+            if next_fn is not None and id(next_fn) not in seen:
+                fn = next_fn
+                continue
+        return fn
+
+
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     """Wrap load_gguf_checkpoint to fix gguf version detection and add qwen35 support."""
     _fix_gguf_version_detection()
     _patch_qwen35_support()
-    try:
-        sig = inspect.signature(_orig_load_gguf_checkpoint)
-        filtered_kwargs = {k: v for k, v in kwargs.items() if k in sig.parameters}
-    except (ValueError, TypeError):
-        filtered_kwargs = {}
-    result = _orig_load_gguf_checkpoint(
-        gguf_path, return_tensors=return_tensors, **filtered_kwargs
-    )
+    base_fn = _find_base_load_gguf_checkpoint(_orig_load_gguf_checkpoint)
+    result = base_fn(gguf_path, return_tensors=return_tensors, **kwargs)
     if result.get("config", {}).get("model_type") == "qwen35":
         result["config"]["model_type"] = "qwen3"
     return result
 
 
-_patch_qwen35_support()
-_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+def _apply_patches():
+    """Re-apply all patches right before loading, overriding any later-imported loaders."""
+    _patch_qwen35_support()
+    _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+
+_apply_patches()
 
 from ....base import ForgeModel
 from ....config import (
@@ -145,6 +174,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _apply_patches()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -159,6 +189,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _apply_patches()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -237,6 +268,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        _apply_patches()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
