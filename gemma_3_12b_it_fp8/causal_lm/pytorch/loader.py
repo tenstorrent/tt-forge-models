@@ -94,6 +94,12 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        # torchao's safetensors deserializer wraps FP8 checkpoint tensors in
+        # Float8Tensor regardless of quantization_config. Explicitly cast to
+        # the target dtype to dequantize them for CPU compatibility.
+        target_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        model = model.to(target_dtype)
+
         self.config = model.config
         self.model = model
         return model
