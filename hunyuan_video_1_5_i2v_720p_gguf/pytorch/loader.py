@@ -110,11 +110,11 @@ class ModelLoader(ForgeModel):
         Uses diffusers GGUFQuantizationConfig to load the quantized transformer.
         Returns the transformer nn.Module directly for compilation testing.
         """
+        import importlib.util
+
         import diffusers.utils.import_utils as _diffusers_import_utils
 
         if not _diffusers_import_utils._gguf_available:
-            import importlib.util
-
             if importlib.util.find_spec("gguf") is not None:
                 _diffusers_import_utils._gguf_available = True
 
@@ -122,14 +122,29 @@ class ModelLoader(ForgeModel):
             GGUFQuantizationConfig,
             HunyuanVideo15Transformer3DModel,
         )
+        from diffusers.loaders import single_file_model as _sfm
+        from diffusers.loaders.single_file_utils import (
+            convert_hunyuan_video_transformer_to_diffusers,
+        )
+        from huggingface_hub import hf_hub_download
+
+        # HunyuanVideo15Transformer3DModel is not registered in SINGLE_FILE_LOADABLE_CLASSES
+        # in diffusers 0.37.1, so patch it in at runtime.
+        if "HunyuanVideo15Transformer3DModel" not in _sfm.SINGLE_FILE_LOADABLE_CLASSES:
+            _sfm.SINGLE_FILE_LOADABLE_CLASSES["HunyuanVideo15Transformer3DModel"] = {
+                "checkpoint_mapping_fn": convert_hunyuan_video_transformer_to_diffusers,
+                "default_subfolder": "transformer",
+            }
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         gguf_file = _GGUF_FILES[self._variant]
+        gguf_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         self._transformer = HunyuanVideo15Transformer3DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/resolve/main/{gguf_file}",
+            gguf_path,
+            config="hunyuanvideo-community/HunyuanVideo-1.5-Diffusers-720p_i2v",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
