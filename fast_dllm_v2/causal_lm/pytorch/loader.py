@@ -11,6 +11,27 @@ speedup with no quality loss.
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
+
+if "default" not in ROPE_INIT_FUNCTIONS:
+
+    def _compute_default_rope_parameters(
+        config=None, device=None, seq_len=None, **kwargs
+    ):
+        base = config.rope_theta
+        partial_rotary_factor = getattr(config, "partial_rotary_factor", 1.0)
+        head_dim = (
+            getattr(config, "head_dim", None)
+            or config.hidden_size // config.num_attention_heads
+        )
+        dim = int(head_dim * partial_rotary_factor)
+        inv_freq = 1.0 / (
+            base
+            ** (torch.arange(0, dim, 2, dtype=torch.int64).float().to(device) / dim)
+        )
+        return inv_freq, 1.0
+
+    ROPE_INIT_FUNCTIONS["default"] = _compute_default_rope_parameters
 
 from ....base import ForgeModel
 from ....config import (
