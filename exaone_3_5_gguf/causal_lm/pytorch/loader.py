@@ -4,9 +4,14 @@
 """
 EXAONE 3.5 GGUF model loader implementation for causal language modeling.
 """
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import importlib
+import sys
+from contextlib import contextmanager
 from typing import Optional
+
+import torch
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
@@ -66,15 +71,79 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _make_exaone_loader():
+        """Build an unpatched load_gguf_checkpoint with exaone->llama mapping.
+
+        Other GGUF loaders monkey-patch load_gguf_checkpoint at import time with
+        signatures that drop model_to_load (added in transformers 5.2). This bypass
+        reimports the module to get a fresh, unpatched copy, then adds exaone support
+        (EXAONE 3.5 is architecturally identical to llama: same tensors, GQA, RoPE,
+        SwiGLU) and translates model_type "exaone" -> "llama" in the returned config.
+        """
+        _mod_key = "transformers.modeling_gguf_pytorch_utils"
+        _patched = sys.modules.get(_mod_key)
+        sys.modules.pop(_mod_key, None)
+        _fresh = importlib.import_module(_mod_key)
+        if _patched is not None:
+            sys.modules[_mod_key] = _patched
+
+        if "exaone" not in _fresh.GGUF_SUPPORTED_ARCHITECTURES:
+            _fresh.GGUF_SUPPORTED_ARCHITECTURES.append("exaone")
+            _fresh.GGUF_TO_TRANSFORMERS_MAPPING["config"]["exaone"] = dict(
+                _fresh.GGUF_TO_TRANSFORMERS_MAPPING["config"]["llama"]
+            )
+            if "llama" in _fresh.TENSOR_PROCESSORS:
+                _fresh.TENSOR_PROCESSORS["exaone"] = _fresh.TENSOR_PROCESSORS["llama"]
+
+        from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+        GGUF_TO_FAST_CONVERTERS.setdefault("exaone", GGUF_TO_FAST_CONVERTERS["llama"])
+
+        _true_fn = _fresh.load_gguf_checkpoint
+
+        def _exaone_load(gguf_path, return_tensors=False, model_to_load=None):
+            kwargs = {"return_tensors": return_tensors}
+            if model_to_load is not None:
+                kwargs["model_to_load"] = model_to_load
+            result = _true_fn(gguf_path, **kwargs)
+            if result.get("config", {}).get("model_type") == "exaone":
+                result["config"]["model_type"] = "llama"
+            return result
+
+        return _exaone_load
+
+    @contextmanager
+    def _exaone_gguf_context(self):
+        """Temporarily install exaone-aware GGUF loading on all relevant modules."""
+        import transformers.configuration_utils as _config_utils
+        import transformers.models.auto.tokenization_auto as _auto_tokenizer
+        import transformers.tokenization_utils_tokenizers as _tok_utils
+
+        _loader = self._make_exaone_loader()
+        mods = [_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils]
+        saved = {mod: getattr(mod, "load_gguf_checkpoint", None) for mod in mods}
+        for mod in mods:
+            if hasattr(mod, "load_gguf_checkpoint"):
+                mod.load_gguf_checkpoint = _loader
+        try:
+            yield
+        finally:
+            for mod, fn in saved.items():
+                if fn is not None:
+                    mod.load_gguf_checkpoint = fn
+
     def _load_tokenizer(self, dtype_override=None):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
         tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+        with self._exaone_gguf_context():
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            )
+
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -93,15 +162,17 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
+            with self._exaone_gguf_context():
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name, gguf_file=self.GGUF_FILE
+                )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        with self._exaone_gguf_context():
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
@@ -141,7 +212,8 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        with self._exaone_gguf_context():
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
         return self.config
