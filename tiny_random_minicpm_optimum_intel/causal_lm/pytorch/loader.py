@@ -8,7 +8,7 @@ Tiny Random MiniCPM (Optimum Intel) model loader implementation for causal langu
 from typing import Optional
 
 import torch
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, DynamicCache
 
 from ....base import ForgeModel
 from ....config import (
@@ -75,6 +75,9 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **tokenizer_kwargs
         )
 
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -88,12 +91,32 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        # transformers 5.x renamed rope_scaling["type"] to rope_scaling["rope_type"] and
+        # omits "factor" for "default" type. The custom model code expects the old format.
+        if isinstance(getattr(config, "rope_scaling", None), dict):
+            rope_type = config.rope_scaling.get(
+                "rope_type", config.rope_scaling.get("type")
             )
+            if rope_type == "default":
+                config.rope_scaling = None
+            elif "type" not in config.rope_scaling:
+                config.rope_scaling["type"] = rope_type
+        # transformers 5.x expects _tied_weights_keys as dict; old custom models use a list.
+        # Disabling tie_word_embeddings bypasses the incompatible tied-weight expansion.
+        config.tie_word_embeddings = False
+
+        # transformers >= 5.x removed DynamicCache.get_usable_length; proxy to get_seq_length.
+        if not hasattr(DynamicCache, "get_usable_length"):
+            DynamicCache.get_usable_length = (
+                lambda self, new_seq_length, layer_idx=0: self.get_seq_length(layer_idx)
+            )
+
+        if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
