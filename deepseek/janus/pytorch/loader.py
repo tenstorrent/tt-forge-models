@@ -26,18 +26,21 @@ from ....tools.utils import cast_input_to_type, get_file
 
 
 class _ForceCPUConstructors(TorchFunctionMode):
-    # Transformers 5.x initializes models under torch.device("meta") via DeviceContext,
-    # which injects device=meta into all tensor constructors (including torch.linspace).
+    # Transformers 5.x initializes models under torch.device("meta") via DeviceContext
+    # (a TorchFunctionMode subclass). DeviceContext has higher priority in the mode stack
+    # and injects device=meta into all tensor constructors (including torch.linspace).
     # Janus's SigLIP ViT calls torch.linspace(...).item() in __init__, which fails on
-    # meta tensors. By sitting above DeviceContext in the TorchFunctionMode stack and
-    # pre-filling device="cpu", we prevent DeviceContext from overriding it to meta.
+    # meta tensors. This mode intercepts after DeviceContext and overrides device=meta
+    # back to CPU for constructor calls so that .item() succeeds.
     def __torch_function__(self, func, types, args=(), kwargs=None):
         kwargs = kwargs or {}
         try:
             from torch.utils._device import _device_constructors
 
-            if func in _device_constructors() and kwargs.get("device") is None:
-                kwargs["device"] = "cpu"
+            if func in _device_constructors():
+                device = kwargs.get("device")
+                if device is not None and torch.device(device).type == "meta":
+                    kwargs["device"] = "cpu"
         except Exception:
             pass
         return func(*args, **kwargs)
