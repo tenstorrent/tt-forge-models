@@ -71,7 +71,24 @@ class ModelLoader(ForgeModel):
         Returns:
             The Merlin nn.Module configured for image-only embedding output.
         """
-        from merlin import Merlin  # type: ignore[import]
+        import sys
+        from pathlib import Path
+
+        # The repo root is inserted at sys.path[0] by the test runner, causing
+        # the local merlin/ model directory to shadow the installed merlin-vlm
+        # package. Temporarily remove it so the installed package is found.
+        models_root = str(Path(__file__).parent.parent.parent)
+        path_idx = sys.path.index(models_root) if models_root in sys.path else None
+        if path_idx is not None:
+            sys.path.pop(path_idx)
+        for key in list(sys.modules.keys()):
+            if key == "merlin" or key.startswith("merlin."):
+                del sys.modules[key]
+        try:
+            from merlin import Merlin  # type: ignore[import]
+        finally:
+            if path_idx is not None:
+                sys.path.insert(path_idx, models_root)
 
         if self._model is None:
             self._model = Merlin(ImageEmbedding=True)
