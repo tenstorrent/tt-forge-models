@@ -15,3 +15,7 @@ results:
   status: "PASS"
   date: "20260423_084151"
   branch: "ip-172-31-23-5-tt-xla-dev/ubuntu/2026-04-23_02-28/hf-bringup-2"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[tora_70b_v1_0/causal_lm/pytorch-Tora_70B_V1_0-single_device-inference]"
+  status: "MODEL_TOO_LARGE"
+  date: "20260423_085621"
+  branch: "ip-172-31-23-5-tt-xla-dev/ubuntu/2026-04-23_02-28/hf-bringup-2"
