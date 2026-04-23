@@ -116,17 +116,18 @@ class ModelLoader(ForgeModel):
 
         # Several loaders in this repo monkey-patch _gguf_utils.load_gguf_checkpoint with
         # a function that lacks the model_to_load parameter added in newer transformers.
-        # modeling_utils.from_pretrained now passes model_to_load; fix by creating a
-        # compat wrapper that delegates tensor loading to the real original.
+        # modeling_utils.from_pretrained now passes model_to_load; restore the real
+        # original (which other loaders save as _orig_load_gguf_checkpoint before patching).
+        # Our qwen2vl mapping patches above are already applied globally, so the real
+        # original will use them correctly.
         try:
             import inspect
             import sys
 
             import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 
-            _current_patch = _gguf_utils.load_gguf_checkpoint
-            if "model_to_load" not in inspect.signature(_current_patch).parameters:
-                _real_orig = None
+            _current = _gguf_utils.load_gguf_checkpoint
+            if "model_to_load" not in inspect.signature(_current).parameters:
                 for _mod in sys.modules.values():
                     _candidate = getattr(_mod, "_orig_load_gguf_checkpoint", None)
                     if _candidate is not None:
@@ -135,30 +136,10 @@ class ModelLoader(ForgeModel):
                                 "model_to_load"
                                 in inspect.signature(_candidate).parameters
                             ):
-                                _real_orig = _candidate
+                                _gguf_utils.load_gguf_checkpoint = _candidate
                                 break
                         except Exception:
                             pass
-
-                if _real_orig is not None:
-
-                    def _compat_load_gguf(
-                        gguf_path, return_tensors=False, model_to_load=None
-                    ):
-                        # Run the patched version without return_tensors so its
-                        # architecture-registration side effects apply, then fetch
-                        # tensors via the real original which supports model_to_load.
-                        result = _current_patch(gguf_path, return_tensors=False)
-                        if return_tensors:
-                            tensor_result = _real_orig(
-                                gguf_path,
-                                return_tensors=True,
-                                model_to_load=model_to_load,
-                            )
-                            result["tensors"] = tensor_result.get("tensors", {})
-                        return result
-
-                    _gguf_utils.load_gguf_checkpoint = _compat_load_gguf
         except Exception:
             pass
 
