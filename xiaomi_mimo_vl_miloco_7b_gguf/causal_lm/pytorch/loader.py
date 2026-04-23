@@ -17,6 +17,44 @@ from transformers import (
 )
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+
+_prev_load_gguf_checkpoint = _gguf_utils.load_gguf_checkpoint
+
+
+def _find_real_load_gguf_checkpoint(fn):
+    """Walk the monkey-patch chain to find the real transformers function."""
+    seen = set()
+    while fn is not None:
+        fid = id(fn)
+        if fid in seen:
+            break
+        seen.add(fid)
+        if getattr(fn, "__module__", "") == "transformers.modeling_gguf_pytorch_utils":
+            return fn
+        globs = getattr(fn, "__globals__", {})
+        nxt = globs.get("_orig_load_gguf_checkpoint") or globs.get(
+            "_prev_load_gguf_checkpoint"
+        )
+        if not callable(nxt):
+            break
+        fn = nxt
+    return fn
+
+
+_real_load_gguf_checkpoint = _find_real_load_gguf_checkpoint(_prev_load_gguf_checkpoint)
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    """Pass-through patch accepting transformers 5.x kwargs like model_to_load."""
+    return _real_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
+
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -86,6 +124,14 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        # Reinstall our pass-through patch to override any broken patches from other
+        # loaders (e.g. tvall43, unified_reward_flex) that don't forward **kwargs
+        # (including model_to_load from transformers 5.x).
+        _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
