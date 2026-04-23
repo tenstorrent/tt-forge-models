@@ -21,7 +21,8 @@ from ...config import (
 )
 from ...base import ForgeModel
 from ...tools.utils import VisionPreprocessor, VisionPostprocessor
-from datasets import load_dataset
+from PIL import Image
+import numpy as np
 
 
 @dataclass
@@ -321,8 +322,9 @@ class ModelLoader(ForgeModel):
             torch.Tensor: Preprocessed input tensor.
         """
         if image is None:
-            dataset = load_dataset("huggingface/cats-image", split="test")
-            image = dataset[0]["image"]
+            image = Image.fromarray(
+                np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8)
+            )
         return self.input_preprocess(
             image=image,
             dtype_override=dtype_override,
