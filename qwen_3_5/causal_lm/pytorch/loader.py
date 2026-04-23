@@ -265,11 +265,15 @@ class ModelLoader(ForgeModel):
             self._load_tokenizer(dtype_override=dtype_override)
 
         # Load the model with dtype override if specified.
-        # NVFP4 models have quantized (half-size) weights; forcing a dtype causes shape
-        # mismatches, so load them in their native quantized format instead.
+        # NVFP4 models pack 2 FP4 values per element, so checkpoint weight shapes are
+        # half the size of the full-precision model. Load without dtype override and with
+        # ignore_mismatched_sizes=True so compile-only tests can proceed with the
+        # correct compute graph structure (weights don't matter for compilation).
         model_kwargs = {}
         if dtype_override is not None and not self._is_nvfp4_variant():
             model_kwargs["torch_dtype"] = dtype_override
+        if self._is_nvfp4_variant():
+            model_kwargs["ignore_mismatched_sizes"] = True
 
         model_kwargs |= kwargs
 
