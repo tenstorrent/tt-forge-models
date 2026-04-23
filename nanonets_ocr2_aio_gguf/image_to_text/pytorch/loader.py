@@ -7,7 +7,7 @@ prithivMLmods/Nanonets-OCR2-3B-AIO-GGUF model loader implementation for image to
 import importlib.metadata
 from typing import Optional
 
-from transformers import AutoModelForImageTextToText, AutoProcessor, AutoConfig
+from transformers import Qwen2VLForConditionalGeneration, AutoProcessor, AutoConfig
 
 
 def _patch_is_gguf_available():
@@ -49,7 +49,39 @@ def _patch_is_gguf_available():
         pass
 
 
+def _patch_gguf_qwen2vl_support():
+    """Patch transformers GGUF utilities to support qwen2vl architecture.
+
+    transformers 5.2.0 does not include qwen2vl in GGUF_SUPPORTED_ARCHITECTURES.
+    This patch adds it using the same config mapping as qwen2. It also patches
+    Qwen2VLConfig to expose num_hidden_layers at the top level (stored in
+    text_config) so that get_gguf_hf_weights_map can find it.
+    """
+    try:
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+        if "qwen2vl" not in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
+            _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("qwen2vl")
+        if "qwen2vl" not in _gguf_utils.GGUF_CONFIG_MAPPING:
+            _gguf_utils.GGUF_CONFIG_MAPPING[
+                "qwen2vl"
+            ] = _gguf_utils.GGUF_CONFIG_MAPPING["qwen2"].copy()
+    except Exception:
+        pass
+
+    try:
+        from transformers.models.qwen2_vl.configuration_qwen2_vl import Qwen2VLConfig
+
+        if not hasattr(Qwen2VLConfig, "num_hidden_layers"):
+            Qwen2VLConfig.num_hidden_layers = property(
+                lambda self: self.text_config.num_hidden_layers
+            )
+    except Exception:
+        pass
+
+
 _patch_is_gguf_available()
+_patch_gguf_qwen2vl_support()
 
 from ....base import ForgeModel
 from ....config import (
@@ -84,6 +116,9 @@ class ModelLoader(ForgeModel):
     _GGUF_FILES = {
         ModelVariant.NANONETS_OCR2_3B_AIO_GGUF: "Nanonets-OCR2-3B.Q4_K_M.gguf",
     }
+
+    # Base Qwen2-VL model for processor and config (GGUF repo lacks these files).
+    BASE_MODEL = "Qwen/Qwen2-VL-2B-Instruct"
 
     sample_image = (
         "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg"
@@ -141,25 +176,28 @@ class ModelLoader(ForgeModel):
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
+        # Load config from GGUF and fix vision_config.hidden_size to match
+        # text_config.hidden_size. The Qwen2VLConfig default vision hidden_size
+        # (3584) does not match the GGUF text hidden_size (2048 for this model),
+        # causing the vision merger output dim to mismatch text embeddings.
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, gguf_file=self._gguf_file
+        )
+        config.vision_config.hidden_size = config.text_config.hidden_size
+        if self.num_layers is not None:
+            config.text_config.num_hidden_layers = self.num_layers
+
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self._gguf_file
+        model_kwargs["config"] = config
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self._gguf_file
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        # GGUF repos do not ship a processor; load from the Qwen2-VL base model.
+        self.processor = AutoProcessor.from_pretrained(self.BASE_MODEL)
 
-        # GGUF repos do not ship a processor; load from the base model.
-        self.processor = AutoProcessor.from_pretrained(
-            "prithivMLmods/Nanonets-OCR2-3B-AIO"
-        )
-
-        model = AutoModelForImageTextToText.from_pretrained(
+        model = Qwen2VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
 
@@ -199,7 +237,9 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
+        config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self._gguf_file
         )
+        config.vision_config.hidden_size = config.text_config.hidden_size
+        self.config = config
         return self.config
