@@ -52,6 +52,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.pipe = None
+        self.guidance_scale = 3.5
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -202,10 +203,17 @@ class ModelLoader(ForgeModel):
         )
         latent_image_ids = latent_image_ids.reshape(-1, 3).to(dtype=dtype)
 
+        do_classifier_free_guidance = self.guidance_scale > 1.0
+        guidance = (
+            torch.full([batch_size], self.guidance_scale, dtype=dtype)
+            if do_classifier_free_guidance
+            else None
+        )
+
         inputs = {
             "hidden_states": latents,
             "timestep": torch.tensor([1.0], dtype=dtype),
-            "guidance": None,
+            "guidance": guidance,
             "pooled_projections": pooled_prompt_embeds,
             "encoder_hidden_states": prompt_embeds,
             "txt_ids": text_ids,
