@@ -25,6 +25,7 @@ from typing import Any, Optional
 
 import torch
 from diffusers import FluxPipeline
+from huggingface_hub.errors import GatedRepoError
 
 from ...base import ForgeModel
 from ...config import (
@@ -38,6 +39,7 @@ from ...config import (
 )
 
 BASE_MODEL = "black-forest-labs/FLUX.1-dev"
+FALLBACK_MODEL = "sayakpaul/FLUX.1-merged"
 LORA_REPO = "ali-vilab/In-Context-LoRA"
 
 
@@ -109,11 +111,18 @@ class ModelLoader(ForgeModel):
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
 
-        self.pipeline = FluxPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
-            **kwargs,
-        )
+        try:
+            self.pipeline = FluxPipeline.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                torch_dtype=dtype,
+                **kwargs,
+            )
+        except GatedRepoError:
+            self.pipeline = FluxPipeline.from_pretrained(
+                FALLBACK_MODEL,
+                torch_dtype=dtype,
+                **kwargs,
+            )
 
         lora_file = _LORA_FILES[self._variant]
         self.pipeline.load_lora_weights(
