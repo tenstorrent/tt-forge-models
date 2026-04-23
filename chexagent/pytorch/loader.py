@@ -5,11 +5,26 @@
 CheXagent model loader implementation for chest X-ray vision-language tasks.
 """
 
+import contextlib
+
+import transformers as _transformers_module
 import transformers.utils as _transformers_utils
 
 # is_tf_available was removed in transformers 5.x but is used by CheXagent's remote tokenizer code
 if not hasattr(_transformers_utils, "is_tf_available"):
     _transformers_utils.is_tf_available = lambda: False
+
+
+@contextlib.contextmanager
+def _spoof_transformers_version(version: str):
+    """CheXagent's modeling_visual.py asserts transformers==4.40.0; spoof the version temporarily."""
+    original = _transformers_module.__version__
+    _transformers_module.__version__ = version
+    try:
+        yield
+    finally:
+        _transformers_module.__version__ = original
+
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
@@ -67,10 +82,11 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self):
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
-        )
+        with _spoof_transformers_version("4.40.0"):
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                trust_remote_code=True,
+            )
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -86,9 +102,10 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        with _spoof_transformers_version("4.40.0"):
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
         model.eval()
         return model
 
