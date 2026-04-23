@@ -28,7 +28,6 @@ from ...tools.utils import (
     VisionPreprocessor,
     VisionPostprocessor,
 )
-from datasets import load_dataset
 from transformers import EfficientNetForImageClassification
 import timm
 
@@ -468,14 +467,13 @@ class ModelLoader(ForgeModel):
         Args:
             dtype_override: Optional torch.dtype override.
             batch_size: Batch size (default: 1).
-            image: Optional input image. If None, loads from HuggingFace datasets.
+            image: Optional input image. If None, uses a dummy RGB image.
 
         Returns:
             torch.Tensor: Preprocessed input tensor.
         """
         if image is None:
-            dataset = load_dataset("huggingface/cats-image", split="test")
-            image = dataset[0]["image"]
+            image = Image.new("RGB", (224, 224))
         return self.input_preprocess(
             image=image,
             dtype_override=dtype_override,
