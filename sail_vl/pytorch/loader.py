@@ -161,6 +161,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
+        import sys
         import transformers.processing_utils as _pu
 
         if not hasattr(_pu, "_validate_images_text_input_order"):
@@ -169,6 +170,13 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
         )
+        # SAILVLConfig default llm_config uses Qwen2ForCausalLM which the cached code
+        # does not handle; setting has_no_defaults_at_init skips the no-arg instantiation
+        # in to_diff_dict() that would otherwise raise ValueError.
+        for mod_name, module in list(sys.modules.items()):
+            if "configuration_sailvl" in mod_name and hasattr(module, "SAILVLConfig"):
+                module.SAILVLConfig.has_no_defaults_at_init = True
+                break
         return self.processor
 
     def _load_tokenizer(self):
