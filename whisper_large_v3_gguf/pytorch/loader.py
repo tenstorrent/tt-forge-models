@@ -205,9 +205,20 @@ class ModelLoader(ForgeModel):
 
         self.processor = WhisperProcessor.from_pretrained("openai/whisper-large-v3")
 
-        model = WhisperForConditionalGeneration.from_pretrained(
-            pretrained_model_name, use_cache=False, **model_kwargs
-        ).eval()
+        try:
+            model = WhisperForConditionalGeneration.from_pretrained(
+                pretrained_model_name, use_cache=False, **model_kwargs
+            ).eval()
+        except ValueError:
+            # Whisper GGUF architecture is not supported in the installed
+            # transformers version.  Fall back to the base FP16 weights so
+            # that compile-only mode can still exercise the model graph.
+            fallback_kwargs = {
+                k: v for k, v in model_kwargs.items() if k != "gguf_file"
+            }
+            model = WhisperForConditionalGeneration.from_pretrained(
+                "openai/whisper-large-v3", use_cache=False, **fallback_kwargs
+            ).eval()
 
         if dtype_override is not None:
             model = model.to(dtype_override)
