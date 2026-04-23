@@ -5,15 +5,16 @@
 OpenVLA model loader implementation for action prediction.
 """
 import glob
+import io
 import os
 import shutil
 import sys
+import urllib.request
 import torch
 from pathlib import Path
 from transformers import AutoProcessor
 from PIL import Image
 from typing import Optional
-from datasets import load_dataset
 
 from ...base import ForgeModel
 from ...config import (
@@ -252,9 +253,10 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        # Load image from HuggingFace dataset
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"].convert("RGB")
+        # Load a sample image directly from URL (avoids datasets._dill spacy check
+        # that fails when the local spacy/ model dir shadows the real spacy package)
+        image_bytes = urllib.request.urlopen(self.sample_image_url).read()
+        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
         # Choose the prompt based on variant
         sample_prompt = (
