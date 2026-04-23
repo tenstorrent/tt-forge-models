@@ -82,23 +82,24 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             load_kwargs["torch_dtype"] = dtype_override
 
-        # diffusers auto-detects FLUX.1-Kontext-dev as "flux-depth" (due to in_channels=128)
-        # and tries to load config from black-forest-labs/FLUX.1-Depth-dev, which is private.
-        # We supply the correct config explicitly to bypass this broken auto-detection.
+        # diffusers auto-detects FLUX.1-Kontext-dev GGUF as "flux-depth" because
+        # GGUFParameter.shape returns quantized byte dimensions (shape[1]=128) rather than
+        # the actual float in_channels (64). This causes it to load config from
+        # black-forest-labs/FLUX.1-Depth-dev, which is private/non-existent.
+        # The GGUF is actually standard FLUX.1-dev architecture fine-tuned for Kontext.
         flux_kontext_config = {
             "_class_name": "FluxTransformer2DModel",
             "_diffusers_version": "0.33.0",
             "attention_head_dim": 128,
             "axes_dims_rope": [16, 56, 56],
             "guidance_embeds": True,
-            "in_channels": 128,
-            "out_channels": 64,
-            "joint_attention_dim": 8192,
+            "in_channels": 64,
+            "joint_attention_dim": 4096,
             "num_attention_heads": 24,
             "num_layers": 19,
             "num_single_layers": 38,
             "patch_size": 1,
-            "pooled_projection_dim": 1536,
+            "pooled_projection_dim": 768,
         }
 
         with tempfile.TemporaryDirectory() as config_dir:
