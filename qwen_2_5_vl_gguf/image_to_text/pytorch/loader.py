@@ -5,7 +5,7 @@
 Qwen 2.5 VL GGUF model loader implementation for image to text.
 """
 
-from transformers import AutoModelForImageTextToText, AutoProcessor, AutoConfig
+from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -43,9 +43,12 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.QWEN_2_5_VL_72B_INSTRUCT_GGUF
 
-    _GGUF_FILES = {
-        ModelVariant.QWEN_2_5_VL_72B_INSTRUCT_GGUF: "Qwen2.5-VL-72B-Instruct-Q4_K_M.gguf",
-        ModelVariant.BARTOWSKI_QWEN_2_5_VL_72B_INSTRUCT_GGUF: "Qwen_Qwen2.5-VL-72B-Instruct-Q4_K_M.gguf",
+    # GGUF repos only carry quantized weights without full VL config/processor.
+    # Load model, processor, and config from the canonical base model repo instead,
+    # since transformers does not support the qwen2vl GGUF architecture.
+    _BASE_MODEL_NAMES = {
+        ModelVariant.QWEN_2_5_VL_72B_INSTRUCT_GGUF: "Qwen/Qwen2.5-VL-72B-Instruct",
+        ModelVariant.BARTOWSKI_QWEN_2_5_VL_72B_INSTRUCT_GGUF: "Qwen/Qwen2.5-VL-72B-Instruct",
     }
 
     sample_image = (
@@ -53,19 +56,12 @@ class ModelLoader(ForgeModel):
     )
 
     @property
-    def _gguf_file(self):
-        return self._GGUF_FILES[self._variant]
+    def _base_model_name(self):
+        return self._BASE_MODEL_NAMES[self._variant]
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
     ):
-        """Initialize ModelLoader with specified variant.
-
-        Args:
-            variant: Optional ModelVariant specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-            num_layers: Optional number of hidden layers to use.
-        """
         super().__init__(variant)
         self.processor = None
         self.config = None
@@ -73,15 +69,6 @@ class ModelLoader(ForgeModel):
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
-        """Implementation method for getting model info with validated variant.
-
-        Args:
-            variant: Optional ModelVariant specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-
-        Returns:
-            ModelInfo: Information about the model and variant
-        """
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
@@ -93,49 +80,36 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _load_processor(self):
+        self.processor = AutoProcessor.from_pretrained(self._base_model_name)
+        return self.processor
+
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Qwen 2.5 VL GGUF model instance.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-
-        Returns:
-            torch.nn.Module: The Qwen 2.5 VL GGUF model instance for image to text.
-        """
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self._gguf_file
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self._gguf_file
-            )
+            config = AutoConfig.from_pretrained(self._base_model_name)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
-
-        model = AutoModelForImageTextToText.from_pretrained(
-            pretrained_model_name, **model_kwargs
+        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+            self._base_model_name, **model_kwargs
         ).eval()
 
         self.config = model.config
+
+        if self.processor is None:
+            self._load_processor()
+
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the Qwen 2.5 VL GGUF model.
+        if self.processor is None:
+            self._load_processor()
 
-        Args:
-            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
-            batch_size: Batch size for the inputs.
-
-        Returns:
-            dict: Input tensors that can be fed to the model.
-        """
         messages = [
             {
                 "role": "user",
@@ -159,7 +133,5 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self._gguf_file
-        )
+        self.config = AutoConfig.from_pretrained(self._base_model_name)
         return self.config
