@@ -4,9 +4,6 @@
 """
 Depth Anything 3 Mono model loader implementation for monocular depth estimation.
 """
-from PIL import Image
-from torchvision import transforms
-from depth_anything_3.api import DepthAnything3
 from typing import Optional
 
 from ...config import (
@@ -56,6 +53,8 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from depth_anything_3.api import DepthAnything3
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model = DepthAnything3.from_pretrained(pretrained_model_name)
@@ -68,6 +67,9 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
+        from PIL import Image
+        from torchvision import transforms
+
         image = Image.new("RGB", (518, 518))
 
         transform = transforms.Compose(
