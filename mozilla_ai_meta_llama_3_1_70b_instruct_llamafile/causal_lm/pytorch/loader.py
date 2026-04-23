@@ -4,7 +4,10 @@
 """
 Mozilla-AI Meta-Llama-3.1-70B-Instruct-llamafile model loader implementation for causal language modeling.
 """
+import zipfile
 import torch
+from pathlib import Path
+from huggingface_hub import hf_hub_download
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -41,6 +44,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.META_LLAMA_3_1_70B_INSTRUCT_Q4_K_M_LLAMAFILE
 
     GGUF_FILE = "Meta-Llama-3.1-70B-Instruct.Q4_K_M.llamafile"
+    GGUF_EXTRACTED_NAME = "Meta-Llama-3.1-70B-Instruct.Q4_K_M.gguf"
 
     sample_text = "What is the capital of France?"
 
@@ -63,41 +67,56 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _extract_gguf(self) -> tuple[str, str]:
+        """Download llamafile and extract embedded GGUF, returning (snapshot_dir, gguf_filename)."""
+        llamafile_path = Path(
+            hf_hub_download(
+                repo_id=self._variant_config.pretrained_model_name,
+                filename=self.GGUF_FILE,
+            )
+        )
+        snapshot_dir = llamafile_path.parent
+        gguf_path = snapshot_dir / self.GGUF_EXTRACTED_NAME
+
+        if not gguf_path.exists():
+            with zipfile.ZipFile(llamafile_path) as zf:
+                gguf_members = [f for f in zf.namelist() if f.endswith(".gguf")]
+                if not gguf_members:
+                    raise ValueError(f"No GGUF file found inside {self.GGUF_FILE}")
+                zf.extract(gguf_members[0], snapshot_dir)
+
+        return str(snapshot_dir), self.GGUF_EXTRACTED_NAME
+
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
+        snapshot_dir, gguf_filename = self._extract_gguf()
+        tokenizer_kwargs = {"gguf_file": gguf_filename}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+        self.tokenizer = AutoTokenizer.from_pretrained(snapshot_dir, **tokenizer_kwargs)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        snapshot_dir, gguf_filename = self._extract_gguf()
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
+        model_kwargs = {"gguf_file": gguf_filename}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
+            config = AutoConfig.from_pretrained(snapshot_dir, gguf_file=gguf_filename)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            snapshot_dir, **model_kwargs
         ).eval()
 
         self.config = model.config
@@ -145,7 +164,6 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        snapshot_dir, gguf_filename = self._extract_gguf()
+        self.config = AutoConfig.from_pretrained(snapshot_dir, gguf_file=gguf_filename)
         return self.config
