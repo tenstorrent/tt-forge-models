@@ -10,6 +10,16 @@ from typing import Optional
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_CONFIG_MAPPING, GGUF_TO_FAST_CONVERTERS
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -20,6 +30,58 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_mistral3_support():
+    """Register mistral3 GGUF architecture so transformers can load Ministral 3 GGUF files.
+
+    The Ministral-3 GGUF files use the mistral3 architecture which is not yet
+    supported by transformers. This patch reuses the mistral config mapping and
+    maps the model_type to the existing MistralForCausalLM class.
+    """
+    if "mistral3" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("mistral3")
+    if "mistral3" not in GGUF_CONFIG_MAPPING:
+        GGUF_CONFIG_MAPPING["mistral3"] = GGUF_CONFIG_MAPPING["mistral"]
+    for section, mapping in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING.items():
+        if section == "config":
+            mapping.setdefault("mistral3", GGUF_CONFIG_MAPPING["mistral"])
+        else:
+            mapping.setdefault("mistral3", {})
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
+    _patch_mistral3_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
+    )
+    if result.get("config", {}).get("model_type") == "mistral3":
+        result["config"]["model_type"] = "mistral"
+        result["config"].setdefault("architectures", ["MistralForCausalLM"])
+    return result
+
+
+_orig_get_gguf_hf_weights_map = _gguf_utils.get_gguf_hf_weights_map
+
+
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
+    if model_type is None:
+        model_type = hf_model.config.model_type
+    if model_type == "mistral":
+        model_type = "mistral3"
+    return _orig_get_gguf_hf_weights_map(
+        hf_model, processor, model_type, num_layers, qual_name
+    )
+
+
+_patch_mistral3_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 
 class ModelVariant(StrEnum):
