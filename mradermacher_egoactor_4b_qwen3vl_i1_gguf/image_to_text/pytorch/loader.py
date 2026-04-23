@@ -5,6 +5,7 @@
 mradermacher EgoActor 4B Qwen3VL i1 GGUF model loader implementation for image to text.
 """
 
+from huggingface_hub import hf_hub_download
 from transformers import (
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
@@ -41,7 +42,9 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.EGOACTOR_4B_QWEN3VL_I1_GGUF
 
+    GGUF_REPO = "mradermacher/EgoActor-4b-Qwen3VL-i1-GGUF"
     GGUF_FILE = "EgoActor-4b-Qwen3VL.i1-Q4_K_M.gguf"
+    BASE_MODEL = "BAAI-Agents/EgoActor-4b-Qwen3VL"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -61,21 +64,19 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs["gguf_file"] = self.GGUF_FILE
         model_kwargs |= kwargs
 
-        # GGUF repos do not ship a processor; use the upstream unquantized model
-        self.processor = AutoProcessor.from_pretrained(
-            "BAAI-Agents/EgoActor-4b-Qwen3VL"
-        )
+        # GGUF repos do not ship config.json; download weights and use base model for config
+        gguf_path = hf_hub_download(repo_id=self.GGUF_REPO, filename=self.GGUF_FILE)
+        model_kwargs["gguf_file"] = gguf_path
+
+        self.processor = AutoProcessor.from_pretrained(self.BASE_MODEL)
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            self.BASE_MODEL, **model_kwargs
         )
         model.eval()
 
