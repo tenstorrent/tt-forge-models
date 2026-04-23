@@ -68,11 +68,8 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         """Load and return the Distill-NeuCodec model instance.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
             torch.nn.Module: The Distill-NeuCodec encoder wrapper.
@@ -82,10 +79,6 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         codec = DistillNeuCodec.from_pretrained(pretrained_model_name, **kwargs)
-
-        if dtype_override is not None:
-            codec = codec.to(dtype=dtype_override)
-
         codec.eval()
 
         class DistillNeuCodecEncoder(torch.nn.Module):
@@ -100,22 +93,13 @@ class ModelLoader(ForgeModel):
         self.model = model
         return model
 
-    def load_inputs(self, dtype_override=None):
+    def load_inputs(self):
         """Load and return sample inputs for the Distill-NeuCodec model.
 
         The model expects 16kHz mono audio with shape (batch, channels, time).
-
-        Args:
-            dtype_override: Optional torch.dtype to override the input tensor's default dtype.
 
         Returns:
             torch.Tensor: Audio tensor with shape (1, 1, 16000) representing
                          1 second of 16kHz mono audio.
         """
-        # Generate 1 second of random 16kHz mono audio
-        audio = torch.randn(1, 1, 16000)
-
-        if dtype_override is not None:
-            audio = audio.to(dtype_override)
-
-        return audio
+        return torch.randn(1, 1, 16000)
