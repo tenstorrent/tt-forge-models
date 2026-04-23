@@ -101,6 +101,19 @@ class ModelLoader(ForgeModel):
         except Exception:
             pass
 
+        # The tokenizer fast-converter also keyed on the GGUF architecture name; add
+        # "qwen2vl" so convert_gguf_tokenizer can find the qwen2 converter.
+        try:
+            from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+            if (
+                "qwen2vl" not in GGUF_TO_FAST_CONVERTERS
+                and "qwen2" in GGUF_TO_FAST_CONVERTERS
+            ):
+                GGUF_TO_FAST_CONVERTERS["qwen2vl"] = GGUF_TO_FAST_CONVERTERS["qwen2"]
+        except Exception:
+            pass
+
         tokenizer_kwargs = {"gguf_file": self.GGUF_FILE}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
