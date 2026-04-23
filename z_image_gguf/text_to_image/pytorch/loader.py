@@ -148,30 +148,21 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_transformer_inputs(self, **kwargs):
-        """Prepare random inputs for the transformer variant."""
+        """Prepare random inputs for the transformer variant.
+
+        ZImageTransformer2DModel.forward(x, t, cap_feats):
+          x: list of (C, F, H, W) latent tensors, one per batch item
+          t: (batch,) timestep
+          cap_feats: list of (seq_len, cap_feat_dim=2560) caption feature tensors
+        """
         dtype = kwargs.get("dtype_override", torch.bfloat16)
-        batch_size = kwargs.get("batch_size", 1)
-        height = 128
-        width = 128
+        latent_h = 32
+        latent_w = 32
+        cap_seq_len = 32
+        cap_feat_dim = 2560
 
-        # Approximate latent dimensions
-        latent_h = height // 16
-        latent_w = width // 16
-        num_channels = 64
+        x = [torch.randn(LATENT_CHANNELS, 1, latent_h, latent_w, dtype=dtype)]
+        t = torch.tensor([0.5], dtype=dtype)
+        cap_feats = [torch.randn(cap_seq_len, cap_feat_dim, dtype=dtype)]
 
-        hidden_states = torch.randn(
-            batch_size, latent_h * latent_w, num_channels, dtype=dtype
-        )
-        timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
-        # Dummy encoder hidden states (text embeddings)
-        encoder_hidden_states = torch.randn(batch_size, 128, 4096, dtype=dtype)
-        txt_ids = torch.zeros(batch_size, 128, 3, dtype=dtype)
-        img_ids = torch.zeros(batch_size, latent_h * latent_w, 3, dtype=dtype)
-
-        return {
-            "hidden_states": hidden_states,
-            "timestep": timestep,
-            "encoder_hidden_states": encoder_hidden_states,
-            "txt_ids": txt_ids,
-            "img_ids": img_ids,
-        }
+        return {"x": x, "t": t, "cap_feats": cap_feats, "return_dict": False}
