@@ -87,12 +87,10 @@ class ModelLoader(ForgeModel):
 
         model_kwargs |= kwargs
 
-        config = AutoConfig.from_pretrained(pretrained_model_name)
         if self.num_layers is not None:
+            config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
-        # FP8 quantization requires triton (GPU-only); clear it to load as bfloat16
-        config.quantization_config = None
-        model_kwargs["config"] = config
+            model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
