@@ -20,7 +20,6 @@ from ...config import (
 )
 from ...base import ForgeModel
 from ...tools.utils import VisionPreprocessor
-from datasets import load_dataset
 
 
 @dataclass
@@ -89,8 +88,12 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None, batch_size=1, image=None):
         if image is None:
-            dataset = load_dataset("huggingface/cats-image", split="test")
-            image = dataset[0]["image"]
+            import numpy as np
+            from PIL import Image
+
+            image = Image.fromarray(
+                np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8)
+            )
 
         if self._preprocessor is None:
             model_name = self._variant_config.pretrained_model_name
