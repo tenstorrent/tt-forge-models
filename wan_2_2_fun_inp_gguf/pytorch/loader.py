@@ -77,6 +77,10 @@ class ModelLoader(ForgeModel):
             torch_dtype=compute_dtype,
         )
 
+        # GGUF-quantized layers don't support standard nn.Module.to() dtype
+        # casting; the compute dtype is already set via GGUFQuantizationConfig.
+        self.transformer.to = lambda *args, **kwargs: self.transformer
+
         return self.transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
