@@ -55,8 +55,14 @@ class ModelLoader(ForgeModel):
         transformers caches PACKAGE_DISTRIBUTION_MAPPING at import time. When gguf
         is installed later, the mapping is stale and version detection falls back to
         gguf.__version__ which doesn't exist, yielding 'N/A' and crashing version.parse.
+        Also registers lfm2 architecture in GGUF_TO_FAST_CONVERTERS using GGUFGPTConverter
+        since LFM2 uses a gpt2 tokenizer model.
         """
         import transformers.utils.import_utils as _import_utils
+        from transformers.integrations.ggml import (
+            GGUF_TO_FAST_CONVERTERS,
+            GGUFGPTConverter,
+        )
 
         if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
             try:
@@ -65,6 +71,9 @@ class ModelLoader(ForgeModel):
                 _import_utils.is_gguf_available.cache_clear()
             except importlib.metadata.PackageNotFoundError:
                 pass
+
+        if "lfm2" not in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS["lfm2"] = GGUFGPTConverter
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
