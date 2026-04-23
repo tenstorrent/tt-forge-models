@@ -6,7 +6,8 @@ Aesthetics Predictor V2 model loader implementation for image aesthetic score pr
 """
 
 import torch
-from transformers import AutoModel, CLIPProcessor
+from transformers import AutoConfig, CLIPProcessor
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
 from datasets import load_dataset
 from typing import Optional
 
@@ -68,12 +69,19 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(
-            pretrained_model_name, trust_remote_code=True, **model_kwargs
+        # Load the config then directly instantiate the remote model class to avoid
+        # config_class mismatch validation added in transformers 5.x (AutoModel
+        # rejects models whose config_class != the loaded config class).
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
         )
+        model_class = get_class_from_dynamic_module(
+            config.auto_map["AutoModel"], pretrained_model_name
+        )
+        model = model_class.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
 
         return model
