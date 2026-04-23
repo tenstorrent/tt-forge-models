@@ -31,19 +31,25 @@ from ....config import (
 
 
 def _patch_qwen35_support():
-    """Register qwen35 architecture and qwen3_5_text tokenizer as aliases for qwen3.
+    """Register qwen35 as an alias for qwen3 with corrected head_dim mapping.
 
-    Qwen 3.5 uses the same model architecture as Qwen 3 but the GGUF file
-    declares architecture as 'qwen35' and tokenizer class as 'qwen3_5_text',
-    which transformers 5.x does not yet recognise.
+    Qwen3.5 GGUF files declare architecture as 'qwen35' and use head_dim=256
+    (via attention.key_length=256) with 16 attention heads. Without registering
+    the key_length -> head_dim mapping, Qwen3Config defaults to head_dim=128,
+    causing weight shape mismatches on q_norm and o_proj.
     """
     if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
         GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
     for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
         if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            base_mapping = dict(
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"]
+            )
+            if section == "config":
+                base_mapping.setdefault("attention.key_length", "head_dim")
             _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
                 "qwen35",
-                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
+                base_mapping,
             )
     if "qwen3" in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
