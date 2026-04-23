@@ -85,7 +85,7 @@ class ModelLoader(ForgeModel):
         if hasattr(config, "quantization_config") and not hasattr(
             config.quantization_config, "quant_method"
         ):
-            config.quantization_config = None
+            del config.quantization_config
         model_kwargs["config"] = config
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
