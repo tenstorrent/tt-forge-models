@@ -33,12 +33,13 @@ def _patch_transformers_deepseek2_gguf():
     )
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
 
-    if "deepseek2" in GGUF_SUPPORTED_ARCHITECTURES:
+    if (
+        "deepseek2" in GGUF_SUPPORTED_ARCHITECTURES
+        and "deepseek_v2" in GGUF_SUPPORTED_ARCHITECTURES
+    ):
         return  # Already patched
 
-    GGUF_SUPPORTED_ARCHITECTURES.append("deepseek2")
-
-    GGUF_TO_TRANSFORMERS_MAPPING["config"]["deepseek2"] = {
+    _deepseek_config_mapping = {
         "context_length": "max_position_embeddings",
         "block_count": "num_hidden_layers",
         "feed_forward_length": "intermediate_size",
@@ -66,20 +67,34 @@ def _patch_transformers_deepseek2_gguf():
         "expert_feed_forward_length": "moe_intermediate_size",
     }
 
+    for arch in ("deepseek2", "deepseek_v2"):
+        if arch not in GGUF_SUPPORTED_ARCHITECTURES:
+            GGUF_SUPPORTED_ARCHITECTURES.append(arch)
+        if arch not in GGUF_TO_TRANSFORMERS_MAPPING["config"]:
+            GGUF_TO_TRANSFORMERS_MAPPING["config"][arch] = _deepseek_config_mapping
+
     from transformers.integrations.ggml import (
         GGUF_TO_FAST_CONVERTERS,
         GGUFQwen2Converter,
     )
 
-    if "deepseek2" not in GGUF_TO_FAST_CONVERTERS:
-        GGUF_TO_FAST_CONVERTERS["deepseek2"] = GGUFQwen2Converter
+    for arch in ("deepseek2", "deepseek_v2"):
+        if arch not in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS[arch] = GGUFQwen2Converter
 
     orig_load = gguf_utils.load_gguf_checkpoint
 
     def patched_load_gguf_checkpoint(*args, **kwargs):
         result = orig_load(*args, **kwargs)
         config = result.get("config", {})
-        if config.get("model_type") == "deepseek2":
+        if config.get("model_type") in ("deepseek2", "deepseek_v2"):
+            # In GGUF, attention.key_length_mla = qk_nope_head_dim + qk_rope_head_dim
+            # (the full per-head query dimension), but the transformers mapping assigns
+            # it directly to qk_nope_head_dim. Correct by subtracting qk_rope_head_dim.
+            qk_rope = config.get("qk_rope_head_dim", 0)
+            qk_head_total = config.get("qk_nope_head_dim", 0)
+            if qk_rope and qk_head_total:
+                config["qk_nope_head_dim"] = qk_head_total - qk_rope
             config["model_type"] = "deepseek_v2"
         return result
 
@@ -92,6 +107,19 @@ def _patch_transformers_deepseek2_gguf():
     for mod in (tok_auto, config_utils, modeling_utils):
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type == "deepseek_v2":
+            model_type = "deepseek2"
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
 
 
 _patch_transformers_deepseek2_gguf()
