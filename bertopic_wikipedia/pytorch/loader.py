@@ -11,7 +11,7 @@ underlying embedding backbone. This loader exposes that embedding transformer
 as a torch.nn.Module for compile/inference testing.
 """
 import torch
-from transformers import AutoTokenizer
+from transformers import AutoModel, AutoTokenizer
 from typing import Optional
 
 from ...base import ForgeModel
@@ -76,17 +76,10 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from bertopic import BERTopic
-
-        self.topic_model = BERTopic.load(self._variant_config.pretrained_model_name)
-
-        # BERTopic wraps a sentence_transformers.SentenceTransformer. The first
-        # pipeline module is the Transformer wrapper exposing `.auto_model`.
-        sentence_transformer = self.topic_model.embedding_model.embedding_model
-        transformer_module = sentence_transformer[0]
-        self.tokenizer = transformer_module.tokenizer
-
-        model = transformer_module.auto_model
+        # Load the embedding backbone directly to avoid the bertopic -> sentence_transformers
+        # import chain which conflicts with the local sentence_transformers namespace package.
+        self.tokenizer = AutoTokenizer.from_pretrained(self.embedding_model_name)
+        model = AutoModel.from_pretrained(self.embedding_model_name)
 
         if dtype_override is not None:
             model = model.to(dtype_override)
