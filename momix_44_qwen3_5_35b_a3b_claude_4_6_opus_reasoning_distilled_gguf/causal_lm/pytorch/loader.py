@@ -24,8 +24,12 @@ def _patch_transformers_qwen35moe_gguf():
     """Monkey-patch transformers to add qwen35moe GGUF architecture support.
 
     Transformers 5.x has Qwen3_5MoeForCausalLM but lacks GGUF loading support
-    for the qwen35moe architecture. We bridge the gap by registering qwen35moe
-    config/tensor mappings and converting the model_type to qwen3_5_moe_text.
+    for the qwen35moe architecture. The challenge is that transformers uses a
+    substring check ("qwen3moe" in architecture) which incorrectly matches
+    "qwen35moe", routing it to Qwen3MoeForCausalLM (per-expert weights) instead
+    of the correct Qwen3_5MoeForCausalLM (packed gate_up_proj weights). We fix
+    this by detecting the qwen35moe case via the full_attention_interval field
+    (unique to Qwen3.5 MoE) and rerouting to qwen3_5_moe_text.
     """
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
@@ -40,23 +44,33 @@ def _patch_transformers_qwen35moe_gguf():
     # 1. Register qwen35moe as a supported architecture
     GGUF_SUPPORTED_ARCHITECTURES.append("qwen35moe")
 
-    # 2. Add config mapping for qwen35moe (based on qwen3_moe + Qwen3.5 fields)
-    GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen35moe"] = {
-        "context_length": "max_position_embeddings",
-        "block_count": "num_hidden_layers",
-        "feed_forward_length": "intermediate_size",
-        "embedding_length": "hidden_size",
-        "rope.dimension_count": None,
-        "rope.freq_base": "rope_theta",
-        "attention.key_length": "head_dim",
-        "attention.head_count": "num_attention_heads",
-        "attention.head_count_kv": "num_key_value_heads",
-        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
-        "vocab_size": "vocab_size",
-        "expert_count": "num_experts",
-        "expert_used_count": "num_experts_per_tok",
-        "full_attention_interval": "full_attention_interval",
-    }
+    # 2. Add config mapping for qwen35moe. Note: due to the substring match
+    #    "qwen3moe" in "qwen35moe", transformers rewrites the GGUF architecture
+    #    to "qwen3_moe" before key lookup. So we add full_attention_interval to
+    #    the qwen3_moe mapping so it gets captured from qwen35moe GGUF files.
+    GGUF_TO_TRANSFORMERS_MAPPING["config"].setdefault("qwen35moe", {}).update(
+        {
+            "context_length": "max_position_embeddings",
+            "block_count": "num_hidden_layers",
+            "feed_forward_length": "intermediate_size",
+            "embedding_length": "hidden_size",
+            "rope.dimension_count": None,
+            "rope.freq_base": "rope_theta",
+            "attention.key_length": "head_dim",
+            "attention.head_count": "num_attention_heads",
+            "attention.head_count_kv": "num_key_value_heads",
+            "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+            "vocab_size": "vocab_size",
+            "expert_count": "num_experts",
+            "expert_used_count": "num_experts_per_tok",
+            "full_attention_interval": "full_attention_interval",
+        }
+    )
+    # Because qwen35moe keys become qwen3_moe keys via substring replacement,
+    # we must also register full_attention_interval in the qwen3_moe mapping.
+    GGUF_TO_TRANSFORMERS_MAPPING["config"].setdefault("qwen3_moe", {}).setdefault(
+        "full_attention_interval", "full_attention_interval"
+    )
 
     # 3. Reuse qwen3moe tensor processor for qwen35moe
     if "qwen3moe" in TENSOR_PROCESSORS:
@@ -71,15 +85,23 @@ def _patch_transformers_qwen35moe_gguf():
             "qwen3_moe"
         ]
 
-    # 5. Patch load_gguf_checkpoint to handle qwen35moe -> qwen3_5_moe_text
+    # 5. Patch load_gguf_checkpoint to detect qwen35moe (disguised as qwen3_moe
+    #    due to the substring match) and convert it to qwen3_5_moe_text so the
+    #    correct Qwen3_5MoeForCausalLM is instantiated with packed expert weights.
     orig_load = gguf_utils.load_gguf_checkpoint
 
     def patched_load_gguf_checkpoint(*args, **kwargs):
         result = orig_load(*args, **kwargs)
-        if result.get("config", {}).get("model_type") == "qwen35moe":
-            result["config"]["model_type"] = "qwen3_5_moe_text"
-            # Generate layer_types from full_attention_interval
-            config = result["config"]
+        config = result.get("config", {})
+        model_type = config.get("model_type")
+        # qwen35moe is misidentified as qwen3_moe due to the substring match
+        # "qwen3moe" in "qwen35moe". Detect it via full_attention_interval which
+        # is unique to Qwen3.5 MoE and absent in Qwen3 MoE.
+        is_qwen35moe = model_type == "qwen35moe" or (
+            model_type == "qwen3_moe" and "full_attention_interval" in config
+        )
+        if is_qwen35moe:
+            config["model_type"] = "qwen3_5_moe_text"
             num_layers = config.get("num_hidden_layers", 40)
             interval = config.pop("full_attention_interval", 4)
             layer_types = []
@@ -102,7 +124,9 @@ def _patch_transformers_qwen35moe_gguf():
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
-    # 6. Patch get_gguf_hf_weights_map to handle qwen3_5_moe_text -> qwen35moe
+    # 6. Patch get_gguf_hf_weights_map to handle qwen3_5_moe_text -> qwen35moe.
+    #    When the model is Qwen3_5MoeForCausalLM (model_type=qwen3_5_moe_text),
+    #    we must use the qwen35moe architecture name for correct tensor mapping.
     orig_get_map = gguf_utils.get_gguf_hf_weights_map
 
     def patched_get_gguf_hf_weights_map(
