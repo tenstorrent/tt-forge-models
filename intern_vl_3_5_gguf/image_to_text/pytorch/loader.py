@@ -3,9 +3,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 InternVL3.5 GGUF model loader implementation for image to text.
+
+The GGUF files for InternVL3.5 contain only the Qwen3 text backbone; the
+vision encoder weights are absent. This loader targets the text backbone
+using AutoModelForCausalLM and uses text-only inputs.
 """
 
-from transformers import AutoModelForImageTextToText, AutoProcessor
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -30,7 +34,11 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """InternVL3.5 GGUF model loader implementation for image to text tasks."""
+    """InternVL3.5 GGUF model loader implementation for image to text tasks.
+
+    Loads the quantized Qwen3 text backbone from the GGUF file. The GGUF
+    does not include vision encoder weights, so only the text backbone is tested.
+    """
 
     _VARIANTS = {
         ModelVariant.INTERN_VL3_5_4B_Q4_K_M: LLMModelConfig(
@@ -58,7 +66,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.INTERN_VL3_5_14B_Q8_0: "OpenGVLab_InternVL3_5-14B-Q8_0.gguf",
     }
 
-    _HF_PROCESSORS = {
+    # Tokenizer sourced from the original HF model (not the GGUF repo)
+    _HF_TOKENIZERS = {
         ModelVariant.INTERN_VL3_5_4B_Q4_K_M: "OpenGVLab/InternVL3_5-4B-HF",
         ModelVariant.INTERN_VL3_5_4B_Q8_0: "OpenGVLab/InternVL3_5-4B-HF",
         ModelVariant.INTERN_VL3_5_14B_Q4_K_M: "OpenGVLab/InternVL3_5-14B-HF",
@@ -67,11 +76,11 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.INTERN_VL3_5_4B_Q4_K_M
 
-    sample_image = "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
+    sample_text = "What do you see in this image?"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.processor = None
+        self.tokenizer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -86,9 +95,19 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _load_tokenizer(self):
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            self._HF_TOKENIZERS[self._variant],
+            trust_remote_code=True,
+        )
+        return self.tokenizer
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
         gguf_file = self._GGUF_FILES[self._variant]
+
+        if self.tokenizer is None:
+            self._load_tokenizer()
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -97,12 +116,7 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = gguf_file
         model_kwargs |= kwargs
 
-        self.processor = AutoProcessor.from_pretrained(
-            self._HF_PROCESSORS[self._variant],
-            trust_remote_code=True,
-        )
-
-        model = AutoModelForImageTextToText.from_pretrained(
+        model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
         model.eval()
@@ -110,24 +124,12 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "image": self.sample_image,
-                    },
-                    {"type": "text", "text": "What is shown in this image?"},
-                ],
-            }
-        ]
+        if self.tokenizer is None:
+            self._load_tokenizer()
 
-        inputs = self.processor.apply_chat_template(
-            messages,
-            tokenize=True,
-            add_generation_prompt=True,
-            return_dict=True,
+        inputs = self.tokenizer(
+            [self.sample_text] * batch_size,
             return_tensors="pt",
+            padding=True,
         )
         return inputs
