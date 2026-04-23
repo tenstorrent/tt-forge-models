@@ -5,9 +5,33 @@
 mradermacher Qwen3-32B-VL-GLM-4.7-Flash-HI16-Heretic-Uncensored-Thinking i1 GGUF
 model loader implementation for causal language modeling.
 """
+import importlib.metadata
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+import transformers.utils.import_utils as _trf_import_utils
+
+_orig_load_gguf_checkpoint = _gguf_utils.load_gguf_checkpoint
+
+
+def _patched_load_gguf_checkpoint(*args, **kwargs):
+    # Refresh the distribution mapping so is_gguf_available() detects gguf after
+    # RequirementsManager installs it post-import (the mapping is cached at import time).
+    _trf_import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+        importlib.metadata.packages_distributions()
+    )
+    return _orig_load_gguf_checkpoint(*args, **kwargs)
+
+
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 from ....base import ForgeModel
 from ....config import (
