@@ -6,6 +6,7 @@ Mradermacher RoboBrain 2.5 4B GGUF model loader implementation for image to text
 """
 
 from transformers import (
+    Qwen3VLConfig,
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
 )
@@ -176,13 +177,19 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = self.GGUF_FILE
         model_kwargs |= kwargs
 
-        # GGUF repos do not ship a processor; use the base model
+        # GGUF repos do not ship a processor or config; use the base model
         self.processor = AutoProcessor.from_pretrained("BAAI/RoboBrain2.5-4B")
 
-        # The GGUF visual.merger.norm uses text hidden_size (2560) while the
-        # default Qwen3VLConfig vision_config uses 1152; allow loading anyway.
+        # Load the exact architecture config from the base model so the visual
+        # encoder, merger, and text model all have correct dimensions (the GGUF
+        # config parser does not fully reconstruct Qwen3VL's nested text_config).
+        config = Qwen3VLConfig.from_pretrained("BAAI/RoboBrain2.5-4B")
+
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
+            pretrained_model_name,
+            config=config,
+            ignore_mismatched_sizes=True,
+            **model_kwargs
         )
         model.eval()
 
