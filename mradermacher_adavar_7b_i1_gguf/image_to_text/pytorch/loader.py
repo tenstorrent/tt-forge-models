@@ -5,6 +5,8 @@
 mradermacher/AdaVaR-7B-i1-GGUF model loader implementation for image to text.
 """
 
+import os
+
 from transformers import AutoModelForImageTextToText, AutoProcessor, AutoConfig
 from typing import Optional
 
@@ -42,6 +44,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.ADAVAR_7B_I1_Q4_K_M_GGUF: "AdaVaR-7B.i1-Q4_K_M.gguf",
     }
 
+    BASE_MODEL = "ZejunLi/AdaVaR-7B"
+
     sample_image = (
         "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg"
     )
@@ -72,32 +76,45 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self._gguf_file
-
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self._gguf_file
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
         # GGUF repo ships only weights; load processor from the base model.
-        self.processor = AutoProcessor.from_pretrained("ZejunLi/AdaVaR-7B")
+        if self.processor is None:
+            self.processor = AutoProcessor.from_pretrained(self.BASE_MODEL)
 
-        model = AutoModelForImageTextToText.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            config = AutoConfig.from_pretrained(self.BASE_MODEL)
+            if self.num_layers is not None:
+                if hasattr(config, "text_config"):
+                    config.text_config.num_hidden_layers = self.num_layers
+                else:
+                    config.num_hidden_layers = self.num_layers
+            model = AutoModelForImageTextToText.from_config(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+            model_kwargs["gguf_file"] = self._gguf_file
 
+            if self.num_layers is not None:
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name, gguf_file=self._gguf_file
+                )
+                config.num_hidden_layers = self.num_layers
+                model_kwargs["config"] = config
+
+            model = AutoModelForImageTextToText.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+
+        model.eval()
         self.config = model.config
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.processor is None:
-            self.processor = AutoProcessor.from_pretrained("ZejunLi/AdaVaR-7B")
+            self.processor = AutoProcessor.from_pretrained(self.BASE_MODEL)
 
         messages = [
             {
@@ -122,7 +139,10 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self._gguf_file
-        )
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            self.config = AutoConfig.from_pretrained(self.BASE_MODEL)
+        else:
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, gguf_file=self._gguf_file
+            )
         return self.config
