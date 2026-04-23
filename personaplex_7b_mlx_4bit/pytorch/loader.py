@@ -7,7 +7,6 @@ PersonaPlex 7B MLX 4-bit speech-text dialogue model loader implementation.
 
 import torch
 from huggingface_hub import hf_hub_download
-from moshi.models import loaders
 from typing import Optional
 
 from ...base import ForgeModel
@@ -52,6 +51,8 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the PersonaPlex LM model instance."""
+        from moshi.models import loaders
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         weight_path = hf_hub_download(pretrained_model_name, loaders.MOSHI_NAME)
@@ -68,6 +69,8 @@ class ModelLoader(ForgeModel):
         The model expects discrete audio codes of shape [B, K, T] where
         K=17 codebooks (1 text + 8 user audio + 8 agent audio) and T is time steps.
         """
+        from moshi.models import loaders
+
         pretrained_model_name = self._variant_config.pretrained_model_name
         weight_path = hf_hub_download(pretrained_model_name, loaders.MOSHI_NAME)
         model = loaders.get_moshi_lm(weight_path, device="cpu", dtype=torch.float32)
