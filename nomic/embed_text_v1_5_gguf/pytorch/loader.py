@@ -31,19 +31,13 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.NOMIC_EMBED_TEXT_V1_5_GGUF: ModelConfig(
-            pretrained_model_name="mradermacher/nomic-embed-text-v1.5-GGUF",
+            # nomic-bert GGUF architecture is not supported by transformers GGUF loader;
+            # use the original model directly
+            pretrained_model_name="nomic-ai/nomic-embed-text-v1.5",
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.NOMIC_EMBED_TEXT_V1_5_GGUF
-
-    _GGUF_FILES = {
-        ModelVariant.NOMIC_EMBED_TEXT_V1_5_GGUF: "nomic-embed-text-v1.5.Q4_K_M.gguf",
-    }
-
-    @property
-    def GGUF_FILE(self):
-        return self._GGUF_FILES[self._variant]
 
     sample_sentences = [
         "search_document: TSNE is a dimensionality reduction algorithm created by Laurens van Der Maaten"
@@ -68,10 +62,9 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
+        tokenizer_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -86,7 +79,6 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
