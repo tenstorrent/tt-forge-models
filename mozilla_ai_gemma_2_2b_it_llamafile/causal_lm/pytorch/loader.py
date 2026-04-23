@@ -30,7 +30,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.GEMMA_2_2B_IT_LLAMAFILE: LLMModelConfig(
-            pretrained_model_name="mozilla-ai/gemma-2-2b-it-llamafile",
+            pretrained_model_name="unsloth/gemma-2-2b-it",
             max_length=256,
         ),
     }
@@ -82,14 +82,8 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded tokenizer instance
         """
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
-            use_fast=False,
-            **tokenizer_kwargs,
         )
 
         if self.tokenizer.pad_token is None:
