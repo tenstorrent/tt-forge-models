@@ -23,6 +23,8 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Qwen 2.5 GGUF model variants for causal language modeling."""
 
+    QWEN_2_5_7B_INSTRUCT_GGUF = "7B_Instruct_GGUF"
+    QWEN_2_5_3B_INSTRUCT_GGUF = "3B_Instruct_GGUF"
     QWEN_2_5_1_5B_INSTRUCT_GGUF = "1.5B_Instruct_GGUF"
     BARTOWSKI_QWEN_2_5_1_5B_INSTRUCT_GGUF = "Bartowski_1.5B_Instruct_GGUF"
     BARTOWSKI_QWEN_2_5_7B_INSTRUCT_1M_GGUF = "Bartowski_7B_Instruct_1M_GGUF"
