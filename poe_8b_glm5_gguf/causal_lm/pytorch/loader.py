@@ -3,9 +3,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Poe-8B-GLM5 GGUF model loader implementation for causal language modeling.
+
+Note: The qwen3vl GGUF architecture is not yet supported by the transformers
+GGUF loader, so we load from the HF-native base checkpoint
+Crownelius/Poe-8B-GLM5-Opus4.6-Sonnet4.5-Kimi-Grok-Gemini-3-pro-preview-HERETIC.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import Qwen3VLForConditionalGeneration, AutoTokenizer, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -19,6 +23,10 @@ from ....config import (
     StrEnum,
 )
 
+BASE_MODEL = (
+    "Crownelius/Poe-8B-GLM5-Opus4.6-Sonnet4.5-Kimi-Grok-Gemini-3-pro-preview-HERETIC"
+)
+
 
 class ModelVariant(StrEnum):
     """Available Poe-8B-GLM5 GGUF model variants for causal language modeling."""
@@ -28,31 +36,26 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """Poe-8B-GLM5 GGUF model loader implementation for causal language modeling tasks."""
+    """Poe-8B-GLM5 GGUF model loader implementation for causal language modeling tasks.
+
+    Note: Uses the HF-native base checkpoint instead of the GGUF file because the
+    qwen3vl GGUF architecture is not yet supported by transformers.
+    """
 
     _VARIANTS = {
         ModelVariant.POE_8B_GLM5_GGUF: LLMModelConfig(
-            pretrained_model_name="mradermacher/Poe-8B-GLM5-Opus4.6-Sonnet4.5-Kimi-Grok-Gemini-3-pro-preview-HERETIC-i1-GGUF",
+            pretrained_model_name=BASE_MODEL,
             max_length=128,
         ),
         ModelVariant.DRIPGHAD1223_POE_8B_GLM5_GGUF: LLMModelConfig(
-            pretrained_model_name="DripGhad1223/Poe-8B-GLM5-Opus4.6-Sonnet4.5-Kimi-Grok-Gemini-3-pro-preview-HERETIC-i1-GGUF",
+            pretrained_model_name=BASE_MODEL,
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.POE_8B_GLM5_GGUF
 
-    _GGUF_FILES = {
-        ModelVariant.POE_8B_GLM5_GGUF: "Poe-8B-GLM5-Opus4.6-Sonnet4.5-Kimi-Grok-Gemini-3-pro-preview-HERETIC.i1-Q4_K_M.gguf",
-        ModelVariant.DRIPGHAD1223_POE_8B_GLM5_GGUF: "Poe-8B-GLM5-Opus4.6-Sonnet4.5-Kimi-Grok-Gemini-3-pro-preview-HERETIC.i1-Q4_K_M.gguf",
-    }
-
     sample_text = "Give me a short introduction to large language models."
-
-    @property
-    def gguf_file(self):
-        return self._GGUF_FILES[self._variant]
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -74,13 +77,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.gguf_file
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -97,16 +95,13 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.gguf_file
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.gguf_file
-            )
-            config.num_hidden_layers = self.num_layers
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config.text_config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
+        model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
 
@@ -149,6 +144,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
+            self._variant_config.pretrained_model_name
         )
         return self.config
