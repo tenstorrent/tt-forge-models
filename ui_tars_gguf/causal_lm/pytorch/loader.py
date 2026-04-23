@@ -8,6 +8,56 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+
+def _patch_qwen2vl_gguf_support():
+    """Register qwen2vl architecture as an alias for qwen2 for GGUF loading.
+
+    UI-TARS is based on Qwen2-VL but we load only the causal LM (text) portion.
+    The GGUF file declares architecture as 'qwen2vl' which transformers does not
+    recognise, so we alias it to the supported 'qwen2' architecture.
+    """
+    if "qwen2vl" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen2vl")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen2" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen2vl"] = dict(
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen2"]
+            )
+    if "qwen2" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["qwen2vl"] = GGUF_TO_FAST_CONVERTERS["qwen2"]
+    if hasattr(_gguf_utils, "GGUF_CONFIG_DEFAULTS_MAPPING"):
+        if "qwen2" in _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING:
+            _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING[
+                "qwen2vl"
+            ] = _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["qwen2"]
+
+
+def _patched_load_gguf_checkpoint(*args, **kwargs):
+    """Wrap load_gguf_checkpoint to add qwen2vl support and remap model_type."""
+    _patch_qwen2vl_gguf_support()
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
+    if result.get("config", {}).get("model_type") == "qwen2vl":
+        result["config"]["model_type"] = "qwen2"
+    return result
+
+
+_patch_qwen2vl_gguf_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
