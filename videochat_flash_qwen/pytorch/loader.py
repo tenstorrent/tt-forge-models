@@ -7,6 +7,7 @@ VideoChatFlash-Qwen model loader implementation for multimodal video/image condi
 
 from typing import Optional
 
+import torch
 from transformers import AutoConfig, AutoModel, AutoTokenizer
 
 from ...base import ForgeModel
@@ -87,9 +88,23 @@ class ModelLoader(ForgeModel):
                 "rope_theta", 1000000.0
             )
 
-        model = AutoModel.from_pretrained(
-            str(model_name), config=config, **model_kwargs
-        )
+        # transformers 5.x always initializes models inside a meta device context
+        # (see PreTrainedModel.get_init_context), but this model's vision tower calls
+        # torch.linspace(...).item() during __init__, which fails on meta tensors.
+        # Patching torch.linspace to always create CPU tensors lets .item() succeed.
+        _orig_linspace = torch.linspace
+
+        def _cpu_linspace(start, end, steps, **lkw):
+            lkw.pop("device", None)
+            return _orig_linspace(start, end, steps, device="cpu", **lkw)
+
+        torch.linspace = _cpu_linspace
+        try:
+            model = AutoModel.from_pretrained(
+                str(model_name), config=config, **model_kwargs
+            )
+        finally:
+            torch.linspace = _orig_linspace
         model.eval()
 
         if self.tokenizer is None:
