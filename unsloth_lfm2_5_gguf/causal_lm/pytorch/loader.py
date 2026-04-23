@@ -8,6 +8,33 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFGPTConverter
+
+
+class GGUFLfm2Converter(GGUFGPTConverter):
+    """GGUF tokenizer converter for LFM2 architecture.
+
+    LFM2.5 uses a GPT-2 style BPE tokenizer but its vocabulary uses
+    '<|startoftext|>' (id=1) and '<|im_end|>' (id=7) as BOS/EOS tokens
+    rather than the GPT-2 defaults '<s>'/'</s>'. Setting the correct
+    tokens in additional_kwargs prevents out-of-range embedding indices.
+    """
+
+    def converted(self):
+        tokenizer = super().converted()
+        proto = self.original_tokenizer
+        bos_id = getattr(proto, "bos_token_id", None)
+        eos_id = getattr(proto, "eos_token_id", None)
+        if bos_id is not None and bos_id < len(proto.tokens):
+            self.additional_kwargs["bos_token"] = proto.tokens[bos_id]
+        if eos_id is not None and eos_id < len(proto.tokens):
+            self.additional_kwargs["eos_token"] = proto.tokens[eos_id]
+        return tokenizer
+
+
+if "lfm2" not in GGUF_TO_FAST_CONVERTERS:
+    GGUF_TO_FAST_CONVERTERS["lfm2"] = GGUFLfm2Converter
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
