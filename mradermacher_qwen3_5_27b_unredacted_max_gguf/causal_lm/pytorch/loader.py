@@ -81,8 +81,17 @@ def _patched_get_gguf_hf_weights_map(
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     """Wrap load_gguf_checkpoint to add qwen35 support and fix model_type."""
     _patch_qwen35_support()
+    import importlib.metadata
+
+    import transformers.utils.import_utils as _import_utils
     from transformers.utils.import_utils import is_gguf_available
 
+    # PACKAGE_DISTRIBUTION_MAPPING is built at transformers import time; refresh
+    # it so gguf (installed at test time) is visible to is_gguf_available().
+    if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+        _import_utils.PACKAGE_DISTRIBUTION_MAPPING.update(
+            importlib.metadata.packages_distributions()
+        )
     is_gguf_available.cache_clear()
     result = _orig_load_gguf_checkpoint(
         gguf_path, return_tensors=return_tensors, **kwargs
