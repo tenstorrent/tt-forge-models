@@ -6,11 +6,76 @@ Alexia FinalEvolution 1B i1 GGUF model loader implementation for causal language
 
 Quantized from UmbrellaInc/Alexia.FinalEvolution-1B.
 """
+import inspect
+
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
+
+
+def _find_real_load_gguf_checkpoint():
+    """Walk the monkey-patch chain to recover the real transformers function.
+
+    Patched loaders store the original function as a module-level global
+    (e.g. _orig_load_gguf_checkpoint), so we look in co_names + __globals__
+    rather than __closure__.
+    """
+    fn = _gguf_utils.load_gguf_checkpoint
+    visited = set()
+    while id(fn) not in visited:
+        visited.add(id(fn))
+        source = getattr(getattr(fn, "__code__", None), "co_filename", "")
+        if (
+            "modeling_gguf_pytorch_utils.py" in source
+            and "tt_forge_models" not in source
+        ):
+            return fn
+        next_fn = None
+        # Patched functions store _orig as a module-level global; find via co_names
+        co_names = getattr(getattr(fn, "__code__", None), "co_names", ())
+        fn_globals = getattr(fn, "__globals__", {})
+        for name in co_names:
+            if "orig" in name.lower() and name in fn_globals:
+                val = fn_globals[name]
+                if callable(val) and hasattr(val, "__code__"):
+                    next_fn = val
+                    break
+        # Also check closures (for lambdas / nested definitions)
+        if next_fn is None and getattr(fn, "__closure__", None):
+            free_vars = getattr(getattr(fn, "__code__", None), "co_freevars", ())
+            for i, name in enumerate(free_vars):
+                if "orig" in name.lower() and i < len(fn.__closure__):
+                    try:
+                        val = fn.__closure__[i].cell_contents
+                        if callable(val):
+                            next_fn = val
+                            break
+                    except ValueError:
+                        pass
+        if next_fn is None:
+            break
+        fn = next_fn
+    return fn
+
+
+def _ensure_gguf_checkpoint_accepts_model_to_load():
+    """Replace the patched load_gguf_checkpoint with the real transformers function.
+
+    Other loaders monkey-patch load_gguf_checkpoint with versions that drop the
+    model_to_load kwarg, which transformers 5.x requires. Bypass them by finding
+    the original function via closure traversal and installing it directly.
+    """
+    real_fn = _find_real_load_gguf_checkpoint()
+    for _mod in (_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils):
+        _mod.load_gguf_checkpoint = real_fn
+
+
 from ....config import (
     LLMModelConfig,
     ModelInfo,
@@ -66,6 +131,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _ensure_gguf_checkpoint_accepts_model_to_load()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -80,6 +146,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _ensure_gguf_checkpoint_accepts_model_to_load()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -112,17 +179,15 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        messages = [
-            {
-                "role": "user",
-                "content": self.sample_text,
-            }
-        ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
+        if getattr(self.tokenizer, "chat_template", None):
+            messages = [{"role": "user", "content": self.sample_text}]
+            text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        else:
+            text = self.sample_text
         prompts = [text]
 
         inputs = self.tokenizer(
