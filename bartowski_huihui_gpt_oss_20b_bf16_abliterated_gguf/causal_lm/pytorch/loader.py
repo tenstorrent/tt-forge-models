@@ -51,8 +51,21 @@ def _patch_gpt_oss_support():
             ] = _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["qwen3_moe"]
 
 
+_ORIG_VAR_NAMES = (
+    "_orig_load_gguf_checkpoint",
+    "orig_load",
+    "_orig_load",
+    "_original",
+    "original",
+)
+
+
 def _find_true_original(fn):
-    """Walk the patch chain to find the real transformers load_gguf_checkpoint."""
+    """Walk the patch chain to find the real transformers load_gguf_checkpoint.
+
+    Checks both module globals (for module-level variables) and closure cells
+    (for variables captured from an enclosing function scope).
+    """
     seen = set()
     while True:
         fn_id = id(fn)
@@ -61,10 +74,30 @@ def _find_true_original(fn):
         seen.add(fn_id)
         if getattr(fn, "__module__", "") == "transformers.modeling_gguf_pytorch_utils":
             return fn
-        orig = (getattr(fn, "__globals__", {}) or {}).get("_orig_load_gguf_checkpoint")
-        if orig is None or not callable(orig):
-            break
-        fn = orig
+        # Check globals for common "original" variable names
+        globs = getattr(fn, "__globals__", {}) or {}
+        next_fn = None
+        for name in _ORIG_VAR_NAMES:
+            candidate = globs.get(name)
+            if candidate is not None and callable(candidate) and id(candidate) not in seen:
+                next_fn = candidate
+                break
+        if next_fn is not None:
+            fn = next_fn
+            continue
+        # Check closure cells for callable values
+        for cell in getattr(fn, "__closure__", None) or ():
+            try:
+                val = cell.cell_contents
+            except ValueError:
+                continue
+            if callable(val) and id(val) not in seen:
+                next_fn = val
+                break
+        if next_fn is not None:
+            fn = next_fn
+            continue
+        break
     return fn
 
 
