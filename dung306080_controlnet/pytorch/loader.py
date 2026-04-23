@@ -135,7 +135,7 @@ class ModelLoader(ForgeModel):
             model_path,
             config=_CONFIGS[version],
             torch_dtype=dtype,
-        )
+        ).to(dtype=dtype)
         self._controlnet.eval()
         return self._controlnet
 
