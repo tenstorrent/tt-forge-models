@@ -43,14 +43,14 @@ class ModelLoader(ForgeModel):
             max_length=256,
         ),
         ModelVariant.OLMo_7B: LLMModelConfig(
-            pretrained_model_name="allenai/OLMo-7B",
+            pretrained_model_name="allenai/OLMo-7B-0724-hf",
             max_length=256,
         ),
     }
 
     # Variants that require trust_remote_code because the checkpoint ships
     # custom modeling code (hf_olmo).
-    _TRUST_REMOTE_CODE_VARIANTS = {ModelVariant.OLMo_7B}
+    _TRUST_REMOTE_CODE_VARIANTS: set = set()
 
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.OLMo_7B_0724
