@@ -58,11 +58,30 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load
     return result
 
 
+_orig_get_gguf_hf_weights_map = _gguf_utils.get_gguf_hf_weights_map
+
+
+def _qwen2vl_patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, **kw
+):
+    """Handle hf_model=None when model_to_load was dropped by intermediate patchers.
+
+    When the patch chain drops model_to_load, the real load_gguf_checkpoint
+    receives model_to_load=None and calls get_gguf_hf_weights_map(None, ...).
+    Fall back to the processor config's model_type so the gguf tensor name map
+    can still be built correctly.
+    """
+    if hf_model is None and model_type is None:
+        model_type = getattr(processor, "config", {}).get("model_type")
+    return _orig_get_gguf_hf_weights_map(hf_model, processor, model_type, **kw)
+
+
 _patch_qwen2vl_support()
 _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_gguf_utils.get_gguf_hf_weights_map = _qwen2vl_patched_get_gguf_hf_weights_map
 
 from ....base import ForgeModel
 from ....config import (
