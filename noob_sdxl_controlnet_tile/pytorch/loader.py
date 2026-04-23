@@ -77,9 +77,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, self.base_model
         )
 
+        # Keep the pipeline in float32 so preprocessing (controlnet forward, text encoding)
+        # runs without dtype mismatches. Only the UNet is converted for inference.
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
-
+            return self.pipeline.unet.to(dtype_override)
         return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
@@ -117,6 +118,15 @@ class ModelLoader(ForgeModel):
             latent_model_input = latent_model_input.to(dtype_override)
             timesteps = timesteps.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
+            added_cond_kwargs = {
+                k: v.to(dtype_override) for k, v in added_cond_kwargs.items()
+            }
+            down_block_additional_residuals = tuple(
+                t.to(dtype_override) for t in down_block_additional_residuals
+            )
+            mid_block_additional_residual = mid_block_additional_residual.to(
+                dtype_override
+            )
 
         return [
             latent_model_input,
