@@ -133,6 +133,34 @@ class ModelLoader(ForgeModel):
                 config, "seq_length", self._variant_config.max_length
             )
 
+        # ChatGLM3 remote __init__ omits post_init(); transformers 5.x needs it for all_tied_weights_keys
+        auto_map = getattr(config, "auto_map", {})
+        model_class_ref = auto_map.get("AutoModel")
+        if model_class_ref:
+            try:
+                from transformers.dynamic_module_utils import (
+                    get_class_from_dynamic_module,
+                )
+
+                cls = get_class_from_dynamic_module(
+                    model_class_ref, pretrained_model_name
+                )
+                if not getattr(cls, "_tt_post_init_patched", False):
+                    orig_init = cls.__init__
+
+                    def _make_patched(original):
+                        def patched_init(self, cfg, *args, **kw):
+                            original(self, cfg, *args, **kw)
+                            if not hasattr(self, "all_tied_weights_keys"):
+                                self.post_init()
+
+                        return patched_init
+
+                    cls.__init__ = _make_patched(orig_init)
+                    cls._tt_post_init_patched = True
+            except Exception:
+                pass
+
         model = AutoModel.from_pretrained(
             pretrained_model_name, config=config, **model_kwargs
         )
