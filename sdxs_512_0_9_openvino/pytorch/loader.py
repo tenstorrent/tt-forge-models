@@ -14,8 +14,6 @@ Available variants:
 
 from typing import Optional
 
-from optimum.intel.openvino.modeling_diffusion import OVStableDiffusionPipeline
-
 from ...base import ForgeModel
 from ...config import (
     ModelConfig,
@@ -70,6 +68,8 @@ class ModelLoader(ForgeModel):
         Returns:
             OVStableDiffusionPipeline: The OpenVINO Stable Diffusion pipeline instance.
         """
+        from optimum.intel.openvino.modeling_diffusion import OVStableDiffusionPipeline
+
         self.pipeline = OVStableDiffusionPipeline.from_pretrained(
             self._variant_config.pretrained_model_name,
             ov_config={"CACHE_DIR": ""},
