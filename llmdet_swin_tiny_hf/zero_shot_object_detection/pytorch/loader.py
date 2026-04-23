@@ -5,11 +5,12 @@
 LLMDet Swin-Tiny model loader implementation for zero-shot object detection.
 """
 import torch
+from PIL import Image
 from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
-from datasets import load_dataset
 from typing import Optional
 
 from ....base import ForgeModel
+from ....tools.utils import get_file
 from ....config import (
     ModelConfig,
     ModelInfo,
@@ -120,8 +121,8 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        self.image = dataset[0]["image"]
+        image_path = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
+        self.image = Image.open(str(image_path)).convert("RGB")
 
         self.text_labels = [["a cat", "a remote control"]]
 
