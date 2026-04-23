@@ -129,6 +129,9 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
+        # Qwen3.5-0.8B is a hybrid SSM+attention model; some layers have different
+        # weight shapes than Qwen3 expects. Allow loading with shape mismatches.
+        model_kwargs.setdefault("ignore_mismatched_sizes", True)
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
