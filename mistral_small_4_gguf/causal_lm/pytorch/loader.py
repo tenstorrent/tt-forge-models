@@ -50,8 +50,24 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     return result
 
 
+_orig_get_gguf_hf_weights_map = _gguf_utils.get_gguf_hf_weights_map
+
+
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor=None, model_type=None, num_layers=None, qual_name=""
+):
+    if model_type is None and hf_model is not None:
+        model_type = getattr(getattr(hf_model, "config", None), "model_type", None)
+    if model_type in ("mistral", "mistral4"):
+        model_type = "llama"
+    return _orig_get_gguf_hf_weights_map(
+        hf_model, processor, model_type, num_layers, qual_name
+    )
+
+
 _patch_mistral4_support()
 _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
