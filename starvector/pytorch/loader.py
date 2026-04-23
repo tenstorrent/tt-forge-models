@@ -226,6 +226,9 @@ class ModelLoader(ForgeModel):
         result = self.processor(image)
         if isinstance(result, dict) or hasattr(result, "data"):
             pixel_values = result["pixel_values"]
+            # SimpleStarVectorProcessor returns [C, H, W] for single images; add batch dim
+            if isinstance(pixel_values, torch.Tensor) and pixel_values.dim() == 3:
+                pixel_values = pixel_values.unsqueeze(0)
         else:
             # ImageTrainProcessor returns a raw tensor
             pixel_values = result.unsqueeze(0) if result.dim() == 3 else result
