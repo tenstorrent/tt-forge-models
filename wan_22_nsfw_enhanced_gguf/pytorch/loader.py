@@ -32,10 +32,10 @@ from ...config import (
 )
 
 GGUF_REPO = "Cassanovason69/Wan22nsfwenhanced"
-# Wan 2.2 T2V 14B base pipeline — used to fetch the correct transformer config
-# so fetch_diffusers_config does not fall back to a Wan 2.1 I2V config (which has
-# image_dim != None / add_k_proj in float32, causing a dtype mismatch).
-WAN_T2V_BASE_PIPELINE = "Wan-AI/Wan2.2-T2V-A14B-Diffusers"
+# This model is a fine-tune from the Wan 2.2 I2V 14B model (in_channels=36 in GGUF).
+# Pass the I2V base config explicitly so fetch_diffusers_config does not fall back
+# to Wan 2.1 I2V (which has add_k_proj in float32, causing dtype mismatch at runtime).
+WAN_I2V_BASE_PIPELINE = "Wan-AI/Wan2.2-I2V-A14B-Diffusers"
 
 # Small spatial dimensions for compile-only testing
 TRANSFORMER_NUM_FRAMES = 2
@@ -157,7 +157,7 @@ class ModelLoader(ForgeModel):
         try:
             self._transformer = WanTransformer3DModel.from_single_file(
                 gguf_local_path,
-                config=WAN_T2V_BASE_PIPELINE,
+                config=WAN_I2V_BASE_PIPELINE,
                 subfolder="transformer",
                 quantization_config=quantization_config,
                 torch_dtype=compute_dtype,
