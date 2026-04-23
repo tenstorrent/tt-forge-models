@@ -3,6 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 mradermacher GLM-4.6V GGUF model loader implementation for image-text-to-text tasks.
+
+Note: The glm4moe GGUF architecture is not yet supported by the transformers
+GGUF loader, so we load from the HF-native base checkpoint zai-org/GLM-4.6V.
 """
 import torch
 from transformers import AutoProcessor, AutoModelForImageTextToText, AutoConfig
@@ -29,20 +32,20 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """mradermacher GLM-4.6V GGUF model loader implementation for image-text-to-text tasks."""
+    """mradermacher GLM-4.6V GGUF model loader implementation for image-text-to-text tasks.
+
+    Note: Uses the HF-native base checkpoint (zai-org/GLM-4.6V) instead of the GGUF
+    file because the glm4moe GGUF architecture is not yet supported by transformers.
+    """
 
     _VARIANTS = {
         ModelVariant.GLM_4_6V_GGUF_Q2_K: LLMModelConfig(
-            pretrained_model_name="mradermacher/GLM-4.6V-GGUF",
+            pretrained_model_name="zai-org/GLM-4.6V",
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.GLM_4_6V_GGUF_Q2_K
 
-    GGUF_FILE = "GLM-4.6V.Q2_K.gguf"
-
-    # Processor is loaded from the original GLM-4.6V repo since the GGUF repo
-    # only hosts quantized model weights without processor/tokenizer configs.
     PROCESSOR_MODEL = "zai-org/GLM-4.6V"
 
     sample_text = "What do you see in this image?"
@@ -84,7 +87,6 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -128,6 +130,5 @@ class ModelLoader(ForgeModel):
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name,
-            gguf_file=self.GGUF_FILE,
         )
         return self.config
