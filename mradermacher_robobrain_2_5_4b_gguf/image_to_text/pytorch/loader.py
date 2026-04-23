@@ -78,13 +78,13 @@ def _patch_transformers_qwen3vl_gguf():
     # uses camelCase without underscores for VL architectures)
     orig_weights_map = gguf_utils.get_gguf_hf_weights_map
 
-    def _patched_get_gguf_hf_weights_map(hf_model, model_type=None, num_layers=None):
-        mt = model_type
+    def _patched_get_gguf_hf_weights_map(hf_model, *args, **kwargs):
+        mt = kwargs.get("model_type")
         if mt is None and hasattr(hf_model, "config"):
             mt = hf_model.config.model_type
         if mt == "qwen3_vl":
-            model_type = "qwen3vl"
-        return orig_weights_map(hf_model, model_type=model_type, num_layers=num_layers)
+            kwargs["model_type"] = "qwen3vl"
+        return orig_weights_map(hf_model, *args, **kwargs)
 
     gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
