@@ -62,17 +62,14 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        load_kwargs = {"use_safetensors": True}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         self.transformer = FluxTransformer2DModel.from_pretrained(
             self._variant_config.pretrained_model_name,
-            **load_kwargs,
+            torch_dtype=dtype,
+            low_cpu_mem_usage=False,
+            use_safetensors=True,
         )
-
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
 
         return self.transformer
 
