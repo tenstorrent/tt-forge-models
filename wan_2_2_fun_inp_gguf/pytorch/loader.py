@@ -104,8 +104,17 @@ class ModelLoader(ForgeModel):
         _orig_dispatch = getattr(_sfm, "dispatch_model", None)
 
         def _patched_dispatch(model, **dkw):
+            # Materialise any meta parameters/buffers that were absent from the
+            # GGUF state dict (e.g. biases set to None in the checkpoint).
+            for name, param in list(model.named_parameters()):
+                if param.is_meta:
+                    parts = name.rsplit(".", 1)
+                    parent = model.get_submodule(parts[0]) if len(parts) > 1 else model
+                    parent._parameters[parts[-1]] = torch.nn.Parameter(
+                        torch.zeros(param.shape, dtype=param.dtype)
+                    )
             for name, buf in list(model.named_buffers()):
-                if buf.is_meta:
+                if buf is not None and buf.is_meta:
                     parts = name.rsplit(".", 1)
                     parent = model.get_submodule(parts[0]) if len(parts) > 1 else model
                     parent._buffers[parts[-1]] = torch.zeros(buf.shape, dtype=buf.dtype)
