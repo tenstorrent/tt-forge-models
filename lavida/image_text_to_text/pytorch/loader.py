@@ -6,20 +6,17 @@ LaViDa-LLaDA model loader implementation for image-text-to-text tasks.
 """
 
 import contextlib
+import inspect
+import sys
 import torch
 from PIL import Image
-from transformers import AutoModelForCausalLM, AutoTokenizer, PretrainedConfig
+from transformers import (
+    AutoConfig,
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    PretrainedConfig,
+)
 from typing import Optional
-
-# SigLipVisionConfig in the custom modeling code calls cls._set_token_in_kwargs, which was
-# removed in transformers 5.x. Restore it as a no-op so legacy custom model code still works.
-if not hasattr(PretrainedConfig, "_set_token_in_kwargs"):
-
-    @classmethod  # type: ignore[misc]
-    def _set_token_in_kwargs(cls, kwargs, token=None):
-        pass
-
-    PretrainedConfig._set_token_in_kwargs = _set_token_in_kwargs
 
 from ....base import ForgeModel
 from ....config import (
@@ -34,6 +31,47 @@ from ....config import (
 from ....tools.utils import get_file
 
 IMAGE_TOKEN_INDEX = -200
+
+
+def _patch_custom_model_classes():
+    # SigLipVisionConfig.from_pretrained calls cls._set_token_in_kwargs, removed in
+    # transformers 5.x. Restore as a no-op on the base class.
+    if not hasattr(PretrainedConfig, "_set_token_in_kwargs"):
+
+        @classmethod  # type: ignore[misc]
+        def _set_token_in_kwargs(cls, kwargs, token=None):
+            pass
+
+        PretrainedConfig._set_token_in_kwargs = _set_token_in_kwargs
+
+    # LLaDAModelLM.tie_weights() has no **kwargs but transformers 5.x calls
+    # tie_weights(recompute_mapping=False). Patch any loaded class in this module
+    # that overrides tie_weights without accepting keyword arguments.
+    for module in sys.modules.values():
+        if not hasattr(module, "__file__") or module.__file__ is None:
+            continue
+        if "modeling_lavida" not in module.__file__:
+            continue
+        for attr in vars(module).values():
+            if not (isinstance(attr, type) and hasattr(attr, "tie_weights")):
+                continue
+            method = vars(attr).get("tie_weights")
+            if method is None:
+                continue
+            sig = inspect.signature(method)
+            has_var_keyword = any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+            )
+            if not has_var_keyword:
+                orig = method
+
+                def _make_patched(fn):
+                    def patched(self, **kwargs):
+                        return fn(self)
+
+                    return patched
+
+                attr.tie_weights = _make_patched(orig)
 
 
 @contextlib.contextmanager
@@ -110,6 +148,11 @@ class ModelLoader(ForgeModel):
 
         if self.tokenizer is None:
             self._load_tokenizer()
+
+        # Pre-load config to trigger custom module imports into sys.modules, then
+        # patch classes for transformers 5.x API incompatibilities.
+        AutoConfig.from_pretrained(pretrained_model_name, trust_remote_code=True)
+        _patch_custom_model_classes()
 
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
