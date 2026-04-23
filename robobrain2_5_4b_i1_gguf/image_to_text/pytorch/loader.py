@@ -92,6 +92,7 @@ _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 from transformers import (
+    AutoConfig,
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
 )
@@ -158,6 +159,11 @@ class ModelLoader(ForgeModel):
 
         # GGUF repos do not ship a processor; use the base model
         self.processor = AutoProcessor.from_pretrained("BAAI/RoboBrain2.5-4B")
+
+        # Load config from base model so vision_config dimensions (out_hidden_size etc.)
+        # match the text model hidden size rather than falling back to 7B defaults.
+        base_config = AutoConfig.from_pretrained("BAAI/RoboBrain2.5-4B")
+        model_kwargs.setdefault("config", base_config)
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
