@@ -77,6 +77,12 @@ class ModelLoader(ForgeModel):
 
     def _load_pipeline(self, dtype: torch.dtype = torch.bfloat16):
         """Load the FluxPipeline with a GGUF-quantized transformer."""
+        # Diffusers caches gguf availability at import time; refresh it here
+        # in case gguf was installed after diffusers was first imported.
+        import diffusers.utils.import_utils as _diu
+
+        _diu._gguf_available, _diu._gguf_version = _diu._is_package_available("gguf")
+
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=dtype)
 
