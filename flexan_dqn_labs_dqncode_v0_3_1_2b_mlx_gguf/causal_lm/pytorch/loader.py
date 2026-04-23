@@ -91,6 +91,8 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
+        # Conv weights in GGUF are stored as 4D [out, in, k, 1] but model expects 3D [out, in, k]
+        model_kwargs["ignore_mismatched_sizes"] = True
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
