@@ -105,4 +105,7 @@ class ModelLoader(ForgeModel):
                 for k, v in inputs.items()
             }
 
+        decoder_start_token_id = self._processor.tokenizer.bos_token_id
+        inputs["decoder_input_ids"] = torch.tensor([[decoder_start_token_id]])
+
         return inputs
