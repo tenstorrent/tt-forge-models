@@ -6,6 +6,9 @@ GPT-2 Large GGUF model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -96,14 +99,11 @@ class ModelLoader(ForgeModel):
 
         import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 
+        # Other GGUF loaders monkey-patch load_gguf_checkpoint but drop the
+        # model_to_load kwarg added in transformers 5.2.0. Bypass the broken
+        # chain with the original captured before any patches were applied.
         _current_loader = _gguf_utils.load_gguf_checkpoint
-
-        # Other loaders monkey-patch load_gguf_checkpoint without **kwargs support.
-        # Transformers 5.2.0 added model_to_load kwarg; this wrapper accepts and drops it.
-        def _compat(gguf_path, return_tensors=False, **_extra):
-            return _current_loader(gguf_path, return_tensors=return_tensors)
-
-        _gguf_utils.load_gguf_checkpoint = _compat
+        _gguf_utils.load_gguf_checkpoint = _orig_load_gguf_checkpoint
         try:
             model = AutoModelForCausalLM.from_pretrained(
                 pretrained_model_name, **model_kwargs
