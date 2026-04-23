@@ -78,6 +78,20 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _dequantize_scaled_fp8(state_dict: dict, dtype: torch.dtype) -> dict:
+        """Convert scaled-FP8 state dict to dtype by multiplying each weight by its scale."""
+        result = {}
+        for key, value in state_dict.items():
+            if key.endswith("_scale"):
+                continue
+            scale_key = key + "_scale"
+            if scale_key in state_dict:
+                result[key] = (value.float() * state_dict[scale_key]).to(dtype)
+            else:
+                result[key] = value
+        return result
+
     def _load_pipeline(self, dtype: torch.dtype = torch.bfloat16) -> ZImagePipeline:
         """Load the base Z-Image-Turbo pipeline and swap in quantized weights."""
         self._pipe = ZImagePipeline.from_pretrained(
@@ -89,6 +103,8 @@ class ModelLoader(ForgeModel):
         filename = VARIANT_FILENAMES[self._variant]
         ckpt_path = hf_hub_download(repo_id=REPO_ID, filename=filename)
         state_dict = load_file(ckpt_path)
+        if self._variant == ModelVariant.FP8_E4M3FN:
+            state_dict = self._dequantize_scaled_fp8(state_dict, dtype)
         self._pipe.transformer.load_state_dict(state_dict)
         self._pipe.transformer.eval()
         return self._pipe
