@@ -4,11 +4,32 @@
 """
 FLUX.1-dev GGUF model loader implementation for text-to-image generation
 """
+import json
+import os
+import tempfile
 import torch
 from diffusers import GGUFQuantizationConfig
 from diffusers.models import FluxTransformer2DModel
 from huggingface_hub import hf_hub_download
 from typing import Optional
+
+# FLUX.1-dev transformer architecture config (public architecture spec).
+# black-forest-labs/FLUX.1-dev is gated, so we supply the known config inline
+# rather than fetching it from HuggingFace at load time.
+_FLUX_DEV_TRANSFORMER_CONFIG = {
+    "_class_name": "FluxTransformer2DModel",
+    "_diffusers_version": "0.30.0.dev0",
+    "attention_head_dim": 128,
+    "axes_dims_rope": [16, 56, 56],
+    "guidance_embeds": True,
+    "in_channels": 64,
+    "joint_attention_dim": 4096,
+    "num_attention_heads": 24,
+    "num_layers": 19,
+    "num_single_layers": 38,
+    "patch_size": 1,
+    "pooled_projection_dim": 768,
+}
 
 from ...base import ForgeModel
 from ...config import (
@@ -123,11 +144,16 @@ class ModelLoader(ForgeModel):
         repo_id = self._variant_config.pretrained_model_name
         gguf_file = self._GGUF_FILES[self._variant]
         local_path = hf_hub_download(repo_id=repo_id, filename=gguf_file)
-        self.transformer = FluxTransformer2DModel.from_single_file(
-            local_path,
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
+        with tempfile.TemporaryDirectory() as config_dir:
+            config_json = os.path.join(config_dir, "config.json")
+            with open(config_json, "w") as f:
+                json.dump(_FLUX_DEV_TRANSFORMER_CONFIG, f)
+            self.transformer = FluxTransformer2DModel.from_single_file(
+                local_path,
+                config=config_dir,
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
+            )
 
         return self.transformer
 
