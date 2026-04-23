@@ -62,23 +62,25 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         from romatch import roma_outdoor
 
         # roma_outdoor hard-asserts the highest matmul precision.
         torch.set_float32_matmul_precision("highest")
 
+        # romatch explicitly casts intermediate features to float32 on CPU
+        # (when torch.autocast is disabled), so bfloat16 weights cause a
+        # dtype mismatch.  Always keep this model in float32.
         model = roma_outdoor(device="cpu", **kwargs)
         model.eval()
-        model = model.to(dtype_override or torch.float32)
+        model = model.to(torch.float32)
 
         return model
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
-        dtype = dtype_override or torch.float32
+    def load_inputs(self, batch_size=1):
         res = self.coarse_res
         batch = {
-            "im_A": torch.randn(batch_size, 3, res, res, dtype=dtype),
-            "im_B": torch.randn(batch_size, 3, res, res, dtype=dtype),
+            "im_A": torch.randn(batch_size, 3, res, res, dtype=torch.float32),
+            "im_B": torch.randn(batch_size, 3, res, res, dtype=torch.float32),
         }
         return {"batch": batch}
