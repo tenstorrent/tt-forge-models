@@ -5,17 +5,14 @@
 Biosyn Sapbert BC5CDR Chemical (HunFlair) model loader implementation for
 biomedical entity embedding generation.
 
-The hunflair/biosyn-sapbert-bc5cdr-chemical repository ships a pickled flair
-EntityMentionLinker. It wraps the BERT transformer from the underlying
-dmis-lab/biosyn-sapbert-bc5cdr-chemical model. This loader loads the linker via
-flair, extracts the underlying transformer, and exposes it as a standard
-PyTorch module driven by tokenized tensor inputs.
+Loads the underlying BERT transformer directly from dmis-lab/biosyn-sapbert-bc5cdr-chemical,
+which is the model wrapped by the hunflair flair checkpoint.
 """
 
 from typing import Optional
 
 import torch
-from transformers import AutoTokenizer
+from transformers import AutoModel, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
@@ -77,24 +74,17 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from flair.models import EntityMentionLinker
-
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        linker = EntityMentionLinker.load(self._variant_config.pretrained_model_name)
-
-        # EntityMentionLinker wraps a SemanticCandidateSearchIndex whose dense
-        # embedding is a TransformerDocumentEmbeddings holding the HF model.
-        dense_embeddings = linker.candidate_generator.embeddings["dense"]
-        transformer = dense_embeddings.model
+        model = AutoModel.from_pretrained(self._UNDERLYING_TRANSFORMER)
 
         if dtype_override is not None:
-            transformer = transformer.to(dtype=dtype_override)
+            model = model.to(dtype=dtype_override)
 
-        transformer.eval()
-        self.model = transformer
-        return transformer
+        model.eval()
+        self.model = model
+        return model
 
     def load_inputs(self, dtype_override=None):
         if self.tokenizer is None:
