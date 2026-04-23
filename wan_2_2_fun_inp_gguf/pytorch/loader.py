@@ -65,21 +65,54 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import diffusers.loaders.single_file_model as _sfm
+
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         gguf_filename = _GGUF_FILES[self._variant]
         gguf_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_filename)
 
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
-        self.transformer = WanTransformer3DModel.from_single_file(
-            gguf_path,
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
 
-        # GGUF-quantized layers don't support standard nn.Module.to() dtype
-        # casting; the compute dtype is already set via GGUFQuantizationConfig.
-        self.transformer.to = lambda *args, **kwargs: self.transformer
+        # GGUF models loaded with low_cpu_mem_usage=True (default) may leave
+        # some non-quantized params on the meta device if they aren't in the
+        # GGUF file's tensor list.  accelerate's dispatch_model then calls
+        # model.to(device) which fails on meta tensors.  Patch dispatch_model
+        # to materialise any remaining meta params before dispatching.
+        _orig_dispatch = _sfm.dispatch_model
+
+        def _safe_dispatch(model, device_map=None, **kw):
+            if device_map:
+                target = next(iter(device_map.values()))
+                for mod in model.modules():
+                    for pname, param in list(mod.named_parameters(recurse=False)):
+                        if param.device.type == "meta":
+                            mod.register_parameter(
+                                pname,
+                                torch.nn.Parameter(
+                                    torch.empty(
+                                        param.shape, dtype=param.dtype, device=target
+                                    ),
+                                    requires_grad=param.requires_grad,
+                                ),
+                            )
+                    for bname, buf in list(mod.named_buffers(recurse=False)):
+                        if isinstance(buf, torch.Tensor) and buf.device.type == "meta":
+                            mod.register_buffer(
+                                bname,
+                                torch.empty(buf.shape, dtype=buf.dtype, device=target),
+                            )
+            return _orig_dispatch(model, device_map=device_map, **kw)
+
+        _sfm.dispatch_model = _safe_dispatch
+        try:
+            self.transformer = WanTransformer3DModel.from_single_file(
+                gguf_path,
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
+            )
+        finally:
+            _sfm.dispatch_model = _orig_dispatch
 
         return self.transformer
 
