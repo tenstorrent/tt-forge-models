@@ -104,7 +104,7 @@ class ModelLoader(ForgeModel):
         """Load the Qwen-Image pipeline with 360 diffusion LoRA weights applied.
 
         Returns:
-            DiffusionPipeline with LoRA weights loaded.
+            QwenImageTransformer2DModel with LoRA weights loaded.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
 
@@ -120,22 +120,62 @@ class ModelLoader(ForgeModel):
             weight_name=lora_file,
         )
 
-        return self.pipeline
+        return self.pipeline.transformer
 
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for 360-degree panorama image generation.
+    def load_inputs(self, dtype_override=None, batch_size=1, **kwargs) -> Any:
+        """Prepare tensor inputs for the QwenImageTransformer2DModel.
 
         Returns:
-            dict with prompt and generation parameters.
+            dict of input tensors for the transformer.
         """
-        if prompt is None:
-            prompt = (
-                "equirectangular 360 panorama of a mountain landscape at sunset, "
-                "photography, 4K"
-            )
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
+
+        dtype = dtype_override if dtype_override is not None else torch.float32
+        config = self.pipeline.transformer.config
+
+        # Use a small image for testing: 64x64 pixels
+        height = 64
+        width = 64
+        vae_scale_factor = 8
+
+        # Latent dimensions after VAE compression (must be divisible by 2 for packing)
+        latent_h = 2 * (height // (vae_scale_factor * 2))
+        latent_w = 2 * (width // (vae_scale_factor * 2))
+
+        # Packed patch dimensions: 2x2 spatial patches
+        num_patches = (latent_h // 2) * (latent_w // 2)
+        num_channels_latents = (
+            config.in_channels // 4
+        )  # in_channels = num_channels * patch_size^2
+
+        # hidden_states: (batch, num_patches, in_channels)
+        hidden_states = torch.randn(
+            batch_size, num_patches, config.in_channels, dtype=dtype
+        )
+
+        # Text embeddings: (batch, text_seq_len, joint_attention_dim)
+        text_seq_len = 64
+        encoder_hidden_states = torch.randn(
+            batch_size, text_seq_len, config.joint_attention_dim, dtype=dtype
+        )
+
+        # Attention mask: all tokens valid
+        encoder_hidden_states_mask = torch.ones(
+            batch_size, text_seq_len, dtype=torch.bool
+        )
+
+        # Timestep (already normalized by 1000 before passing to transformer)
+        timestep = torch.tensor([0.5] * batch_size, dtype=dtype)
+
+        # img_shapes: per-sample list of (t, h, w) tuples for RoPE computation
+        img_shapes = [[(1, latent_h // 2, latent_w // 2)]] * batch_size
 
         return {
-            "prompt": prompt,
-            "width": 2048,
-            "height": 1024,
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "encoder_hidden_states_mask": encoder_hidden_states_mask,
+            "timestep": timestep,
+            "img_shapes": img_shapes,
+            "return_dict": False,
         }
