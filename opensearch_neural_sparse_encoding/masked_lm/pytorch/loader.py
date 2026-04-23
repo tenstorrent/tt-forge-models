@@ -87,9 +87,6 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        if self._variant in _REMOTE_CODE_REVISIONS:
-            model_kwargs["trust_remote_code"] = True
-            model_kwargs["code_revision"] = _REMOTE_CODE_REVISIONS[self._variant]
         model_kwargs |= kwargs
 
         model = AutoModelForMaskedLM.from_pretrained(
