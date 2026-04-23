@@ -103,7 +103,7 @@ def forward(
         torch.cumsum = _safe_cumsum
         try:
             actions = self.model.sample_actions(
-                images, img_masks, lang_tokens, lang_masks, state, noise=noise, **kwargs
+                images, img_masks, lang_tokens, lang_masks, noise=noise, **kwargs
             )
         finally:
             torch.cumsum = original_cumsum
