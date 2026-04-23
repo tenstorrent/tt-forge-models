@@ -4,8 +4,9 @@
 """
 Llama 2 7B Chat HF Q4F16_1 MLC model loader implementation for causal language modeling.
 """
+
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoTokenizer, LlamaConfig, LlamaForCausalLM
 from typing import Optional
 
 from ....base import ForgeModel
@@ -38,7 +39,26 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.LLAMA_2_7B_CHAT_HF_Q4F16_1_MLC
 
+    # MLC model uses the same tokenizer as the base Llama-2-7b-chat-hf model.
+    # NousResearch hosts a public, ungated mirror of the tokenizer.
+    _TOKENIZER_SOURCE = "NousResearch/Llama-2-7b-chat-hf"
+
     sample_text = "Hey how are you doing today?"
+
+    # Architecture parameters sourced from mlc-chat-config.json in the model repo.
+    # The MLC repo stores weights in a custom shard format incompatible with
+    # standard transformers, so we always build the model from this config with
+    # random weights.
+    _LLAMA_CONFIG = LlamaConfig(
+        hidden_size=4096,
+        intermediate_size=11008,
+        num_attention_heads=32,
+        num_hidden_layers=32,
+        rms_norm_eps=1e-06,
+        vocab_size=32000,
+        max_position_embeddings=4096,
+        num_key_value_heads=32,
+    )
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -62,40 +82,34 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+        self.tokenizer = AutoTokenizer.from_pretrained(self._TOKENIZER_SOURCE)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
+        config = LlamaConfig(
+            hidden_size=self._LLAMA_CONFIG.hidden_size,
+            intermediate_size=self._LLAMA_CONFIG.intermediate_size,
+            num_attention_heads=self._LLAMA_CONFIG.num_attention_heads,
+            num_hidden_layers=(
+                self.num_layers
+                if self.num_layers is not None
+                else self._LLAMA_CONFIG.num_hidden_layers
+            ),
+            rms_norm_eps=self._LLAMA_CONFIG.rms_norm_eps,
+            vocab_size=self._LLAMA_CONFIG.vocab_size,
+            max_position_embeddings=self._LLAMA_CONFIG.max_position_embeddings,
+            num_key_value_heads=self._LLAMA_CONFIG.num_key_value_heads,
+        )
+
+        model = LlamaForCausalLM(config)
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-
-        model_kwargs["device_map"] = "cpu"
-
-        model_kwargs |= kwargs
-
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+            model = model.to(dtype_override)
+        model.eval()
 
         self.config = model.config
         self.model = model
@@ -155,7 +169,14 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
+        self.config = LlamaConfig(
+            hidden_size=self._LLAMA_CONFIG.hidden_size,
+            intermediate_size=self._LLAMA_CONFIG.intermediate_size,
+            num_attention_heads=self._LLAMA_CONFIG.num_attention_heads,
+            num_hidden_layers=self._LLAMA_CONFIG.num_hidden_layers,
+            rms_norm_eps=self._LLAMA_CONFIG.rms_norm_eps,
+            vocab_size=self._LLAMA_CONFIG.vocab_size,
+            max_position_embeddings=self._LLAMA_CONFIG.max_position_embeddings,
+            num_key_value_heads=self._LLAMA_CONFIG.num_key_value_heads,
         )
         return self.config
