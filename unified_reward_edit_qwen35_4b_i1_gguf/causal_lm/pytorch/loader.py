@@ -4,9 +4,16 @@
 """
 UnifiedReward-Edit-qwen35-4b i1 GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
+
 import torch
+import transformers.utils.import_utils as _tx_import_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+_tx_import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+    importlib.metadata.packages_distributions()
+)
 
 from ....base import ForgeModel
 from ....config import (
