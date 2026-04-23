@@ -123,20 +123,30 @@ class ModelLoader(ForgeModel):
         then constructs the appropriate pipeline (T2V or I2V) with the base model's
         VAE in float32 for numerical stability.
         """
+        import diffusers.utils.import_utils as _diffusers_import_utils
+
+        if not _diffusers_import_utils._gguf_available:
+            import importlib.util
+
+            if importlib.util.find_spec("gguf") is not None:
+                _diffusers_import_utils._gguf_available = True
+
         from diffusers import (
             AutoencoderKLWan,
             GGUFQuantizationConfig,
             WanTransformer3DModel,
         )
+        from huggingface_hub import hf_hub_download
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         gguf_repo = _GGUF_REPOS[self._variant]
         gguf_file = _GGUF_FILES[self._variant]
+        gguf_path = hf_hub_download(repo_id=gguf_repo, filename=gguf_file)
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         transformer = WanTransformer3DModel.from_single_file(
-            f"https://huggingface.co/{gguf_repo}/resolve/main/{gguf_file}",
+            gguf_path,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
