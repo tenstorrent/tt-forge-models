@@ -10,8 +10,6 @@ from typing import Optional
 import torch
 from torchvision import transforms
 
-import segmentation_models_pytorch as smp
-
 from ...config import (
     ModelConfig,
     ModelInfo,
@@ -22,8 +20,6 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
-from datasets import load_dataset
-
 
 class ModelVariant(StrEnum):
     """Available SMP EfficientNet-B5 model variants."""
@@ -61,6 +57,8 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import segmentation_models_pytorch as smp
+
         model = smp.Unet(
             encoder_name="timm-efficientnet-b5",
             encoder_weights="imagenet",
@@ -78,8 +76,12 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None, batch_size=1, image=None):
         if image is None:
+            from datasets import load_dataset
+
             dataset = load_dataset("huggingface/cats-image", split="test")
             image = dataset[0]["image"].convert("RGB")
+
+        import segmentation_models_pytorch as smp
 
         params = smp.encoders.get_preprocessing_params("timm-efficientnet-b5")
         std = torch.tensor(params["std"]).view(1, 3, 1, 1)
