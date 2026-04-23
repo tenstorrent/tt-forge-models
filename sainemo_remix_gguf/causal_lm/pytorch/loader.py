@@ -85,9 +85,13 @@ class ModelLoader(ForgeModel):
     def _patch_load_gguf_checkpoint_compat():
         """Wrap load_gguf_checkpoint so it accepts model_to_load (new in transformers 5.2).
 
-        Other loaders install patches with the old signature that lack this kwarg.
-        We wrap whatever is currently installed to silently accept and drop it before
-        passing into the (potentially broken) patch chain.
+        Other loaders install patches with the old signature that lack this kwarg, and
+        those patches drop model_to_load before reaching the real transformers function.
+        We work around both problems:
+        1. Wrap each module's load_gguf_checkpoint to accept model_to_load.
+        2. Inside the wrapper, temporarily patch get_gguf_hf_weights_map so that
+           when the broken chain calls it with hf_model=None (because model_to_load
+           was dropped), we substitute the real model_to_load that was passed in.
         """
         for mod in [_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils]:
             fn = getattr(mod, "load_gguf_checkpoint", None)
@@ -109,6 +113,26 @@ class ModelLoader(ForgeModel):
                 _fn=_fn,
                 **kw,
             ):
+                if return_tensors and model_to_load is not None:
+                    # Temporarily fix get_gguf_hf_weights_map to handle hf_model=None.
+                    # Broken patches in the chain drop model_to_load, so the real
+                    # load_gguf_checkpoint calls get_gguf_hf_weights_map(None, ...) which
+                    # would fail. We intercept and substitute the real model.
+                    _orig_get_map = _gguf_utils.get_gguf_hf_weights_map
+                    _stored = model_to_load
+
+                    def _compat_get_map(hf_model, *args, **kwargs):
+                        if hf_model is None:
+                            hf_model = _stored
+                        return _orig_get_map(hf_model, *args, **kwargs)
+
+                    _gguf_utils.get_gguf_hf_weights_map = _compat_get_map
+                    try:
+                        return _fn(
+                            gguf_checkpoint_path, return_tensors=return_tensors, **kw
+                        )
+                    finally:
+                        _gguf_utils.get_gguf_hf_weights_map = _orig_get_map
                 return _fn(gguf_checkpoint_path, return_tensors=return_tensors, **kw)
 
             mod.load_gguf_checkpoint = _compat
