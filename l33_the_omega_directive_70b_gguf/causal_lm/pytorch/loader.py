@@ -4,8 +4,15 @@
 """
 L3.3 The Omega Directive 70B GGUF model loader implementation for causal language modeling.
 """
+import os
+
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    AutoConfig,
+    LlamaForCausalLM,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -32,18 +39,26 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """L3.3 The Omega Directive 70B GGUF model loader implementation for causal language modeling tasks."""
 
+    # Base (non-GGUF) model for config and tokenizer loading.
+    # Using the base model avoids downloading large GGUF files just for config/tokenizer.
     _VARIANTS = {
         ModelVariant.L33_THE_OMEGA_DIRECTIVE_70B_GGUF_Q4_K_M: LLMModelConfig(
-            pretrained_model_name="mradermacher/L3.3-The-Omega-Directive-70B-Unslop-v2.0-heretic-i1-GGUF",
+            pretrained_model_name="unsloth/Llama-3.3-70B-Instruct",
             max_length=128,
         ),
         ModelVariant.L33_THE_OMEGA_DIRECTIVE_70B_UNSLOP_V2_1_HERETIC_GGUF: LLMModelConfig(
-            pretrained_model_name="mradermacher/L3.3-The-Omega-Directive-70B-Unslop-v2.1-heretic-GGUF",
+            pretrained_model_name="unsloth/Llama-3.3-70B-Instruct",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.L33_THE_OMEGA_DIRECTIVE_70B_GGUF_Q4_K_M
+
+    # GGUF repos for actual (non-TT_RANDOM_WEIGHTS) weight loading
+    _GGUF_REPOS = {
+        ModelVariant.L33_THE_OMEGA_DIRECTIVE_70B_GGUF_Q4_K_M: "mradermacher/L3.3-The-Omega-Directive-70B-Unslop-v2.0-heretic-i1-GGUF",
+        ModelVariant.L33_THE_OMEGA_DIRECTIVE_70B_UNSLOP_V2_1_HERETIC_GGUF: "mradermacher/L3.3-The-Omega-Directive-70B-Unslop-v2.1-heretic-GGUF",
+    }
 
     _GGUF_FILES = {
         ModelVariant.L33_THE_OMEGA_DIRECTIVE_70B_GGUF_Q4_K_M: "L3.3-The-Omega-Directive-70B-Unslop-v2.0-heretic.i1-Q4_K_M.gguf",
@@ -76,11 +91,15 @@ class ModelLoader(ForgeModel):
         """Get the GGUF filename for the current variant."""
         return self._GGUF_FILES[self._variant]
 
+    @property
+    def _gguf_repo(self):
+        """Get the GGUF HuggingFace repo for the current variant."""
+        return self._GGUF_REPOS[self._variant]
+
     def _load_tokenizer(self, dtype_override=None):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self._gguf_file
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -96,23 +115,32 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self._gguf_file
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            if self.num_layers is not None:
+                config.num_hidden_layers = self.num_layers
+            model = LlamaForCausalLM(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+            model_kwargs["gguf_file"] = self._gguf_file
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self._gguf_file
+            if self.num_layers is not None:
+                config = AutoConfig.from_pretrained(
+                    self._gguf_repo, gguf_file=self._gguf_file
+                )
+                config.num_hidden_layers = self.num_layers
+                model_kwargs["config"] = config
+
+            model = AutoModelForCausalLM.from_pretrained(
+                self._gguf_repo, **model_kwargs
             )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
-
+        model = model.eval()
         self.config = model.config
         self.model = model
         return model
@@ -147,6 +175,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self._gguf_file
+            self._variant_config.pretrained_model_name
         )
         return self.config
