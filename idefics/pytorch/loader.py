@@ -41,9 +41,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.BASE_9B
 
     sample_text = "In this picture we can see"
-    sample_image_url = (
-        "https://upload.wikimedia.org/wikipedia/commons/8/86/Id%C3%A9fix.JPG"
-    )
+    sample_image_url = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize IDEFICS model loader."""
