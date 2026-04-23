@@ -4,8 +4,19 @@
 """
 Qwen 3.5 PaperWitch Heresy GGUF model loader implementation for causal language modeling.
 """
+import inspect
+
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 from typing import Optional
 
 from ....base import ForgeModel
@@ -18,6 +29,39 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_qwen35_support():
+    """Register qwen35 architecture and qwen3_5_text tokenizer as aliases for qwen3."""
+    if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "qwen35",
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
+            )
+    if "qwen3" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "qwen3_5_text", GGUF_TO_FAST_CONVERTERS["qwen3"]
+        )
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+    """Wrap load_gguf_checkpoint to add qwen35 support and fix model_type."""
+    _patch_qwen35_support()
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    if result.get("config", {}).get("model_type") == "qwen35":
+        result["config"]["model_type"] = "qwen3"
+    return result
+
+
+_patch_qwen35_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
@@ -61,6 +105,54 @@ class ModelLoader(ForgeModel):
     @property
     def gguf_file(self):
         return self._GGUF_FILES[self._variant]
+
+    @staticmethod
+    def _patch_load_gguf_checkpoint_compat():
+        """Wrap load_gguf_checkpoint so it accepts model_to_load (new in transformers 5.2).
+
+        Other loaders install patches with the old signature that lack this kwarg.
+        We work around this by wrapping each module's function to accept model_to_load
+        and temporarily patching get_gguf_hf_weights_map when needed.
+        """
+        for mod in [_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils]:
+            fn = getattr(mod, "load_gguf_checkpoint", None)
+            if fn is None:
+                continue
+            sig = inspect.signature(fn)
+            params = sig.parameters
+            has_var_kw = any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+            )
+            if "model_to_load" in params or has_var_kw:
+                continue
+            _fn = fn
+
+            def _compat(
+                gguf_checkpoint_path,
+                return_tensors=False,
+                model_to_load=None,
+                _fn=_fn,
+                **kw,
+            ):
+                if return_tensors and model_to_load is not None:
+                    _orig_get_map = _gguf_utils.get_gguf_hf_weights_map
+                    _stored = model_to_load
+
+                    def _compat_get_map(hf_model, *args, **kwargs):
+                        if hf_model is None:
+                            hf_model = _stored
+                        return _orig_get_map(hf_model, *args, **kwargs)
+
+                    _gguf_utils.get_gguf_hf_weights_map = _compat_get_map
+                    try:
+                        return _fn(
+                            gguf_checkpoint_path, return_tensors=return_tensors, **kw
+                        )
+                    finally:
+                        _gguf_utils.get_gguf_hf_weights_map = _orig_get_map
+                return _fn(gguf_checkpoint_path, return_tensors=return_tensors, **kw)
+
+            mod.load_gguf_checkpoint = _compat
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -106,6 +198,7 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
+        self._patch_load_gguf_checkpoint_compat()
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
