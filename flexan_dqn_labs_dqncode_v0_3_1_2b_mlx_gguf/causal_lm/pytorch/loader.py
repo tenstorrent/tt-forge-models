@@ -6,7 +6,12 @@ Flexan DQN-Labs dqnCode-v0.3-1.2B-MLX GGUF model loader implementation for causa
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFLlamaConverter
 from typing import Optional
+
+# lfm2 (Liquid Foundation Model 2) uses BPE tokenization compatible with LlamaConverter
+if "lfm2" not in GGUF_TO_FAST_CONVERTERS:
+    GGUF_TO_FAST_CONVERTERS["lfm2"] = GGUFLlamaConverter
 
 from ....base import ForgeModel
 from ....config import (
