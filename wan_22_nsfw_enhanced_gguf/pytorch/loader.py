@@ -114,11 +114,50 @@ class ModelLoader(ForgeModel):
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         gguf_local_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
-        self._transformer = WanTransformer3DModel.from_single_file(
-            gguf_local_path,
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
+
+        # _replace_with_gguf_linear creates GGUFLinear on meta device. Params absent
+        # from the GGUF file (e.g. biases) remain on meta after load_model_dict_into_meta,
+        # causing dispatch_model to fail with "Cannot copy out of meta tensor".
+        # Patch dispatch_model to materialize those stragglers before dispatch.
+        import diffusers.loaders.single_file_model as _sfm
+
+        _orig_dispatch = _sfm.dispatch_model
+
+        def _meta_safe_dispatch(model, device_map=None, **kw):
+            if device_map:
+                target = torch.device(list(device_map.values())[0])
+                for pname, p in list(model.named_parameters(recurse=True)):
+                    if p.device.type == "meta":
+                        parts = pname.rsplit(".", 1)
+                        parent = model
+                        if len(parts) > 1:
+                            for attr in parts[0].split("."):
+                                parent = getattr(parent, attr)
+                        parent._parameters[parts[-1]] = torch.nn.Parameter(
+                            torch.empty(p.shape, dtype=p.dtype, device=target),
+                            requires_grad=p.requires_grad,
+                        )
+                for bname, b in list(model.named_buffers(recurse=True)):
+                    if b.device.type == "meta":
+                        parts = bname.rsplit(".", 1)
+                        parent = model
+                        if len(parts) > 1:
+                            for attr in parts[0].split("."):
+                                parent = getattr(parent, attr)
+                        parent._buffers[parts[-1]] = torch.empty(
+                            b.shape, dtype=b.dtype, device=target
+                        )
+            return _orig_dispatch(model, device_map=device_map, **kw)
+
+        _sfm.dispatch_model = _meta_safe_dispatch
+        try:
+            self._transformer = WanTransformer3DModel.from_single_file(
+                gguf_local_path,
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
+            )
+        finally:
+            _sfm.dispatch_model = _orig_dispatch
 
         return self._transformer
 
