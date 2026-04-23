@@ -66,22 +66,22 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the ObjectClear SDXL inpainting pipeline.
+        """Load and return the UNet from the ObjectClear SDXL inpainting pipeline.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            StableDiffusionXLInpaintPipeline: The pipeline instance.
+            torch.nn.Module: The UNet model used for denoising.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         self.pipeline = load_object_clear_pipe(pretrained_model_name)
 
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the ObjectClear UNet.
@@ -90,11 +90,11 @@ class ModelLoader(ForgeModel):
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
 
         Returns:
-            List: Input tensors for the UNet:
-                - scaled_latent_model_input (torch.Tensor): Noise latents concatenated with mask and masked image latents
-                - timestep (torch.Tensor)
-                - prompt_embeds (torch.Tensor)
-                - added_cond_kwargs (dict)
+            dict: Keyword arguments for the UNet forward method:
+                - sample (torch.Tensor): Noise latents concatenated with mask and masked image latents
+                - timestep (torch.Tensor): Single timestep tensor
+                - encoder_hidden_states (torch.Tensor): Encoded prompt embeddings
+                - added_cond_kwargs (dict): Additional conditioning inputs
         """
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
@@ -110,14 +110,16 @@ class ModelLoader(ForgeModel):
             self.pipeline, self.prompt, input_image, mask_image
         )
 
+        timestep = timesteps[0]
+
         if dtype_override:
             scaled_latent_model_input = scaled_latent_model_input.to(dtype_override)
-            timesteps = timesteps.to(dtype_override)
+            timestep = timestep.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
 
-        return [
-            scaled_latent_model_input,
-            timesteps,
-            prompt_embeds,
-            added_cond_kwargs,
-        ]
+        return {
+            "sample": scaled_latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "added_cond_kwargs": added_cond_kwargs,
+        }
