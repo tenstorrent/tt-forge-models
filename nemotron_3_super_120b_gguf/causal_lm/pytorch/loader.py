@@ -91,7 +91,10 @@ def _patch_nemotron_h_moe_support():
         mapping = _NEMOTRON_H_MOE_CONFIG_MAPPING if section == "config" else {}
         _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["nemotron_h_moe"] = mapping
 
-    # Register tokenizer converter (gpt2-style tokenizer)
+    # Register tokenizer converter (gpt2-style tokenizer).
+    # Both the raw GGUF architecture name and the transformed model_type must be
+    # registered because tokenization_utils_tokenizers reads model_type from the
+    # patched config (which is already 'nemotron_h').
     try:
         import transformers.integrations.ggml as _ggml
 
@@ -99,9 +102,10 @@ def _patch_nemotron_h_moe_support():
             hasattr(_ggml, "GGUF_TO_FAST_CONVERTERS")
             and "gpt2" in _ggml.GGUF_TO_FAST_CONVERTERS
         ):
-            _ggml.GGUF_TO_FAST_CONVERTERS[
-                "nemotron_h_moe"
-            ] = _ggml.GGUF_TO_FAST_CONVERTERS["gpt2"]
+            for arch in ("nemotron_h_moe", "nemotron_h"):
+                _ggml.GGUF_TO_FAST_CONVERTERS[arch] = _ggml.GGUF_TO_FAST_CONVERTERS[
+                    "gpt2"
+                ]
     except Exception:
         pass
 
