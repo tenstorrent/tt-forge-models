@@ -92,10 +92,9 @@ def _make_qwen3vl_load_patch(inner_load):
     import numpy as np
     import torch
     from tqdm import tqdm
-    from gguf import GGUFReader
+    from gguf import GGUFReader, dequantize
     from transformers.modeling_gguf_pytorch_utils import (
         TensorProcessor,
-        dequantize,
         get_gguf_hf_weights_map,
     )
 
