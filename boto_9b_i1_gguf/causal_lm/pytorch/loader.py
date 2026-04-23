@@ -9,6 +9,11 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -19,6 +24,62 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+_ORIG_VAR_NAMES = (
+    "_orig_load_gguf_checkpoint",
+    "orig_load",
+    "_orig_load",
+    "_original",
+    "original",
+)
+
+
+def _find_true_original(fn):
+    """Walk the patch chain to find the real transformers load_gguf_checkpoint."""
+    seen = set()
+    while True:
+        fn_id = id(fn)
+        if fn_id in seen:
+            break
+        seen.add(fn_id)
+        if getattr(fn, "__module__", "") == "transformers.modeling_gguf_pytorch_utils":
+            return fn
+        globs = getattr(fn, "__globals__", {}) or {}
+        next_fn = None
+        for name in _ORIG_VAR_NAMES:
+            candidate = globs.get(name)
+            if (
+                candidate is not None
+                and callable(candidate)
+                and id(candidate) not in seen
+            ):
+                next_fn = candidate
+                break
+        if next_fn is not None:
+            fn = next_fn
+            continue
+        for cell in getattr(fn, "__closure__", None) or ():
+            try:
+                val = cell.cell_contents
+            except ValueError:
+                continue
+            if callable(val) and id(val) not in seen:
+                next_fn = val
+                break
+        if next_fn is not None:
+            fn = next_fn
+            continue
+        break
+    return fn
+
+
+def _restore_original_gguf_checkpoint():
+    """Restore the true original load_gguf_checkpoint, bypassing broken patches."""
+    true_orig = _find_true_original(_gguf_utils.load_gguf_checkpoint)
+    _gguf_utils.load_gguf_checkpoint = true_orig
+    _config_utils.load_gguf_checkpoint = true_orig
+    _auto_tokenizer.load_gguf_checkpoint = true_orig
+    _tok_utils.load_gguf_checkpoint = true_orig
 
 
 class ModelVariant(StrEnum):
@@ -77,6 +138,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _restore_original_gguf_checkpoint()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -154,6 +216,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        _restore_original_gguf_checkpoint()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
