@@ -14,6 +14,7 @@ import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    get_gguf_hf_weights_map as _orig_get_gguf_hf_weights_map,
     GGUF_SUPPORTED_ARCHITECTURES,
 )
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
@@ -31,26 +32,27 @@ from ....config import (
 
 
 def _patch_qwen35_support():
-    """Register qwen35 as an alias for qwen3 with corrected head_dim mapping.
+    """Register qwen35 as the Qwen3.5 hybrid SSM+attention architecture.
 
-    Qwen3.5 GGUF files declare architecture as 'qwen35' and use head_dim=256
-    (via attention.key_length=256) with 16 attention heads. Without registering
-    the key_length -> head_dim mapping, Qwen3Config defaults to head_dim=128,
-    causing weight shape mismatches on q_norm and o_proj.
+    Qwen3.5 uses a hybrid architecture (GatedDeltaNet SSM + full attention),
+    NOT the same as pure-attention Qwen3. GGUF files declare arch 'qwen35'.
+    The correct transformers class is Qwen3_5ForCausalLM (model_type='qwen3_5_text').
+
+    Key fixes:
+    - Map attention.key_length -> head_dim (Qwen3.5 uses head_dim=256, not 128)
+    - Use direct assignment (not setdefault) to override partial mappings set
+      by other loaders that lack the attention.key_length entry
     """
     if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
         GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
     for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
         if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
-            base_mapping = dict(
+            new_mapping = dict(
                 _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"]
             )
             if section == "config":
-                base_mapping.setdefault("attention.key_length", "head_dim")
-            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
-                "qwen35",
-                base_mapping,
-            )
+                new_mapping["attention.key_length"] = "head_dim"
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen35"] = new_mapping
     if "qwen3" in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
         GGUF_TO_FAST_CONVERTERS.setdefault(
@@ -60,13 +62,29 @@ def _patch_qwen35_support():
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     """Wrap load_gguf_checkpoint to add qwen35 support and fix model_type."""
-    _patch_qwen35_support()
     result = _orig_load_gguf_checkpoint(
         gguf_path, return_tensors=return_tensors, **kwargs
     )
     if result.get("config", {}).get("model_type") == "qwen35":
-        result["config"]["model_type"] = "qwen3"
+        result["config"]["model_type"] = "qwen3_5_text"
     return result
+
+
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
+    """Wrap get_gguf_hf_weights_map to add 'qwen3_5_text' -> 'qwen35' alias.
+
+    transformers has explicit aliases for several model types (e.g. gemma3_text
+    -> gemma3) but is missing 'qwen3_5_text' -> 'qwen35'. Without this alias
+    the function raises NotImplementedError when loading Qwen3.5 GGUF weights.
+    """
+    effective_type = hf_model.config.model_type if model_type is None else model_type
+    if effective_type == "qwen3_5_text":
+        model_type = "qwen35"
+    return _orig_get_gguf_hf_weights_map(
+        hf_model, processor, model_type, num_layers, qual_name
+    )
 
 
 _patch_qwen35_support()
@@ -74,6 +92,7 @@ _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 
 class ModelVariant(StrEnum):
@@ -219,10 +238,11 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
 
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+            if hasattr(layer, "self_attn"):
+                shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
         shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
 
