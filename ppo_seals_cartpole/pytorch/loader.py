@@ -10,7 +10,6 @@ from dataclasses import dataclass
 
 import torch
 from huggingface_hub import hf_hub_download
-from stable_baselines3 import PPO
 
 from ...config import (
     ModelConfig,
@@ -70,6 +69,8 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The PPO MLP policy network in eval mode.
         """
+        from stable_baselines3 import PPO
+
         model_name = self._variant_config.pretrained_model_name
         model_path = hf_hub_download(
             repo_id=model_name,
