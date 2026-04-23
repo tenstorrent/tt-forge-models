@@ -122,6 +122,39 @@ class ModelLoader(ForgeModel):
             **model_kwargs,
         )
         model.eval()
+        if dtype_override is not None:
+            # Ensure all parameters are in the target dtype, including randomly
+            # initialized weights that were missing from the checkpoint due to key
+            # mismatch (checkpoint uses "model.encoder.*" but model expects
+            # "OmniGenome.encoder.*").
+            model.to(dtype_override)
+
+        # Cast attention_mask to hidden_states dtype inside OmniGenomeSelfAttention
+        # so that attention_probs stays in the same dtype as value_layer.
+        # Without this, the float32 extended attention mask causes attention_scores
+        # to upcast to float32, breaking the tt_torch matmul dtype check.
+        for mod in model.modules():
+            cls = type(mod)
+            if cls.__name__ == "OmniGenomeSelfAttention" and not getattr(
+                cls, "_dtype_patched", False
+            ):
+                _orig_attn_fwd = cls.forward
+
+                def _patched_attn_fwd(
+                    self,
+                    hidden_states,
+                    attention_mask=None,
+                    *args,
+                    _orig=_orig_attn_fwd,
+                    **kw,
+                ):
+                    if attention_mask is not None:
+                        attention_mask = attention_mask.to(hidden_states.dtype)
+                    return _orig(self, hidden_states, attention_mask, *args, **kw)
+
+                cls.forward = _patched_attn_fwd
+                cls._dtype_patched = True
+                break
 
         return model
 
