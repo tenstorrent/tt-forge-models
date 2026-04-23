@@ -165,9 +165,14 @@ def object_clear_preprocessing(
     latents = latents * pipe.scheduler.init_noise_sigma
 
     # 4. Prepare mask and masked image latents
+    init_image = pipe.image_processor.preprocess(image, height=height, width=width)
+    init_image = init_image.to(dtype=torch.float32)
+    mask_tensor = pipe.mask_processor.preprocess(mask_image, height=height, width=width)
+    masked_image = init_image * (mask_tensor < 0.5)
+
     mask, masked_image_latents = pipe.prepare_mask_latents(
-        mask=mask_image,
-        masked_image=image,
+        mask=mask_tensor,
+        masked_image=masked_image,
         batch_size=batch_size * num_images_per_prompt,
         height=height,
         width=width,
