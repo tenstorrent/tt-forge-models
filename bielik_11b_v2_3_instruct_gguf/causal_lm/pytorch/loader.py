@@ -8,6 +8,49 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+)
+
+
+def _patched_load_gguf_checkpoint(
+    gguf_checkpoint_path, return_tensors=False, model_to_load=None
+):
+    # is_gguf_available() uses @lru_cache and gguf lacks __version__, which causes
+    # InvalidVersion('N/A') after a fresh pip install + importlib.invalidate_caches().
+    # Import gguf now (puts it in sys.modules), set __version__ from metadata so the
+    # fallback path in _is_package_available returns a valid version string, then
+    # clear the stale lru_cache so is_gguf_available() recomputes correctly.
+    try:
+        import importlib.metadata as _im
+        import gguf as _gguf_mod
+
+        if not hasattr(_gguf_mod, "__version__"):
+            try:
+                _gguf_mod.__version__ = _im.version("gguf")
+            except Exception:
+                pass
+        from transformers.utils import is_gguf_available
+
+        is_gguf_available.cache_clear()
+    except Exception:
+        pass
+    return _orig_load_gguf_checkpoint(
+        gguf_checkpoint_path,
+        return_tensors=return_tensors,
+        model_to_load=model_to_load,
+    )
+
+
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
