@@ -114,8 +114,10 @@ class ModelLoader(ForgeModel):
             dtype=dtype,
         )
         timestep = torch.randint(0, 1000, (1,))
+        # UNet reshapes (batch, C, frames, H, W) -> (batch*frames, C, H, W) internally,
+        # so encoder_hidden_states must match that effective batch size.
         encoder_hidden_states = torch.randn(
-            (batch_size, 77, cross_attention_dim),
+            (batch_size * num_frames, 77, cross_attention_dim),
             dtype=dtype,
         )
 
