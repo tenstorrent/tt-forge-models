@@ -4,10 +4,10 @@
 """
 cyankiwi Llama 3.3 Nemotron Super 49B v1.5 AWQ 4bit model loader implementation for causal language modeling.
 """
-import sys
-import torch
 import torch.nn as nn
 import transformers.generation.utils as _gen_utils
+import transformers.dynamic_module_utils as _dmu
+import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -15,6 +15,34 @@ from typing import Optional
 # the model's custom modeling_decilm.py (written for 4.x) can register VariableCache.
 if not hasattr(_gen_utils, "NEED_SETUP_CACHE_CLASSES_MAPPING"):
     _gen_utils.NEED_SETUP_CACHE_CLASSES_MAPPING = {}
+
+# Wrap get_class_in_module so that after modeling_decilm is loaded (which may
+# happen inside from_pretrained via exec_module) we immediately patch
+# DeciLMPreTrainedModel._init_weights to skip compressed-tensors quantized
+# Linear layers that have no .weight attribute.
+_orig_get_class_in_module = _dmu.get_class_in_module
+
+
+def _patched_get_class_in_module(class_name, module_path, *args, **kwargs):
+    cls = _orig_get_class_in_module(class_name, module_path, *args, **kwargs)
+    for parent_cls in cls.__mro__:
+        if parent_cls.__name__ == "DeciLMPreTrainedModel" and not getattr(
+            parent_cls, "_ct_patched", False
+        ):
+            _orig_init = parent_cls._init_weights
+
+            def _safe_init(self, module, _o=_orig_init):
+                if isinstance(module, nn.Linear) and not hasattr(module, "weight"):
+                    return
+                _o(self, module)
+
+            parent_cls._init_weights = _safe_init
+            parent_cls._ct_patched = True
+            break
+    return cls
+
+
+_dmu.get_class_in_module = _patched_get_class_in_module
 
 from ....base import ForgeModel
 from ....config import (
@@ -80,26 +108,6 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
-    @staticmethod
-    def _patch_decilm_init_weights():
-        """Patch DeciLMPreTrainedModel._init_weights to skip quantized Linear layers.
-
-        compressed-tensors replaces Linear.weight with a packed tensor; the custom
-        modeling_decilm.py was written for plain transformers and crashes on these.
-        """
-        for mod_name, mod in sys.modules.items():
-            if "modeling_decilm" in mod_name and hasattr(mod, "DeciLMPreTrainedModel"):
-                cls = mod.DeciLMPreTrainedModel
-                orig = cls._init_weights
-
-                def _safe_init_weights(self, module, _orig=orig):
-                    if isinstance(module, nn.Linear) and not hasattr(module, "weight"):
-                        return
-                    _orig(self, module)
-
-                cls._init_weights = _safe_init_weights
-                break
-
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -111,16 +119,12 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        # Load config first so the dynamic module (modeling_decilm) is cached in
-        # sys.modules, then patch _init_weights before the full model load.
-        config = AutoConfig.from_pretrained(
-            pretrained_model_name, trust_remote_code=True
-        )
-        self._patch_decilm_init_weights()
-
         if self.num_layers is not None:
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, trust_remote_code=True
+            )
             config.num_hidden_layers = self.num_layers
-        model_kwargs["config"] = config
+            model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
