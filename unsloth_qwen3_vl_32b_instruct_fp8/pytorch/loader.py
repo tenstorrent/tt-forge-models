@@ -6,8 +6,9 @@ Unsloth Qwen3-VL-32B-Instruct-FP8 model loader implementation for image to text.
 """
 
 from transformers import (
-    Qwen3VLForConditionalGeneration,
+    AutoConfig,
     AutoProcessor,
+    Qwen3VLForConditionalGeneration,
 )
 from typing import Optional
 
@@ -87,6 +88,10 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+            # Remove FP8 quantization config to avoid triton dependency on non-GPU systems
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config.quantization_config = None
+            model_kwargs["config"] = config
         else:
             model_kwargs["dtype"] = "auto"
             model_kwargs["device_map"] = "auto"
