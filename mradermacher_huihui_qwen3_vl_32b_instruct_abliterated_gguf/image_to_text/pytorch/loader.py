@@ -84,14 +84,18 @@ def _patched_get_gguf_hf_weights_map(
 
     Qwen3VLConfig has num_hidden_layers inside text_config, not at the top level.
     gguf-py uses 'qwen3vl' (no underscore) while transformers uses 'qwen3_vl'.
+    This function is called recursively for child modules, so we must not access
+    hf_model.config unconditionally (child modules may not have a config attribute).
     """
-    config = hf_model.config
     if model_type is None:
-        model_type = config.model_type
+        config = getattr(hf_model, "config", None)
+        model_type = getattr(config, "model_type", None)
     if model_type == "qwen3_vl":
         model_type = "qwen3vl"
-        if num_layers is None and hasattr(config, "text_config"):
-            num_layers = config.text_config.num_hidden_layers
+        if num_layers is None:
+            config = getattr(hf_model, "config", None)
+            if config is not None and hasattr(config, "text_config"):
+                num_layers = config.text_config.num_hidden_layers
     return _orig_get_gguf_hf_weights_map(
         hf_model, processor, model_type, num_layers, qual_name
     )
