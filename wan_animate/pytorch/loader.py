@@ -86,9 +86,7 @@ class ModelLoader(ForgeModel):
                 low_cpu_mem_usage=low_cpu_mem_usage,
             )
 
-        self._transformer = self.pipeline.transformer
-        if dtype_override is not None:
-            self._transformer = self._transformer.to(dtype=dtype_override)
+        self._transformer = self.pipeline.transformer.to(dtype=dtype)
         self._transformer.eval()
         return self._transformer
 
