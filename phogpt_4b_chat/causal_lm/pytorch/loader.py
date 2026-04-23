@@ -8,7 +8,83 @@ VinAI PhoGPT-4B-Chat causal language model loader implementation.
 from typing import Optional
 
 import torch
+import torch.nn as nn
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+
+# transformers >=5.x removed LlamaLinearScalingRotaryEmbedding and
+# LlamaDynamicNTKScalingRotaryEmbedding; provide stubs so modeling_mpt.py imports succeed.
+import transformers.models.llama.modeling_llama as _llama_module
+
+if not hasattr(_llama_module, "LlamaDynamicNTKScalingRotaryEmbedding"):
+
+    class _LlamaCompatRotaryEmbedding(nn.Module):
+        def __init__(
+            self,
+            dim,
+            max_position_embeddings=2048,
+            base=10000,
+            scaling_factor=1.0,
+            device=None,
+        ):
+            super().__init__()
+            self.dim = dim
+            self.max_position_embeddings = max_position_embeddings
+            self.base = base
+            self.scaling_factor = scaling_factor
+            inv_freq = 1.0 / (
+                base
+                ** (torch.arange(0, dim, 2, dtype=torch.float32, device=device) / dim)
+            )
+            self.register_buffer("inv_freq", inv_freq, persistent=False)
+
+        def forward(self, x, seq_len=None):
+            seq_len = seq_len or x.shape[-2]
+            t = torch.arange(seq_len, device=x.device, dtype=torch.float32)
+            freqs = torch.outer(t, self.inv_freq)
+            emb = torch.cat((freqs, freqs), dim=-1)
+            return emb.cos().to(x.dtype), emb.sin().to(x.dtype)
+
+    _llama_module.LlamaDynamicNTKScalingRotaryEmbedding = _LlamaCompatRotaryEmbedding
+    _llama_module.LlamaLinearScalingRotaryEmbedding = _LlamaCompatRotaryEmbedding
+
+
+def _patch_mpt_post_init() -> None:
+    """Patch MPTForCausalLM for transformers >=5.x compatibility.
+
+    1. MPT models written for older transformers omit self.post_init() at the
+       end of __init__, which is now required to populate all_tied_weights_keys.
+    2. tie_weights() must accept **kwargs (transformers 5.x passes recompute_mapping).
+    """
+    import sys
+
+    from transformers import PreTrainedModel
+
+    for module in list(sys.modules.values()):
+        cls = getattr(module, "MPTForCausalLM", None)
+        if (
+            cls is not None
+            and isinstance(cls, type)
+            and issubclass(cls, PreTrainedModel)
+            and not getattr(cls, "_tt_post_init_patched", False)
+        ):
+            orig_init = cls.__init__
+
+            def _patched_init(self, config, _orig=orig_init):
+                _orig(self, config)
+                if not hasattr(self, "all_tied_weights_keys"):
+                    self.post_init()
+
+            cls.__init__ = _patched_init
+
+            orig_tie = cls.tie_weights
+
+            def _patched_tie_weights(self, _orig=orig_tie, **kwargs):
+                _orig(self)
+
+            cls.tie_weights = _patched_tie_weights
+            cls._tt_post_init_patched = True
+            return
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -97,6 +173,7 @@ class ModelLoader(ForgeModel):
             config.n_layers = self.num_layers
             model_kwargs["config"] = config
 
+        _patch_mpt_post_init()
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
