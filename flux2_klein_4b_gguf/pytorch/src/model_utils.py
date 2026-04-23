@@ -5,10 +5,17 @@
 Helper functions for loading GGUF-quantized FLUX.2-klein-4B models.
 """
 
+import os
+
 import torch
-from diffusers.models import Flux2Transformer2DModel
 from diffusers import GGUFQuantizationConfig
+from diffusers.models import Flux2Transformer2DModel
 from huggingface_hub import hf_hub_download
+
+# Local config dir containing FLUX.2-klein-4B transformer architecture config,
+# avoiding the gated black-forest-labs/FLUX.2-dev repo that from_single_file
+# would otherwise try to fetch.
+_CONFIG_DIR = os.path.join(os.path.dirname(__file__), "flux2_klein_config")
 
 
 def load_flux2_klein_gguf_transformer(repo_id: str, gguf_filename: str):
@@ -27,6 +34,7 @@ def load_flux2_klein_gguf_transformer(repo_id: str, gguf_filename: str):
 
     transformer = Flux2Transformer2DModel.from_single_file(
         model_path,
+        config=_CONFIG_DIR,
         quantization_config=quantization_config,
         torch_dtype=torch.bfloat16,
     )
