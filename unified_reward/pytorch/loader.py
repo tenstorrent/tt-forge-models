@@ -11,11 +11,6 @@ import torch
 from PIL import Image
 from typing import Optional
 
-from llava.constants import DEFAULT_IMAGE_TOKEN, IMAGE_TOKEN_INDEX
-from llava.conversation import conv_templates
-from llava.mm_utils import process_images, tokenizer_image_token
-from llava.model.builder import load_pretrained_model
-
 from ...base import ForgeModel
 from ...config import (
     ModelConfig,
@@ -67,6 +62,8 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the UnifiedReward model instance."""
+        from llava.model.builder import load_pretrained_model
+
         model_name_or_path = self._variant_config.pretrained_model_name
         tokenizer, model, image_processor, _ = load_pretrained_model(
             model_name_or_path, None, "llava_qwen", device_map="cpu"
@@ -88,6 +85,10 @@ class ModelLoader(ForgeModel):
 
         image_file = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
         image = Image.open(image_file)
+
+        from llava.constants import DEFAULT_IMAGE_TOKEN, IMAGE_TOKEN_INDEX
+        from llava.conversation import conv_templates
+        from llava.mm_utils import process_images, tokenizer_image_token
 
         image_tensor = process_images([image], self.image_processor, None)
         if dtype_override:
