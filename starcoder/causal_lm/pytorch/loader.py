@@ -5,6 +5,7 @@
 StarCoder model loader implementation for causal language modeling.
 """
 
+import os
 from typing import Optional
 
 import torch
@@ -38,7 +39,7 @@ class ModelLoader(ForgeModel):
             max_length=256,
         ),
         ModelVariant.STARCODERBASE_3B: LLMModelConfig(
-            pretrained_model_name="bigcode/starcoderbase-3b",
+            pretrained_model_name="bigcode/starcoder2-3b",
             max_length=256,
         ),
     }
@@ -73,6 +74,9 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
+        token = os.environ.get("HF_TOKEN")
+        if token:
+            tokenizer_kwargs["token"] = token
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             pretrained_model_name, **tokenizer_kwargs
@@ -89,12 +93,18 @@ class ModelLoader(ForgeModel):
             self._load_tokenizer(dtype_override)
 
         model_kwargs = {}
+        token = kwargs.pop("token", None) or os.environ.get("HF_TOKEN")
+        if token:
+            model_kwargs["token"] = token
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name,
+                **({"token": token} if token else {}),
+            )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
@@ -129,7 +139,11 @@ class ModelLoader(ForgeModel):
         return self.tokenizer.decode([next_token])
 
     def load_config(self):
+        config_kwargs = {}
+        token = os.environ.get("HF_TOKEN")
+        if token:
+            config_kwargs["token"] = token
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, **config_kwargs
         )
         return self.config
