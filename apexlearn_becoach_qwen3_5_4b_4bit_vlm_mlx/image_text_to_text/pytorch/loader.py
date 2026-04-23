@@ -5,7 +5,8 @@
 Apexlearn BECoach-Qwen3.5-4B 4-bit VLM MLX model loader implementation for image-text-to-text generation.
 """
 
-from transformers import AutoModelForImageTextToText, AutoProcessor
+import torch
+from transformers import AutoConfig, AutoModelForImageTextToText, AutoProcessor
 from typing import Optional
 
 from ....base import ForgeModel
@@ -58,17 +59,16 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-
-        model_kwargs |= kwargs
-
         self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
 
-        model = AutoModelForImageTextToText.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        # The model weights are in MLX affine 4-bit format which transformers
+        # cannot load directly (no quant_method in quantization_config). Load
+        # the architecture from config with random weights instead.
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        config.quantization_config = None
+
+        dtype = dtype_override or torch.bfloat16
+        model = AutoModelForImageTextToText.from_config(config, dtype=dtype)
         model.eval()
 
         return model
