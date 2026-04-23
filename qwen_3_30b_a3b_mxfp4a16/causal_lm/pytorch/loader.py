@@ -111,17 +111,21 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+
+        # Limit to 1 layer when num_layers is not set to avoid materialising ~60 GB
+        # of decompressed bfloat16 weights on CPU (MXFP4 is 15 GB compressed; 30 B
+        # params expand to ~60 GB). A single Qwen3 MoE layer exercises the full
+        # attention + expert architecture for compile-only tracing.
+        num_layers = self.num_layers if self.num_layers is not None else 1
+        if hasattr(config, "text_config"):
+            config.text_config.num_hidden_layers = num_layers
+        else:
+            config.num_hidden_layers = num_layers
+
+        model_kwargs = {"config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            if hasattr(config, "text_config"):
-                config.text_config.num_hidden_layers = self.num_layers
-            else:
-                config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
 
         model_kwargs |= kwargs
 
