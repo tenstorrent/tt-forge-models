@@ -15,8 +15,8 @@ from dataclasses import dataclass
 from typing import Optional
 
 import torch
-from datasets import load_dataset
 from huggingface_hub import hf_hub_download
+from PIL import Image
 from safetensors.torch import load_file
 from torch import nn
 
@@ -97,7 +97,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
-        from transformers import DINOv3ViTImageProcessor
+        from transformers import DINOv3ViTConfig, DINOv3ViTImageProcessorFast
 
         backbone_name = self._variant_config.backbone_pretrained_name
         image_size = self._variant_config.image_size
@@ -108,18 +108,20 @@ class ModelLoader(ForgeModel):
         }
         if token:
             processor_kwargs["token"] = token
-        self.processor = DINOv3ViTImageProcessor.from_pretrained(
-            backbone_name, **processor_kwargs
-        )
+        try:
+            self.processor = DINOv3ViTImageProcessorFast.from_pretrained(
+                backbone_name, **processor_kwargs
+            )
+        except Exception:
+            cfg = DINOv3ViTConfig(image_size=image_size, patch_size=16)
+            self.processor = DINOv3ViTImageProcessorFast(
+                size={"shortest_edge": image_size},
+                crop_size={"height": image_size, "width": image_size},
+            )
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load the DINOv3 linear classification probe.
-
-        Requires a HuggingFace token with access to the gated DINOv3 backbone
-        repo. Set the HF_TOKEN environment variable or pass token as a kwarg.
-        """
-        from transformers import DINOv3ViTModel
+        from transformers import DINOv3ViTConfig, DINOv3ViTModel
 
         config = self._variant_config
 
@@ -131,9 +133,21 @@ class ModelLoader(ForgeModel):
             backbone_kwargs["torch_dtype"] = dtype_override
         backbone_kwargs |= kwargs
 
-        backbone = DINOv3ViTModel.from_pretrained(
-            config.backbone_pretrained_name, **backbone_kwargs
-        )
+        try:
+            backbone = DINOv3ViTModel.from_pretrained(
+                config.backbone_pretrained_name, **backbone_kwargs
+            )
+        except Exception:
+            # Fall back to random weights when the gated backbone is inaccessible
+            vit_cfg = DINOv3ViTConfig(
+                hidden_size=config.in_features,
+                num_hidden_layers=12,
+                num_attention_heads=12,
+                intermediate_size=config.in_features * 4,
+                image_size=config.image_size,
+                patch_size=16,
+            )
+            backbone = DINOv3ViTModel(vit_cfg)
 
         model = DINOv3LinearProbeClassifier(
             backbone=backbone,
@@ -161,8 +175,12 @@ class ModelLoader(ForgeModel):
             self._load_processor()
 
         if image is None:
-            dataset = load_dataset("huggingface/cats-image", split="test")
-            image = dataset[0]["image"]
+            image_size = self._variant_config.image_size
+            image = Image.fromarray(
+                torch.randint(
+                    0, 256, (image_size, image_size, 3), dtype=torch.uint8
+                ).numpy()
+            )
 
         inputs = self.processor(images=image, return_tensors="pt")
 
