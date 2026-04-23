@@ -94,9 +94,25 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        import transformers.configuration_utils as _config_utils
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+        import transformers.models.auto.tokenization_auto as _auto_tokenizer
+        import transformers.tokenization_utils_tokenizers as _tok_utils
+
+        _patched_chain = _gguf_utils.load_gguf_checkpoint
+
+        def _model_to_load_aware(gguf_path, return_tensors=False, model_to_load=None):
+            return _patched_chain(gguf_path, return_tensors=return_tensors)
+
+        for _mod in (_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils):
+            _mod.load_gguf_checkpoint = _model_to_load_aware
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            for _mod in (_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils):
+                _mod.load_gguf_checkpoint = _patched_chain
 
         self.config = model.config
         self.model = model
