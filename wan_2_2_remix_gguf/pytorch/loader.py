@@ -134,16 +134,35 @@ class ModelLoader(ForgeModel):
         from huggingface_hub import hf_hub_download
 
         # gguf is installed at test time by RequirementsManager, but diffusers
-        # caches _gguf_available/_gguf_version at import time. Patch both so
-        # the GGUF quantizer's validate_environment() sees the real version.
+        # caches availability flags and skips module-level imports when gguf is
+        # absent. Patch the cached state and inject any symbols that were
+        # conditionally skipped so the GGUF quantizer works at runtime.
         try:
             import importlib.metadata
 
             import gguf  # noqa: F401
+            import diffusers.quantizers.gguf.gguf_quantizer as _gguf_mod
             import diffusers.utils.import_utils as _diu
 
             _diu._gguf_available = True
             _diu._gguf_version = importlib.metadata.version("gguf")
+
+            if not hasattr(_gguf_mod, "_replace_with_gguf_linear"):
+                from diffusers.quantizers.gguf.utils import (
+                    GGML_QUANT_SIZES,
+                    GGUFParameter,
+                    _dequantize_gguf_and_restore_linear,
+                    _quant_shape_from_byte_shape,
+                    _replace_with_gguf_linear,
+                )
+
+                _gguf_mod.GGML_QUANT_SIZES = GGML_QUANT_SIZES
+                _gguf_mod.GGUFParameter = GGUFParameter
+                _gguf_mod._dequantize_gguf_and_restore_linear = (
+                    _dequantize_gguf_and_restore_linear
+                )
+                _gguf_mod._quant_shape_from_byte_shape = _quant_shape_from_byte_shape
+                _gguf_mod._replace_with_gguf_linear = _replace_with_gguf_linear
         except ImportError:
             pass
 
