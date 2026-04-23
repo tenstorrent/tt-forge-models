@@ -119,6 +119,21 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+
+        # Fix: NVFP4 checkpoint corrupts RADIO vision model's summary_idxs buffer.
+        # Recompute from the config's teacher list instead of trusting the checkpoint value.
+        radio_model = model.vision_model.radio_model
+        if (
+            hasattr(radio_model, "summary_idxs")
+            and radio_model.summary_idxs is not None
+        ):
+            args = model.vision_model.config.args
+            summary_idxs = torch.tensor(
+                [i for i, t in enumerate(args.teachers) if t.get("use_summary", True)],
+                dtype=torch.int64,
+            )
+            radio_model.register_buffer("summary_idxs", summary_idxs)
+
         model.eval()
 
         return model
