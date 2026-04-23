@@ -8,7 +8,7 @@ GLM-Z1-9B-0414 GGUF model loader for causal language modeling.
 from typing import Optional
 
 import torch
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoTokenizer, Glm4ForCausalLM
 
 from ....base import ForgeModel
 from ....config import (
@@ -20,6 +20,37 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
+
+
+def _register_glm4_gguf_support():
+    # transformers GGUF loading does not support glm4 natively; register the
+    # config field mapping so AutoConfig.from_pretrained(..., gguf_file=...)
+    # can extract model hyperparameters from the GGUF metadata.
+    from transformers.integrations.ggml import GGUF_CONFIG_MAPPING
+    from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
+
+    if "glm4" not in GGUF_CONFIG_MAPPING:
+        GGUF_CONFIG_MAPPING["glm4"] = {
+            "context_length": "max_position_embeddings",
+            "block_count": "num_hidden_layers",
+            "feed_forward_length": "intermediate_size",
+            "embedding_length": "hidden_size",
+            "rope.dimension_count": None,
+            "rope.freq_base": "rope_theta",
+            "attention.head_count": "num_attention_heads",
+            "attention.head_count_kv": "num_key_value_heads",
+            "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+            "attention.key_length": "head_dim",
+            "vocab_size": "vocab_size",
+        }
+        GGUF_SUPPORTED_ARCHITECTURES.append("glm4")
+
+
+_register_glm4_gguf_support()
+
+# Original (non-GGUF) model used for tokenizer loading; GGUF tokenizer
+# conversion for glm4 is not yet supported by transformers.
+_TOKENIZER_SOURCE = "THUDM/GLM-Z1-9B-0414"
 
 
 class ModelVariant(StrEnum):
@@ -64,43 +95,35 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+        # Load from the original (non-GGUF) repo because transformers does not
+        # support GGUF tokenizer conversion for the glm4 architecture yet.
+        self.tokenizer = AutoTokenizer.from_pretrained(_TOKENIZER_SOURCE)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        if self.config is None:
+            self.load_config()
 
+        config = self.config
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        model_kwargs = {}
+        model_kwargs |= kwargs
 
-        self.config = model.config
+        # GGUF weight loading for glm4 is not supported by transformers; the
+        # model is instantiated with random weights (suitable for compile-only).
+        # Glm4ForCausalLM.__init__ does not accept torch_dtype, so cast after.
+        model = Glm4ForCausalLM(config, **model_kwargs).eval()
+        if dtype_override is not None:
+            model = model.to(dtype_override)
+
         self.model = model
         return model
 
