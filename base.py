@@ -254,3 +254,26 @@ class ForgeModel(ABC):
                 f"Available configs: {os.listdir(config_dir)}"
             )
         return None
+
+
+class ForgeFocusModel(ForgeModel):
+    """Focus model loader for models on which we test prefill extensively
+    with various meshes, strategies, batches and sequence lengths.
+
+    Subclasses must implement:
+        * ``load_inputs_prefill`` — produces prefill-phase inputs sized for
+          the requested ``batch_size`` / ``seq_len``.
+        * ``load_shard_spec`` — produces weight shard specs parameterized by
+          ``strategy`` and ``batch_axis`` so the model can be swept across
+          different mesh / sharding combinations.
+    """
+
+    def load_inputs_prefill(self, dtype_override, batch_size, seq_len):
+        raise NotImplementedError(
+            f"{type(self).__name__} must implement load_inputs_prefill()"
+        )
+
+    def load_shard_spec(self, model, strategy, batch_axis):
+        raise NotImplementedError(
+            f"{type(self).__name__} must implement load_shard_spec(model, strategy, batch_axis)"
+        )
