@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.QWEN_3_5_35B_A3B_UNSLOTH_MLX: LLMModelConfig(
-            pretrained_model_name="Brooooooklyn/Qwen3.5-35B-A3B-unsloth-mlx",
+            pretrained_model_name="unsloth/Qwen3.5-35B-A3B",
             max_length=128,
         ),
     }
