@@ -4,9 +4,19 @@
 """
 Devstral Small 2507 Vision GGUF model loader implementation for causal language modeling.
 """
+import os
+
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+import huggingface_hub.constants as _hf_hub_constants
+
+_hf_hub_constants.HF_HUB_DISABLE_XET = True
+os.makedirs("/tmp/hf_cache/hub", exist_ok=True)
+_hf_hub_constants.HF_HUB_CACHE = "/tmp/hf_cache/hub"
 
 from ....base import ForgeModel
 from ....config import (
