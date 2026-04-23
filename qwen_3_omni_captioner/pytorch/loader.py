@@ -10,11 +10,6 @@ of arbitrary audio.
 """
 import numpy as np
 import torch
-from qwen_omni_utils import process_mm_info
-from transformers import (
-    Qwen3OmniMoeForConditionalGeneration,
-    Qwen3OmniMoeProcessor,
-)
 from typing import Optional
 
 from ...base import ForgeModel
@@ -66,6 +61,8 @@ class ModelLoader(ForgeModel):
 
     def _load_processor(self):
         """Load processor for the current variant."""
+        from transformers import Qwen3OmniMoeProcessor
+
         self.processor = Qwen3OmniMoeProcessor.from_pretrained(
             self._variant_config.pretrained_model_name
         )
@@ -78,6 +75,8 @@ class ModelLoader(ForgeModel):
         thinker sub-model. The composite Qwen3OmniMoeForConditionalGeneration
         does not implement forward().
         """
+        from transformers import Qwen3OmniMoeForConditionalGeneration
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         # Skip loading the talker + code2wav submodules: captioning only needs
@@ -122,6 +121,8 @@ class ModelLoader(ForgeModel):
         text = self.processor.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
+
+        from qwen_omni_utils import process_mm_info
 
         audios, _, _ = process_mm_info(messages, use_audio_in_video=False)
 
