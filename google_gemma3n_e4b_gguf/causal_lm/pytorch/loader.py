@@ -65,10 +65,62 @@ def _patch_gemma3n_support():
     GGUF_TO_FAST_CONVERTERS.setdefault("gemma3n", GGUFGemmaConverter)
     GGUF_TO_FAST_CONVERTERS.setdefault("gemma3n_text", GGUFGemmaConverter)
 
-    _orig = _gguf_utils.load_gguf_checkpoint
+    # Also teach get_gguf_hf_weights_map to map gemma3n_text → gemma3n so that
+    # tensor loading works when the model's config.model_type is "gemma3n_text".
+    _orig_get_map = _gguf_utils.get_gguf_hf_weights_map
 
-    def _patched_load_gguf_checkpoint(*args, **kwargs):
-        result = _orig(*args, **kwargs)
+    def _patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, **kwargs
+    ):
+        effective_type = (
+            hf_model.config.model_type
+            if model_type is None and hf_model is not None
+            else model_type
+        )
+        if effective_type == "gemma3n_text":
+            model_type = "gemma3n"
+        return _orig_get_map(hf_model, processor, model_type=model_type, **kwargs)
+
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
+    # Walk the patch chain to find the real transformers load_gguf_checkpoint,
+    # identified by having "model_to_load" in its signature.  Other models patch
+    # this function with (gguf_path, return_tensors=False) and don't forward
+    # model_to_load; by calling the real function directly we avoid TypeError
+    # while still passing model_to_load through for correct tensor mapping.
+    import inspect
+
+    _real_load = _gguf_utils.load_gguf_checkpoint
+    seen = set()
+    while True:
+        try:
+            if "model_to_load" in inspect.signature(_real_load).parameters:
+                break
+        except (ValueError, TypeError):
+            break
+        closure = getattr(_real_load, "__closure__", None) or []
+        found = None
+        for cell in closure:
+            try:
+                val = cell.cell_contents
+                if callable(val) and id(val) not in seen:
+                    seen.add(id(val))
+                    found = val
+                    break
+            except ValueError:
+                pass
+        if found is None:
+            break
+        _real_load = found
+
+    def _patched_load_gguf_checkpoint(
+        gguf_checkpoint_path, return_tensors=False, model_to_load=None
+    ):
+        result = _real_load(
+            gguf_checkpoint_path,
+            return_tensors=return_tensors,
+            model_to_load=model_to_load,
+        )
         if result.get("config", {}).get("model_type") == "gemma3n":
             result["config"]["model_type"] = "gemma3n_text"
         return result
