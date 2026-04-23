@@ -149,16 +149,22 @@ class ModelLoader(ForgeModel):
         )
 
     def _build_full_config(self):
-        """Build a full Qwen3VLConfig from the GGUF text backbone + base vision config."""
+        """Build a full Qwen3VLConfig from the GGUF text backbone + base vision config.
+
+        The vision config's out_hidden_size must match the text model's hidden_size
+        so that the vision projector outputs features the text backbone can consume.
+        """
         _refresh_gguf_detection()
         pretrained_model_name = self._variant_config.pretrained_model_name
         text_config = AutoConfig.from_pretrained(
             pretrained_model_name, gguf_file=self.GGUF_FILE
         )
         base_config = AutoConfig.from_pretrained(self._BASE_VL_MODEL)
+        vision_config_dict = base_config.vision_config.to_dict()
+        vision_config_dict["out_hidden_size"] = text_config.hidden_size
         return Qwen3VLConfig(
             text_config=text_config.to_dict(),
-            vision_config=base_config.vision_config.to_dict(),
+            vision_config=vision_config_dict,
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
