@@ -134,12 +134,16 @@ class ModelLoader(ForgeModel):
         from huggingface_hub import hf_hub_download
 
         # gguf is installed at test time by RequirementsManager, but diffusers
-        # caches _gguf_available at import time. Re-check now that gguf is present.
+        # caches _gguf_available/_gguf_version at import time. Patch both so
+        # the GGUF quantizer's validate_environment() sees the real version.
         try:
+            import importlib.metadata
+
             import gguf  # noqa: F401
             import diffusers.utils.import_utils as _diu
 
             _diu._gguf_available = True
+            _diu._gguf_version = importlib.metadata.version("gguf")
         except ImportError:
             pass
 
