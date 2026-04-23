@@ -41,6 +41,10 @@ class ModelLoader(ForgeModel):
         ),
     }
 
+    # Marlin format uses CUDA-only kernels incompatible with TT hardware;
+    # load the base float model for compilation.
+    _BASE_MODEL_NAME = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+
     DEFAULT_VARIANT = ModelVariant.TINYLLAMA_1_1B_CHAT_V1_0_MARLIN
 
     sample_text = "Hey how are you doing today?"
@@ -80,8 +84,6 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
@@ -91,10 +93,8 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            self._BASE_MODEL_NAME, **model_kwargs
         )
-        if dtype_override is not None:
-            model = model.to(dtype_override)
         model.eval()
 
         return model
