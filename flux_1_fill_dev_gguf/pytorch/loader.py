@@ -85,6 +85,14 @@ class ModelLoader(ForgeModel):
 
     def _load_pipeline(self, dtype: torch.dtype = torch.bfloat16):
         """Load the FluxFillPipeline with a GGUF-quantized transformer."""
+        import diffusers.utils.import_utils as _diffusers_import_utils
+
+        if not _diffusers_import_utils._gguf_available:
+            import importlib.util
+
+            if importlib.util.find_spec("gguf") is not None:
+                _diffusers_import_utils._gguf_available = True
+
         from diffusers import (
             FluxFillPipeline,
             FluxTransformer2DModel,
