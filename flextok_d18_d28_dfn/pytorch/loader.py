@@ -12,7 +12,6 @@ Repository: https://huggingface.co/EPFL-VILAB/flextok_d18_d28_dfn
 """
 
 import torch
-from flextok.flextok_wrapper import FlexTokFromHub
 from typing import Optional
 
 from ...base import ForgeModel
@@ -74,6 +73,8 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The FlexTok model wrapping the VAE, encoder,
             regularizer, decoder and flow-matching pipeline.
         """
+        from flextok.flextok_wrapper import FlexTokFromHub
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model = FlexTokFromHub.from_pretrained(pretrained_model_name)
