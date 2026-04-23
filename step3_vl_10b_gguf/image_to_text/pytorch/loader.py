@@ -4,7 +4,7 @@
 """
 Step3 VL 10B GGUF model loader implementation for image to text.
 """
-from transformers import Qwen3VLForConditionalGeneration, AutoProcessor, AutoConfig
+from transformers import AutoModelForCausalLM, AutoProcessor, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -108,28 +108,31 @@ class ModelLoader(ForgeModel):
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"trust_remote_code": True}
+        # Load config from the original non-GGUF repo to get the Step3-VL model class
+        # (AutoModelForCausalLM -> Step3VL10BForCausalLM via remote code).
+        # The GGUF file metadata reports Qwen3ForCausalLM which doesn't match the
+        # VL model class, so we must override with the correct config.
+        config = AutoConfig.from_pretrained(
+            self._PROCESSOR_SOURCE,
+            trust_remote_code=True,
+        )
+
+        if self.num_layers is not None:
+            if hasattr(config, "text_config"):
+                config.text_config.num_hidden_layers = self.num_layers
+            else:
+                config.num_hidden_layers = self.num_layers
+
+        model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self._gguf_file
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name,
-                gguf_file=self._gguf_file,
-                trust_remote_code=True,
-            )
-            if hasattr(config, "text_config"):
-                config.text_config.num_hidden_layers = self.num_layers
-            else:
-                config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
         if self.processor is None:
             self._load_processor()
 
-        model = Qwen3VLForConditionalGeneration.from_pretrained(
+        model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
@@ -173,8 +176,7 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            gguf_file=self._gguf_file,
+            self._PROCESSOR_SOURCE,
             trust_remote_code=True,
         )
         return self.config
