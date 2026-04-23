@@ -109,6 +109,7 @@ class ModelLoader(ForgeModel):
         """Prepare synthetic tensor inputs for the Wan 2.1 VACE 1.3B transformer.
 
         Config: in_channels=16, text_dim=4096, patch_size=[1,2,2].
+        hidden_states is 5D: (batch, channels, frames, height, width).
         """
         dtype = kwargs.get("dtype_override", torch.bfloat16)
         batch_size = 1
@@ -117,11 +118,12 @@ class ModelLoader(ForgeModel):
         text_dim = 4096
         txt_seq_len = 32
 
-        # seq_len = frames * (height/patch_h) * (width/patch_w) with patch_size [1,2,2]
+        # height and width must be multiples of patch_size [1,2,2]
         frames, height, width = 1, 4, 4
-        seq_len = frames * height * width
 
-        hidden_states = torch.randn(batch_size, seq_len, in_channels, dtype=dtype)
+        hidden_states = torch.randn(
+            batch_size, in_channels, frames, height, width, dtype=dtype
+        )
         encoder_hidden_states = torch.randn(
             batch_size, txt_seq_len, text_dim, dtype=dtype
         )
