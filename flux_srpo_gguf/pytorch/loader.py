@@ -13,6 +13,7 @@ repository.
 """
 
 import os
+import shutil
 from typing import Optional
 
 import torch
@@ -85,8 +86,19 @@ class ModelLoader(ForgeModel):
         quantization_config = GGUFQuantizationConfig(compute_dtype=dtype)
 
         hf_token = os.environ.get("HF_TOKEN")
+        # Use a cache dir with sufficient free space; GGUF files can exceed 8 GB.
+        # Fall back to /tmp/hf_hub_cache when HF_HOME points to a nearly-full
+        # partition (common in shared worktree environments).
+        hf_home = os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
+        hub_cache = os.path.join(hf_home, "hub")
+        _MIN_FREE_BYTES = 12 * 1024**3
+        try:
+            free = shutil.disk_usage(os.path.dirname(hub_cache)).free
+        except Exception:
+            free = 0
+        cache_dir = hub_cache if free >= _MIN_FREE_BYTES else "/tmp/hf_hub_cache"
         local_path = hf_hub_download(
-            repo_id=GGUF_REPO, filename=gguf_file, token=hf_token
+            repo_id=GGUF_REPO, filename=gguf_file, token=hf_token, cache_dir=cache_dir
         )
         transformer = FluxTransformer2DModel.from_single_file(
             local_path,
