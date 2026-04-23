@@ -108,7 +108,7 @@ class ModelLoader(ForgeModel):
 
         inputs = self.processor(
             text=self.text_prompts,
-            videos=[video],
+            images=video,
             return_tensors="pt",
             padding=True,
         )
