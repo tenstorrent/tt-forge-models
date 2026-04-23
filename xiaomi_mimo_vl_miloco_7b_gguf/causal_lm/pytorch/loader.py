@@ -95,9 +95,16 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        # The GGUF repo has no config.json, so supply it from the base model.
+        # Use /tmp cache to avoid filling the data disk with the 4.4 GB GGUF.
+        vl_config = AutoConfig.from_pretrained(self.BASE_MODEL)
+
         # Load the full VL model from GGUF, then extract the causal LM component.
         full_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name,
+            config=vl_config,
+            cache_dir="/tmp/hf_cache",
+            **model_kwargs
         )
         text_config = full_model.config.text_config
         if self.num_layers is not None:
