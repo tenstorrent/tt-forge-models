@@ -74,7 +74,21 @@ class ModelLoader(ForgeModel):
         Requires the antoni_alpha package:
             pip install git+https://github.com/computationalpathologygroup/ANTONI-Alpha.git
         """
-        from antoni_alpha.models.antoni_pretrained import AntoniAlphaPreTrained
+        import sys
+
+        # The local 'Antoni_alpha/' project directory shadows the installed Antoni-Alpha
+        # package in sys.path. Temporarily elevate site-packages to import from the
+        # correct installed location.
+        _site_pkgs = [p for p in sys.path if "site-packages" in p]
+        _saved_path = sys.path[:]
+        for _k in list(sys.modules.keys()):
+            if _k == "antoni_alpha" or _k.startswith("antoni_alpha."):
+                del sys.modules[_k]
+        sys.path = _site_pkgs + [p for p in sys.path if p not in _site_pkgs]
+        try:
+            from antoni_alpha.models.antoni_pretrained import AntoniAlphaPreTrained
+        finally:
+            sys.path = _saved_path
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
