@@ -4,6 +4,10 @@
 """
 FLUX.1-dev GGUF model loader implementation for text-to-image generation
 """
+import json
+import os
+import tempfile
+
 import torch
 from diffusers import GGUFQuantizationConfig
 from diffusers.models import FluxTransformer2DModel
@@ -115,17 +119,41 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    # diffusers infers FLUX.1-dev config from "black-forest-labs/FLUX.1-dev", which
+    # is a gated repo. Provide the known transformer config locally to avoid that.
+    _FLUX_DEV_TRANSFORMER_CONFIG = {
+        "_class_name": "FluxTransformer2DModel",
+        "attention_head_dim": 128,
+        "axes_dims_rope": [16, 56, 56],
+        "guidance_embeds": True,
+        "in_channels": 64,
+        "joint_attention_dim": 4096,
+        "num_attention_heads": 24,
+        "num_layers": 19,
+        "num_single_layers": 38,
+        "patch_size": 1,
+        "pooled_projection_dim": 768,
+    }
+
     def load_model(self, *, dtype_override=None, **kwargs):
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         repo_id = self._variant_config.pretrained_model_name
         gguf_file = self._GGUF_FILES[self._variant]
-        self.transformer = FluxTransformer2DModel.from_single_file(
-            f"https://huggingface.co/{repo_id}/blob/main/{gguf_file}",
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
+
+        with tempfile.TemporaryDirectory() as config_dir:
+            transformer_dir = os.path.join(config_dir, "transformer")
+            os.makedirs(transformer_dir)
+            with open(os.path.join(transformer_dir, "config.json"), "w") as f:
+                json.dump(self._FLUX_DEV_TRANSFORMER_CONFIG, f)
+
+            self.transformer = FluxTransformer2DModel.from_single_file(
+                f"https://huggingface.co/{repo_id}/blob/main/{gguf_file}",
+                config=config_dir,
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
+            )
 
         return self.transformer
 
