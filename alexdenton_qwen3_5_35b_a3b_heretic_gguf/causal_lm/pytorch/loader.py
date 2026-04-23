@@ -4,8 +4,15 @@
 """
 alexdenton Qwen3.5 35B A3B Heretic GGUF model loader implementation for causal language modeling.
 """
+import os
+
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    AutoConfig,
+    Qwen3_5MoeForCausalLM,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -61,15 +68,24 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+    # Base Qwen3.5-35B-A3B model for config/tokenizer in compile-only mode
+    # (avoids downloading the ~20 GB GGUF file)
+    _BASE_MODEL = "Qwen/Qwen3.5-35B-A3B"
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+    def _use_random_weights(self):
+        return bool(
+            os.environ.get("TT_RANDOM_WEIGHTS")
+            or os.environ.get("TT_COMPILE_ONLY_SYSTEM_DESC")
         )
+
+    def _load_tokenizer(self, dtype_override=None):
+        if self._use_random_weights():
+            self.tokenizer = AutoTokenizer.from_pretrained(self._BASE_MODEL)
+        else:
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                gguf_file=self.GGUF_FILE,
+            )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -81,29 +97,40 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
-
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+        if self._use_random_weights():
+            config = AutoConfig.from_pretrained(self._BASE_MODEL)
+            text_config = (
+                config.text_config if hasattr(config, "text_config") else config
             )
-            if hasattr(config, "text_config"):
-                config.text_config.num_hidden_layers = self.num_layers
-                if hasattr(config.text_config, "layer_types"):
-                    config.text_config.layer_types = config.text_config.layer_types[
-                        : self.num_layers
-                    ]
-            else:
-                config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+            if self.num_layers is not None:
+                text_config.num_hidden_layers = self.num_layers
+                if hasattr(text_config, "layer_types"):
+                    text_config.layer_types = text_config.layer_types[: self.num_layers]
+            model = Qwen3_5MoeForCausalLM(text_config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+            model_kwargs["gguf_file"] = self.GGUF_FILE
+            if self.num_layers is not None:
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name, gguf_file=self.GGUF_FILE
+                )
+                if hasattr(config, "text_config"):
+                    config.text_config.num_hidden_layers = self.num_layers
+                    if hasattr(config.text_config, "layer_types"):
+                        config.text_config.layer_types = config.text_config.layer_types[
+                            : self.num_layers
+                        ]
+                else:
+                    config.num_hidden_layers = self.num_layers
+                model_kwargs["config"] = config
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
@@ -162,7 +189,11 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        if self._use_random_weights():
+            config = AutoConfig.from_pretrained(self._BASE_MODEL)
+        else:
+            config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
+        self.config = config.text_config if hasattr(config, "text_config") else config
         return self.config
