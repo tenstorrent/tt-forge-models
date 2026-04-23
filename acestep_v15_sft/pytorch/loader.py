@@ -59,17 +59,33 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from transformers import AutoModel
+        from transformers import AutoModel, PreTrainedModel
+        from transformers import initialization as hf_init
+        from transformers.modeling_utils import local_torch_dtype
 
-        model_kwargs = {"trust_remote_code": True, "low_cpu_mem_usage": False}
-        if dtype_override is not None:
-            model_kwargs["dtype"] = dtype_override
-        model_kwargs |= kwargs
+        # transformers 5.x always uses torch.device("meta") in get_init_context,
+        # which breaks ResidualFSQ.__init__ (calls .item() on meta tensors).
+        # Temporarily override get_init_context to skip the meta device context.
+        original_get_init_context = PreTrainedModel.__dict__["get_init_context"]
 
-        full_model = AutoModel.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            **model_kwargs,
-        )
+        @classmethod  # type: ignore[misc]
+        def _no_meta_init_context(cls, dtype, is_quantized, _is_ds_init_called):
+            return [local_torch_dtype(dtype, cls.__name__), hf_init.no_tie_weights()]
+
+        PreTrainedModel.get_init_context = _no_meta_init_context
+        try:
+            model_kwargs = {"trust_remote_code": True}
+            if dtype_override is not None:
+                model_kwargs["dtype"] = dtype_override
+            model_kwargs |= kwargs
+
+            full_model = AutoModel.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                **model_kwargs,
+            )
+        finally:
+            PreTrainedModel.get_init_context = original_get_init_context
+
         self.model = full_model.decoder
         self.model.eval()
         return self.model
