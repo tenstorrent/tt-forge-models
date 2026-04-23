@@ -95,10 +95,25 @@ def _patch_transformers_deepseek2_gguf():
     import transformers.models.auto.tokenization_auto as tok_auto
     import transformers.configuration_utils as config_utils
     import transformers.modeling_utils as modeling_utils
+    import transformers.tokenization_utils_tokenizers as tok_fast_mod
 
-    for mod in (tok_auto, config_utils, modeling_utils):
+    for mod in (tok_auto, config_utils, modeling_utils, tok_fast_mod):
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    # 5. Patch get_gguf_hf_weights_map to map deepseek_v2 -> deepseek2 for gguf-py
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type == "deepseek_v2":
+            model_type = "deepseek2"
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
 
 
 # Apply the monkey-patch at import time
