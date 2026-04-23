@@ -83,7 +83,33 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The Ministral-3-8B-Instruct-2512 model instance.
         """
+        import sys
+        import types
+        import torch
         from transformers import Mistral3ForConditionalGeneration
+
+        # transformers 5.x imports triton unconditionally in finegrained_fp8.py even on CPU;
+        # stub it out so loading succeeds — actual FP8 kernels are skipped on non-CUDA systems
+        if "triton" not in sys.modules:
+            try:
+                import triton  # noqa: F401
+            except ImportError:
+
+                def _jit(*args, **kwargs):
+                    return args[0] if args and callable(args[0]) else lambda fn: fn
+
+                class _AnyAttr:
+                    def __getattr__(self, name):
+                        return _AnyAttr()
+
+                    def __call__(self, *a, **k):
+                        return _AnyAttr()
+
+                mock_triton = types.ModuleType("triton")
+                mock_triton.jit = _jit
+                mock_triton.language = _AnyAttr()
+                sys.modules["triton"] = mock_triton
+                sys.modules["triton.language"] = mock_triton.language
 
         pretrained_model_name = self._variant_config.pretrained_model_name
         if self.processor is None:
