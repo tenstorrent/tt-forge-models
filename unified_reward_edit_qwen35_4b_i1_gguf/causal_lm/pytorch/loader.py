@@ -67,13 +67,12 @@ def _patch_qwen35_support():
 
 
 def _find_base_load_gguf_checkpoint(fn):
-    """Walk the _orig_load_gguf_checkpoint chain to find the real transformers function.
+    """Walk the patched load_gguf_checkpoint chain to find the real transformers function.
 
-    Multiple GGUF loaders chain-patch load_gguf_checkpoint. Each captures the previous
-    value as the module-level global _orig_load_gguf_checkpoint. Some older patches use
-    signature (gguf_path, return_tensors=False) without model_to_load, which breaks
-    tensor loading. Walk via fn.__globals__ until the function named 'load_gguf_checkpoint'
-    (the unpatched transformers original that accepts model_to_load) is found.
+    Multiple GGUF loaders chain-patch load_gguf_checkpoint. Some use module-level globals
+    (_orig_load_gguf_checkpoint), others capture via closure (orig_load inside a nested
+    function). Some older patches lack the model_to_load parameter, breaking tensor loading.
+    Walk until reaching the function from transformers.modeling_gguf_pytorch_utils itself.
     """
     seen = set()
     while True:
@@ -81,10 +80,34 @@ def _find_base_load_gguf_checkpoint(fn):
         if fn_id in seen:
             return fn
         seen.add(fn_id)
-        if fn.__name__ == "load_gguf_checkpoint":
+        if (
+            getattr(fn, "__module__", None)
+            == "transformers.modeling_gguf_pytorch_utils"
+        ):
             return fn
-        next_fn = fn.__globals__.get("_orig_load_gguf_checkpoint")
-        if next_fn is not None and id(next_fn) not in seen:
+        next_fn = None
+        # Check module globals (most loaders: _orig_load_gguf_checkpoint)
+        candidate = fn.__globals__.get("_orig_load_gguf_checkpoint")
+        if candidate is not None and callable(candidate) and id(candidate) not in seen:
+            next_fn = candidate
+        # Check closure variables (some loaders use orig_load or other names)
+        if next_fn is None and fn.__closure__:
+            closure_vars = {}
+            for var, cell in zip(fn.__code__.co_freevars, fn.__closure__):
+                try:
+                    closure_vars[var] = cell.cell_contents
+                except ValueError:
+                    pass
+            for name in ("_orig_load_gguf_checkpoint", "orig_load", "_orig"):
+                candidate = closure_vars.get(name)
+                if (
+                    candidate is not None
+                    and callable(candidate)
+                    and id(candidate) not in seen
+                ):
+                    next_fn = candidate
+                    break
+        if next_fn is not None:
             fn = next_fn
             continue
         return fn
