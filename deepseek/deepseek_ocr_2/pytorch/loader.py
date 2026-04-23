@@ -116,7 +116,7 @@ class ModelLoader(ForgeModel):
             image_file=image_file,
             base_size=1024,
             image_size=640,
-            crop_mode=True,
+            crop_mode=False,
         )
 
         if dtype_override is not None:
