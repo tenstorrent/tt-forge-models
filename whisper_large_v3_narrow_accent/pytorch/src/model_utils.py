@@ -15,7 +15,6 @@ been pruned accordingly.
 
 import copy
 
-import loralib as lora
 import torch
 import transformers.models.whisper.modeling_whisper as whisper
 from huggingface_hub import PyTorchModelHubMixin
@@ -44,6 +43,8 @@ class WhisperEncoderLayer(nn.Module):
 
         if layer_idx > config.encoder_layers // 2:
             if self.config.finetune_method in ("lora", "combined"):
+                import loralib as lora
+
                 self.fc1 = lora.Linear(
                     self.embed_dim, config.encoder_ffn_dim, r=config.lora_rank
                 )
