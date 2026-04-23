@@ -6,7 +6,7 @@ Hulu-Med model loader implementation for medical image-to-text generation.
 """
 
 import torch
-from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import AutoModelForImageTextToText, AutoProcessor
 from typing import Optional
 
 from ....base import ForgeModel
@@ -109,7 +109,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
+        model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
         model.eval()
