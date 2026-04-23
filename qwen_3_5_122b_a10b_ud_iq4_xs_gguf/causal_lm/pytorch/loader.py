@@ -64,15 +64,24 @@ class ModelLoader(ForgeModel):
 
     @staticmethod
     def _patch_qwen35moe_tensor_mapping():
-        """Patch GGUF tensor name mapping to use qwen3moe arch for this model.
+        """Patch GGUF loading to correctly handle qwen35moe architecture for 122B.
 
-        The 122B GGUF declares qwen35moe architecture in its header but contains
-        tensors named with qwen3moe conventions (ffn_gate_exps/ffn_up_exps instead
-        of the merged ffn_gate_up_exps expected by qwen35moe). Using the qwen3moe
-        name_map causes the fallback in Qwen2MoeTensorProcessor to add the correct
-        split tensor names to the weight mapping.
+        Fixes two issues:
+        1. The qwen3_moe GGUF config mapping lacks expert_feed_forward_length, so
+           moe_intermediate_size defaults to 512 instead of the correct 1024.
+        2. The 122B GGUF uses separate ffn_gate_exps/ffn_up_exps (qwen3moe naming)
+           instead of merged ffn_gate_up_exps (qwen35moe naming). Forcing qwen3moe
+           name_map triggers the fallback that correctly maps these split tensors.
         """
+        import transformers.integrations.ggml as ggml_module
         import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+        # Fix moe_intermediate_size: the qwen3_moe GGUF config mapping is missing
+        # expert_feed_forward_length, so the model initializes with the wrong expert
+        # intermediate size (512 default instead of 1024 from GGUF metadata).
+        qwen3_moe_map = ggml_module.GGUF_CONFIG_MAPPING.get("qwen3_moe", {})
+        if "expert_feed_forward_length" not in qwen3_moe_map:
+            qwen3_moe_map["expert_feed_forward_length"] = "moe_intermediate_size"
 
         _qwen35moe_variants = frozenset(
             {"qwen3_5_moe_text", "qwen3_5_moe", "qwen35moe"}
@@ -83,6 +92,10 @@ class ModelLoader(ForgeModel):
             qwen3moe_processor = gguf_utils.TENSOR_PROCESSORS.get("qwen3moe")
             if qwen3moe_processor is not None:
                 gguf_utils.TENSOR_PROCESSORS["qwen35moe"] = qwen3moe_processor
+
+        # Ensure qwen35moe is in the supported architectures list
+        if "qwen35moe" not in gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
+            gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("qwen35moe")
 
         if getattr(gguf_utils.get_gguf_hf_weights_map, "_qwen122b_patched", False):
             return
