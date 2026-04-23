@@ -30,7 +30,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.META_LLAMA_3_8B_INSTRUCT_LLAMAFILE: LLMModelConfig(
-            pretrained_model_name="mozilla-ai/Meta-Llama-3-8B-Instruct-llamafile",
+            pretrained_model_name="NousResearch/Meta-Llama-3-8B-Instruct",
             max_length=256,
         ),
     }
@@ -84,7 +84,7 @@ class ModelLoader(ForgeModel):
         """
         tokenizer_kwargs = {}
         if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
+            tokenizer_kwargs["dtype"] = dtype_override
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
@@ -113,7 +113,7 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
