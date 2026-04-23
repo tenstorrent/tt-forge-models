@@ -5,7 +5,13 @@
 DeepSeek-OCR 8-bit MLX model loader implementation for document OCR tasks.
 """
 from transformers import AutoTokenizer, AutoModel
+from transformers.models.llama import modeling_llama as _llama_module
 from typing import Optional
+
+# LlamaFlashAttention2 was removed in transformers 5.x; the model's remote code
+# imports it at module level so we must shim it before trust_remote_code loading.
+if not hasattr(_llama_module, "LlamaFlashAttention2"):
+    _llama_module.LlamaFlashAttention2 = _llama_module.LlamaAttention
 
 from ....base import ForgeModel
 from ....config import (
