@@ -221,11 +221,14 @@ class ModelLoader(ForgeModel):
                 "content": self.sample_text,
             }
         ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
+        try:
+            text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        except ValueError:
+            text = self.sample_text
         prompts = [text]
 
         inputs = self.tokenizer(
