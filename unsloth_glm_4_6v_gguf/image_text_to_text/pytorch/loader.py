@@ -4,6 +4,8 @@
 """
 Unsloth GLM-4.6V GGUF model loader implementation for image-text-to-text tasks.
 """
+import os
+
 import torch
 from transformers import AutoProcessor, AutoModelForImageTextToText, AutoConfig
 from typing import Optional
@@ -80,15 +82,22 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            config = AutoConfig.from_pretrained(self.PROCESSOR_MODEL)
+            model = AutoModelForImageTextToText.from_config(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+            model_kwargs["gguf_file"] = self.GGUF_FILE
+            model = AutoModelForImageTextToText.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
 
-        model = AutoModelForImageTextToText.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        model.eval()
 
         self.config = model.config
         self.model = model
@@ -126,8 +135,5 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            gguf_file=self.GGUF_FILE,
-        )
+        self.config = AutoConfig.from_pretrained(self.PROCESSOR_MODEL)
         return self.config
