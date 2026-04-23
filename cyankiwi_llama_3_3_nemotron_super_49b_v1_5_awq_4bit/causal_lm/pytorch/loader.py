@@ -78,6 +78,8 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import importlib
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -88,12 +90,35 @@ class ModelLoader(ForgeModel):
             model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
+
+        # modeling_decilm._init_weights calls module.weight.data.normal_() without
+        # checking whether .weight exists — compressed-tensors quantized Linear
+        # layers don't have it.  Pre-load the remote module so we can patch the
+        # method to skip modules that lack .weight before from_pretrained runs.
+        config_module = config.__class__.__module__
+        modeling_module_name = config_module.rsplit(".", 1)[0] + ".modeling_decilm"
+        try:
+            modeling_mod = importlib.import_module(modeling_module_name)
+            for attr_name in dir(modeling_mod):
+                cls = getattr(modeling_mod, attr_name, None)
+                if isinstance(cls, type) and "_init_weights" in vars(cls):
+                    _orig_init = cls._init_weights
+
+                    def _safe_init(self, module, _orig=_orig_init):
+                        try:
+                            _orig(self, module)
+                        except AttributeError:
+                            pass
+
+                    cls._init_weights = _safe_init
+        except Exception:
+            pass
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
