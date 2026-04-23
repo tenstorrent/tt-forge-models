@@ -4,9 +4,34 @@
 """
 RichardErkhov Zaddyzaddy Smol-17B-Bypass GGUF model loader implementation for causal language modeling.
 """
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import importlib.util
 from typing import Optional
+
+import torch
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+
+_orig_is_gguf_available = _gguf_utils.is_gguf_available
+
+
+def _patched_is_gguf_available(*args, **kwargs):
+    """Handle InvalidVersion when gguf lacks __version__ in cached metadata.
+
+    transformers caches PACKAGE_DISTRIBUTION_MAPPING at import time; when gguf
+    is installed later via RequirementsManager, find_spec succeeds but the
+    cached mapping misses gguf and the fallback getattr(__version__) returns
+    'N/A', causing version.parse('N/A') to raise InvalidVersion. Catch it and
+    return True when gguf is actually importable.
+    """
+    if importlib.util.find_spec("gguf") is None:
+        return False
+    try:
+        return _orig_is_gguf_available(*args, **kwargs)
+    except Exception:
+        return True
+
+
+_gguf_utils.is_gguf_available = _patched_is_gguf_available
 
 from ....base import ForgeModel
 from ....config import (
