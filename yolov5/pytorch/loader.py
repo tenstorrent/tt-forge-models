@@ -17,9 +17,7 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
-from datasets import load_dataset
 import numpy as np
-from .src.utils import data_preprocessing, data_postprocessing
 from PIL import Image
 
 
@@ -127,6 +125,9 @@ class ModelLoader(ForgeModel):
                 - batch_tensor: Input tensor that can be fed to the model
         """
 
+        from datasets import load_dataset
+        from .src.utils import data_preprocessing, data_postprocessing
+
         # Load image from HuggingFace dataset
         dataset = load_dataset("huggingface/cats-image")["test"]
         image_sample = dataset[0]["image"].convert("RGB")
@@ -161,6 +162,8 @@ class ModelLoader(ForgeModel):
             files: Filenames
 
         """
+
+        from .src.utils import data_postprocessing
 
         results = data_postprocessing(
             ims,
