@@ -8,6 +8,24 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+
+def _refresh_gguf_detection():
+    """Refresh transformers' gguf availability detection after dynamic installation.
+
+    transformers computes PACKAGE_DISTRIBUTION_MAPPING once at import time; when
+    gguf is installed later by RequirementsManager the mapping is stale, causing
+    is_gguf_available() to return version 'N/A' and crash with InvalidVersion.
+    """
+    import importlib.metadata
+    import transformers.utils.import_utils as _import_utils
+
+    _import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+        importlib.metadata.packages_distributions()
+    )
+    if hasattr(_import_utils.is_gguf_available, "cache_clear"):
+        _import_utils.is_gguf_available.cache_clear()
+
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -62,6 +80,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _refresh_gguf_detection()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -76,6 +95,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _refresh_gguf_detection()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -154,6 +174,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        _refresh_gguf_detection()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
