@@ -201,8 +201,37 @@ def _patch_cosmos_pipeline():
         pass
 
 
+_TE_STUB_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "_transformer_engine_stub"
+)
+
+
+def _ensure_transformer_engine():
+    """Install the bundled CPU transformer_engine stub if the CUDA version is absent."""
+    try:
+        import transformer_engine.pytorch as _te
+
+        if hasattr(_te, "Linear"):
+            return  # real TE or stub already installed
+    except Exception:
+        pass
+
+    import subprocess
+
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--no-deps", _TE_STUB_DIR],
+        check=True,
+        capture_output=True,
+    )
+    # Flush any previously-cached failed import so the stub is re-imported fresh.
+    for _key in list(sys.modules.keys()):
+        if "transformer_engine" in _key:
+            del sys.modules[_key]
+
+
 def _apply_all_patches():
     """Apply all necessary patches for non-CUDA operation."""
+    _ensure_transformer_engine()
     _patch_transformers()
     _patch_cosmos_tokenizer()
     _patch_cosmos_pipeline()

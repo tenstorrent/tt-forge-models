@@ -1,0 +1,2 @@
+cosmos-predict2==1.0.9
+megatron-core==0.10.0
