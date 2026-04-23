@@ -99,14 +99,11 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None):
         from PIL import Image
-        import requests
 
         if self._processor is None:
             self._load_processor()
 
-        # Load a sample image of printed text
-        url = "https://fki.tic.heia-fr.ch/static/img/a01-122-02-00.jpg"
-        image = Image.open(requests.get(url, stream=True).raw).convert("RGB")
+        image = Image.new("RGB", (384, 384), color=(255, 255, 255))
 
         pixel_values = self._processor(
             images=image,
