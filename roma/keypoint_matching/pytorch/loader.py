@@ -71,6 +71,10 @@ class ModelLoader(ForgeModel):
         model = roma_outdoor(device="cpu", **kwargs)
         model.eval()
 
+        # roma_outdoor loads some weights as bfloat16; normalize to float32
+        # to avoid dtype mismatches during inference.
+        model = model.float()
+
         if dtype_override is not None:
             model = model.to(dtype_override)
 
