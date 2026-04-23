@@ -4,9 +4,15 @@
 """
 Qwen3.5 4B Heretic i1 GGUF model loader implementation for causal language modeling.
 """
+import inspect
+
 import torch
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
 from ....base import ForgeModel
 from ....config import (
@@ -18,6 +24,88 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _find_real_load_gguf_checkpoint(fn):
+    """Traverse patch chain to find the original transformers load_gguf_checkpoint."""
+    seen = set()
+    current = fn
+    while True:
+        fn_id = id(current)
+        if fn_id in seen or not callable(current) or not hasattr(current, "__code__"):
+            return current
+        seen.add(fn_id)
+        if (
+            getattr(current, "__module__", "")
+            == "transformers.modeling_gguf_pytorch_utils"
+        ):
+            return current
+        try:
+            if "model_to_load" in inspect.signature(current).parameters:
+                return current
+        except (ValueError, TypeError):
+            pass
+        freevars = current.__code__.co_freevars
+        cells = current.__closure__ or ()
+        next_fn = None
+        for i, varname in enumerate(freevars):
+            if i >= len(cells):
+                break
+            if "load_gguf_checkpoint" in varname or "orig_load" in varname:
+                try:
+                    v = cells[i].cell_contents
+                    if callable(v) and id(v) not in seen:
+                        next_fn = v
+                        break
+                except ValueError:
+                    pass
+        if next_fn is None:
+            v = getattr(current, "__globals__", {}).get("_orig_load_gguf_checkpoint")
+            if v is not None and callable(v) and id(v) not in seen:
+                next_fn = v
+        if next_fn is None:
+            return current
+        current = next_fn
+
+
+def _patch_qwen35_support():
+    """Register qwen35 architecture and qwen3_5_text tokenizer as aliases for qwen3."""
+    if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "qwen35",
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
+            )
+    if "qwen3" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "qwen3_5_text", GGUF_TO_FAST_CONVERTERS["qwen3"]
+        )
+
+
+_patch_qwen35_support()
+
+_real_load_gguf_checkpoint = _find_real_load_gguf_checkpoint(
+    _gguf_utils.load_gguf_checkpoint
+)
+
+
+def _patched_load_gguf_checkpoint(
+    gguf_checkpoint_path, return_tensors=False, model_to_load=None, **kwargs
+):
+    """Wrap load_gguf_checkpoint to add qwen35 support and fix model_type."""
+    _patch_qwen35_support()
+    result = _real_load_gguf_checkpoint(
+        gguf_checkpoint_path,
+        return_tensors=return_tensors,
+        model_to_load=model_to_load,
+        **kwargs,
+    )
+    if result.get("config", {}).get("model_type") == "qwen35":
+        result["config"]["model_type"] = "qwen3"
+    return result
 
 
 class ModelVariant(StrEnum):
@@ -106,9 +194,14 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        _saved_fn = _gguf_utils.load_gguf_checkpoint
+        _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
+            ).eval()
+        finally:
+            _gguf_utils.load_gguf_checkpoint = _saved_fn
 
         self.config = model.config
         self.model = model
