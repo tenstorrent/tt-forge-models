@@ -5,8 +5,9 @@
 StarVector model loader implementation for image-to-SVG generation.
 """
 
+import os
 from typing import Optional
-from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import AutoModelForCausalLM, AutoConfig, AutoProcessor
 from datasets import load_dataset
 
 from ...base import ForgeModel
@@ -60,14 +61,22 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"trust_remote_code": True}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, trust_remote_code=True
+            )
+            model = AutoModelForCausalLM.from_config(config, trust_remote_code=True)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            model_kwargs = {"trust_remote_code": True}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
         model.eval()
 
         self.processor = model.model.processor
