@@ -5,10 +5,12 @@
 VinAI PhoGPT-4B-Chat causal language model loader implementation.
 """
 
+from pathlib import Path
 from typing import Optional
 
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.utils import HF_MODULES_CACHE
 
 from ....base import ForgeModel
 from ....config import (
@@ -64,6 +66,22 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _ensure_flash_attn_triton_stub():
+        # transformers' file scanner fails on `from .flash_attn_triton import ...` if the
+        # stub file doesn't exist, even inside a try/except. Create a placeholder so the
+        # scanner can resolve the relative import without error.
+        stub_content = (
+            "# Stub: flash_attn_triton not available; model uses attn_impl='torch'\n"
+            "def flash_attn_func(*args, **kwargs):\n"
+            "    raise RuntimeError(\"flash_attn_triton unavailable; use attn_impl='torch'\")\n"
+        )
+        modules_root = Path(HF_MODULES_CACHE) / "transformers_modules"
+        for attention_py in modules_root.glob("vinai/PhoGPT*/**/attention.py"):
+            stub = attention_py.parent / "flash_attn_triton.py"
+            if not stub.exists():
+                stub.write_text(stub_content)
+
     def _load_tokenizer(self, dtype_override=None):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -82,20 +100,22 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
+        self._ensure_flash_attn_triton_stub()
+
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"trust_remote_code": True}
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        config.attn_config["attn_impl"] = "torch"
+        if self.num_layers is not None:
+            config.n_layers = self.num_layers
+
+        model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
-            config.n_layers = self.num_layers
-            model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -119,7 +139,9 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
+        self._ensure_flash_attn_triton_stub()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, trust_remote_code=True
         )
+        self.config.attn_config["attn_impl"] = "torch"
         return self.config
