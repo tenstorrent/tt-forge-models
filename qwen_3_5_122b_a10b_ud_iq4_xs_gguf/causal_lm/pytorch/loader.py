@@ -62,6 +62,53 @@ class ModelLoader(ForgeModel):
             except importlib.metadata.PackageNotFoundError:
                 pass
 
+    @staticmethod
+    def _patch_qwen35moe_tensor_mapping():
+        """Patch GGUF tensor name mapping to use qwen3moe arch for this model.
+
+        The 122B GGUF declares qwen35moe architecture in its header but contains
+        tensors named with qwen3moe conventions (ffn_gate_exps/ffn_up_exps instead
+        of the merged ffn_gate_up_exps expected by qwen35moe). Using the qwen3moe
+        name_map causes the fallback in Qwen2MoeTensorProcessor to add the correct
+        split tensor names to the weight mapping.
+        """
+        import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+        _qwen35moe_variants = frozenset(
+            {"qwen3_5_moe_text", "qwen3_5_moe", "qwen35moe"}
+        )
+
+        # Ensure qwen35moe arch has a processor (GGUF header declares qwen35moe)
+        if "qwen35moe" not in gguf_utils.TENSOR_PROCESSORS:
+            qwen3moe_processor = gguf_utils.TENSOR_PROCESSORS.get("qwen3moe")
+            if qwen3moe_processor is not None:
+                gguf_utils.TENSOR_PROCESSORS["qwen35moe"] = qwen3moe_processor
+
+        if getattr(gguf_utils.get_gguf_hf_weights_map, "_qwen122b_patched", False):
+            return
+
+        _orig = gguf_utils.get_gguf_hf_weights_map
+
+        def _patched(
+            hf_model, processor, model_type=None, num_layers=None, qual_name=""
+        ):
+            if model_type is None:
+                model_type = getattr(
+                    getattr(hf_model, "config", None), "model_type", None
+                )
+            if model_type in _qwen35moe_variants:
+                model_type = "qwen3moe"
+            return _orig(
+                hf_model,
+                processor,
+                model_type=model_type,
+                num_layers=num_layers,
+                qual_name=qual_name,
+            )
+
+        _patched._qwen122b_patched = True
+        gguf_utils.get_gguf_hf_weights_map = _patched
+
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
     ):
@@ -98,6 +145,7 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         self._fix_gguf_version_detection()
+        self._patch_qwen35moe_tensor_mapping()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -191,6 +239,7 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self._fix_gguf_version_detection()
+        self._patch_qwen35moe_tensor_mapping()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
