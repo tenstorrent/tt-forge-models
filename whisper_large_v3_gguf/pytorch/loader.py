@@ -127,6 +127,9 @@ class ModelLoader(ForgeModel):
                 "_gguf_utils_fresh", _gguf_utils.__spec__.origin
             )
             _fresh = _ilu.module_from_spec(_spec)
+            # Relative imports inside modeling_gguf_pytorch_utils.py require
+            # the module to know it belongs to the transformers package.
+            _fresh.__package__ = "transformers"
             _spec.loader.exec_module(_fresh)
             _gguf_utils.load_gguf_checkpoint = _fresh.load_gguf_checkpoint
         except Exception:
