@@ -101,7 +101,6 @@ def _patched_load_gguf_checkpoint(
         gguf_checkpoint_path,
         return_tensors=return_tensors,
         model_to_load=model_to_load,
-        **kwargs,
     )
     if result.get("config", {}).get("model_type") == "qwen35":
         result["config"]["model_type"] = "qwen3"
