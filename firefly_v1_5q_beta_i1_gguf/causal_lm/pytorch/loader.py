@@ -154,7 +154,7 @@ class ModelLoader(ForgeModel):
 
         self._patch_load_gguf_checkpoint_compat()
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
