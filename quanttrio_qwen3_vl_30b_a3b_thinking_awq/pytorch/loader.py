@@ -90,19 +90,16 @@ class ModelLoader(ForgeModel):
         # import time, so os.environ changes after import have no effect.
         cache_dir = "/tmp/huggingface"
 
-        model_kwargs = {}
+        # Strip AWQ quantization_config so gptqmodel is not required.
+        config = AutoConfig.from_pretrained(pretrained_model_name, cache_dir=cache_dir)
+        if hasattr(config, "quantization_config"):
+            delattr(config, "quantization_config")
+
+        model_kwargs = {"config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-            # Load config and strip AWQ quantization so gptqmodel is not required
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, cache_dir=cache_dir
-            )
-            if hasattr(config, "quantization_config"):
-                delattr(config, "quantization_config")
-            model_kwargs["config"] = config
         else:
-            model_kwargs["dtype"] = "auto"
-            model_kwargs["device_map"] = "auto"
+            model_kwargs["torch_dtype"] = "auto"
 
         model_kwargs |= kwargs
 
