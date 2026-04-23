@@ -26,6 +26,7 @@ from typing import Any, Optional
 import torch
 from diffusers import LTX2Pipeline
 from diffusers.models import LTX2VideoTransformer3DModel
+from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -143,6 +144,27 @@ class ModelLoader(ForgeModel):
         )
         return self._transformer
 
+    def _load_cosmicvibez_transformer(
+        self, dtype: torch.dtype
+    ) -> LTX2VideoTransformer3DModel:
+        """Load the Cosmicvibez distilled transformer from a single safetensors file.
+
+        Downloads to /tmp to avoid disk space issues on the primary data volume.
+        """
+        local_path = hf_hub_download(
+            "Cosmicvibez/LTX-2.3",
+            "ltx-2.3-22b-distilled.safetensors",
+            cache_dir="/tmp/hf_cache_cosmicvibez",
+        )
+        self._transformer = LTX2VideoTransformer3DModel.from_single_file(
+            local_path,
+            torch_dtype=dtype,
+            cross_attn_mod=True,
+            audio_cross_attn_mod=True,
+            low_cpu_mem_usage=False,
+        )
+        return self._transformer
+
     def _load_pipeline(self, dtype: torch.dtype) -> LTX2Pipeline:
         self.pipeline = LTX2Pipeline.from_pretrained(
             self._variant_config.pretrained_model_name,
@@ -161,6 +183,11 @@ class ModelLoader(ForgeModel):
         if self._variant == ModelVariant.LTX_2_3_NVFP4:
             if self._transformer is None:
                 self._load_nvfp4_transformer(dtype)
+            return self._transformer
+
+        if self._variant == ModelVariant.LTX_2_3_COSMICVIBEZ:
+            if self._transformer is None:
+                self._load_cosmicvibez_transformer(dtype)
             return self._transformer
 
         if self.pipeline is None:
@@ -184,6 +211,11 @@ class ModelLoader(ForgeModel):
         if self._variant == ModelVariant.LTX_2_3_NVFP4:
             if self._transformer is None:
                 self._load_nvfp4_transformer(dtype)
+            return self._load_fp8_transformer_inputs(dtype)
+
+        if self._variant == ModelVariant.LTX_2_3_COSMICVIBEZ:
+            if self._transformer is None:
+                self._load_cosmicvibez_transformer(dtype)
             return self._load_fp8_transformer_inputs(dtype)
 
         if self.pipeline is None:
