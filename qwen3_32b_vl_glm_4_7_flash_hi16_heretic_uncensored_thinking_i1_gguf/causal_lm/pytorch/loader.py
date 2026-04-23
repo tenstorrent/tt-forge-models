@@ -15,6 +15,33 @@ import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
 import transformers.utils.import_utils as _trf_import_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_SUPPORTED_ARCHITECTURES,
+    GGUF_TO_TRANSFORMERS_MAPPING,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+
+def _patch_qwen3vl_support():
+    """Register qwen3vl GGUF architecture as an alias for qwen3 causal LM.
+
+    The GGUF file declares architecture as 'qwen3vl', but transformers only
+    supports 'qwen3' for causal LM. We register the config/tokenizer mappings
+    and remap model_type in the loaded result.
+    """
+    if "qwen3vl" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vl")
+
+    for section in GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen3" in GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "qwen3vl",
+                GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
+            )
+
+    if "qwen3" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("qwen3vl", GGUF_TO_FAST_CONVERTERS["qwen3"])
+
 
 _orig_load_gguf_checkpoint = _gguf_utils.load_gguf_checkpoint
 
@@ -25,9 +52,14 @@ def _patched_load_gguf_checkpoint(*args, **kwargs):
     _trf_import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
         importlib.metadata.packages_distributions()
     )
-    return _orig_load_gguf_checkpoint(*args, **kwargs)
+    _patch_qwen3vl_support()
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
+    if result.get("config", {}).get("model_type") == "qwen3vl":
+        result["config"]["model_type"] = "qwen3"
+    return result
 
 
+_patch_qwen3vl_support()
 _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
