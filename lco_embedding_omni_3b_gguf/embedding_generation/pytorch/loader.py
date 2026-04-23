@@ -128,7 +128,8 @@ class ModelLoader(ForgeModel):
 
             _current = _gguf_utils.load_gguf_checkpoint
             if "model_to_load" not in inspect.signature(_current).parameters:
-                for _mod in sys.modules.values():
+                # Snapshot to avoid RuntimeError if imports mutate sys.modules mid-iter
+                for _mod in list(sys.modules.values()):
                     _candidate = getattr(_mod, "_orig_load_gguf_checkpoint", None)
                     if _candidate is not None:
                         try:
