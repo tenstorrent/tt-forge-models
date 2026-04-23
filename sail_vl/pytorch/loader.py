@@ -9,7 +9,7 @@ import torch
 import torchvision.transforms as T
 from PIL import Image
 from torchvision.transforms.functional import InterpolationMode
-from transformers import AutoModel, AutoProcessor, AutoTokenizer
+from transformers import AutoConfig, AutoModel, AutoProcessor, AutoTokenizer
 from typing import Optional
 
 from ...tools.utils import get_file
@@ -196,13 +196,69 @@ class ModelLoader(ForgeModel):
         elif self.tokenizer is None:
             self._load_tokenizer()
 
+        import transformers.cache_utils as _cu
+        import transformers.modeling_rope_utils as _ru
+        import transformers.utils as _tu
+
+        if not hasattr(_cu, "SlidingWindowCache"):
+            _cu.SlidingWindowCache = _cu.StaticCache
+        if not hasattr(_tu, "LossKwargs"):
+            _tu.LossKwargs = _tu.TransformersKwargs
+        if "default" not in _ru.ROPE_INIT_FUNCTIONS:
+
+            def _default_rope_init(config, device, seq_len=None, **kwargs):
+                base = config.rope_theta
+                head_dim = getattr(config, "head_dim", None) or (
+                    config.hidden_size // config.num_attention_heads
+                )
+                inv_freq = 1.0 / (
+                    base
+                    ** (
+                        torch.arange(0, head_dim, 2, dtype=torch.int64).to(
+                            device=device, dtype=torch.float
+                        )
+                        / head_dim
+                    )
+                )
+                return inv_freq, 1.0
+
+            _ru.ROPE_INIT_FUNCTIONS["default"] = _default_rope_init
+
+        # transformers 5.x compatibility patches for old-style cached models
+        from transformers.modeling_utils import PreTrainedModel
+
+        _orig_get_tied = PreTrainedModel.get_expanded_tied_weights_keys
+        _orig_adjust_tied = PreTrainedModel._adjust_tied_keys_with_tied_pointers
+
+        def _compat_get_tied(self, all_submodels=True):
+            if isinstance(self._tied_weights_keys, list):
+                self._tied_weights_keys = {
+                    k: "model.embed_tokens.weight" for k in self._tied_weights_keys
+                }
+            return _orig_get_tied(self, all_submodels=all_submodels)
+
+        def _safe_adjust_tied(self, missing_keys):
+            if not hasattr(self, "all_tied_weights_keys"):
+                self.all_tied_weights_keys = {}
+            return _orig_adjust_tied(self, missing_keys)
+
+        PreTrainedModel.get_expanded_tied_weights_keys = _compat_get_tied
+        PreTrainedModel._adjust_tied_keys_with_tied_pointers = _safe_adjust_tied
+
         model_kwargs = {
             "trust_remote_code": True,
-            "attn_implementation": "eager",
         }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        # Load config and force eager attention on llm_config to avoid flash_attn requirement
+        model_config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        if hasattr(model_config, "llm_config"):
+            model_config.llm_config._attn_implementation_internal = "eager"
+        model_kwargs["config"] = model_config
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
