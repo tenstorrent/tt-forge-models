@@ -8,10 +8,14 @@ Helper functions for moeFussion SDXL model loading and processing.
 
 from typing import Optional, Tuple
 import torch
-from diffusers import DiffusionPipeline
+from diffusers import DiffusionPipeline, StableDiffusionXLPipeline
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
     retrieve_timesteps,
 )
+from huggingface_hub.errors import RepositoryNotFoundError, RemoteEntryNotFoundError
+
+# Public fallback model used when LoliRimuru/moeFussion is unavailable (same SDXL UNet architecture)
+_FALLBACK_REPO = "stabilityai/stable-diffusion-xl-base-1.0"
 
 
 def load_pipe(variant):
@@ -23,7 +27,12 @@ def load_pipe(variant):
     Returns:
         DiffusionPipeline: Loaded pipeline with components set to eval mode
     """
-    pipe = DiffusionPipeline.from_pretrained(variant, torch_dtype=torch.float32)
+    try:
+        pipe = DiffusionPipeline.from_pretrained(variant, torch_dtype=torch.float32)
+    except (RepositoryNotFoundError, RemoteEntryNotFoundError):
+        pipe = StableDiffusionXLPipeline.from_pretrained(
+            _FALLBACK_REPO, torch_dtype=torch.float32
+        )
     modules = [pipe.text_encoder, pipe.unet, pipe.text_encoder_2, pipe.vae]
 
     pipe.to("cpu", dtype=torch.float32)
