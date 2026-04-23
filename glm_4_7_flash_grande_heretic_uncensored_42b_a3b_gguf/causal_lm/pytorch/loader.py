@@ -25,6 +25,20 @@ def _is_gguf_available(min_version: str = "0.10.0") -> bool:
 
 _gguf_pytorch_utils.is_gguf_available = _is_gguf_available
 
+
+def _patch_transformers_deepseek_v2_gguf():
+    """Monkey-patch transformers to add deepseek_v2 GGUF tokenizer support."""
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    if "deepseek_v2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["deepseek_v2"] = GGUFQwen2Converter
+
+
+_patch_transformers_deepseek_v2_gguf()
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
