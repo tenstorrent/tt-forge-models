@@ -5,7 +5,6 @@
 Nougat model loader implementation for document understanding tasks.
 """
 import torch
-from huggingface_hub import hf_hub_download
 from PIL import Image
 from transformers import NougatProcessor, VisionEncoderDecoderModel
 from typing import Optional
@@ -96,12 +95,7 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
-        filepath = hf_hub_download(
-            repo_id="hf-internal-testing/fixtures_docvqa",
-            filename="nougat_paper.png",
-            repo_type="dataset",
-        )
-        image = Image.open(filepath)
+        image = Image.new("RGB", (896, 1120), color=(255, 255, 255))
         pixel_values = self.processor(image, return_tensors="pt").pixel_values
 
         if dtype_override is not None:
