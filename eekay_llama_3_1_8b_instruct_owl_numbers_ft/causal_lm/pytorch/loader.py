@@ -4,7 +4,6 @@
 """
 eekay/Llama-3.1-8B-Instruct-owl-numbers-ft model loader implementation for causal language modeling.
 """
-import os
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
@@ -30,19 +29,18 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """eekay Llama 3.1 8B Instruct owl numbers ft model loader implementation for causal language modeling tasks."""
 
+    # eekay/Llama-3.1-8B-Instruct-owl-numbers-ft is a fine-tune of the gated
+    # meta-llama/Llama-3.1-8B-Instruct and cannot be loaded without access to
+    # that base model. Use the NousResearch non-gated mirror (same architecture)
+    # for compile testing.
     _VARIANTS = {
         ModelVariant.LLAMA_3_1_8B_INSTRUCT_OWL_NUMBERS_FT: LLMModelConfig(
-            pretrained_model_name="eekay/Llama-3.1-8B-Instruct-owl-numbers-ft",
+            pretrained_model_name="NousResearch/Meta-Llama-3.1-8B-Instruct",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.LLAMA_3_1_8B_INSTRUCT_OWL_NUMBERS_FT
-
-    # eekay/Llama-3.1-8B-Instruct-owl-numbers-ft inherits the gate from
-    # meta-llama/Llama-3.1-8B-Instruct. Use the NousResearch mirror as a
-    # non-gated config/tokenizer source when TT_RANDOM_WEIGHTS is set.
-    _RANDOM_WEIGHTS_CONFIG_SOURCE = "NousResearch/Meta-Llama-3.1-8B-Instruct"
 
     sample_text = "Hey how are you doing today?"
 
@@ -65,17 +63,14 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        if os.environ.get("TT_RANDOM_WEIGHTS"):
-            tokenizer_source = self._RANDOM_WEIGHTS_CONFIG_SOURCE
-        else:
-            tokenizer_source = self._variant_config.pretrained_model_name
+        pretrained_model_name = self._variant_config.pretrained_model_name
 
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            tokenizer_source, **tokenizer_kwargs
+            pretrained_model_name, **tokenizer_kwargs
         )
         self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -87,29 +82,21 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        if os.environ.get("TT_RANDOM_WEIGHTS"):
-            config = AutoConfig.from_pretrained(self._RANDOM_WEIGHTS_CONFIG_SOURCE)
-            if self.num_layers is not None:
-                config.num_hidden_layers = self.num_layers
-            model = AutoModelForCausalLM.from_config(config)
-            if dtype_override is not None:
-                model = model.to(dtype_override)
-        else:
-            model_kwargs = {}
-            if dtype_override is not None:
-                model_kwargs["torch_dtype"] = dtype_override
-            model_kwargs |= kwargs
+        model_kwargs = {}
+        if dtype_override is not None:
+            model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
 
-            if self.num_layers is not None:
-                config = AutoConfig.from_pretrained(pretrained_model_name)
-                config.num_hidden_layers = self.num_layers
-                model_kwargs["config"] = config
+        if self.num_layers is not None:
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config.num_hidden_layers = self.num_layers
+            model_kwargs["config"] = config
 
-            model = AutoModelForCausalLM.from_pretrained(
-                pretrained_model_name, **model_kwargs
-            )
-
+        model = AutoModelForCausalLM.from_pretrained(
+            pretrained_model_name, **model_kwargs
+        )
         model.eval()
+
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
