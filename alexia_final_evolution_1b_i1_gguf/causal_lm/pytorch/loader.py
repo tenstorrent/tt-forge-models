@@ -6,9 +6,17 @@ Alexia FinalEvolution 1B i1 GGUF model loader implementation for causal language
 
 Quantized from UmbrellaInc/Alexia.FinalEvolution-1B.
 """
+import importlib.metadata
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+import transformers.utils.import_utils as _tx_import_utils
+
+_tx_import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+    importlib.metadata.packages_distributions()
+)
 
 from ....base import ForgeModel
 from ....config import (
@@ -112,18 +120,16 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        messages = [
-            {
-                "role": "user",
-                "content": self.sample_text,
-            }
-        ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-        prompts = [text]
+        if self.tokenizer.chat_template is not None:
+            messages = [{"role": "user", "content": self.sample_text}]
+            text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+            prompts = [text]
+        else:
+            prompts = [self.sample_text]
 
         inputs = self.tokenizer(
             prompts,
