@@ -18,12 +18,6 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from .src.model_utils import (
-    load_mv_adapter_pipeline,
-    mv_adapter_preprocessing,
-)
-
-
 class ModelVariant(StrEnum):
     """Available MV-Adapter model variants."""
 
@@ -70,6 +64,8 @@ class ModelLoader(ForgeModel):
         Returns:
             MVAdapterT2MVSDXLPipeline: The pipeline instance.
         """
+        from .src.model_utils import load_mv_adapter_pipeline
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         self.pipeline = load_mv_adapter_pipeline(pretrained_model_name, self.base_model)
@@ -92,6 +88,8 @@ class ModelLoader(ForgeModel):
                 - prompt_embeds (torch.Tensor)
                 - added_cond_kwargs (dict)
         """
+        from .src.model_utils import mv_adapter_preprocessing
+
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
 

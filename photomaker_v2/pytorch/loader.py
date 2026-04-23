@@ -18,13 +18,6 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from .src.model_utils import (
-    load_photomaker_v2_pipe,
-    create_dummy_id_image,
-    photomaker_v2_preprocessing,
-)
-
-
 class ModelVariant(StrEnum):
     """Available PhotoMaker V2 model variants."""
 
@@ -71,6 +64,8 @@ class ModelLoader(ForgeModel):
         Returns:
             PhotoMakerStableDiffusionXLPipeline: The pipeline instance.
         """
+        from .src.model_utils import load_photomaker_v2_pipe
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         self.pipeline = load_photomaker_v2_pipe(self.base_model, pretrained_model_name)
@@ -93,6 +88,8 @@ class ModelLoader(ForgeModel):
                 - prompt_embeds (torch.Tensor)
                 - added_cond_kwargs (dict)
         """
+        from .src.model_utils import create_dummy_id_image, photomaker_v2_preprocessing
+
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
 
