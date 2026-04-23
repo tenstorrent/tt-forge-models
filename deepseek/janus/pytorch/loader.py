@@ -10,6 +10,7 @@ from typing import Optional
 import torch
 from PIL import Image
 from janus.models import MultiModalityCausalLM, VLChatProcessor
+from janus.models.modeling_vlm import MultiModalityConfig
 from torch.overrides import TorchFunctionMode
 
 from ....base import ForgeModel
@@ -93,14 +94,19 @@ class ModelLoader(ForgeModel):
         """Load and return the Janus model instance."""
         model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"trust_remote_code": True, "attn_implementation": "eager"}
+        model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        # Load config and clear flash_attention_2 from language_config — flash_attn
+        # is not installed in this environment and the language_config JSON has it set.
+        config = MultiModalityConfig.from_pretrained(model_name, trust_remote_code=True)
+        config.language_config._attn_implementation = None
+
         with _ForceCPUConstructors():
             model = MultiModalityCausalLM.from_pretrained(
-                str(model_name), **model_kwargs
+                str(model_name), config=config, **model_kwargs
             )
         model.eval()
 
