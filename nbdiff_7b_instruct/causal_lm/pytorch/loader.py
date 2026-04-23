@@ -145,7 +145,9 @@ class ModelLoader(ForgeModel):
             max_length=max_length,
         )
 
-        sample_inputs = [inputs["input_ids"], inputs["attention_mask"]]
+        # The model's eager attention expects a pre-processed 4D mask; pass only
+        # input_ids so attention_mask defaults to None and no masking is applied.
+        sample_inputs = [inputs["input_ids"]]
 
         if batch_size > 1:
             for i in range(len(sample_inputs)):
