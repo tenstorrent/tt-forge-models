@@ -21,6 +21,65 @@ from ....config import (
 )
 
 
+def _patch_internlm2_gguf_support():
+    """Register internlm2 as a llama-compatible GGUF architecture.
+
+    Transformers 5.x does not recognise 'internlm2' as a GGUF architecture.
+    InternLM2 uses the same standardised GGUF tensor names as LLaMA
+    (token_embd, blk.N.attn_q, etc.), so we register it as an alias for
+    llama and remap model_type in the loaded config.
+    """
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.tokenization_utils_tokenizers as tok_utils
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        load_gguf_checkpoint as _orig_load,
+    )
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFLlamaConverter,
+    )
+
+    if "internlm2" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("internlm2")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["internlm2"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": "head_dim",
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+    }
+
+    for arch in ("internlm2",):
+        GGUF_TO_FAST_CONVERTERS.setdefault(arch, GGUFLlamaConverter)
+
+    def _patched_load(*args, **kwargs):
+        result = _orig_load(*args, **kwargs)
+        if result.get("config", {}).get("model_type") == "internlm2":
+            result["config"]["model_type"] = "llama"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = _patched_load
+    for mod in (config_utils, modeling_utils, tok_auto, tok_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = _patched_load
+
+
+_patch_internlm2_gguf_support()
+
+
 class ModelVariant(StrEnum):
     """Available InternLM2-Math-Plus 7B GGUF model variants for causal language modeling."""
 
