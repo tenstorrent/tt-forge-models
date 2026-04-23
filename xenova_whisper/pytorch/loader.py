@@ -41,10 +41,10 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.WHISPER_BASE: ModelConfig(
-            pretrained_model_name="Xenova/whisper-base",
+            pretrained_model_name="openai/whisper-base",
         ),
         ModelVariant.WHISPER_MEDIUM: ModelConfig(
-            pretrained_model_name="Xenova/whisper-medium",
+            pretrained_model_name="openai/whisper-medium",
         ),
     }
 
