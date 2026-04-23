@@ -86,17 +86,19 @@ class ModelLoader(ForgeModel):
         # Image dimensions for latent space (128 => 1024px, 64 => 512px)
         sample_size = config.sample_size
         in_channels = config.in_channels  # 4
-        cross_attention_dim = config.cross_attention_dim  # 1152
+        # PixArt-Alpha uses a CaptionProjection that expects T5-XXL (4096-dim)
+        # inputs, projected internally to cross_attention_dim.
+        caption_channels = config.caption_channels  # 4096
 
         # Latent input: (B, C, H, W) where H,W = sample_size
         hidden_states = torch.randn(
             batch_size, in_channels, sample_size, sample_size, dtype=dtype
         )
 
-        # T5 encoder hidden states: (B, seq_len, cross_attention_dim)
+        # T5 encoder hidden states: (B, seq_len, caption_channels)
         max_sequence_length = 120
         encoder_hidden_states = torch.randn(
-            batch_size, max_sequence_length, cross_attention_dim, dtype=dtype
+            batch_size, max_sequence_length, caption_channels, dtype=dtype
         )
 
         # Timestep
