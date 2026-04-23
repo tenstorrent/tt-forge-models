@@ -5,6 +5,7 @@
 Vigogne-2-70b-chat model loader implementation for causal language modeling.
 """
 
+import os
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
@@ -80,6 +81,10 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        cache_dir = os.environ.get("TT_MODEL_CACHE_DIR", None)
+        if cache_dir is not None:
+            model_kwargs["cache_dir"] = cache_dir
 
         if self.num_layers is not None:
             from transformers import AutoConfig
