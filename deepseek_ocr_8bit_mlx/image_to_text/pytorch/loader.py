@@ -97,20 +97,29 @@ class ModelLoader(ForgeModel):
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
 
-        # MLX checkpoint stores CLIPVisionEmbeddings.position_embedding with one fewer
-        # row than num_positions requires (256 vs 257). Expand by duplicating the last row.
-        for module in model.modules():
-            if type(module).__name__ != "CLIPVisionEmbeddings":
-                continue
+        # CLIPVisionEmbeddings.position_ids may exceed the loaded embedding table size.
+        # Register a pre-hook to clamp position_ids to valid range before each forward.
+        def _clip_pos_ids_hook(module, args):
             emb = getattr(module, "position_embedding", None)
-            expected = getattr(module, "num_positions", None)
-            if not (isinstance(emb, nn.Embedding) and expected is not None):
-                continue
-            if emb.weight.shape[0] < expected:
-                extra = expected - emb.weight.shape[0]
-                old_w = emb.weight.data
-                pad = old_w[-1:].expand(extra, -1).contiguous()
-                emb.weight = nn.Parameter(torch.cat([old_w, pad], dim=0))
+            ids = getattr(module, "position_ids", None)
+            if isinstance(emb, nn.Embedding) and ids is not None:
+                n = emb.weight.shape[0]
+                max_id = int(ids.max())
+                print(
+                    f"[deepseek_ocr_8bit_mlx hook] emb rows={n}, ids shape={ids.shape},"
+                    f" dtype={ids.dtype}, max_id={max_id}"
+                )
+                if max_id >= n:
+                    module.position_ids = ids.clamp(0, n - 1)
+
+        clip_ve_count = 0
+        for module in model.modules():
+            if type(module).__name__ == "CLIPVisionEmbeddings":
+                module.register_forward_pre_hook(_clip_pos_ids_hook)
+                clip_ve_count += 1
+        print(
+            f"[deepseek_ocr_8bit_mlx] registered hooks on {clip_ve_count} CLIPVisionEmbeddings modules"
+        )
 
         model.config.return_dict = False
         model.config.use_cache = False
