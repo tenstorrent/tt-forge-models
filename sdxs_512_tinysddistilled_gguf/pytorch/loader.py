@@ -32,6 +32,7 @@ from ...config import (
 
 GGUF_REPO = "concedo/sdxs-512-tinySDdistilled-GGUF"
 BASE_PIPELINE = "IDKiro/sdxs-512-dreamshaper"
+GGUF_SOURCE_MODEL = "Disty0/sdxs-512-tinySDdistilled"
 
 
 class ModelVariant(StrEnum):
@@ -98,7 +99,7 @@ class ModelLoader(ForgeModel):
 
         unet = UNet2DConditionModel.from_single_file(
             f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
-            config=BASE_PIPELINE,
+            config=GGUF_SOURCE_MODEL,
             subfolder="unet",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
