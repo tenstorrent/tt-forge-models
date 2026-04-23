@@ -6,8 +6,9 @@ StarVector model loader implementation for image-to-SVG generation.
 """
 
 from typing import Optional
+
+from PIL import Image
 from transformers import AutoModelForCausalLM, AutoProcessor
-from datasets import load_dataset
 
 from ...base import ForgeModel
 from ...config import (
@@ -185,8 +186,9 @@ class ModelLoader(ForgeModel):
 
                 self.processor = ImageTrainProcessor(size=224)
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"].convert("RGB")
+        # Use a synthetic image to avoid importing datasets (local spacy/ dir shadows the
+        # real spacy package and breaks datasets fingerprinting).
+        image = Image.new("RGB", (224, 224), color=(128, 128, 128))
 
         result = self.processor(image)
         if isinstance(result, dict) or hasattr(result, "data"):
