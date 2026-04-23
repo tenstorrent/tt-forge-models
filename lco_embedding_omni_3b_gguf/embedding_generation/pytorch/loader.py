@@ -59,6 +59,19 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        # transformers caches PACKAGE_DISTRIBUTION_MAPPING at import time; if gguf
+        # was installed after transformers was imported (e.g. via RequirementsManager),
+        # it won't be in the mapping and the fallback reads gguf.__version__ which
+        # gguf doesn't define, returning "N/A" and causing InvalidVersion.
+        # Inject gguf into the mapping so importlib.metadata.version("gguf") is used.
+        try:
+            import transformers.utils.import_utils as _tu
+
+            if "gguf" not in _tu.PACKAGE_DISTRIBUTION_MAPPING:
+                _tu.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+        except Exception:
+            pass
+
         tokenizer_kwargs = {"gguf_file": self.GGUF_FILE}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
