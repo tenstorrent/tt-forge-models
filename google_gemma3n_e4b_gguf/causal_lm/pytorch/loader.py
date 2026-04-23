@@ -31,6 +31,54 @@ def _ensure_gguf_version():
         pass
 
 
+def _patch_gemma3n_support():
+    """Register gemma3n GGUF architecture in transformers.
+
+    transformers 5.x has Gemma3nForCausalLM but lacks GGUF loading support for
+    the gemma3n architecture. We bridge that gap by aliasing gemma3n onto the
+    existing gemma3 config/tensor mappings and remapping model_type to gemma3n_text
+    (which is what Gemma3nForCausalLM expects).
+    """
+    import transformers.configuration_utils as _config_utils
+    import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+    import transformers.models.auto.tokenization_auto as _auto_tokenizer
+    import transformers.tokenization_utils_tokenizers as _tok_utils
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        Gemma2TensorProcessor,
+        TENSOR_PROCESSORS,
+    )
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFGemmaConverter,
+    )
+
+    if "gemma3n" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("gemma3n")
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["gemma3n"] = dict(
+        GGUF_TO_TRANSFORMERS_MAPPING["config"]["gemma3"]
+    )
+    TENSOR_PROCESSORS["gemma3n"] = Gemma2TensorProcessor
+    GGUF_TO_FAST_CONVERTERS.setdefault("gemma3n", GGUFGemmaConverter)
+    GGUF_TO_FAST_CONVERTERS.setdefault("gemma3n_text", GGUFGemmaConverter)
+
+    _orig = _gguf_utils.load_gguf_checkpoint
+
+    def _patched_load_gguf_checkpoint(*args, **kwargs):
+        result = _orig(*args, **kwargs)
+        if result.get("config", {}).get("model_type") == "gemma3n":
+            result["config"]["model_type"] = "gemma3n_text"
+        return result
+
+    _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -86,6 +134,7 @@ class ModelLoader(ForgeModel):
 
     def _load_tokenizer(self, dtype_override=None):
         _ensure_gguf_version()
+        _patch_gemma3n_support()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -101,6 +150,7 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         _ensure_gguf_version()
+        _patch_gemma3n_support()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -179,6 +229,7 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         _ensure_gguf_version()
+        _patch_gemma3n_support()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
