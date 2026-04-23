@@ -1,0 +1,9 @@
+results:
+- test_name: "tests/runner/test_models.py::test_all_models_torch[bartowski_thedrummer_skyfall_31b_v4_gguf/causal_lm/pytorch-31B_V4_GGUF-single_device-inference]"
+  status: "PASS"
+  date: "20260423_061622"
+  branch: "ip-172-31-23-5-tt-xla-dev/ubuntu/2026-04-23_02-28/hf-bringup-2"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[mradermacher_orbit_4b_v0_1_i1_gguf/causal_lm/pytorch-ORBIT_4B_V0_1_I1_Q4_K_M_GGUF-single_device-inference]"
+  status: "PASS"
+  date: "20260423_070923"
+  branch: "ip-172-31-23-5-tt-xla-dev/ubuntu/2026-04-23_02-28/hf-bringup-2"
