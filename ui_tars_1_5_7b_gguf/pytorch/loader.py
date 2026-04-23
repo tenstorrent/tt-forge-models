@@ -11,6 +11,9 @@ import torch
 from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
 from typing import Optional
 
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFQwen2Converter
 
 from ...base import ForgeModel
 from ...config import (
@@ -23,6 +26,31 @@ from ...config import (
     StrEnum,
 )
 from .src.model import Wrapper
+
+
+def _patch_qwen2vl_gguf_support():
+    """Register qwen2vl architecture in transformers GGUF loading tables.
+
+    transformers does not yet include qwen2vl in its GGUF conversion tables.
+    We add it by copying the qwen2 config mapping, which shares the same text
+    config structure as the VL variant.
+    """
+    if "qwen2vl" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen2" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen2vl"] = dict(
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen2"]
+            )
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen2vl")
+
+    if "qwen2vl" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["qwen2vl"] = GGUFQwen2Converter
+
+
+_patch_qwen2vl_gguf_support()
 
 
 class ModelVariant(StrEnum):
@@ -117,7 +145,7 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = gguf_file
 
         model = Qwen2VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         )
         model.eval()
         model = Wrapper(model)
