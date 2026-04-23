@@ -7,6 +7,7 @@ NVIDIA Nemotron Nano 12B v2 VL NVFP4-QAD model loader implementation for image t
 
 import io
 import requests
+import torch
 from transformers import AutoModel, AutoProcessor
 from transformers.modeling_utils import PreTrainedModel
 from PIL import Image
@@ -150,6 +151,19 @@ class ModelLoader(ForgeModel):
             text="<image>\nDescribe this image.",
             return_tensors="pt",
         )
+
+        # num_patches is processor metadata not accepted by forward(); derive image_flags from it
+        num_patches = inputs.pop("num_patches", None)
+        if "image_flags" not in inputs:
+            if num_patches is not None:
+                n = (
+                    sum(num_patches)
+                    if isinstance(num_patches, (list, tuple))
+                    else int(num_patches)
+                )
+            else:
+                n = inputs["pixel_values"].shape[0]
+            inputs["image_flags"] = torch.ones(n, 1, dtype=torch.long)
 
         if batch_size > 1:
             for key, value in inputs.items():
