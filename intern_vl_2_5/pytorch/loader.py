@@ -5,6 +5,8 @@
 InternVL2.5 model loader implementation for multimodal visual question answering.
 """
 
+import sys
+
 import torch
 import torchvision.transforms as T
 from PIL import Image
@@ -31,6 +33,36 @@ from ...config import (
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
+
+
+def _patch_intern_vision_encoder():
+    """Patch InternVisionEncoder to avoid .item() on meta tensors.
+
+    transformers 5.x always initializes models inside torch.device("meta") context,
+    which causes torch.linspace to return meta tensors. Calling .item() on those
+    raises RuntimeError. Adding device='cpu' to linspace bypasses the meta context.
+    """
+    for _mod_name, _mod in list(sys.modules.items()):
+        if "modeling_intern_vit" in _mod_name and hasattr(_mod, "InternVisionEncoder"):
+            _orig_init = _mod.InternVisionEncoder.__init__
+
+            def _patched_init(self, config, *args, _orig=_orig_init, **kwargs):
+                _orig_linspace = torch.linspace
+
+                def _cpu_linspace(*a, **kw):
+                    if "device" not in kw:
+                        kw["device"] = "cpu"
+                    return _orig_linspace(*a, **kw)
+
+                torch.linspace = _cpu_linspace
+                try:
+                    _orig(self, config, *args, **kwargs)
+                finally:
+                    torch.linspace = _orig_linspace
+
+            _mod.InternVisionEncoder.__init__ = _patched_init
+            break
+
 
 # Variants that use the HF-native format (AutoProcessor + AutoModelForImageTextToText)
 _HF_NATIVE_VARIANTS = {"2B_MPO_HF"}
@@ -207,6 +239,7 @@ class ModelLoader(ForgeModel):
                 self._load_tokenizer()
 
             model_kwargs["trust_remote_code"] = True
+            _patch_intern_vision_encoder()
             model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
 
         model.eval()
