@@ -94,6 +94,27 @@ def _fix_gguf_load_compat():
     gguf_utils_mod.load_gguf_checkpoint = _compat
 
 
+def _fix_gguf_available_compat():
+    """Refresh stale transformers PACKAGE_DISTRIBUTION_MAPPING and lru_cache.
+
+    transformers captures importlib.metadata.packages_distributions() once at
+    module-import time as PACKAGE_DISTRIBUTION_MAPPING.  When gguf is installed
+    after transformers was imported (e.g. via per-test RequirementsManager), the
+    mapping is stale and is_gguf_available() returns (True, 'N/A') which causes
+    packaging.version.InvalidVersion.  We refresh the mapping and clear the
+    lru_cache so the next call re-evaluates correctly.
+    """
+    import importlib.metadata
+
+    import transformers.utils.import_utils as import_utils_mod
+
+    import_utils_mod.PACKAGE_DISTRIBUTION_MAPPING = (
+        importlib.metadata.packages_distributions()
+    )
+    if hasattr(import_utils_mod.is_gguf_available, "cache_clear"):
+        import_utils_mod.is_gguf_available.cache_clear()
+
+
 from ...config import (
     ModelConfig,
     ModelInfo,
@@ -166,6 +187,7 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         _fix_gguf_load_compat()
+        _fix_gguf_available_compat()
 
         pretrained_model_name = self._variant_config.pretrained_model_name
         gguf_file = self._GGUF_FILES[self._variant]
