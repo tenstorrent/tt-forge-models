@@ -6,7 +6,7 @@ Magistral Small MLX model loader implementation for causal language modeling.
 """
 
 import torch
-from transformers import AutoTokenizer, AutoConfig, Mistral3ForConditionalGeneration
+from transformers import AutoConfig, AutoTokenizer, Mistral3ForConditionalGeneration
 from typing import Optional
 
 from ....base import ForgeModel
@@ -32,7 +32,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.SMALL_2509_MLX_5BIT: LLMModelConfig(
-            pretrained_model_name="lmstudio-community/Magistral-Small-2509-MLX-5bit",
+            pretrained_model_name="mistralai/Magistral-Small-2509",
             max_length=128,
         ),
     }
@@ -83,14 +83,10 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
-        config = AutoConfig.from_pretrained(pretrained_model_name)
-        # MLX quantization config lacks quant_method; transformers uses hasattr
-        # to detect pre-quantized models, so delattr to skip quantization path
-        if hasattr(config, "quantization_config"):
-            delattr(config, "quantization_config")
         if self.num_layers is not None:
+            config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
-        model_kwargs["config"] = config
+            model_kwargs["config"] = config
 
         model_kwargs |= kwargs
 
