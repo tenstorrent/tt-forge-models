@@ -106,6 +106,11 @@ class ModelLoader(ForgeModel):
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        # GGUF metadata does not carry mrope_section; inject the known value
+        # for Qwen2.5-VL-3B so MRoPE attention can index rope_parameters.
+        model.config.text_config.rope_parameters.setdefault(
+            "mrope_section", [16, 24, 24]
+        )
         model.eval()
         model = Wrapper(model)
 
