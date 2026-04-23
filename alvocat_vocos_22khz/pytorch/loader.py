@@ -96,8 +96,21 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: Wrapped Vocos model that decodes mel features to audio.
         """
+        import sys
         import yaml
         from huggingface_hub import hf_hub_download
+
+        # Pre-import encodec from site-packages before vocos does it, so
+        # sys.modules caches the real PyPI package instead of the local
+        # encodec/ model directory (which lacks EncodecModel).
+        if "encodec" not in sys.modules:
+            site_pkgs = [p for p in sys.path if "site-packages" in p]
+            other = [p for p in sys.path if "site-packages" not in p]
+            sys.path[:] = site_pkgs + other
+            try:
+                import encodec  # noqa: F401
+            finally:
+                sys.path[:] = other + site_pkgs
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
