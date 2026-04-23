@@ -67,7 +67,26 @@ def _patch_transformers_qwen3vl_gguf():
     if "qwen3vl" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["qwen3vl"] = GGUFQwen2Converter
 
-    # 4. Patch load_gguf_checkpoint to remap model_type qwen3 -> qwen3_vl
+    # 4. Patch get_gguf_hf_weights_map to handle composite Qwen3VLConfig and
+    #    map qwen3_vl model_type to the qwen3vl gguf arch name.
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor=None, model_type=None, num_layers=None, qual_name=None
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type == "qwen3_vl":
+            model_type = "qwen3vl"
+        if num_layers is None:
+            cfg = hf_model.config
+            if not hasattr(cfg, "num_hidden_layers") and hasattr(cfg, "text_config"):
+                num_layers = cfg.text_config.num_hidden_layers
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+    # 5. Patch load_gguf_checkpoint to remap model_type qwen3 -> qwen3_vl
     orig_load = gguf_utils.load_gguf_checkpoint
 
     def patched_load_gguf_checkpoint(*args, **kwargs):
