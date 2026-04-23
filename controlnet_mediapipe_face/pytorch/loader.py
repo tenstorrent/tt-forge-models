@@ -90,7 +90,7 @@ class ModelLoader(ForgeModel):
         Returns:
             List: Input tensors for the UNet with ControlNet residuals:
                 - latent_model_input (torch.Tensor)
-                - timestep (torch.Tensor)
+                - timestep (torch.Tensor): single timestep scalar
                 - prompt_embeds (torch.Tensor)
                 - down_block_additional_residuals (tuple of torch.Tensor)
                 - mid_block_additional_residual (torch.Tensor)
@@ -110,9 +110,11 @@ class ModelLoader(ForgeModel):
             self.pipeline, self.prompt, control_image
         )
 
+        timestep = timesteps[0]
+
         if dtype_override:
             latent_model_input = latent_model_input.to(dtype_override)
-            timesteps = timesteps.to(dtype_override)
+            timestep = timestep.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
             down_block_additional_residuals = tuple(
                 r.to(dtype_override) for r in down_block_additional_residuals
@@ -123,7 +125,7 @@ class ModelLoader(ForgeModel):
 
         return [
             latent_model_input,
-            timesteps,
+            timestep,
             prompt_embeds,
             down_block_additional_residuals,
             mid_block_additional_residual,
