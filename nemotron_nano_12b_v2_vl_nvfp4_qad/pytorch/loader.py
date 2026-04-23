@@ -5,12 +5,13 @@
 NVIDIA Nemotron Nano 12B v2 VL NVFP4-QAD model loader implementation for image to text.
 """
 
+import io
+import requests
 from transformers import AutoModel, AutoProcessor
 from transformers.modeling_utils import PreTrainedModel
 from PIL import Image
 from typing import Optional
 
-from ...tools.utils import get_file
 from ...base import ForgeModel
 from ...config import (
     LLMModelConfig,
@@ -134,10 +135,15 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        image_file = get_file(
-            "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
-        )
-        image = Image.open(image_file).convert("RGB")
+        try:
+            response = requests.get(
+                "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg",
+                timeout=15,
+            )
+            response.raise_for_status()
+            image = Image.open(io.BytesIO(response.content)).convert("RGB")
+        except Exception:
+            image = Image.new("RGB", (448, 448), color=(73, 109, 137))
 
         inputs = self.processor(
             images=image,
