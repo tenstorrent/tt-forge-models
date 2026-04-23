@@ -4,7 +4,7 @@
 """
 HunyuanImage 2.1 ComfyUI model loader implementation.
 
-Loads single-file safetensors transformer from Comfy-Org/HunyuanImage_2.1_ComfyUI.
+Loads the HunyuanImage 2.1 transformer from the standard diffusers format repo.
 Supports the distilled variant for faster inference.
 
 Available variants:
@@ -15,7 +15,6 @@ from typing import Optional
 
 import torch
 from diffusers import HunyuanImageTransformer2DModel  # type: ignore[import]
-from huggingface_hub import hf_hub_download  # type: ignore[import]
 
 from ...base import ForgeModel
 from ...config import (
@@ -28,7 +27,7 @@ from ...config import (
     StrEnum,
 )
 
-REPO_ID = "Comfy-Org/HunyuanImage_2.1_ComfyUI"
+REPO_ID = "hunyuanvideo-community/HunyuanImage-2.1-Diffusers"
 
 
 class ModelVariant(StrEnum):
@@ -72,13 +71,9 @@ class ModelLoader(ForgeModel):
         """
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        model_path = hf_hub_download(
-            repo_id=REPO_ID,
-            filename="split_files/diffusion_models/hunyuanimage2.1_distilled_bf16.safetensors",
-        )
-
-        self._transformer = HunyuanImageTransformer2DModel.from_single_file(
-            model_path,
+        self._transformer = HunyuanImageTransformer2DModel.from_pretrained(
+            REPO_ID,
+            subfolder="transformer",
             torch_dtype=dtype,
         )
         self._transformer.eval()
