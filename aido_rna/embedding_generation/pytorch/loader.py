@@ -4,6 +4,8 @@
 """
 AIDO.RNA model loader implementation for embedding generation on RNA sequences.
 """
+import os
+from pathlib import Path
 from typing import Optional
 
 from ....base import ForgeModel
@@ -16,6 +18,8 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+_SRC_DIR = Path(__file__).parent / "src"
 
 
 class ModelVariant(StrEnum):
@@ -37,16 +41,11 @@ class ModelLoader(ForgeModel):
         ),
     }
 
-    _VARIANT_TO_BACKBONE = {
-        ModelVariant.AIDO_RNA_1B600M: "aido_rna_1b600m",
-        ModelVariant.AIDO_RNA_650M_CDS: "aido_rna_650m_cds",
-    }
-
     DEFAULT_VARIANT = ModelVariant.AIDO_RNA_1B600M
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self._model_instance = None
+        self._tokenizer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -61,27 +60,52 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
-        from modelgenerator.tasks import Embed
+    def _register_rnabert(self):
+        import sys
 
-        backbone = self._VARIANT_TO_BACKBONE[self._variant]
-        model = Embed.from_config({"model.backbone": backbone}).eval()
+        sys.path.insert(0, str(_SRC_DIR))
+        from transformers import AutoConfig, AutoModelForMaskedLM
+
+        from configuration_rnabert import RNABertConfig
+        from modeling_rnabert import RNABertForMaskedLM
+
+        from transformers.models.auto.configuration_auto import CONFIG_MAPPING
+
+        if "rnabert" not in CONFIG_MAPPING:
+            AutoConfig.register("rnabert", RNABertConfig)
+            AutoModelForMaskedLM.register(RNABertConfig, RNABertForMaskedLM)
+
+    def load_model(self, *, dtype_override=None, **kwargs):
+        from transformers import AutoModelForMaskedLM
+
+        self._register_rnabert()
+        model = AutoModelForMaskedLM.from_pretrained(
+            self._variant_config.pretrained_model_name
+        ).eval()
 
         if dtype_override is not None:
             model = model.to(dtype_override)
 
-        self._model_instance = model
         return model
 
     def load_inputs(self, dtype_override=None):
-        if self._model_instance is None:
-            self.load_model(dtype_override=dtype_override)
+        import sys
 
-        # Sample RNA sequence
+        import torch
+
+        sys.path.insert(0, str(_SRC_DIR))
+        from tokenization_rnabert import RNABertTokenizer
+
+        vocab_file = str(_SRC_DIR / "vocab.txt")
+        tokenizer = RNABertTokenizer(vocab_file, version="v2")
+
         rna_sequence = "ACGUACGUACGUACGU"
-
-        transformed_batch = self._model_instance.transform(
-            {"sequences": [rna_sequence]}
+        encoded = tokenizer(
+            rna_sequence,
+            return_tensors="pt",
+            padding=False,
+            truncation=True,
+            max_length=1024,
         )
 
-        return transformed_batch
+        return dict(encoded)
