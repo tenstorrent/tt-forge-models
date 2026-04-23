@@ -14,9 +14,6 @@ for model loading.
 import torch
 from typing import Optional
 
-from olmoearth_pretrain.model_loader import ModelID, load_model_from_id
-from olmoearth_pretrain.datatypes import MaskedOlmoEarthSample, MaskValue
-
 from ....base import ForgeModel
 from ....config import (
     ModelConfig,
@@ -50,12 +47,6 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.V1_BASE
 
-    # Map variant to olmoearth_pretrain ModelID
-    _MODEL_IDS = {
-        ModelVariant.V1_BASE: ModelID.OLMOEARTH_V1_BASE,
-        ModelVariant.V1_TINY: ModelID.OLMOEARTH_V1_TINY,
-    }
-
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.model = None
@@ -80,7 +71,13 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The OlmoEarth encoder model.
         """
-        model_id = self._MODEL_IDS[self._variant]
+        from olmoearth_pretrain.model_loader import ModelID, load_model_from_id
+
+        _model_ids = {
+            ModelVariant.V1_BASE: ModelID.OLMOEARTH_V1_BASE,
+            ModelVariant.V1_TINY: ModelID.OLMOEARTH_V1_TINY,
+        }
+        model_id = _model_ids[self._variant]
         model = load_model_from_id(model_id)
         model.eval()
 
@@ -104,6 +101,8 @@ class ModelLoader(ForgeModel):
         """
         # Sentinel-2 L2A has 12 bands, using 64x64 spatial and 1 timestep
         image = torch.randn(batch_size, 64, 64, 1, 12)
+        from olmoearth_pretrain.datatypes import MaskedOlmoEarthSample, MaskValue
+
         mask = torch.ones(batch_size, 64, 64, 1, 3) * MaskValue.ONLINE_ENCODER.value
         timestamps = torch.tensor([[[15, 6, 2024]]]).expand(batch_size, -1, -1)
 
