@@ -4,7 +4,11 @@
 """
 mradermacher bartleby-qwen3.5-4b GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
+import importlib.util
+
 import torch
+from packaging import version as _pkg_version
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -12,11 +16,33 @@ import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
+import transformers.utils.import_utils as _import_utils
 from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
     GGUF_SUPPORTED_ARCHITECTURES,
 )
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+
+def _safe_is_gguf_available(min_version: str = _import_utils.GGUF_MIN_VERSION) -> bool:
+    """is_gguf_available that works when gguf is installed after transformers import.
+
+    The upstream implementation uses a module-level PACKAGE_DISTRIBUTION_MAPPING
+    that is frozen at transformers import time, so dynamically installed gguf is
+    not found there.  The fallback then returns __version__ = 'N/A' which crashes
+    packaging.version.parse.  We bypass the stale cache entirely.
+    """
+    if importlib.util.find_spec("gguf") is None:
+        return False
+    try:
+        gguf_version = importlib.metadata.version("gguf")
+        return _pkg_version.Version(gguf_version) >= _pkg_version.Version(min_version)
+    except Exception:
+        return True
+
+
+_import_utils.is_gguf_available = _safe_is_gguf_available
+_gguf_utils.is_gguf_available = _safe_is_gguf_available
 
 
 def _patch_qwen35_support():
