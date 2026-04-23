@@ -10,6 +10,7 @@ Synthetic inputs are generated directly from the transformer config to avoid
 requiring access to the gated black-forest-labs/FLUX.1-Fill-dev base repo.
 """
 
+import os
 from typing import Optional
 
 import torch
@@ -27,6 +28,8 @@ from ...config import (
 )
 
 GGUF_REPO = "YarvixPA/FLUX.1-Fill-dev-GGUF"
+# Local config avoids fetching the gated black-forest-labs/FLUX.1-Fill-dev repo
+_TRANSFORMER_CONFIG_DIR = os.path.join(os.path.dirname(__file__), "transformer_config")
 
 
 class ModelVariant(StrEnum):
@@ -90,6 +93,7 @@ class ModelLoader(ForgeModel):
 
         self.transformer = FluxTransformer2DModel.from_single_file(
             f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
+            config=_TRANSFORMER_CONFIG_DIR,
             quantization_config=quantization_config,
             torch_dtype=dtype,
         )
