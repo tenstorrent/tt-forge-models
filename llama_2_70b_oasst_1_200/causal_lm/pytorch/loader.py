@@ -8,7 +8,7 @@ language modeling.
 from typing import Optional
 
 import torch
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaConfig
 
 from ....base import ForgeModel
 from ....config import (
@@ -41,6 +41,10 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.LLAMA_2_70B_OASST_1_200
 
+    # jordiclive/Llama-2-70b-oasst-1-200 is gated; NousResearch/Llama-2-7b-hf
+    # is publicly accessible and shares the same tokenizer across all Llama-2 sizes
+    _PUBLIC_TOKENIZER = "NousResearch/Llama-2-7b-hf"
+
     sample_text = (
         "<|prompter|>What is a meme, and what's the history behind this word?"
         "</s><|assistant|>"
@@ -66,38 +70,36 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+        self.tokenizer = AutoTokenizer.from_pretrained(self._PUBLIC_TOKENIZER)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
+        # jordiclive/Llama-2-70b-oasst-1-200 is gated; initialize with random weights
+        # using the Llama-2-70B architecture directly to avoid gated config download
+        config = LlamaConfig(
+            hidden_size=8192,
+            intermediate_size=28672,
+            max_position_embeddings=4096,
+            num_attention_heads=64,
+            num_hidden_layers=80,
+            num_key_value_heads=8,
+            rms_norm_eps=1e-05,
+            vocab_size=32000,
+        )
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        model = AutoModelForCausalLM.from_config(config)
+        if dtype_override is not None:
+            model = model.to(dtype_override)
 
+        model.eval()
         self.config = model.config
         self.model = model
         return model
@@ -123,7 +125,14 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
+        self.config = LlamaConfig(
+            hidden_size=8192,
+            intermediate_size=28672,
+            max_position_embeddings=4096,
+            num_attention_heads=64,
+            num_hidden_layers=80,
+            num_key_value_heads=8,
+            rms_norm_eps=1e-05,
+            vocab_size=32000,
         )
         return self.config
