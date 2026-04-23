@@ -4,9 +4,27 @@
 """
 Unsloth GLM-4.6V GGUF model loader implementation for image-text-to-text tasks.
 """
+import importlib.metadata
+
 import torch
 from transformers import AutoProcessor, AutoModelForImageTextToText, AutoConfig
 from typing import Optional
+
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+
+def _patched_is_gguf_available(min_version="0.10.0"):
+    """Fix is_gguf_available for dynamically-installed gguf (lacks __version__)."""
+    try:
+        from packaging import version
+
+        gguf_version = importlib.metadata.version("gguf")
+        return version.parse(gguf_version) >= version.parse(min_version)
+    except Exception:
+        return False
+
+
+_gguf_utils.is_gguf_available = _patched_is_gguf_available
 
 from ....base import ForgeModel
 from ....config import (
