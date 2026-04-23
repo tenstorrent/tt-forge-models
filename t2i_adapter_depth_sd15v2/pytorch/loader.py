@@ -80,7 +80,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             self.pipeline = self.pipeline.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the T2I-Adapter Depth SD1.5v2 model.
