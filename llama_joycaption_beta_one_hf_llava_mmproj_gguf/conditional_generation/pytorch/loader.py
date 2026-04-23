@@ -9,7 +9,7 @@ for multimodal conditional generation.
 import importlib.metadata
 from typing import Optional
 
-from datasets import load_dataset
+from PIL import Image
 from transformers import LlavaForConditionalGeneration, AutoProcessor, AutoConfig
 
 from ....base import ForgeModel
@@ -133,8 +133,7 @@ class ModelLoader(ForgeModel):
             conversation, padding=True, add_generation_prompt=True
         )
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        image = Image.new("RGB", (336, 336), color=(128, 128, 128))
 
         inputs = self.processor(images=image, text=text_prompt, return_tensors="pt")
 
