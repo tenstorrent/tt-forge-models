@@ -84,6 +84,18 @@ class ModelLoader(ForgeModel):
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
 
+        # Re-initialize position_ids buffer which may contain garbage after
+        # transformers >= 5.x lazy loading (persistent=False buffers are not
+        # saved in checkpoints and can be uninitialized after meta-device materialization)
+        if hasattr(model, "embeddings") and hasattr(model.embeddings, "position_ids"):
+            with torch.no_grad():
+                model.embeddings.position_ids.copy_(
+                    torch.arange(
+                        model.embeddings.position_ids.size(0),
+                        device=model.embeddings.position_ids.device,
+                    )
+                )
+
         return model
 
     def load_inputs(self, dtype_override=None):
