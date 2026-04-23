@@ -4,6 +4,7 @@
 """
 Tiny Random ChatGLM model loader implementation for causal language modeling.
 """
+
 import torch
 from transformers import AutoModel, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -83,12 +84,16 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        if not hasattr(config, "max_length") and hasattr(config, "seq_length"):
+            config.max_length = config.seq_length
+        if not hasattr(config, "use_cache"):
+            config.use_cache = True
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
