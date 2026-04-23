@@ -8,7 +8,13 @@ Ouro-1.4B-Thinking model loader implementation for causal language modeling.
 from typing import Optional
 
 import torch
+import transformers.utils.generic as _tug
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+
+# check_model_inputs was added after transformers 5.3; inject a no-op shim so
+# the model's custom remote code can import it on older installs.
+if not hasattr(_tug, "check_model_inputs"):
+    _tug.check_model_inputs = lambda fn: fn
 
 from ....base import ForgeModel
 from ....config import (
@@ -78,6 +84,14 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    @staticmethod
+    def _patch_config(config):
+        # Transformers 5.x uses strict attribute access; ensure pad_token_id
+        # exists so the model's custom code can read it without AttributeError.
+        if not hasattr(config, "pad_token_id") or config.pad_token_id is None:
+            config.pad_token_id = getattr(config, "eos_token_id", None)
+        return config
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -89,12 +103,13 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        self._patch_config(config)
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, trust_remote_code=True, **model_kwargs
@@ -135,4 +150,5 @@ class ModelLoader(ForgeModel):
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, trust_remote_code=True
         )
+        self._patch_config(self.config)
         return self.config
