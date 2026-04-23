@@ -71,6 +71,7 @@ class VGGT(nn.Module, PyTorchModelHubMixin):
         """
         if images.dim() == 4:
             images = images.unsqueeze(0)
+        images = images.to(next(self.parameters()).dtype)
 
         aggregated_tokens_list, patch_start_idx = self.aggregator(images)
 
