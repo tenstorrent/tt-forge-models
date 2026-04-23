@@ -29,11 +29,13 @@ _gguf_compat_applied = False
 
 
 def _find_real_load_gguf_checkpoint():
-    """Traverse the monkey-patch chain (via __globals__/co_names) to find the original.
+    """Traverse the monkey-patch chain to find the original load_gguf_checkpoint.
 
     Other GGUF loaders patch load_gguf_checkpoint with signatures that drop the
     model_to_load kwarg added in transformers 5.2.0. We walk the chain through
-    each patched function's module globals to find the real implementation.
+    each patched function's module globals (for module-level patches that use
+    _orig_load_gguf_checkpoint) and closures (for inner-function patches that
+    capture orig_load as a free variable).
     """
     fn = _gguf_utils.load_gguf_checkpoint
     seen = set()
@@ -49,14 +51,31 @@ def _find_real_load_gguf_checkpoint():
         code = getattr(fn, "__code__", None)
         if code is None:
             break
-        g = fn.__globals__
+
         next_fn = None
+
+        # Case 1: module-level _orig_load_gguf_checkpoint in globals
+        g = fn.__globals__
         for name in code.co_names:
             val = g.get(name)
             if val is not None and callable(val) and id(val) not in seen:
                 if "load_gguf" in name.lower() or "orig" in name.lower():
                     next_fn = val
                     break
+
+        # Case 2: orig_load captured as a closure variable (inner function patch)
+        if next_fn is None:
+            closure = fn.__closure__ or ()
+            for var, cell in zip(code.co_freevars, closure):
+                if "load_gguf" in var.lower() or "orig" in var.lower():
+                    try:
+                        val = cell.cell_contents
+                        if callable(val) and id(val) not in seen:
+                            next_fn = val
+                            break
+                    except ValueError:
+                        pass
+
         if next_fn is None or next_fn is fn:
             break
         fn = next_fn
