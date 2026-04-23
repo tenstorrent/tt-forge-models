@@ -7,6 +7,7 @@ EgoActor 8B Qwen3VL i1 GGUF model loader implementation for image to text.
 import importlib.metadata
 
 from transformers import (
+    Qwen3VLConfig,
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
 )
@@ -94,8 +95,11 @@ class ModelLoader(ForgeModel):
             "BAAI-Agents/EgoActor-8b-Qwen3VL"
         )
 
+        # Pass explicit config so from_pretrained skips GGUF architecture detection
+        # (qwen3vl is not yet registered in transformers GGUF support)
+        config = Qwen3VLConfig()
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, config=config, **model_kwargs
         )
         model.eval()
 
