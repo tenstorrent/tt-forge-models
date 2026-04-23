@@ -17,7 +17,7 @@ Available variants:
 - SELF_FORCING_10S: Extended 10-second generation checkpoint
 """
 
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 import torch
 from diffusers import AutoencoderKLWan, WanPipeline  # type: ignore[import]
@@ -36,6 +36,13 @@ from ...config import (
 
 BASE_MODEL = "Wan-AI/Wan2.1-T2V-1.3B-Diffusers"
 SELF_FORCING_REPO = "gdhe17/Self-Forcing"
+
+# Small test dimensions for transformer inputs
+# patch_size is [1, 2, 2] so height/width must be divisible by 2
+TRANSFORMER_NUM_FRAMES = 2
+TRANSFORMER_HEIGHT = 4
+TRANSFORMER_WIDTH = 4
+TRANSFORMER_TEXT_SEQ_LEN = 8
 
 
 class ModelVariant(StrEnum):
@@ -108,15 +115,15 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the Wan 2.1 T2V 1.3B pipeline with Self-Forcing transformer weights.
+        """Load the Wan 2.1 T2V 1.3B transformer with Self-Forcing weights.
 
         Downloads the selected `.pt` checkpoint from gdhe17/Self-Forcing and
         loads its ``generator_ema`` state dict into the pipeline's transformer.
 
         Returns:
-            WanPipeline with Self-Forcing transformer weights.
+            WanTransformer3DModel with Self-Forcing weights.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         vae = AutoencoderKLWan.from_pretrained(
             self._variant_config.pretrained_model_name,
@@ -137,19 +144,31 @@ class ModelLoader(ForgeModel):
         generator_state = state_dict.get("generator_ema", state_dict)
         self.pipeline.transformer.load_state_dict(generator_state, strict=False)
 
-        return self.pipeline
+        return self.pipeline.transformer
+
+    def _load_transformer_inputs(self, dtype: torch.dtype) -> Dict[str, Any]:
+        """Prepare inputs for the WanTransformer3DModel forward pass."""
+        config = self.pipeline.transformer.config
+        return {
+            "hidden_states": torch.randn(
+                1,
+                config.in_channels,
+                TRANSFORMER_NUM_FRAMES,
+                TRANSFORMER_HEIGHT,
+                TRANSFORMER_WIDTH,
+                dtype=dtype,
+            ),
+            "encoder_hidden_states": torch.randn(
+                1,
+                TRANSFORMER_TEXT_SEQ_LEN,
+                config.text_dim,
+                dtype=dtype,
+            ),
+            "timestep": torch.tensor([500], dtype=torch.long),
+            "return_dict": False,
+        }
 
     def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for text-to-video generation.
-
-        Returns:
-            dict with prompt plus small test-friendly resolution/frame settings.
-        """
-        return {
-            "prompt": prompt if prompt is not None else self.DEFAULT_PROMPT,
-            "height": 480,
-            "width": 832,
-            "num_frames": 21,
-            "num_inference_steps": 4,
-            "guidance_scale": 1.0,
-        }
+        """Prepare tensor inputs for the WanTransformer3DModel forward pass."""
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
+        return self._load_transformer_inputs(dtype)
