@@ -4,8 +4,9 @@
 """
 unsloth/Qwen2.5-VL-3B-Instruct-GGUF model loader for vision-language tasks.
 """
+import os
 import torch
-from huggingface_hub import hf_hub_download
+from huggingface_hub import try_to_load_from_cache
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
 from typing import Optional
 
@@ -97,15 +98,21 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
 
-        # unsloth GGUF repo has no config.json; download weights and load config
-        # from the base Qwen model instead.
-        gguf_path = hf_hub_download(
+        # unsloth GGUF repo has no config.json in the HF repo root so
+        # from_pretrained(repo_id) fails. Use try_to_load_from_cache to
+        # find the locally cached GGUF, then point from_pretrained at the
+        # snapshot directory which has both config.json and the GGUF file.
+        cached = try_to_load_from_cache(
             repo_id=pretrained_model_name, filename=self.GGUF_FILE
         )
-        model_kwargs["gguf_file"] = gguf_path
+        if cached is not None:
+            model_source = os.path.dirname(cached)
+        else:
+            model_source = pretrained_model_name
+        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            self.PROCESSOR_MODEL, **model_kwargs
+            model_source, **model_kwargs
         )
         model.eval()
         model = Wrapper(model)
