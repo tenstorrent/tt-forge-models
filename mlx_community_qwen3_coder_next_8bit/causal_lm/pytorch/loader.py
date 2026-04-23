@@ -99,6 +99,11 @@ class ModelLoader(ForgeModel):
 
         model_kwargs |= kwargs
 
+        if "config" not in model_kwargs:
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            model_kwargs["config"] = config
+        model_kwargs["config"].quantization_config = None
+
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
