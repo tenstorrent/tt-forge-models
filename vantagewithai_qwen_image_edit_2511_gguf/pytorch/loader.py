@@ -13,6 +13,7 @@ Available variants:
 - Q8_0: 8-bit quantization (21.8 GB)
 """
 
+import os
 from typing import Any, Optional
 
 import torch
@@ -85,6 +86,18 @@ class ModelLoader(ForgeModel):
             ModelVariant.Q8_0: "Q8_0",
         }[self._variant]
 
+    def _load_transformer_random(
+        self, dtype: torch.dtype = torch.float32
+    ) -> QwenImageTransformer2DModel:
+        """Create diffusion transformer with random weights from config only."""
+        config = QwenImageTransformer2DModel.load_config(
+            CONFIG_REPO, subfolder="transformer"
+        )
+        transformer = QwenImageTransformer2DModel.from_config(config)
+        transformer = transformer.to(dtype=dtype)
+        transformer.eval()
+        return transformer
+
     def _load_transformer(
         self, dtype: torch.dtype = torch.float32
     ) -> QwenImageTransformer2DModel:
@@ -109,15 +122,23 @@ class ModelLoader(ForgeModel):
         """Load and return the VantageWithAI Qwen-Image-Edit-2511 GGUF diffusion transformer."""
         dtype = dtype_override if dtype_override is not None else torch.float32
         if self._transformer is None:
-            return self._load_transformer(dtype)
+            if os.environ.get("TT_RANDOM_WEIGHTS"):
+                self._transformer = self._load_transformer_random(dtype)
+            else:
+                self._load_transformer(dtype)
         if dtype_override is not None:
             self._transformer = self._transformer.to(dtype=dtype_override)
         return self._transformer
 
-    def load_inputs(self, **kwargs) -> Any:
+    def load_inputs(
+        self,
+        *,
+        dtype_override: Optional[torch.dtype] = None,
+        batch_size: int = 1,
+        **kwargs,
+    ) -> Any:
         """Prepare sample inputs for the diffusion transformer."""
-        dtype = kwargs.get("dtype_override", torch.float32)
-        batch_size = kwargs.get("batch_size", 1)
+        dtype = dtype_override if dtype_override is not None else torch.float32
 
         # From model config: in_channels=64 (img_in linear input dimension)
         img_dim = 64
