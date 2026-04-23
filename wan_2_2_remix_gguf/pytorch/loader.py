@@ -155,6 +155,9 @@ class ModelLoader(ForgeModel):
             except importlib.metadata.PackageNotFoundError:
                 pass
 
+        import accelerate.big_modeling as _accel_bm
+        import diffusers.loaders.single_file_model as _sfm
+        import torch.nn as nn
         from diffusers import (
             AutoencoderKLWan,
             GGUFQuantizationConfig,
@@ -169,11 +172,33 @@ class ModelLoader(ForgeModel):
         gguf_path = hf_hub_download(repo_id=gguf_repo, filename=gguf_file)
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
-        transformer = WanTransformer3DModel.from_single_file(
-            gguf_path,
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
+        def _patched_dispatch(model, device_map=None, **kwargs):
+            if device_map:
+                for name, param in list(model.named_parameters()):
+                    if param.device.type != "meta":
+                        continue
+                    parts = name.split(".")
+                    module = model
+                    for part in parts[:-1]:
+                        module = getattr(module, part)
+                    module._parameters[parts[-1]] = nn.Parameter(
+                        torch.zeros(param.shape, dtype=compute_dtype, device="cpu"),
+                        requires_grad=param.requires_grad,
+                    )
+            return _orig_dispatch(model, device_map=device_map, **kwargs)
+
+        _orig_dispatch = _accel_bm.dispatch_model
+        _accel_bm.dispatch_model = _patched_dispatch
+        _sfm.dispatch_model = _patched_dispatch
+        try:
+            transformer = WanTransformer3DModel.from_single_file(
+                gguf_path,
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
+            )
+        finally:
+            _accel_bm.dispatch_model = _orig_dispatch
+            _sfm.dispatch_model = _orig_dispatch
 
         is_i2v = _IS_I2V[self._variant]
         base_pipeline = I2V_BASE_PIPELINE if is_i2v else T2V_BASE_PIPELINE
