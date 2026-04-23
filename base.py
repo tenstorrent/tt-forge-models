@@ -270,7 +270,7 @@ class ForgeFocusModel(ForgeModel):
 
     def load_inputs_prefill(self, dtype_override, batch_size, seq_len):
         raise NotImplementedError(
-            f"{type(self).__name__} must implement load_inputs_prefill()"
+            f"{type(self).__name__} must implement load_inputs_prefill(dtype_override, batch_size, seq_len)"
         )
 
     def load_shard_spec(self, model, strategy, batch_axis):
