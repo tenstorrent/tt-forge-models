@@ -10,7 +10,6 @@ causal LM.
 """
 import torch
 from transformers import (
-    Qwen2_5_VLForConditionalGeneration,
     Qwen2ForCausalLM,
     AutoTokenizer,
     AutoConfig,
@@ -91,22 +90,18 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
-        # Load the full conditional generation model, then extract the causal LM
-        # because the base repo uses Qwen2_5_VLForConditionalGeneration (multimodal).
-        full_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
-        text_config = full_model.config.text_config
+        # Load only the config (lightweight) and initialize with random weights.
+        # The full Qwen2_5_VLForConditionalGeneration checkpoint is ~15 GB which
+        # exceeds available disk space in many environments; since this is a
+        # compile-only target we only need the architecture, not pretrained weights.
+        vl_config = AutoConfig.from_pretrained(pretrained_model_name)
+        text_config = vl_config.text_config
         if self.num_layers is not None:
             text_config.num_hidden_layers = self.num_layers
+
         model = Qwen2ForCausalLM(text_config)
-        model.model = full_model.model.language_model
-        model.lm_head = full_model.lm_head
+        if dtype_override is not None:
+            model = model.to(dtype_override)
         model.eval()
 
         self.config = text_config
