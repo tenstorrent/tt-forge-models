@@ -6,13 +6,9 @@ bartowski huihui-ai DeepSeek-R1-Distill-Llama-70B-abliterated GGUF model loader
 implementation for causal language modeling.
 """
 import importlib.metadata
-import os
 
 # The primary data partition is full; redirect large GGUF downloads to tmpfs.
-# HF_HUB_CACHE must be set before transformers imports so that the xet subprocess
-# (which reads env vars, not the cache_dir Python parameter) also uses /tmp.
 _GGUF_CACHE_DIR = "/tmp/hf_cache_bartowski_deepseek_r1_70b_abliterated"
-os.environ["HF_HUB_CACHE"] = _GGUF_CACHE_DIR
 
 import torch
 import transformers.configuration_utils as _config_utils
