@@ -41,11 +41,16 @@ def _patch_qwen2vl_support():
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
     """Wrap load_gguf_checkpoint to add qwen2vl support and fix model_type."""
-    _patch_qwen2vl_support()
     import inspect
 
+    _patch_qwen2vl_support()
+    sig = inspect.signature(_orig_load_gguf_checkpoint)
+    params = sig.parameters
+    has_model_to_load = "model_to_load" in params or any(
+        p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+    )
     kwargs = {"return_tensors": return_tensors}
-    if "model_to_load" in inspect.signature(_orig_load_gguf_checkpoint).parameters:
+    if has_model_to_load:
         kwargs["model_to_load"] = model_to_load
     result = _orig_load_gguf_checkpoint(gguf_path, **kwargs)
     if result.get("config", {}).get("model_type") == "qwen2vl":
