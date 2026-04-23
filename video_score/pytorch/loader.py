@@ -118,6 +118,7 @@ class ModelLoader(ForgeModel):
             Idefics2ForConditionalGeneration,
             Idefics2ForSequenceClassification,
         )
+        from transformers import DynamicCache
 
         # transformers >= 5.2.0 calls tie_weights(recompute_mapping=False);
         # mantis-vl 0.0.5 does not accept that kwarg — patch both classes.
@@ -129,6 +130,12 @@ class ModelLoader(ForgeModel):
                 _cls.tie_weights = (lambda fn: lambda self, **kw: fn(self))(
                     _cls.__dict__["tie_weights"]
                 )
+
+        # transformers >= 5.x removed DynamicCache.get_usable_length; proxy to get_seq_length.
+        if not hasattr(DynamicCache, "get_usable_length"):
+            DynamicCache.get_usable_length = (
+                lambda self, new_seq_length, layer_idx=0: self.get_seq_length(layer_idx)
+            )
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
