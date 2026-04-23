@@ -79,6 +79,15 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None, batch_size=1, image=None):
         if image is None:
+            import sys
+
+            # The local ./spacy directory (es_core_news_md model) creates a namespace
+            # package that shadows the real spacy, causing datasets serialization to fail
+            # when it checks for spacy.Language. Add a stub so the check passes safely.
+            spacy_mod = sys.modules.get("spacy")
+            if spacy_mod is not None and not hasattr(spacy_mod, "Language"):
+                spacy_mod.Language = type("Language", (), {})
+
             dataset = load_dataset("huggingface/cats-image", split="test")
             image = dataset[0]["image"]
 
