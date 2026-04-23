@@ -4,9 +4,17 @@
 """
 DeepSeek R1 Distill Qwen 32B Heretic i1 GGUF model loader implementation for causal language modeling.
 """
+import os
+
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+import huggingface_hub.constants as _hf_hub_constants
+
+_hf_hub_constants.HF_HUB_DISABLE_XET = True
 
 from ....base import ForgeModel
 from ....config import (
