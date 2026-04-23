@@ -7,9 +7,9 @@ Helper functions for loading GGUF-quantized Stable Diffusion XL finetune models.
 
 from typing import Optional, Tuple
 
+import numpy as np
 import torch
 from diffusers import (
-    GGUFQuantizationConfig,
     StableDiffusionXLPipeline,
     UNet2DConditionModel,
 )
@@ -19,6 +19,85 @@ from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
 from huggingface_hub import hf_hub_download
 
 BASE_MODEL_ID = "stabilityai/stable-diffusion-xl-base-1.0"
+_COMFY_ORIG_SHAPE_PREFIX = "comfy.gguf.orig_shape."
+
+
+def _parse_orig_shapes(reader):
+    """Return {tensor_name: orig_shape_tuple} from comfy.gguf.orig_shape.* metadata."""
+    orig_shapes = {}
+    for key, field in reader.fields.items():
+        if not key.startswith(_COMFY_ORIG_SHAPE_PREFIX):
+            continue
+        tensor_name = key[len(_COMFY_ORIG_SHAPE_PREFIX) :]
+        dims = []
+        for part in reversed(field.parts):
+            if hasattr(part, "dtype") and part.dtype == np.int32:
+                dims.insert(0, int(part[0]))
+            else:
+                break
+        if dims:
+            orig_shapes[tensor_name] = tuple(dims)
+    return orig_shapes
+
+
+def _load_comfy_gguf_as_float(gguf_path):
+    """Load a ComfyUI-format GGUF checkpoint, dequantizing all tensors to float32.
+
+    ComfyUI uses two non-standard storage conventions that differ from the
+    GGUF format that diffusers natively supports:
+
+      - Non-quantized (F16/F32) tensors are stored with a reshaped layout;
+        comfy.gguf.orig_shape.* metadata records the original dimensions.
+
+      - Quantized linear weights are stored column-major: shape (in, cols_bytes)
+        instead of the row-major (out, cols_bytes) that diffusers expects.
+        Dequantizing yields (in, out); transposing gives the correct (out, in).
+
+      - Quantized conv/other weights are stored as a flat array of blocks:
+        shape (n_blocks, type_size_bytes); dequantizing yields (n_blocks, block_size)
+        which can be reshaped to orig_shape.
+
+    Dequantizing to plain float avoids relying on diffusers' GGUF quantizer
+    (which is designed for standard, non-ComfyUI GGUF files).
+    """
+    import gguf
+    from diffusers.quantizers.gguf.utils import GGUFParameter, dequantize_gguf_tensor
+    from gguf import GGUFReader
+
+    reader = GGUFReader(gguf_path)
+    orig_shapes = _parse_orig_shapes(reader)
+
+    checkpoint = {}
+    for tensor in reader.tensors:
+        name = tensor.name
+        quant_type = tensor.tensor_type
+        is_quantized = quant_type not in [
+            gguf.GGMLQuantizationType.F32,
+            gguf.GGMLQuantizationType.F16,
+        ]
+
+        weights = torch.from_numpy(tensor.data.copy())
+        orig_shape = orig_shapes.get(name)
+
+        if is_quantized:
+            gguf_param = GGUFParameter(weights, quant_type=quant_type)
+            dequant = dequantize_gguf_tensor(gguf_param)
+            if orig_shape is not None:
+                # Column-major linear: dequant shape is (in, out) = reversed orig_shape.
+                # All other tensors: flatten dequant and reshape to orig_shape.
+                if tuple(dequant.shape) == tuple(reversed(orig_shape)):
+                    dequant = dequant.T.contiguous()
+                else:
+                    dequant = dequant.reshape(-1).reshape(orig_shape)
+            weights = dequant.to(torch.float32)
+        else:
+            if orig_shape is not None and weights.shape != torch.Size(orig_shape):
+                weights = weights.reshape(orig_shape)
+            weights = weights.to(torch.float32)
+
+        checkpoint[name] = weights
+
+    return checkpoint
 
 
 def load_gguf_pipe(repo_id: str, gguf_filename: str, subfolder: Optional[str] = None):
@@ -39,11 +118,18 @@ def load_gguf_pipe(repo_id: str, gguf_filename: str, subfolder: Optional[str] = 
         repo_id=repo_id, filename=gguf_filename, subfolder=subfolder
     )
 
-    quantization_config = GGUFQuantizationConfig(compute_dtype=torch.float32)
+    # This GGUF uses ComfyUI key naming (e.g. input_blocks.0.0.weight) and
+    # non-standard weight layouts.  Dequantize to float and add the
+    # model.diffusion_model. prefix that convert_ldm_unet_checkpoint expects.
+    gguf_state_dict = _load_comfy_gguf_as_float(model_path)
+    prefixed_state_dict = {
+        f"model.diffusion_model.{k}": v for k, v in gguf_state_dict.items()
+    }
 
     unet = UNet2DConditionModel.from_single_file(
-        model_path,
-        quantization_config=quantization_config,
+        prefixed_state_dict,
+        config=BASE_MODEL_ID,
+        subfolder="unet",
         torch_dtype=torch.float32,
     )
 
