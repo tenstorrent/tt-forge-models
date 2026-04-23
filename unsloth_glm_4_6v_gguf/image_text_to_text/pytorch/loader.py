@@ -3,6 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Unsloth GLM-4.6V GGUF model loader implementation for image-text-to-text tasks.
+
+Note: The glm4moe GGUF architecture is not supported in transformers, so we load
+from the HF-native base checkpoint instead.
 """
 import torch
 from transformers import AutoProcessor, AutoModelForImageTextToText, AutoConfig
@@ -21,6 +24,8 @@ from ....config import (
 from ....tools.utils import get_file
 from PIL import Image
 
+BASE_MODEL = "zai-org/GLM-4.6V"
+
 
 class ModelVariant(StrEnum):
     """Available Unsloth GLM-4.6V GGUF model variants for image-text-to-text tasks."""
@@ -33,17 +38,13 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.GLM_4_6V_GGUF_Q2_K: LLMModelConfig(
-            pretrained_model_name="unsloth/GLM-4.6V-GGUF",
+            pretrained_model_name=BASE_MODEL,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.GLM_4_6V_GGUF_Q2_K
 
-    GGUF_FILE = "GLM-4.6V-Q2_K.gguf"
-
-    # Processor is loaded from the original GLM-4.6V repo since the GGUF repo
-    # only hosts quantized model weights without processor/tokenizer configs.
-    PROCESSOR_MODEL = "zai-org/GLM-4.6V"
+    PROCESSOR_MODEL = BASE_MODEL
 
     sample_text = "What do you see in this image?"
     sample_image_url = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/p-blog/candy.JPG"
@@ -75,8 +76,6 @@ class ModelLoader(ForgeModel):
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
@@ -84,10 +83,9 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         model = AutoModelForImageTextToText.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            BASE_MODEL, trust_remote_code=True, **model_kwargs
         ).eval()
 
         self.config = model.config
@@ -126,8 +124,5 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            gguf_file=self.GGUF_FILE,
-        )
+        self.config = AutoConfig.from_pretrained(BASE_MODEL, trust_remote_code=True)
         return self.config
