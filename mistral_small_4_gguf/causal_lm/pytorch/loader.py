@@ -38,7 +38,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.MISTRAL_SMALL_4_119B_2603_GGUF
 
-    GGUF_FILE = "Mistral-Small-4-119B-2603-Q4_K_M.gguf"
+    GGUF_FILE = "UD-Q4_K_M/Mistral-Small-4-119B-2603-UD-Q4_K_M-00001-of-00003.gguf"
 
     sample_text = "What is your favorite city?"
 
@@ -142,17 +142,15 @@ class ModelLoader(ForgeModel):
     def load_shard_spec(self, model):
         shard_specs = {}
         for layer in model.model.layers:
+            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+
             shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-
-            if hasattr(layer, "block_sparse_moe"):
-                moe = layer.block_sparse_moe
-                for expert in moe.experts:
-                    shard_specs[expert.w1.weight] = ("model", "batch")
-                    shard_specs[expert.w2.weight] = ("batch", "model")
-                    shard_specs[expert.w3.weight] = ("model", "batch")
+        shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
 
     def load_config(self):
