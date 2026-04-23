@@ -63,7 +63,24 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _fix_gguf_version():
+        # gguf does not expose __version__; transformers falls back to that
+        # attribute when its PACKAGE_DISTRIBUTION_MAPPING (frozen at import
+        # time) doesn't contain gguf.  Set it from metadata so
+        # is_gguf_available() version check doesn't raise InvalidVersion.
+        try:
+            import importlib.metadata
+
+            import gguf as _gguf
+
+            if not hasattr(_gguf, "__version__"):
+                _gguf.__version__ = importlib.metadata.version("gguf")
+        except Exception:
+            pass
+
     def _load_tokenizer(self, dtype_override=None):
+        self._fix_gguf_version()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
