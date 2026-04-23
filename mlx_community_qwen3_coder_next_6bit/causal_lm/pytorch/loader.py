@@ -83,13 +83,11 @@ class ModelLoader(ForgeModel):
 
         config = AutoConfig.from_pretrained(pretrained_model_name)
         # MLX quantization configs lack `quant_method`, which transformers requires;
-        # strip it so the model loads in full precision.
-        if (
-            hasattr(config, "quantization_config")
-            and config.quantization_config is not None
-            and not hasattr(config.quantization_config, "quant_method")
+        # delete the attribute so transformers treats the model as unquantized.
+        if hasattr(config, "quantization_config") and not hasattr(
+            config.quantization_config, "quant_method"
         ):
-            config.quantization_config = None
+            delattr(config, "quantization_config")
 
         if self.num_layers is not None:
             if hasattr(config, "text_config"):
