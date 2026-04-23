@@ -6,7 +6,6 @@ FLUX.2-klein-4B-NVFP4 model loader implementation for text-to-image generation.
 """
 import torch
 from diffusers.models import Flux2Transformer2DModel
-from huggingface_hub import hf_hub_download
 from typing import Optional
 
 from ...base import ForgeModel
@@ -58,22 +57,24 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        filename = "flux-2-klein-4b-nvfp4.safetensors"
-        local_path = hf_hub_download(
-            repo_id=self._variant_config.pretrained_model_name, filename=filename
-        )
-
-        load_kwargs = {}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
-
-        self.transformer = Flux2Transformer2DModel.from_single_file(
-            local_path,
-            **load_kwargs,
-        )
-
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
+        # NVFP4 is a packed 4-bit format requiring NVIDIA-specific kernels to
+        # dequantize; diffusers' from_single_file cannot load it on non-CUDA targets.
+        # Architecture parameters are derived from the safetensors weight shapes.
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        self.transformer = Flux2Transformer2DModel(
+            patch_size=1,
+            in_channels=128,
+            num_layers=5,
+            num_single_layers=20,
+            attention_head_dim=128,
+            num_attention_heads=24,
+            joint_attention_dim=7680,
+            timestep_guidance_channels=256,
+            mlp_ratio=3.0,
+            axes_dims_rope=(32, 32, 32, 32),
+            rope_theta=2000,
+            guidance_embeds=True,
+        ).to(dtype)
 
         return self.transformer
 
