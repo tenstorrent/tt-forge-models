@@ -99,6 +99,22 @@ class ModelLoader(ForgeModel):
         then constructs the full WanPipeline with the base model's VAE in
         float32 for numerical stability.
         """
+        import diffusers.utils.import_utils as _diffusers_import_utils
+
+        if not _diffusers_import_utils._gguf_available:
+            import importlib
+            import importlib.metadata
+            import importlib.util
+
+            if importlib.util.find_spec("gguf") is not None:
+                _diffusers_import_utils._gguf_available = True
+                _diffusers_import_utils._gguf_version = importlib.metadata.version(
+                    "gguf"
+                )
+                import diffusers.quantizers.gguf.gguf_quantizer as _gguf_quantizer
+
+                importlib.reload(_gguf_quantizer)
+
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         gguf_filename = _GGUF_FILES[self._variant]
