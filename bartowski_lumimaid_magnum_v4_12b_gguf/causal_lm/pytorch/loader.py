@@ -48,11 +48,13 @@ def _find_real_load_gguf(fn):
                 ):
                     next_fn = val
                     break
-        # Fall back to closure variables (nested-function style patches)
+        # Fall back to closure variables (nested-function style patches like
+        # onion008 which captures orig_load as a closure, not a module global).
         if next_fn is None and fn.__closure__:
             freevars = getattr(fn.__code__, "co_freevars", ())
             for i, name in enumerate(freevars):
-                if "load_gguf" in name:
+                # Match common patterns: orig_load, _orig_load_gguf_checkpoint, etc.
+                if any(kw in name for kw in ("load_gguf", "orig", "load")):
                     try:
                         val = fn.__closure__[i].cell_contents
                         if callable(val) and id(val) not in seen:
