@@ -54,10 +54,13 @@ class ModelLoader(ForgeModel):
         )
 
     @staticmethod
-    def _patch_rope_init_functions():
-        # surya-ocr 0.17.1 uses ROPE_INIT_FUNCTIONS['default'] but transformers 5.2+
-        # removed 'default' from that dict; patch it back in before loading the model.
+    def _patch_surya_for_transformers5():
+        # surya-ocr 0.17.1 has two incompatibilities with transformers 5.2+:
+        # 1. ROPE_INIT_FUNCTIONS no longer contains 'default'; add it back.
+        # 2. SuryaModel.__init__ doesn't call self.post_init(), which is required
+        #    by transformers 5.2+ to initialize all_tied_weights_keys.
         from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
+        from surya.common.surya import SuryaModel
 
         if "default" not in ROPE_INIT_FUNCTIONS:
 
@@ -75,11 +78,20 @@ class ModelLoader(ForgeModel):
 
             ROPE_INIT_FUNCTIONS["default"] = _compute_default
 
+        _orig_surya_init = SuryaModel.__init__
+
+        def _patched_surya_init(self, config, **kwargs):
+            _orig_surya_init(self, config, **kwargs)
+            if not hasattr(self, "all_tied_weights_keys"):
+                self.post_init()
+
+        SuryaModel.__init__ = _patched_surya_init
+
     def load_model(self, *, dtype_override=None, **kwargs):
         from surya.foundation import FoundationPredictor
         from surya.recognition import RecognitionPredictor
 
-        self._patch_rope_init_functions()
+        self._patch_surya_for_transformers5()
         self._foundation_predictor = FoundationPredictor(device="cpu")
         RecognitionPredictor(self._foundation_predictor)
         model = self._foundation_predictor.model
