@@ -104,9 +104,20 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+        _orig_load_gguf = _gguf_utils.load_gguf_checkpoint
+
+        def _compat_load_gguf(gguf_path, return_tensors=False, model_to_load=None):
+            return _orig_load_gguf(gguf_path, return_tensors=return_tensors)
+
+        _gguf_utils.load_gguf_checkpoint = _compat_load_gguf
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _gguf_utils.load_gguf_checkpoint = _orig_load_gguf
 
         self.config = model.config
         self.model = model
