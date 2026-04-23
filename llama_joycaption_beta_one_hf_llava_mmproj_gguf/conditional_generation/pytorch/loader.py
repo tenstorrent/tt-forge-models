@@ -10,7 +10,12 @@ import importlib.metadata
 from typing import Optional
 
 from PIL import Image
-from transformers import LlavaForConditionalGeneration, AutoProcessor, AutoConfig
+from transformers import (
+    LlavaForConditionalGeneration,
+    LlavaConfig,
+    AutoProcessor,
+    AutoConfig,
+)
 
 from ....base import ForgeModel
 from ....config import (
@@ -102,6 +107,10 @@ class ModelLoader(ForgeModel):
         self._fix_gguf_version_detection()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
+        # The concedo GGUF repo has a stale/wrong config (LLaVA-1.5 dimensions).
+        # Load config from the original model repo which matches the GGUF weights.
+        config = LlavaConfig.from_pretrained(self._PROCESSOR_NAME)
+
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
@@ -109,7 +118,10 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = self.gguf_file
 
         model = LlavaForConditionalGeneration.from_pretrained(
-            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
+            pretrained_model_name,
+            config=config,
+            ignore_mismatched_sizes=True,
+            **model_kwargs,
         ).eval()
 
         self.config = model.config
