@@ -4,8 +4,10 @@
 """
 MiMo VL model loader implementation for vision-language tasks.
 """
+import os
+
 import torch
-from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
+from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, AutoConfig
 from typing import Optional
 
 
@@ -86,17 +88,23 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"low_cpu_mem_usage": True, "use_cache": False}
-
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            model = Qwen2_5_VLForConditionalGeneration(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
         else:
-            model_kwargs["torch_dtype"] = torch.float32
-        model_kwargs |= kwargs
+            model_kwargs = {"low_cpu_mem_usage": True, "use_cache": False}
 
-        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            else:
+                model_kwargs["torch_dtype"] = torch.float32
+            model_kwargs |= kwargs
+
+            model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
         model.eval()
         model = Wrapper(model)
 
