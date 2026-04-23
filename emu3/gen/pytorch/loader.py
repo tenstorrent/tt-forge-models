@@ -5,7 +5,8 @@
 Emu3-Gen model loader implementation for text-to-image generation.
 """
 
-import sys
+import importlib
+from functools import partial
 import torch
 from typing import Optional
 from transformers import (
@@ -15,7 +16,7 @@ from transformers import (
     AutoModel,
     AutoModelForCausalLM,
 )
-from huggingface_hub import snapshot_download
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
 
 from ....tools.utils import cast_input_to_type
 from ....base import ForgeModel
@@ -106,16 +107,58 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        # Import the custom Emu3Processor from the model's remote code
-        model_path = snapshot_download(
+        _Emu3ProcessorBase = get_class_from_dynamic_module(
+            "processing_emu3.Emu3Processor",
             self._variant_config.pretrained_model_name,
-            allow_patterns=["processing_emu3.py"],
+            trust_remote_code=True,
         )
-        sys.path.insert(0, model_path)
-        try:
-            from processing_emu3 import Emu3Processor
-        finally:
-            sys.path.remove(model_path)
+
+        # Emu3Processor remote code was written for older transformers where:
+        # 1. super().__init__ accepted partial args (2 instead of all 3)
+        # 2. tokenizer.encode([list]) returned flat [id, ...] not [[id], ...]
+        # Both behaviours changed in transformers 5.x, so we patch via subclass.
+        _base_module = importlib.import_module(_Emu3ProcessorBase.__module__)
+        _PrefixHelper = _base_module.Emu3PrefixConstrainedLogitsHelper
+
+        class Emu3Processor(_Emu3ProcessorBase):
+            @classmethod
+            def get_attributes(cls):
+                return ["image_processor", "tokenizer"]
+
+            def build_const_helper(self):
+                tokens = [
+                    self.tokenizer.img_token,
+                    self.tokenizer.eoi_token,
+                    self.tokenizer.eos_token,
+                    self.tokenizer.eol_token,
+                    self.tokenizer.eof_token,
+                    self.tokenizer.pad_token,
+                    self.visual_template[0].format(token_id=0),
+                    self.visual_template[0].format(
+                        token_id=self.vision_tokenizer.config.codebook_size - 1
+                    ),
+                ]
+                ids = [self.tokenizer.encode(t)[0] for t in tokens]
+                (
+                    img_token,
+                    eoi_token,
+                    eos_token,
+                    eol_token,
+                    eof_token,
+                    pad_token,
+                    vis_start,
+                    vis_end,
+                ) = ids
+                return partial(
+                    _PrefixHelper,
+                    img_token=img_token,
+                    eoi_token=eoi_token,
+                    eos_token=eos_token,
+                    eol_token=eol_token,
+                    eof_token=eof_token,
+                    pad_token=pad_token,
+                    visual_tokens=list(range(vis_start, vis_end + 1)),
+                )
 
         self.processor = Emu3Processor(
             self.image_processor, self.image_tokenizer, self.tokenizer
@@ -134,9 +177,22 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        # Remote code uses old rope_scaling["type"] key; transformers 5.x emits
+        # rope_type="default" meaning no scaling — clear it so _init_rope takes
+        # the default (non-scaled) path.
+        if (
+            config.rope_scaling is not None
+            and config.rope_scaling.get("rope_type") == "default"
+        ):
+            config.rope_scaling = None
+
         model_kwargs = {
             "trust_remote_code": True,
             "attn_implementation": "eager",
+            "config": config,
         }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
@@ -176,7 +232,13 @@ class ModelLoader(ForgeModel):
                 if torch.is_tensor(inputs[key]):
                     inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
-        return dict(inputs)
+        result = dict(inputs)
+        # image_size is used for constrained generation but not a forward() arg
+        result.pop("image_size", None)
+        # Remote code uses DynamicCache.get_usable_length which was removed in
+        # transformers 5.x — disable caching to avoid the incompatibility.
+        result["use_cache"] = False
+        return result
 
     def decode_output(self, outputs):
         if self.processor is None:
