@@ -64,6 +64,8 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
+        if self.processor.chat_template is None:
+            self.processor.chat_template = self.processor.tokenizer.chat_template
 
         model_kwargs = {}
         if dtype_override is not None:
