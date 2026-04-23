@@ -20,7 +20,11 @@ from ....config import (
     StrEnum,
 )
 
-GGUF_REPO = "ibm-granite/granite-vision-3.3-2b-GGUF"
+# The GGUF file only contains the language backbone (no vision encoder weights).
+# Transformers does not support the 'granite' GGUF architecture natively, and
+# test-collection-time patches to load_gguf_checkpoint from other models break
+# the GGUF loading path.  Load model and config from the non-quantised base
+# repo so the full multimodal graph is available for compilation.
 BASE_MODEL = "ibm-granite/granite-vision-3.3-2b"
 
 
@@ -35,14 +39,12 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.GRANITE_VISION_3_3_2B_GGUF: LLMModelConfig(
-            pretrained_model_name=GGUF_REPO,
+            pretrained_model_name=BASE_MODEL,
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.GRANITE_VISION_3_3_2B_GGUF
-
-    GGUF_FILE = "granite-vision-3.3-2b-Q4_K_M.gguf"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -71,16 +73,6 @@ class ModelLoader(ForgeModel):
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        # gguf is installed dynamically via requirements.txt; transformers caches
-        # packages_distributions() at import time so we refresh it here to
-        # ensure is_gguf_available() can find the version.
-        import importlib.metadata
-        import transformers.utils.import_utils as _tutil
-
-        _tutil.PACKAGE_DISTRIBUTION_MAPPING = (
-            importlib.metadata.packages_distributions()
-        )
-
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
@@ -88,12 +80,6 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
-
-        # Load config from the base model so transformers sees the full
-        # multimodal config instead of the causal-LM config embedded in the
-        # GGUF file (which only contains the language backbone weights).
-        model_kwargs["config"] = AutoConfig.from_pretrained(BASE_MODEL)
 
         model = AutoModelForImageTextToText.from_pretrained(
             self._variant_config.pretrained_model_name, **model_kwargs
