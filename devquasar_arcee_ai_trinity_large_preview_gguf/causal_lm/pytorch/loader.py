@@ -4,11 +4,54 @@
 """
 DevQuasar arcee-ai Trinity Large Preview GGUF model loader implementation for causal language modeling.
 """
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
+
+
+def _patch_transformers_afmoe_gguf():
+    """Monkey-patch transformers to add afmoe GGUF architecture support.
+
+    The Arcee AF-MoE model uses the 'afmoe' architecture identifier in its GGUF
+    metadata. Transformers 5.x has AfmoeForCausalLM but does not register afmoe
+    in GGUF_SUPPORTED_ARCHITECTURES or its config mapping table. We bridge this
+    gap by registering the architecture and its field-to-config-key mapping.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+
+    if "afmoe" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("afmoe")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["afmoe"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "embedding_length": "hidden_size",
+        "feed_forward_length": "intermediate_size",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.key_length": "head_dim",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "rope.freq_base": "rope_theta",
+        "rope.dimension_count": None,
+        "vocab_size": "vocab_size",
+        "expert_count": "num_experts",
+        "expert_used_count": "num_experts_per_tok",
+        "expert_shared_count": "num_shared_experts",
+        "expert_feed_forward_length": "moe_intermediate_size",
+        "leading_dense_block_count": "num_dense_layers",
+        "attention.sliding_window": "sliding_window",
+        "expert_weights_scale": "route_scale",
+    }
+
+
 from ....config import (
     LLMModelConfig,
     ModelInfo,
@@ -76,6 +119,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _patch_transformers_afmoe_gguf()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -159,6 +203,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        _patch_transformers_afmoe_gguf()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
