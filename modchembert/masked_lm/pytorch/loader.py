@@ -10,6 +10,8 @@ strings for molecular information retrieval and related downstream tasks.
 Reference: https://huggingface.co/Derify/ModChemBERT-IR-BASE
 """
 
+import glob
+import os
 from typing import Optional
 
 import torch
@@ -40,6 +42,25 @@ if not hasattr(_mbert_module, "_pad_modernbert_output"):
         return output.view(batch, seqlen, *inputs.shape[1:])
 
     _mbert_module._pad_modernbert_output = _pad_modernbert_output
+
+# transformers>=5.x changed _tied_weights_keys from list to dict in PreTrainedModel.
+# Patch any cached modeling_modchembert.py files that still use the old list format.
+_OLD_TIED = '_tied_weights_keys = ["decoder.weight"]'
+_NEW_TIED = (
+    '_tied_weights_keys = {"decoder.weight": "model.embeddings.tok_embeddings.weight"}'
+)
+for _cache_file in glob.glob(
+    os.path.join(
+        os.path.dirname(__file__),
+        "../../../../.cache/huggingface/modules/transformers_modules/Derify"
+        "/ModChemBERT_hyphen_IR_hyphen_BASE/*/modeling_modchembert.py",
+    )
+):
+    with open(_cache_file) as _f:
+        _src = _f.read()
+    if _OLD_TIED in _src:
+        with open(_cache_file, "w") as _f:
+            _f.write(_src.replace(_OLD_TIED, _NEW_TIED))
 
 from ....base import ForgeModel
 from ....config import (
