@@ -13,9 +13,6 @@ Available variants:
 
 from typing import Optional
 
-import yolov5
-from datasets import load_dataset
-
 from ....base import ForgeModel
 from ....config import (
     Framework,
@@ -26,7 +23,6 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
-from ...pytorch.src.utils import data_postprocessing, data_preprocessing
 
 HF_MODEL_REPO = "keremberke/yolov5m-license-plate"
 
@@ -69,6 +65,7 @@ class ModelLoader(ForgeModel):
         Returns:
             The YOLOv5 model instance configured for license plate detection.
         """
+        import yolov5
         model = yolov5.load(self._variant_config.pretrained_model_name)
 
         model.conf = 0.25
@@ -88,6 +85,9 @@ class ModelLoader(ForgeModel):
         Returns:
             tuple: (ims, n, files, shape0, shape1, batch_tensor)
         """
+        from datasets import load_dataset
+        from ...pytorch.src.utils import data_preprocessing, data_postprocessing
+
         dataset = load_dataset("huggingface/cats-image")["test"]
         image_sample = dataset[0]["image"].convert("RGB")
 
@@ -106,6 +106,8 @@ class ModelLoader(ForgeModel):
         self, ims, pixel_values_shape, output, framework_model, n, shape0, shape1, files
     ):
         """Post-process model outputs to extract license plate detections."""
+        from ...pytorch.src.utils import data_postprocessing
+
         results = data_postprocessing(
             ims,
             pixel_values_shape,
