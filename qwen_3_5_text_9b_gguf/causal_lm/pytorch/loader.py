@@ -6,42 +6,33 @@ Qwen3.5-text-9B GGUF model loader implementation for causal language modeling.
 """
 import importlib.metadata as _importlib_metadata
 import torch
-import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
-import transformers.models.auto.tokenization_auto as _auto_tokenizer
-import transformers.tokenization_utils_tokenizers as _tok_utils
 import transformers.utils.import_utils as _import_utils
+from packaging import version as _packaging_version
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
-from transformers.modeling_gguf_pytorch_utils import (
-    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
-)
 from typing import Optional
 
 
-def _patched_load_gguf_checkpoint(*args, **kwargs):
-    """Wrap load_gguf_checkpoint to fix stale PACKAGE_DISTRIBUTION_MAPPING for gguf.
+def _patched_is_gguf_available(min_version=_import_utils.GGUF_MIN_VERSION):
+    """Check gguf availability with a fresh metadata lookup.
 
     transformers caches importlib.metadata.packages_distributions() at module
     import time.  When gguf is installed dynamically (via requirements.txt and
-    RequirementsManager), the cached mapping is stale and gguf.__version__ falls
-    back to 'N/A', causing packaging.version.InvalidVersion.  Refreshing the
-    mapping and clearing the lru_cache before calling the original function
-    ensures is_gguf_available() detects the correct installed version.
+    RequirementsManager), the stale cache causes gguf.__version__ to fall back
+    to 'N/A', raising packaging.version.InvalidVersion.  Bypassing the stale
+    mapping by calling importlib.metadata.version() directly fixes the check.
     """
     try:
-        _importlib_metadata.version("gguf")
-        if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
-            _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
-            _import_utils.is_gguf_available.cache_clear()
-    except _importlib_metadata.PackageNotFoundError:
-        pass
-    return _orig_load_gguf_checkpoint(*args, **kwargs)
+        ver = _importlib_metadata.version("gguf")
+        return _packaging_version.parse(ver) >= _packaging_version.parse(min_version)
+    except (
+        _importlib_metadata.PackageNotFoundError,
+        _packaging_version.InvalidVersion,
+    ):
+        return False
 
 
-_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_gguf_utils.is_gguf_available = _patched_is_gguf_available
 
 
 from ....base import ForgeModel
