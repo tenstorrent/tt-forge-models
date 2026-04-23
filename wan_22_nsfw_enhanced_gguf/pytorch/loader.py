@@ -19,6 +19,7 @@ Available variants:
 from typing import Any, Optional
 
 import torch
+from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -32,6 +33,7 @@ from ...config import (
 )
 
 GGUF_REPO = "Cassanovason69/Wan22nsfwenhanced"
+CONFIG_REPO = "Wan-AI/Wan2.2-T2V-A14B-Diffusers"
 
 # Small spatial dimensions for compile-only testing
 TRANSFORMER_NUM_FRAMES = 2
@@ -110,12 +112,16 @@ class ModelLoader(ForgeModel):
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         gguf_file = _GGUF_FILES[self._variant]
+        gguf_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         self._transformer = WanTransformer3DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/{gguf_file}",
+            gguf_path,
+            config=CONFIG_REPO,
+            subfolder="transformer",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
+            in_channels=36,
         )
 
         return self._transformer
