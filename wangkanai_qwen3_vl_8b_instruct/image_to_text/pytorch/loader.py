@@ -68,13 +68,15 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        else:
+            model_kwargs["torch_dtype"] = "auto"
 
-        model_kwargs["dtype"] = "auto"
         model_kwargs["device_map"] = "auto"
 
         model_kwargs |= kwargs
 
-        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
+        # wangkanai/qwen3-vl-8b-instruct lacks processor config files; use official model
+        self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-8B-Instruct")
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
