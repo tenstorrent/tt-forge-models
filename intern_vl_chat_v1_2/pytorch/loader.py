@@ -160,6 +160,51 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
+        # Transformers 5.x always initializes models in torch.device("meta") context.
+        # Fix 1: InternVisionEncoder.__init__ calls torch.linspace().item() which fails
+        # on meta tensors. Replace with equivalent pure-Python arithmetic.
+        # Fix 2: InternVLChatModel doesn't call self.post_init() (old transformers API),
+        # so all_tied_weights_keys is never set, causing AttributeError in transformers 5.x.
+        from transformers.dynamic_module_utils import get_class_from_dynamic_module
+        import torch.nn as nn
+
+        InternVisionEncoderLayer = get_class_from_dynamic_module(
+            "modeling_intern_vit.InternVisionEncoderLayer",
+            pretrained_model_name,
+            trust_remote_code=True,
+        )
+        InternVisionEncoder = get_class_from_dynamic_module(
+            "modeling_intern_vit.InternVisionEncoder",
+            pretrained_model_name,
+            trust_remote_code=True,
+        )
+        _layer_cls = InternVisionEncoderLayer
+
+        def _patched_encoder_init(self, config):
+            nn.Module.__init__(self)
+            self.config = config
+            n = config.num_hidden_layers
+            dpr = [config.drop_path_rate * i / max(n - 1, 1) for i in range(n)]
+            self.layers = nn.ModuleList(
+                [_layer_cls(config, dpr[idx]) for idx in range(n)]
+            )
+            self.gradient_checkpointing = True
+
+        InternVisionEncoder.__init__ = _patched_encoder_init
+
+        InternVLChatModel = get_class_from_dynamic_module(
+            "modeling_internvl_chat.InternVLChatModel",
+            pretrained_model_name,
+            trust_remote_code=True,
+        )
+        _original_chat_init = InternVLChatModel.__init__
+
+        def _patched_chat_init(self, config, *args, **kwargs):
+            _original_chat_init(self, config, *args, **kwargs)
+            self.post_init()
+
+        InternVLChatModel.__init__ = _patched_chat_init
+
         model_kwargs = {
             "trust_remote_code": True,
             "attn_implementation": "eager",
