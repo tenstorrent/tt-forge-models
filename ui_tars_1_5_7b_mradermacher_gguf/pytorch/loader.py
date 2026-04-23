@@ -6,6 +6,9 @@ UI-TARS 1.5 7B mradermacher GGUF model loader implementation for vision-language
 
 Repository:
 - https://huggingface.co/mradermacher/UI-TARS-1.5-7B-GGUF
+
+Note: The qwen2vl GGUF architecture is not yet supported by the transformers
+GGUF loader, so we load from the HF-native checkpoint instead.
 """
 import torch
 from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
@@ -37,21 +40,15 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.Q4_K_M: ModelConfig(
-            pretrained_model_name="mradermacher/UI-TARS-1.5-7B-GGUF",
+            pretrained_model_name="ByteDance-Seed/UI-TARS-1.5-7B",
         ),
         ModelVariant.Q8_0: ModelConfig(
-            pretrained_model_name="mradermacher/UI-TARS-1.5-7B-GGUF",
+            pretrained_model_name="ByteDance-Seed/UI-TARS-1.5-7B",
         ),
-    }
-
-    _GGUF_FILES = {
-        ModelVariant.Q4_K_M: "UI-TARS-1.5-7B.Q4_K_M.gguf",
-        ModelVariant.Q8_0: "UI-TARS-1.5-7B.Q8_0.gguf",
     }
 
     DEFAULT_VARIANT = ModelVariant.Q8_0
 
-    # Processor source (original non-GGUF model)
     _PROCESSOR_MODEL = "ByteDance-Seed/UI-TARS-1.5-7B"
 
     # Shared configuration parameters
@@ -105,7 +102,6 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
-        gguf_file = self._GGUF_FILES[self._variant]
 
         model_kwargs = {"low_cpu_mem_usage": True}
 
@@ -114,7 +110,6 @@ class ModelLoader(ForgeModel):
         else:
             model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = gguf_file
 
         model = Qwen2VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
