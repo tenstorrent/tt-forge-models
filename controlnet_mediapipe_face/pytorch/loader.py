@@ -123,10 +123,10 @@ class ModelLoader(ForgeModel):
                 dtype_override
             )
 
-        return [
-            latent_model_input,
-            timestep,
-            prompt_embeds,
-            down_block_additional_residuals,
-            mid_block_additional_residual,
-        ]
+        return {
+            "sample": latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "down_block_additional_residuals": down_block_additional_residuals,
+            "mid_block_additional_residual": mid_block_additional_residual,
+        }
