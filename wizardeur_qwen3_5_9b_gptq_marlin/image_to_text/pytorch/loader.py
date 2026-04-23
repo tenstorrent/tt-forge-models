@@ -61,15 +61,16 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"device_map": "cpu"}
+        model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+        model_kwargs.pop("device_map", None)
 
         self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
 
         model = GPTQModel.load(
-            pretrained_model_name, backend=BACKEND.TORCH, **model_kwargs
+            pretrained_model_name, backend=BACKEND.TORCH, device="cpu", **model_kwargs
         )
         model.eval()
 
