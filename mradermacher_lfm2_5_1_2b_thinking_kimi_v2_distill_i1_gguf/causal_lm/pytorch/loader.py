@@ -133,6 +133,9 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        if self.tokenizer is not None and len(self.tokenizer) > model.config.vocab_size:
+            model.resize_token_embeddings(len(self.tokenizer))
+
         self.config = model.config
         self.model = model
         return model
