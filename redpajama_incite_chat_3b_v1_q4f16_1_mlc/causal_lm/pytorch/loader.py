@@ -32,7 +32,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.REDPAJAMA_INCITE_CHAT_3B_V1_Q4F16_1_MLC: LLMModelConfig(
-            pretrained_model_name="mlc-ai/RedPajama-INCITE-Chat-3B-v1-q4f16_1-MLC",
+            pretrained_model_name="togethercomputer/RedPajama-INCITE-Chat-3B-v1",
             max_length=128,
         ),
     }
