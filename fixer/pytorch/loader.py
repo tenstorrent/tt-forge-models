@@ -213,8 +213,14 @@ def _build_fixer_model(device="cpu", dtype=torch.bfloat16):
     _ensure_fixer_src()
 
     fixer_src = os.path.join(_FIXER_SRC, "src")
-    if fixer_src not in sys.path:
-        sys.path.insert(0, fixer_src)
+    # Force fixer_src to position 0: other packages (e.g. torchxrayvision) may
+    # insert their own dirs at sys.path[0] after we do, shadowing fixer's model.py.
+    if fixer_src in sys.path:
+        sys.path.remove(fixer_src)
+    sys.path.insert(0, fixer_src)
+    # Flush any previously-cached wrong 'model' module from sys.modules.
+    sys.modules.pop("model", None)
+    sys.modules.pop("pix2pix_turbo_nocond_cosmos_base_faster_tokenizer", None)
 
     orig_dir = os.getcwd()
     try:
@@ -276,19 +282,26 @@ class FixerWrapper(nn.Module):
         # Precompute unconditional conditioning (Fixer runs unconditionally)
         from cosmos_predict2.conditioner import DataType  # noqa: PLC0415
 
+        # Use model dtype for all condition tensors: torch.cat promotes mixed dtypes
+        # to float32, which causes dtype mismatches when the DiT weights are bfloat16.
+        dtype = next(pipeline.dit.parameters()).dtype
         batch_size = 1
         data_batch = {
             "dataset_name": "image_data",
-            "images": torch.zeros(batch_size, 3, IMAGE_HEIGHT, IMAGE_WIDTH),
-            "t5_text_embeddings": torch.zeros(batch_size, 512, 1024),
-            "fps": torch.ones((batch_size,)) * 24,
-            "padding_mask": torch.zeros(batch_size, 1, IMAGE_HEIGHT, IMAGE_WIDTH),
+            "images": torch.zeros(
+                batch_size, 3, IMAGE_HEIGHT, IMAGE_WIDTH, dtype=dtype
+            ),
+            "t5_text_embeddings": torch.zeros(batch_size, 512, 1024, dtype=dtype),
+            "fps": torch.ones((batch_size,), dtype=dtype) * 24,
+            "padding_mask": torch.zeros(
+                batch_size, 1, IMAGE_HEIGHT, IMAGE_WIDTH, dtype=dtype
+            ),
         }
         _, uncondition = pipeline.conditioner.get_condition_uncondition(data_batch)
         self.condition = uncondition.edit_data_type(DataType.IMAGE)
 
         # Single diffusion timestep (sigma) for one-step inference
-        self.register_buffer("sigma", torch.tensor([float(timestep)]))
+        self.register_buffer("sigma", torch.tensor([float(timestep)], dtype=dtype))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -298,14 +311,16 @@ class FixerWrapper(nn.Module):
         Returns:
             (B, 3, H, W) enhanced image tensor
         """
-        # Expand to video format (B, C, T=1, H, W)
-        x_5d = x.unsqueeze(2)
+        dtype = next(self.pipeline.dit.parameters()).dtype
 
-        # Encode with VAE
-        latent = self.pipeline.tokenizer.encode(x_5d)
+        # Expand to video format (B, C, T=1, H, W)
+        x_5d = x.to(dtype).unsqueeze(2)
+
+        # Encode with VAE; tokenizer may output float32 — cast to model dtype
+        latent = self.pipeline.tokenizer.encode(x_5d).to(dtype)
 
         # Add noise at the specified sigma (single-step diffusion)
-        sigma = self.sigma.expand(x.shape[0])
+        sigma = self.sigma.to(dtype).expand(x.shape[0])
         noise = torch.randn_like(latent)
         xt = latent + sigma.view(-1, 1, 1, 1, 1) * noise
 
