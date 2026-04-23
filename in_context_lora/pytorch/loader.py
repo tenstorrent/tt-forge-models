@@ -37,7 +37,7 @@ from ...config import (
     StrEnum,
 )
 
-BASE_MODEL = "black-forest-labs/FLUX.1-dev"
+BASE_MODEL = "camenduru/FLUX.1-dev-ungated"
 LORA_REPO = "ali-vilab/In-Context-LoRA"
 
 
