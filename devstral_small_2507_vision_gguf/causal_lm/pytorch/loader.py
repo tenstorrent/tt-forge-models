@@ -104,9 +104,51 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+        _patched = _gguf_utils.load_gguf_checkpoint
+
+        def _find_real_load_gguf(fn):
+            seen = set()
+            current = fn
+            while True:
+                fid = id(current)
+                if fid in seen:
+                    break
+                seen.add(fid)
+                if getattr(
+                    current, "__module__", ""
+                ) == "transformers.modeling_gguf_pytorch_utils" and "load_gguf" in (
+                    getattr(current, "__qualname__", "") or ""
+                ):
+                    return current
+                closure = getattr(current, "__closure__", None)
+                if not closure:
+                    break
+                nxt = None
+                for cell in closure:
+                    try:
+                        val = cell.cell_contents
+                        if callable(val) and id(val) not in seen:
+                            name = getattr(val, "__name__", "") or ""
+                            if "gguf" in name.lower() or "load" in name.lower():
+                                nxt = val
+                                break
+                    except ValueError:
+                        pass
+                if nxt is None:
+                    break
+                current = nxt
+            return fn
+
+        _real_load_gguf = _find_real_load_gguf(_patched)
+        _gguf_utils.load_gguf_checkpoint = _real_load_gguf
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _gguf_utils.load_gguf_checkpoint = _patched
 
         self.config = model.config
         self.model = model
