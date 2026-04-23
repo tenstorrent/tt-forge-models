@@ -133,7 +133,10 @@ class ModelLoader(ForgeModel):
             del config.quantization_config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, config=config, **model_kwargs
+            pretrained_model_name,
+            config=config,
+            ignore_mismatched_sizes=True,
+            **model_kwargs,
         )
         model.eval()
 
