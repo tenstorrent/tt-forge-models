@@ -5,8 +5,15 @@
 cyankiwi Llama 3.3 Nemotron Super 49B v1.5 AWQ 4bit model loader implementation for causal language modeling.
 """
 import torch
+import transformers.generation.utils as _gen_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+# The model's custom modeling_decilm.py was written for transformers 4.44.x and
+# imports NEED_SETUP_CACHE_CLASSES_MAPPING, which was removed in 4.46+. Inject a
+# stub so the import succeeds with newer transformers that support compressed-tensors.
+if not hasattr(_gen_utils, "NEED_SETUP_CACHE_CLASSES_MAPPING"):
+    _gen_utils.NEED_SETUP_CACHE_CLASSES_MAPPING = {}
 
 from ....base import ForgeModel
 from ....config import (
@@ -61,8 +68,6 @@ class ModelLoader(ForgeModel):
 
     def _load_tokenizer(self, dtype_override=None):
         tokenizer_kwargs = {"trust_remote_code": True}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
