@@ -167,8 +167,9 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, dtype_override=None):
         dtype = dtype_override or torch.float32
         batch_size = 1
-        # 1 second of 16kHz audio
-        n_samples = 16000
+        # 130944 samples at 16 kHz → 1024 mel frames (hop_length=128, center=True)
+        # which is exactly what the Whisper backbone encoder expects.
+        n_samples = 130944
         frames = torch.randn(batch_size, n_samples, dtype=dtype)
         # Short decoder sequence with tokens in valid range (vocab_size_in=8339)
         decoder_input_ids = torch.randint(0, 100, (batch_size, 8), dtype=torch.long)
