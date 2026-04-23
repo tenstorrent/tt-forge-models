@@ -52,6 +52,7 @@ class ModelVariant(StrEnum):
     QWEN_3_14B = "14B"
     QWEN_3_14B_BASE = "14B_Base"
     QWEN_3_14B_FP8_DYNAMIC = "14B_FP8_Dynamic"
+    QWEN_3_14B_INSTRUCT_OPENPIPE = "14B_Instruct_OpenPipe"
     QWEN_3_32B = "32B"
     QWEN_3_32B_FP8 = "32B_FP8"
     QWEN_3_32B_NVFP4A16 = "32B_NVFP4A16"
