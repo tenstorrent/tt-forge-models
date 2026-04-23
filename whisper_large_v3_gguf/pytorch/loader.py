@@ -8,8 +8,6 @@ Repositories:
 - https://huggingface.co/vonjack/whisper-large-v3-gguf
 - https://huggingface.co/oxide-lab/whisper-large-v3-GGUF
 """
-import inspect as _inspect
-
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 
 import torch
@@ -118,22 +116,20 @@ class ModelLoader(ForgeModel):
 
         _import_utils.PACKAGE_DISTRIBUTION_MAPPING = _imeta.packages_distributions()
 
-        # Some GGUF loaders patch load_gguf_checkpoint without model_to_load
-        # support; transformers >= 5.0 passes that kwarg. Fix at call time.
-        _fn = _gguf_utils.load_gguf_checkpoint
+        # Other GGUF loaders may have patched load_gguf_checkpoint with a
+        # version that drops model_to_load; transformers >= 5.0 requires it
+        # for whisper architecture support.  Bypass any patcher chain by
+        # loading a fresh, unpatched copy of the module from its source file.
         try:
-            _params = _inspect.signature(_fn).parameters
-            _has_var_kw = any(
-                p.kind == _inspect.Parameter.VAR_KEYWORD for p in _params.values()
+            import importlib.util as _ilu
+
+            _spec = _ilu.spec_from_file_location(
+                "_gguf_utils_fresh", _gguf_utils.__spec__.origin
             )
-            if "model_to_load" not in _params and not _has_var_kw:
-                _orig = _fn
-
-                def _compat(gguf_path, return_tensors=False, model_to_load=None, **kw):
-                    return _orig(gguf_path, return_tensors=return_tensors)
-
-                _gguf_utils.load_gguf_checkpoint = _compat
-        except (ValueError, TypeError):
+            _fresh = _ilu.module_from_spec(_spec)
+            _spec.loader.exec_module(_fresh)
+            _gguf_utils.load_gguf_checkpoint = _fresh.load_gguf_checkpoint
+        except Exception:
             pass
 
         model = WhisperForConditionalGeneration.from_pretrained(
