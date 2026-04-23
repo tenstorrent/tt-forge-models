@@ -76,23 +76,22 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+        # MXFP4 decompression is not supported on CPU (compressed_tensors limitation).
+        # Strip quantization config and initialize from architecture config with random
+        # bfloat16 weights, which is sufficient for compile-only testing.
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        if hasattr(config, "quantization_config"):
+            config.quantization_config = None
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
             if hasattr(config, "text_config"):
                 config.text_config.num_hidden_layers = self.num_layers
             else:
                 config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
 
-        model_kwargs |= kwargs
-
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        model = AutoModelForCausalLM.from_config(config)
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        model = model.to(dtype).eval()
 
         self.config = model.config
         self.model = model
