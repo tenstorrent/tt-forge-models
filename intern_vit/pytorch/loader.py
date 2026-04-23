@@ -4,6 +4,7 @@
 """
 InternViT model loader implementation for image feature extraction (PyTorch).
 """
+import sys
 import torch
 from transformers import AutoModel, CLIPImageProcessor, PreTrainedModel
 from datasets import load_dataset
@@ -155,6 +156,11 @@ class ModelLoader(ForgeModel):
         """
         if self.processor is None:
             self._load_processor()
+
+        # The worktree's spacy/ model directory shadows the real spacy package,
+        # creating a broken sys.modules entry that crashes datasets' dill hashing.
+        if "spacy" in sys.modules and not hasattr(sys.modules["spacy"], "Language"):
+            del sys.modules["spacy"]
 
         dataset = load_dataset("huggingface/cats-image")["test"]
         image = dataset[0]["image"]
