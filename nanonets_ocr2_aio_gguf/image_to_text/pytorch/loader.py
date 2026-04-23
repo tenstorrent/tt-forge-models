@@ -3,8 +3,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 prithivMLmods/Nanonets-OCR2-3B-AIO-GGUF model loader implementation for image to text.
+
+Note: The qwen2vl GGUF architecture is not yet supported by the transformers
+GGUF loader, so we load from the HF-native base checkpoint nanonets/Nanonets-OCR2-3B.
 """
-from transformers import Qwen2VLForConditionalGeneration, AutoProcessor, AutoConfig
+from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -26,31 +29,25 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """Nanonets OCR2 AIO GGUF model loader implementation for image to text tasks."""
+    """Nanonets OCR2 AIO GGUF model loader implementation for image to text tasks.
+
+    Note: Uses the HF-native base checkpoint (nanonets/Nanonets-OCR2-3B) instead
+    of the GGUF file because the qwen2vl GGUF architecture is not yet supported
+    by transformers.
+    """
 
     _VARIANTS = {
         ModelVariant.NANONETS_OCR2_3B_AIO_GGUF: LLMModelConfig(
-            pretrained_model_name="prithivMLmods/Nanonets-OCR2-3B-AIO-GGUF",
+            pretrained_model_name="nanonets/Nanonets-OCR2-3B",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.NANONETS_OCR2_3B_AIO_GGUF
 
-    _GGUF_FILES = {
-        ModelVariant.NANONETS_OCR2_3B_AIO_GGUF: "Nanonets-OCR2-3B.Q4_K_M.gguf",
-    }
-
-    # GGUF repos do not ship a processor or full config; use the base model
-    BASE_MODEL = "prithivMLmods/Nanonets-OCR2-3B-AIO"
-
     sample_image = (
         "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg"
     )
-
-    @property
-    def _gguf_file(self):
-        return self._GGUF_FILES[self._variant]
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -104,16 +101,15 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self._gguf_file
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(self.BASE_MODEL)
+            config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        self.processor = AutoProcessor.from_pretrained(self.BASE_MODEL)
+        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
 
-        model = Qwen2VLForConditionalGeneration.from_pretrained(
+        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
 
@@ -153,5 +149,7 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(self.BASE_MODEL)
+        self.config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name
+        )
         return self.config
