@@ -21,6 +21,51 @@ from ....config import (
 )
 
 
+def _patch_transformers_bitnet_gguf():
+    """Monkey-patch transformers to add bitnet GGUF architecture support.
+
+    Transformers 5.x has BitNetForCausalLM but lacks GGUF loading support for
+    the bitnet architecture. BitNet uses the same LLaMA-style tensor layout so
+    we reuse LlamaTensorProcessor and GGUFLlamaConverter.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        TENSOR_PROCESSORS,
+        LlamaTensorProcessor,
+    )
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFLlamaConverter,
+    )
+
+    if "bitnet" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("bitnet")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["bitnet"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": "head_dim",
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+    }
+
+    TENSOR_PROCESSORS["bitnet"] = LlamaTensorProcessor
+
+    if "bitnet" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["bitnet"] = GGUFLlamaConverter
+
+
+_patch_transformers_bitnet_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available bitnet_b1_58-large-TQ2_0 GGUF model variants for causal language modeling."""
 
