@@ -20,6 +20,12 @@ from ...config import (
 from ...base import ForgeModel
 from diffusers import StableDiffusionPipeline, EulerDiscreteScheduler
 
+# Small latent spatial size for compile-only testing (must be divisible by 8)
+_LATENT_HEIGHT = 8
+_LATENT_WIDTH = 8
+_TEXT_SEQ_LEN = 77
+_TEXT_HIDDEN_SIZE = 1024
+
 
 class ModelVariant(StrEnum):
     """Available Stable Diffusion 2 model variants."""
@@ -57,13 +63,13 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Stable Diffusion 2 pipeline.
+        """Load and return the Stable Diffusion 2 UNet as a torch.nn.Module.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            StableDiffusionPipeline: The pre-trained Stable Diffusion 2 pipeline.
+            torch.nn.Module: The UNet denoising model from the SD2 pipeline.
         """
         dtype = dtype_override or torch.bfloat16
         scheduler = EulerDiscreteScheduler.from_pretrained(
@@ -75,19 +81,33 @@ class ModelLoader(ForgeModel):
             torch_dtype=dtype,
             **kwargs,
         )
-        return pipe
+        unet = pipe.unet
+        unet.eval()
+        return unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for Stable Diffusion 2.
+        """Load synthetic UNet inputs for Stable Diffusion 2.
 
         Args:
-            dtype_override: This parameter is ignored for this model.
-            batch_size: Optional batch size for the prompts.
+            dtype_override: Optional torch.dtype for input tensors.
+            batch_size: Batch size for inputs.
 
         Returns:
-            list: A list of sample text prompts.
+            tuple: (sample, timestep, encoder_hidden_states) tensors for the UNet.
         """
-        prompt = [
-            "a photo of an astronaut riding a horse on mars",
-        ] * batch_size
-        return prompt
+        dtype = dtype_override or torch.bfloat16
+        sample = torch.randn(
+            batch_size,
+            4,
+            _LATENT_HEIGHT,
+            _LATENT_WIDTH,
+            dtype=dtype,
+        )
+        timestep = torch.tensor([1], dtype=torch.long)
+        encoder_hidden_states = torch.randn(
+            batch_size,
+            _TEXT_SEQ_LEN,
+            _TEXT_HIDDEN_SIZE,
+            dtype=dtype,
+        )
+        return sample, timestep, encoder_hidden_states
