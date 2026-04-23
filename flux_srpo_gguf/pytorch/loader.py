@@ -107,6 +107,7 @@ class ModelLoader(ForgeModel):
         self.transformer = FluxTransformer2DModel.from_single_file(
             f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
             config=_LOCAL_CONFIG_DIR,
+            subfolder="transformer",
             quantization_config=quantization_config,
             torch_dtype=dtype,
         )
