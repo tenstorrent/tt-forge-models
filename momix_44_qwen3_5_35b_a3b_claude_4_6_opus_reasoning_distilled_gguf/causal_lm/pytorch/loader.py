@@ -232,6 +232,17 @@ class ModelLoader(ForgeModel):
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
+        if self.tokenizer.chat_template is None:
+            # qwen35moe GGUF tokenizers may not include a chat template.
+            # Fall back to the standard Qwen3 im_start/im_end format.
+            self.tokenizer.chat_template = (
+                "{% for message in messages %}"
+                "{{'<|im_start|>' + message['role'] + '\n' + message['content'] + '<|im_end|>' + '\n'}}"
+                "{% endfor %}"
+                "{% if add_generation_prompt %}"
+                "{{'<|im_start|>assistant\n'}}"
+                "{% endif %}"
+            )
 
         return self.tokenizer
 
