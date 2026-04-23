@@ -22,15 +22,19 @@ def _apply_gguf_patches():
 
     # Register nemotron_h_moe config field mappings so load_gguf_checkpoint
     # can parse the GGUF metadata into the correct HF config keys.
-    from transformers.integrations.ggml import GGUF_CONFIG_MAPPING
+    from transformers.integrations.ggml import (
+        GGUF_CONFIG_MAPPING,
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFGPTConverter,
+    )
 
     if "nemotron_h_moe" not in GGUF_CONFIG_MAPPING:
         GGUF_CONFIG_MAPPING["nemotron_h_moe"] = {
             "block_count": "num_hidden_layers",
             "embedding_length": "hidden_size",
             "attention.head_count": "num_attention_heads",
-            # attention.head_count_kv is a per-layer array; set to None so the
-            # default parser skips it.  _patched_load_gguf injects the scalar.
+            # attention.head_count_kv is per-layer; skip so load_gguf_checkpoint
+            # doesn't store a list in num_key_value_heads (NemotronHConfig wants int).
             "attention.head_count_kv": None,
             "attention.key_length": "head_dim",
             "attention.layer_norm_rms_epsilon": "layer_norm_epsilon",
@@ -52,11 +56,24 @@ def _apply_gguf_patches():
     if "nemotron_h_moe" not in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
         _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("nemotron_h_moe")
 
-    # Register the tokenizer converter: NemotronH uses a GPT2-based vocabulary.
-    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFGPTConverter
+    # Register the tokenizer converter.  NemotronH uses a GPT2-based vocabulary.
+    # Two keys are needed:
+    #  • "nemotron_h_moe" – for tokenization_utils_tokenizers.py which reads the
+    #    architecture directly from the raw GGUF config dict (still "nemotron_h_moe").
+    #  • "nemotron_h"     – for any path that resolves through config.model_type
+    #    (which is always "nemotron_h" on the NemotronHConfig class attribute).
+    for _arch_key in ("nemotron_h", "nemotron_h_moe"):
+        if _arch_key not in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS[_arch_key] = GGUFGPTConverter
 
-    if "nemotron_h" not in GGUF_TO_FAST_CONVERTERS:
-        GGUF_TO_FAST_CONVERTERS["nemotron_h"] = GGUFGPTConverter
+    # Register "nemotron_h_moe" as an alias for NemotronHConfig in the Auto
+    # class registry.  load_gguf_checkpoint returns model_type="nemotron_h_moe"
+    # (from general.architecture in the GGUF file); AutoConfig.for_model must be
+    # able to resolve that to NemotronHConfig without us wrapping the function.
+    from transformers.models.auto.configuration_auto import CONFIG_MAPPING_NAMES
+
+    if "nemotron_h_moe" not in CONFIG_MAPPING_NAMES:
+        CONFIG_MAPPING_NAMES["nemotron_h_moe"] = "NemotronHConfig"
 
     # The gguf library assigns model_type "nemotron_h" (arch key 81) to the
     # pure-SSM variant and "nemotron_h_moe" (arch key 82) to the MoE variant.
@@ -82,39 +99,6 @@ def _apply_gguf_patches():
         )
 
     _gguf_utils.get_gguf_hf_weights_map = _patched_get_map
-
-    # load_gguf_checkpoint returns model_type="nemotron_h_moe" (from the GGUF
-    # general.architecture field) but transformers only knows "nemotron_h".
-    # Wrap load_gguf_checkpoint everywhere it's imported at module level so the
-    # returned config dict always has model_type="nemotron_h".
-    _orig_load_gguf = _gguf_utils.load_gguf_checkpoint
-
-    def _patched_load_gguf(*args, **kwargs):
-        result = _orig_load_gguf(*args, **kwargs)
-        config = result.get("config", {})
-        if config.get("model_type") == "nemotron_h_moe":
-            config["model_type"] = "nemotron_h"
-            # The per-layer kv array is skipped by the mapping (mapped to None);
-            # inject the correct scalar for use by AutoConfig.for_model.
-            config.setdefault("num_key_value_heads", 2)
-        return result
-
-    _gguf_utils.load_gguf_checkpoint = _patched_load_gguf
-
-    # Propagate the patch to all modules that imported load_gguf_checkpoint
-    # at their own module level (top-of-file imports keep a direct reference).
-    for _mod_name in (
-        "transformers.configuration_utils",
-        "transformers.models.auto.tokenization_auto",
-        "transformers.tokenization_utils_tokenizers",
-    ):
-        import sys
-
-        if _mod_name in sys.modules:
-            _mod = sys.modules[_mod_name]
-            if hasattr(_mod, "load_gguf_checkpoint"):
-                _mod.load_gguf_checkpoint = _patched_load_gguf
-
     _gguf_utils._nemotron_h_moe_patched = True
 
 
