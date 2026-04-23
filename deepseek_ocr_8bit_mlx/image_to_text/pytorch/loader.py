@@ -4,8 +4,13 @@
 """
 DeepSeek-OCR 8-bit MLX model loader implementation for document OCR tasks.
 """
+import transformers.models.llama.modeling_llama as _llama_modeling
 from transformers import AutoTokenizer, AutoModel
 from typing import Optional
+
+# LlamaFlashAttention2 was removed in transformers 5.x; the model's custom code still references it
+if not hasattr(_llama_modeling, "LlamaFlashAttention2"):
+    _llama_modeling.LlamaFlashAttention2 = _llama_modeling.LlamaAttention
 
 from ....base import ForgeModel
 from ....config import (
