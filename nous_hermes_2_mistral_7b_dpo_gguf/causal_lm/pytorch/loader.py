@@ -79,6 +79,10 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import transformers.configuration_utils as _config_utils
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+        import transformers.models.auto.tokenization_auto as _auto_tokenizer
+        import transformers.tokenization_utils_tokenizers as _tok_utils
         import transformers.utils.import_utils as _import_utils
 
         if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
@@ -102,9 +106,65 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        _orig_load = _gguf_utils.load_gguf_checkpoint
+        _orig_get_map = _gguf_utils.get_gguf_hf_weights_map
+
+        def _traverse_to_real(func, orig_names):
+            seen = set()
+            while (
+                getattr(func, "__module__", "")
+                != "transformers.modeling_gguf_pytorch_utils"
+            ):
+                fid = id(func)
+                if fid in seen:
+                    break
+                seen.add(fid)
+                g = getattr(func, "__globals__", {})
+                nxt = next(
+                    (
+                        g[n]
+                        for n in orig_names
+                        if n in g and callable(g.get(n)) and id(g[n]) != fid
+                    ),
+                    None,
+                )
+                if nxt is None:
+                    free_vars = getattr(
+                        getattr(func, "__code__", None), "co_freevars", ()
+                    )
+                    cells = getattr(func, "__closure__", None) or ()
+                    for name, cell in zip(free_vars, cells):
+                        if name in orig_names:
+                            try:
+                                val = cell.cell_contents
+                                if callable(val) and id(val) != fid:
+                                    nxt = val
+                                    break
+                            except ValueError:
+                                pass
+                if nxt is None:
+                    break
+                func = nxt
+            return func
+
+        _real_load = _traverse_to_real(
+            _orig_load, ("_orig_load_gguf_checkpoint", "orig_load")
+        )
+        _real_get_map = _traverse_to_real(
+            _orig_get_map, ("orig_get_map", "_orig_get_map")
+        )
+
+        for _mod in (_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils):
+            _mod.load_gguf_checkpoint = _real_load
+        _gguf_utils.get_gguf_hf_weights_map = _real_get_map
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            for _mod in (_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils):
+                _mod.load_gguf_checkpoint = _orig_load
+            _gguf_utils.get_gguf_hf_weights_map = _orig_get_map
 
         self.config = model.config
         self.model = model
