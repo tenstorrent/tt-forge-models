@@ -95,10 +95,26 @@ class ModelLoader(ForgeModel):
         ).eval()
 
         # torchao's safetensors deserializer wraps FP8 checkpoint tensors in
-        # Float8Tensor regardless of quantization_config. Explicitly cast to
-        # the target dtype to dequantize them for CPU compatibility.
+        # Float8Tensor. model.to() doesn't dequantize them; use the class's
+        # own dequantize() which applies the stored per-row scale correctly.
         target_dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        model = model.to(target_dtype)
+        try:
+            from torchao.quantization.quantize_.workflows.float8.float8_tensor import (
+                Float8Tensor as TorchAoFloat8Tensor,
+            )
+
+            with torch.no_grad():
+                for module in model.modules():
+                    for pname in list(module._parameters.keys()):
+                        param = module._parameters[pname]
+                        if param is not None and isinstance(
+                            param.data, TorchAoFloat8Tensor
+                        ):
+                            module._parameters[pname] = torch.nn.Parameter(
+                                param.data.dequantize(output_dtype=target_dtype)
+                            )
+        except ImportError:
+            model = model.to(target_dtype)
 
         self.config = model.config
         self.model = model
