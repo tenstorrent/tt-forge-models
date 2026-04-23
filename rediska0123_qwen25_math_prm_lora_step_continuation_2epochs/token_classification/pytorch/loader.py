@@ -5,7 +5,12 @@
 rediska0123 Qwen2.5-Math-PRM LoRA step-continuation (2 epochs) model loader
 implementation for process-reward token classification.
 """
-from transformers import AutoConfig, AutoModel, AutoTokenizer
+from transformers import AutoConfig, AutoModel, AutoTokenizer, DynamicCache
+
+if not hasattr(DynamicCache, "get_usable_length"):
+    DynamicCache.get_usable_length = (
+        lambda self, new_seq_len=None, layer_idx=None: self.get_seq_length(layer_idx)
+    )
 from typing import Optional
 
 from ....base import ForgeModel
