@@ -22,7 +22,7 @@ from ...config import (
     StrEnum,
 )
 
-GGUF_BASE_URL = "https://huggingface.co/unsloth/Qwen-Image-GGUF/blob/main"
+PRETRAINED_MODEL_NAME = "unsloth/Qwen-Image-GGUF"
 
 
 class ModelVariant(StrEnum):
@@ -37,10 +37,10 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.Q4_K_M: ModelConfig(
-            pretrained_model_name="unsloth/Qwen-Image-GGUF",
+            pretrained_model_name=PRETRAINED_MODEL_NAME,
         ),
         ModelVariant.Q8_0: ModelConfig(
-            pretrained_model_name="unsloth/Qwen-Image-GGUF",
+            pretrained_model_name=PRETRAINED_MODEL_NAME,
         ),
     }
 
@@ -71,14 +71,14 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         gguf_file = self._GGUF_FILES[self._variant]
-        gguf_url = f"{GGUF_BASE_URL}/{gguf_file}"
 
         load_kwargs = {}
         if dtype_override is not None:
             load_kwargs["torch_dtype"] = dtype_override
 
-        self.transformer = QwenImageTransformer2DModel.from_single_file(
-            gguf_url,
+        self.transformer = QwenImageTransformer2DModel.from_pretrained(
+            PRETRAINED_MODEL_NAME,
+            gguf_file=gguf_file,
             **load_kwargs,
         )
 
