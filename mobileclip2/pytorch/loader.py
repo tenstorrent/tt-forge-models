@@ -95,6 +95,7 @@ class ModelLoader(ForgeModel):
             dict: Input tensors containing image and text tokens.
         """
         from open_clip import create_model_from_pretrained, get_tokenizer
+        from PIL import Image
 
         if self.preprocess is None or self.tokenizer is None:
             _, self.preprocess = create_model_from_pretrained(
@@ -102,11 +103,7 @@ class ModelLoader(ForgeModel):
             )
             self.tokenizer = get_tokenizer(self._variant_config.pretrained_model_name)
 
-        # Load image from HuggingFace dataset
-        from datasets import load_dataset
-
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        image = Image.new("RGB", (256, 256))
 
         self.text_prompts = ["a photo of a cat", "a photo of a dog"]
 
