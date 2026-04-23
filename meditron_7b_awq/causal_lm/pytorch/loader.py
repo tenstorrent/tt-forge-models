@@ -7,6 +7,11 @@ Meditron 7B AWQ model loader implementation for causal language modeling.
 
 from typing import Optional
 
+try:
+    import gptqmodel  # noqa: F401
+except ImportError:
+    pass
+
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
