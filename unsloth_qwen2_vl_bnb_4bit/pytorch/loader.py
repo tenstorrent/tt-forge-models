@@ -82,6 +82,49 @@ class ModelLoader(ForgeModel):
 
         return self.processor
 
+    @staticmethod
+    def _replace_linear4bit(model, dtype):
+        """Replace Linear4bit layers with regular Linear layers for CPU inference.
+
+        BnB 4-bit quantization cannot run on CPU: the quant state isn't initialized
+        when device_map="cpu", causing an assertion in fix_4bit_weight_quant_state_from_module.
+        The weights are already loaded as float by transformers, so we just rewrap them.
+        """
+        try:
+            import bitsandbytes as bnb
+            import bitsandbytes.functional as bnbF
+        except ImportError:
+            return model
+
+        for name, module in list(model.named_children()):
+            if isinstance(module, bnb.nn.Linear4bit):
+                weight = module.weight.data
+                if weight.dtype == torch.uint8:
+                    quant_state = getattr(
+                        module.weight, "quant_state", None
+                    ) or getattr(module, "quant_state", None)
+                    if quant_state is not None:
+                        weight = bnbF.dequantize_4bit(weight, quant_state).to(dtype)
+                    else:
+                        weight = weight.to(dtype)
+                else:
+                    weight = weight.to(dtype)
+
+                new_linear = torch.nn.Linear(
+                    weight.shape[1],
+                    weight.shape[0],
+                    bias=module.bias is not None,
+                    dtype=dtype,
+                )
+                new_linear.weight = torch.nn.Parameter(weight)
+                if module.bias is not None:
+                    new_linear.bias = torch.nn.Parameter(module.bias.data.to(dtype))
+                setattr(model, name, new_linear)
+            else:
+                ModelLoader._replace_linear4bit(module, dtype)
+
+        return model
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Unsloth Qwen2 VL BnB 4-bit model instance.
 
@@ -92,18 +135,16 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The wrapped Qwen2 VL BnB 4-bit model for vision-language tasks.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
+        dtype = dtype_override if dtype_override is not None else torch.float32
 
         model_kwargs = {"low_cpu_mem_usage": True, "device_map": "cpu"}
-
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        else:
-            model_kwargs["torch_dtype"] = torch.float32
+        model_kwargs["torch_dtype"] = dtype
         model_kwargs |= kwargs
 
         model = Qwen2VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        ModelLoader._replace_linear4bit(model, dtype)
         model.eval()
         model = Wrapper(model)
 
