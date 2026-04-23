@@ -8,7 +8,7 @@ Fine-tuned from microsoft/Phi-4-multimodal-instruct.
 """
 
 import torch
-from transformers import AutoProcessor, AutoModelForImageTextToText, AutoConfig
+from transformers import AutoProcessor, AutoModelForCausalLM, AutoConfig
 from transformers.image_utils import load_image
 from typing import Optional
 
@@ -83,7 +83,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForImageTextToText.from_pretrained(
+        model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
 
