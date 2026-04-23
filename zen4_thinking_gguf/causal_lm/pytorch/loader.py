@@ -8,18 +8,67 @@ import importlib.metadata
 from typing import Optional
 
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_SUPPORTED_ARCHITECTURES,
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+)
 
 from ....base import ForgeModel
 from ....config import (
-    LLMModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
+
+
+def _patch_qwen3next_support():
+    """Register qwen3next architecture as an alias for qwen3.
+
+    Zen4 Thinking uses the same model architecture as Qwen 3 but the GGUF file
+    declares architecture as 'qwen3next', which transformers 5.x does not yet recognise.
+    """
+    if "qwen3next" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen3next")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "qwen3next",
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
+            )
+    if "qwen3" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "qwen3next", GGUF_TO_FAST_CONVERTERS["qwen3"]
+        )
+
+
+def _patched_load_gguf_checkpoint(
+    gguf_path, return_tensors=False, model_to_load=None, **kwargs
+):
+    """Wrap load_gguf_checkpoint to add qwen3next support and fix model_type."""
+    _patch_qwen3next_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
+    )
+    if result.get("config", {}).get("model_type") == "qwen3next":
+        result["config"]["model_type"] = "qwen3"
+    return result
+
+
+_patch_qwen3next_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
