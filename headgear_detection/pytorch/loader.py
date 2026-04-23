@@ -89,6 +89,16 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None, batch_size=1, image=None):
         if image is None:
+            import sys
+
+            # If spacy is loaded as a namespace package (from spacy/es_core_news_md model
+            # directory), datasets._dill will crash on `spacy.Language`. Provide a stub.
+            if "spacy" in sys.modules:
+                import spacy as _spacy
+
+                if not hasattr(_spacy, "Language"):
+                    _spacy.Language = type("Language", (), {})
+
             dataset = load_dataset("huggingface/cats-image", split="test")
             image = dataset[0]["image"]
 
