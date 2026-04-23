@@ -27,14 +27,33 @@ _gguf_pytorch_utils.is_gguf_available = _is_gguf_available
 
 
 def _patch_transformers_deepseek_v2_gguf():
-    """Monkey-patch transformers to add deepseek_v2 GGUF tokenizer support."""
+    """Monkey-patch transformers to add deepseek_v2 GGUF support.
+
+    Some GGUF files use 'deepseek_v2' as the architecture name instead of
+    'deepseek2' (the gguf-py constant). This adds the tokenizer converter
+    and patches get_gguf_hf_weights_map to remap deepseek_v2 -> deepseek2.
+    """
     from transformers.integrations.ggml import (
         GGUF_TO_FAST_CONVERTERS,
         GGUFQwen2Converter,
     )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
 
     if "deepseek_v2" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["deepseek_v2"] = GGUFQwen2Converter
+
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor=None, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None and hf_model is not None:
+            model_type = getattr(getattr(hf_model, "config", None), "model_type", None)
+        if model_type == "deepseek_v2":
+            model_type = "deepseek2"
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
 
 
 _patch_transformers_deepseek_v2_gguf()
