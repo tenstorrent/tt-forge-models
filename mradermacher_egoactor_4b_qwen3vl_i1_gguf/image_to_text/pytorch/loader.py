@@ -5,7 +5,7 @@
 mradermacher EgoActor 4B Qwen3VL i1 GGUF model loader implementation for image to text.
 """
 
-from huggingface_hub import hf_hub_download
+from huggingface_hub import hf_hub_download, snapshot_download
 from transformers import (
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
@@ -69,14 +69,21 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        # GGUF repos do not ship config.json; download weights and use base model for config
+        # GGUF repos do not ship config.json; download weights separately and
+        # load config from the base model snapshot. Passing an absolute gguf_file
+        # path with a local pretrained_model_name_or_path causes os.path.join to
+        # resolve to the absolute path, bypassing the HF hub filename lookup.
         gguf_path = hf_hub_download(repo_id=self.GGUF_REPO, filename=self.GGUF_FILE)
+        base_dir = snapshot_download(
+            repo_id=self.BASE_MODEL,
+            ignore_patterns=["*.safetensors", "*.bin", "*.pt"],
+        )
         model_kwargs["gguf_file"] = gguf_path
 
         self.processor = AutoProcessor.from_pretrained(self.BASE_MODEL)
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            self.BASE_MODEL, **model_kwargs
+            base_dir, **model_kwargs
         )
         model.eval()
 
