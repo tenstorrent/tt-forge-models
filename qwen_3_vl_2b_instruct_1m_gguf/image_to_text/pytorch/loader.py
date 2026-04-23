@@ -196,13 +196,19 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         import transformers.modeling_gguf_pytorch_utils as gguf_utils
+        from transformers import AutoConfig
 
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        # Load full config from the non-GGUF base model so that vision_config
+        # is properly populated (GGUF metadata only contains text-model fields).
+        config = AutoConfig.from_pretrained("Qwen/Qwen3-VL-2B-Instruct")
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["config"] = config
         model_kwargs["ignore_mismatched_sizes"] = True
         model_kwargs |= kwargs
 
