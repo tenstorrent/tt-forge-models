@@ -73,19 +73,12 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         from transformers import AutoModel
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
         model = AutoModel.from_pretrained(
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
-            **model_kwargs,
+            **kwargs,
         )
         model.eval()
-        if dtype_override is not None:
-            model.to(dtype_override)
 
         return model
 
