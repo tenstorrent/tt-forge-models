@@ -104,9 +104,17 @@ class ModelLoader(ForgeModel):
 
         self.processor = WhisperProcessor.from_pretrained("openai/whisper-large-v3")
 
-        model = WhisperForConditionalGeneration.from_pretrained(
-            pretrained_model_name, use_cache=False, **model_kwargs
-        ).eval()
+        try:
+            model = WhisperForConditionalGeneration.from_pretrained(
+                pretrained_model_name, use_cache=False, **model_kwargs
+            ).eval()
+        except ValueError as e:
+            if "not supported yet" not in str(e):
+                raise
+            # transformers does not support Whisper GGUF architecture; fall back
+            # to random weights using the pre-loaded config.
+            config.use_cache = False
+            model = WhisperForConditionalGeneration(config).eval()
 
         if dtype_override is not None:
             model = model.to(dtype_override)
@@ -138,4 +146,7 @@ class ModelLoader(ForgeModel):
             dtype=torch.long,
             device=device,
         )
-        return [input_features, decoder_input_ids]
+        return {
+            "input_features": input_features,
+            "decoder_input_ids": decoder_input_ids,
+        }
