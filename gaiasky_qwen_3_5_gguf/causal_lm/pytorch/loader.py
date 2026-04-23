@@ -8,6 +8,36 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+# Capture the real original load_gguf_checkpoint before any other GGUF loaders
+# (imported alphabetically later, e.g. mradermacher_*) install incompatible
+# monkey-patches that drop the model_to_load kwarg.
+_real_load_gguf_checkpoint = _gguf_utils.load_gguf_checkpoint
+
+
+def _patch_qwen35_support():
+    """Register qwen35 as an alias for qwen3 in the GGUF reader mappings."""
+    from transformers.integrations.ggml import GGUF_SUPPORTED_ARCHITECTURES
+    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+    if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "qwen35",
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
+            )
+    if "qwen3" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "qwen3_5_text", GGUF_TO_FAST_CONVERTERS["qwen3"]
+        )
+
+
+_patch_qwen35_support()
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -88,15 +118,18 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+        _chain_head = _gguf_utils.load_gguf_checkpoint
 
-        _inner = _gguf_utils.load_gguf_checkpoint
+        def _gaiasky_load_gguf(gguf_path, return_tensors=False, **kw):
+            _patch_qwen35_support()
+            result = _real_load_gguf_checkpoint(
+                gguf_path, return_tensors=return_tensors, **kw
+            )
+            if result.get("config", {}).get("model_type") == "qwen35":
+                result["config"]["model_type"] = "qwen3"
+            return result
 
-        def _gguf_compat(gguf_path, return_tensors=False, **kw):
-            kw.pop("model_to_load", None)
-            return _inner(gguf_path, return_tensors=return_tensors, **kw)
-
-        _gguf_utils.load_gguf_checkpoint = _gguf_compat
+        _gguf_utils.load_gguf_checkpoint = _gaiasky_load_gguf
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -121,7 +154,7 @@ class ModelLoader(ForgeModel):
                 pretrained_model_name, **model_kwargs
             ).eval()
         finally:
-            _gguf_utils.load_gguf_checkpoint = _inner
+            _gguf_utils.load_gguf_checkpoint = _chain_head
 
         self.config = model.config
         self.model = model
