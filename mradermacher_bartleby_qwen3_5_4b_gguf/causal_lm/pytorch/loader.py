@@ -41,6 +41,37 @@ def _patch_qwen35_support():
         )
 
 
+def _infer_qwen35_layer_types(gguf_path, num_hidden_layers):
+    """Infer per-layer attention types by comparing q_proj element counts in GGUF.
+
+    Qwen3.5 has mixed attention: some layers use full attention (larger q_proj)
+    and others use sliding-window attention. This info is absent from GGUF
+    metadata so we read tensor element counts to reconstruct layer_types.
+    """
+    try:
+        import gguf as _gguf_lib
+
+        reader = _gguf_lib.GGUFReader(gguf_path)
+        layer_q_elements = {}
+        for tensor in reader.tensors:
+            parts = tensor.name.split(".")
+            if "blk" not in parts or "attn_q" not in parts:
+                continue
+            layer_idx = int(parts[parts.index("blk") + 1])
+            layer_q_elements[layer_idx] = tensor.n_elements
+        if not layer_q_elements or len(set(layer_q_elements.values())) <= 1:
+            return None
+        base_count = min(layer_q_elements.values())
+        return [
+            "full_attention"
+            if layer_q_elements.get(i, base_count) > base_count
+            else "sliding_attention"
+            for i in range(num_hidden_layers)
+        ]
+    except Exception:
+        return None
+
+
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     """Wrap load_gguf_checkpoint to add qwen35 support and fix model_type."""
     _patch_qwen35_support()
@@ -60,6 +91,19 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     )
     if result.get("config", {}).get("model_type") == "qwen35":
         result["config"]["model_type"] = "qwen3"
+    # Inject layer_types during the config-loading phase so the model is
+    # initialised with the correct per-layer attention type before weights load.
+    if (
+        not return_tensors
+        and isinstance(result.get("config"), dict)
+        and result["config"].get("model_type") == "qwen3"
+        and "layer_types" not in result["config"]
+    ):
+        num_layers = result["config"].get("num_hidden_layers", 0)
+        if num_layers > 0:
+            layer_types = _infer_qwen35_layer_types(gguf_path, num_layers)
+            if layer_types:
+                result["config"]["layer_types"] = layer_types
     return result
 
 
