@@ -68,7 +68,10 @@ class ModelLoader(ForgeModel):
         # roma_outdoor hard-asserts the highest matmul precision.
         torch.set_float32_matmul_precision("highest")
 
-        model = roma_outdoor(device="cpu")
+        # use_custom_corr=False uses the pure-Python local correlation fallback
+        # to avoid depending on the 'local_corr' C extension that is not bundled
+        # in the romatch PyPI wheel.
+        model = roma_outdoor(device="cpu", use_custom_corr=False)
         model.eval()
 
         return model
