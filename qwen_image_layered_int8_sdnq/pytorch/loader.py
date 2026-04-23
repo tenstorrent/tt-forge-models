@@ -15,7 +15,6 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from diffusers import QwenImageTransformer2DModel
 
 from ...base import ForgeModel
 from ...config import (
@@ -66,9 +65,10 @@ class ModelLoader(ForgeModel):
 
     def _load_transformer(
         self, dtype: torch.dtype = torch.float32
-    ) -> QwenImageTransformer2DModel:
+    ):
         """Load the SDNQ-quantized Qwen-Image-Layered diffusion transformer."""
         import sdnq  # noqa: F401 -- registers SDNQ quantization support with diffusers
+        from diffusers import QwenImageTransformer2DModel
 
         self._transformer = QwenImageTransformer2DModel.from_pretrained(
             REPO_ID,
