@@ -4,6 +4,7 @@
 """
 Gemma 3 1B GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -75,7 +76,17 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    @staticmethod
+    def _refresh_transformers_pkg_cache():
+        """Refresh transformers' package distribution cache to detect dynamically installed packages."""
+        import transformers.utils.import_utils as _import_utils
+
+        _import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+            importlib.metadata.packages_distributions()
+        )
+
     def load_model(self, *, dtype_override=None, **kwargs):
+        self._refresh_transformers_pkg_cache()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -136,6 +147,7 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
+        self._refresh_transformers_pkg_cache()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
