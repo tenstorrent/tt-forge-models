@@ -124,6 +124,8 @@ class ModelLoader(ForgeModel):
             BASE_PIPELINE,
             unet=unet,
             torch_dtype=compute_dtype,
+            safety_checker=None,
+            requires_safety_checker=False,
         )
 
         return self.pipeline
