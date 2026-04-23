@@ -77,17 +77,12 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from flair.models import EntityMentionLinker
+        from transformers import AutoModel
 
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        linker = EntityMentionLinker.load(self._variant_config.pretrained_model_name)
-
-        # EntityMentionLinker wraps a SemanticCandidateSearchIndex whose dense
-        # embedding is a TransformerDocumentEmbeddings holding the HF model.
-        dense_embeddings = linker.candidate_generator.embeddings["dense"]
-        transformer = dense_embeddings.model
+        transformer = AutoModel.from_pretrained(self._UNDERLYING_TRANSFORMER)
 
         if dtype_override is not None:
             transformer = transformer.to(dtype=dtype_override)
