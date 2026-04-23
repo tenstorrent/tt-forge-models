@@ -4,10 +4,11 @@
 """
 ChatGLM3 model loader implementation for causal language modeling.
 """
+
 import torch
 from typing import Optional
 
-from transformers import AutoTokenizer, AutoModel
+from transformers import AutoTokenizer, AutoModel, AutoConfig
 from ....config import (
     LLMModelConfig,
     ModelInfo,
@@ -123,7 +124,18 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        # ChatGLMConfig uses seq_length; transformers 5.x raises AttributeError for max_length
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        if not hasattr(config, "max_length"):
+            config.max_length = getattr(
+                config, "seq_length", self._variant_config.max_length
+            )
+
+        model = AutoModel.from_pretrained(
+            pretrained_model_name, config=config, **model_kwargs
+        )
         model.eval()
         return model
 
