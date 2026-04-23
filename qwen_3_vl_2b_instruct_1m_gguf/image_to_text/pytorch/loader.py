@@ -36,45 +36,37 @@ _QWEN3VL_TEXT_CONFIG_FIELDS = {
 }
 
 
-def _patch_transformers_qwen3vl_gguf():
-    """Monkey-patch transformers to add qwen3vl GGUF architecture support.
+def _register_qwen3vl_gguf():
+    """Register qwen3vl in the GGUF architecture tables.
 
     Transformers 5.2.0 knows about qwen3 (text-only) but not qwen3vl (the
-    vision-language variant).  We bridge the gap by:
-
-    1. Registering qwen3vl in the GGUF architecture tables.
-    2. Wrapping load_gguf_checkpoint to post-process the config dict so that
-       Qwen3VLConfig.from_dict receives a properly nested text_config.
-    3. Handling the tensor-loading phase ourselves because other patches in
-       the chain do not propagate the model_to_load argument.
+    vision-language variant).  This function registers the architecture so
+    that load_gguf_checkpoint does not reject the checkpoint outright.
+    Called once at module import time.
     """
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
         GGUF_TO_TRANSFORMERS_MAPPING,
     )
-    import transformers.modeling_gguf_pytorch_utils as gguf_utils
 
-    if "qwen3vl" in GGUF_SUPPORTED_ARCHITECTURES:
-        return  # Already patched
+    if "qwen3vl" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vl")
 
-    # 1. Register qwen3vl as a supported architecture
-    GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vl")
+    if "qwen3vl" not in GGUF_TO_TRANSFORMERS_MAPPING["config"]:
+        GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen3vl"] = {
+            "context_length": "max_position_embeddings",
+            "block_count": "num_hidden_layers",
+            "feed_forward_length": "intermediate_size",
+            "embedding_length": "hidden_size",
+            "rope.dimension_count": None,
+            "rope.freq_base": "rope_theta",
+            "attention.head_count": "num_attention_heads",
+            "attention.head_count_kv": "num_key_value_heads",
+            "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+            "vocab_size": "vocab_size",
+        }
 
-    # 2. Config key mapping – same text fields as qwen3
-    GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen3vl"] = {
-        "context_length": "max_position_embeddings",
-        "block_count": "num_hidden_layers",
-        "feed_forward_length": "intermediate_size",
-        "embedding_length": "hidden_size",
-        "rope.dimension_count": None,
-        "rope.freq_base": "rope_theta",
-        "attention.head_count": "num_attention_heads",
-        "attention.head_count_kv": "num_key_value_heads",
-        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
-        "vocab_size": "vocab_size",
-    }
-
-    # 3. Tokenizer converter – Qwen3VL reuses the Qwen2/Qwen3 BPE tokenizer
+    # Qwen3VL reuses the Qwen2/Qwen3 BPE tokenizer
     from transformers.integrations.ggml import (
         GGUF_TO_FAST_CONVERTERS,
         GGUFQwen2Converter,
@@ -83,28 +75,45 @@ def _patch_transformers_qwen3vl_gguf():
     if "qwen3vl" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["qwen3vl"] = GGUFQwen2Converter
 
-    # 4. Wrap load_gguf_checkpoint
-    #
-    #    Other patches in the chain (from other GGUF loaders) have hard-coded
-    #    two-argument signatures and silently drop the model_to_load kwarg
-    #    introduced in transformers 5.2.  We must NOT propagate model_to_load
-    #    through the chain; instead we handle tensor loading directly.
-    orig_load = gguf_utils.load_gguf_checkpoint
+
+_register_qwen3vl_gguf()
+
+
+def _make_qwen3vl_load_patch(inner_load):
+    """Return a patched load_gguf_checkpoint that handles the qwen3vl case.
+
+    The patch is built dynamically at load_model() time so it is always the
+    outermost wrapper – regardless of which other loaders' patches were
+    installed during test collection.
+
+    inner_load: the current value of gguf_utils.load_gguf_checkpoint (the
+                chain of previously installed patches).
+    """
+    import numpy as np
+    import torch
+    from tqdm import tqdm
+    from gguf import GGUFReader
+    from transformers.modeling_gguf_pytorch_utils import (
+        TensorProcessor,
+        dequantize,
+        get_gguf_hf_weights_map,
+    )
 
     def patched_load_gguf_checkpoint(
         gguf_checkpoint_path, return_tensors=False, model_to_load=None
     ):
-        # Always call the chain without model_to_load for config+tokenizer.
-        result = orig_load(gguf_checkpoint_path, return_tensors=False)
+        # Always get config+tokenizer via the inner chain (no model_to_load,
+        # because the other patches in the chain do not support that kwarg).
+        result = inner_load(gguf_checkpoint_path, return_tensors=False)
 
         config = result.get("config", {})
         if config.get("model_type") != "qwen3vl":
-            # Not a qwen3vl checkpoint – fall through with original semantics.
+            # Non-qwen3vl: replicate the pre-existing chain semantics.
             if return_tensors:
-                result = orig_load(gguf_checkpoint_path, return_tensors=True)
+                result = inner_load(gguf_checkpoint_path, return_tensors=True)
             return result
 
-        # ── Fix config for Qwen3VLConfig compatibility ──────────────────────
+        # ── Fix config for Qwen3VLConfig compatibility ───────────────────────
         config["model_type"] = "qwen3_vl"
         text_config = {}
         for field in list(config.keys()):
@@ -116,18 +125,7 @@ def _patch_transformers_qwen3vl_gguf():
         if not return_tensors or model_to_load is None:
             return result
 
-        # ── Tensor loading for qwen3vl ───────────────────────────────────────
-        import numpy as np
-        import torch
-        from tqdm import tqdm
-        from gguf import GGUFReader, MODEL_ARCH
-        from transformers.modeling_gguf_pytorch_utils import (
-            TENSOR_PROCESSORS,
-            TensorProcessor,
-            dequantize,
-            get_gguf_hf_weights_map,
-        )
-
+        # ── Tensor loading for qwen3vl ────────────────────────────────────────
         reader = GGUFReader(gguf_checkpoint_path)
         processor = TensorProcessor(config=config)
         num_layers = model_to_load.config.text_config.num_hidden_layers
@@ -157,10 +155,7 @@ def _patch_transformers_qwen3vl_gguf():
 
         return result
 
-    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
-
-
-_patch_transformers_qwen3vl_gguf()
+    return patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
@@ -201,6 +196,8 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
@@ -212,11 +209,18 @@ class ModelLoader(ForgeModel):
         # GGUF repos do not ship a processor; use the base model
         self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-2B-Instruct")
 
-        model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
-        model.eval()
+        # Install our patch as the outermost wrapper right before from_pretrained
+        # so that model_to_load is handled correctly regardless of import order.
+        saved_load = gguf_utils.load_gguf_checkpoint
+        gguf_utils.load_gguf_checkpoint = _make_qwen3vl_load_patch(saved_load)
+        try:
+            model = Qwen3VLForConditionalGeneration.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+        finally:
+            gguf_utils.load_gguf_checkpoint = saved_load
 
+        model.eval()
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
