@@ -9,7 +9,6 @@ styles: sprite art (trigger word "pixelsprite") and 16-bit scene art
 (trigger word "16bitscene").
 """
 
-import torch
 from typing import Optional
 
 from ...base import ForgeModel
@@ -22,7 +21,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from diffusers import StableDiffusionPipeline
+from .src.model_utils import load_pipe, stable_diffusion_preprocessing
 
 
 class ModelVariant(StrEnum):
@@ -43,6 +42,8 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.BASE
 
+    prompt = "godzilla, in pixelsprite style"
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
 
@@ -51,6 +52,7 @@ class ModelLoader(ForgeModel):
                      If None, DEFAULT_VARIANT is used.
         """
         super().__init__(variant)
+        self.pipeline = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -75,32 +77,41 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the All-In-One Pixel Model pipeline from Hugging Face.
+        """Load and return the UNet from the All-In-One Pixel Model pipeline.
 
         Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-                           If not provided, the model will use torch.bfloat16.
+            dtype_override: Optional torch.dtype to override the UNet dtype.
 
         Returns:
-            StableDiffusionPipeline: The pre-trained All-In-One Pixel Model pipeline object.
+            torch.nn.Module: The UNet model used for denoising.
         """
-        dtype = dtype_override or torch.bfloat16
-        pipe = StableDiffusionPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name, torch_dtype=dtype, **kwargs
-        )
-        return pipe
+        self.pipeline = load_pipe(self._variant_config.pretrained_model_name)
+
+        if dtype_override is not None:
+            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
+
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the All-In-One Pixel Model.
+        """Load and return sample inputs for the All-In-One Pixel Model UNet.
 
         Args:
-            dtype_override: This parameter is ignored for this model.
-            batch_size: Optional batch size for the prompts.
+            dtype_override: Optional torch.dtype to override input tensor dtypes.
+            batch_size: Ignored; batch size is determined by the preprocessing.
 
         Returns:
-            list: A list of sample text prompts.
+            tuple: (latents, timestep, prompt_embeds) for the UNet forward pass.
         """
-        prompt = [
-            "godzilla, in pixelsprite style",
-        ] * batch_size
-        return prompt
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
+
+        latents, timestep, prompt_embeds = stable_diffusion_preprocessing(
+            self.pipeline, self.prompt
+        )
+
+        if dtype_override is not None:
+            latents = latents.to(dtype_override)
+            timestep = timestep.to(dtype_override)
+            prompt_embeds = prompt_embeds.to(dtype_override)
+
+        return latents, timestep, prompt_embeds
