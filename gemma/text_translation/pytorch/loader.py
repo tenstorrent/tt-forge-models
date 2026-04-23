@@ -5,7 +5,7 @@
 Gemma model loader implementation for text translation task.
 """
 import torch
-from transformers import AutoModelForImageTextToText, AutoProcessor
+from transformers import AutoModelForImageTextToText, AutoProcessor, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -47,7 +47,7 @@ class ModelLoader(ForgeModel):
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.TRANSLATEGEMMA_4B_IT
 
-    # Sample data for text translation
+    # Sample data for text translation (structured content for most variants)
     sample_messages = [
         {
             "role": "user",
@@ -59,6 +59,14 @@ class ModelLoader(ForgeModel):
                     "text": "V nejhorším případě i k prasknutí čočky.",
                 }
             ],
+        }
+    ]
+
+    # VLLM variant expects content as a plain string in a specific format
+    sample_messages_vllm = [
+        {
+            "role": "user",
+            "content": "<<<source>>>cs<<<target>>>de-DE<<<text>>>V nejhorším případě i k prasknutí čočky.",
         }
     ]
 
@@ -116,9 +124,14 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             processor_kwargs["torch_dtype"] = dtype_override
 
-        self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, **processor_kwargs
-        )
+        if self._variant == ModelVariant.VLLM_TRANSLATEGEMMA_27B_IT:
+            self.processor = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name, **processor_kwargs
+            )
+        else:
+            self.processor = AutoProcessor.from_pretrained(
+                self._variant_config.pretrained_model_name, **processor_kwargs
+            )
 
         return self.processor
 
@@ -137,7 +150,12 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
-        model_kwargs = {"return_dict": False}
+        # Gemma3 (27B) has an internal bug with return_dict=False: sub-model outputs
+        # are tuples but the forward method accesses .past_key_values on them.
+        if self._variant == ModelVariant.VLLM_TRANSLATEGEMMA_27B_IT:
+            model_kwargs = {}
+        else:
+            model_kwargs = {"return_dict": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -162,8 +180,13 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
+        if self._variant == ModelVariant.VLLM_TRANSLATEGEMMA_27B_IT:
+            messages = self.sample_messages_vllm
+        else:
+            messages = self.sample_messages
+
         inputs = self.processor.apply_chat_template(
-            self.sample_messages,
+            messages,
             tokenize=True,
             add_generation_prompt=True,
             return_dict=True,
