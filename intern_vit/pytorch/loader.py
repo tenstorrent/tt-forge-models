@@ -119,11 +119,26 @@ class ModelLoader(ForgeModel):
                 if not (isinstance(ctx, torch.device) and ctx.type == "meta")
             ]
 
+        # InternVisionModel.__init__ does not call self.post_init(), so
+        # all_tied_weights_keys is never set. Patch _finalize_model_loading to
+        # initialize the attribute before transformers tries to access it.
+        _orig_finalize = PreTrainedModel._finalize_model_loading.__func__
+
+        @classmethod  # type: ignore[misc]
+        def _finalize_with_tied_keys(cls, model, load_config, loading_info):
+            if not hasattr(model, "all_tied_weights_keys"):
+                model.all_tied_weights_keys = model.get_expanded_tied_weights_keys(
+                    all_submodels=False
+                )
+            return _orig_finalize(cls, model, load_config, loading_info)
+
         PreTrainedModel.get_init_context = _no_meta_get_init_context
+        PreTrainedModel._finalize_model_loading = _finalize_with_tied_keys
         try:
             model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         finally:
             PreTrainedModel.get_init_context = _orig_get_init_context
+            PreTrainedModel._finalize_model_loading = _orig_finalize
         model.eval()
 
         return model
