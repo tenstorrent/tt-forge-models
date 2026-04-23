@@ -71,8 +71,8 @@ def stable_cascade_preprocessing(
     timesteps = prior_pipe.scheduler.timesteps
 
     # Prepare latent variables - the prior operates at a highly compressed resolution
-    latent_height = height // prior_pipe.config.resolution_multiple
-    latent_width = width // prior_pipe.config.resolution_multiple
+    latent_height = int(height // prior_pipe.config.resolution_multiple)
+    latent_width = int(width // prior_pipe.config.resolution_multiple)
     num_channels = prior_pipe.prior.config.in_channels
 
     torch.manual_seed(42)
