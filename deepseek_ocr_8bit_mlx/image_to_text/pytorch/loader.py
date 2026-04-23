@@ -103,7 +103,9 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        image_file = get_file("test_images/doc.png")
+        image_file = get_file(
+            "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/beignets-task-guide.png"
+        )
 
         inputs = preprocess(
             tokenizer=self.tokenizer,
