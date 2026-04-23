@@ -105,6 +105,31 @@ def _patch_transformers_qwen3vl_gguf():
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
+    # 5. Patch get_gguf_hf_weights_map so it handles qwen3_vl composite configs
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type == "qwen3_vl":
+            model_type = "qwen3vl"
+        if num_layers is None:
+            cfg = hf_model.config
+            # For composite configs (VL models), fall back to text_config
+            if hasattr(cfg, "num_hidden_layers"):
+                num_layers = cfg.num_hidden_layers
+            elif hasattr(cfg, "text_config") and hasattr(
+                cfg.text_config, "num_hidden_layers"
+            ):
+                num_layers = cfg.text_config.num_hidden_layers
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+    if hasattr(modeling_utils, "get_gguf_hf_weights_map"):
+        modeling_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
 
 # Apply patch at import time so all downstream from_pretrained calls benefit
 _patch_transformers_qwen3vl_gguf()
