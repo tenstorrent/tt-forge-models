@@ -54,14 +54,15 @@ _GGUF_FILES = {
 }
 
 
-def _make_meta_param_initializer(original_dispatch):
+def _make_meta_param_initializer(original_dispatch, compute_dtype):
     """Return a patched dispatch_model that zero-initializes any remaining meta parameters.
 
     The calcuis/wan2-gguf GGUF files omit certain I2V-specific weights (image
     cross-attention projections, image embedder) that the diffusers
     WanTransformer3DModel creates as meta tensors.  accelerate's dispatch_model
     then calls model.to(device) which raises NotImplementedError on meta tensors.
-    This wrapper materialises those meta parameters as zeros before dispatching.
+    This wrapper materialises those meta parameters as zeros in compute_dtype
+    before dispatching, ensuring dtype consistency with the quantized weights.
     """
     import torch.nn as nn
 
@@ -75,7 +76,7 @@ def _make_meta_param_initializer(original_dispatch):
                 for part in parts[:-1]:
                     module = getattr(module, part)
                 module._parameters[parts[-1]] = nn.Parameter(
-                    torch.zeros(param.shape, dtype=param.dtype, device="cpu"),
+                    torch.zeros(param.shape, dtype=compute_dtype, device="cpu"),
                     requires_grad=param.requires_grad,
                 )
         return original_dispatch(model, device_map=device_map, **kwargs)
@@ -153,7 +154,7 @@ class ModelLoader(ForgeModel):
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         orig_dispatch = _accel_bm.dispatch_model
-        patched = _make_meta_param_initializer(orig_dispatch)
+        patched = _make_meta_param_initializer(orig_dispatch, compute_dtype)
         _accel_bm.dispatch_model = patched
         _sfm.dispatch_model = patched
         try:
