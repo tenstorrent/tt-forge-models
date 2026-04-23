@@ -4,8 +4,14 @@
 """
 DeepSeek OCR-2 model loader implementation for document OCR tasks.
 """
+import tempfile
+from PIL import Image
 from transformers import AutoTokenizer, AutoModel
 from typing import Optional
+import transformers.models.deepseek_v2.modeling_deepseek_v2 as _dsv2
+
+if not hasattr(_dsv2, "DeepseekV2MoE"):
+    _dsv2.DeepseekV2MoE = _dsv2.DeepseekV2Moe
 
 from ....base import ForgeModel
 from ....config import (
@@ -17,7 +23,6 @@ from ....config import (
     Framework,
     StrEnum,
 )
-from ....tools.utils import get_file
 
 # Reuse preprocessing utilities from DeepSeek-OCR
 from ...deepseek_ocr.pytorch.src.model_utils import preprocess
@@ -100,7 +105,10 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        image_file = get_file("test_images/doc.png")
+        image = Image.new("RGB", (640, 480), color=(255, 255, 255))
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+            image.save(tmp, format="PNG")
+            image_file = tmp.name
 
         inputs = preprocess(
             tokenizer=self.tokenizer,
