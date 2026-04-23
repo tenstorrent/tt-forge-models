@@ -35,6 +35,9 @@ from ....config import (
     StrEnum,
 )
 
+# Stash the model_to_load across the old-style patch chain that strips it.
+_pending_model_to_load = None
+
 
 def _refresh_gguf_detection():
     """Refresh transformers' gguf package detection if the package was installed after import."""
@@ -65,9 +68,23 @@ def _patch_qwen3vl_support():
 
 
 def _patched_load_gguf_checkpoint(*args, **kwargs):
-    """Wrap load_gguf_checkpoint to add qwen3vl support and fix model_type."""
+    """Wrap load_gguf_checkpoint to add qwen3vl support.
+
+    Some older patches in the chain have the signature
+    ``(gguf_path, return_tensors=False)`` and will raise TypeError if
+    ``model_to_load`` is forwarded.  We stash it in a module-level variable so
+    that ``_patched_get_gguf_hf_weights_map`` can recover it even after the
+    inner chain drops it.
+    """
+    global _pending_model_to_load
     _patch_qwen3vl_support()
-    result = _orig_load_gguf_checkpoint(*args, **kwargs)
+    # Strip model_to_load before entering the inner chain – old-style patches
+    # do not accept the kwarg and will raise TypeError.
+    _pending_model_to_load = kwargs.pop("model_to_load", None)
+    try:
+        result = _orig_load_gguf_checkpoint(*args, **kwargs)
+    finally:
+        _pending_model_to_load = None
     if result.get("config", {}).get("model_type") == "qwen3vl":
         result["config"]["model_type"] = "qwen3_vl"
     return result
@@ -76,10 +93,17 @@ def _patched_load_gguf_checkpoint(*args, **kwargs):
 def _patched_get_gguf_hf_weights_map(
     hf_model, processor, model_type=None, num_layers=None, qual_name=""
 ):
-    """Wrap get_gguf_hf_weights_map to map qwen3_vl HF model type to qwen3vl gguf arch."""
-    if model_type is None:
+    """Wrap get_gguf_hf_weights_map to map qwen3_vl HF model type to qwen3vl gguf arch.
+
+    When old-style patches strip model_to_load from the call chain, the real
+    load_gguf_checkpoint receives model_to_load=None.  We recover the stashed
+    value from _pending_model_to_load so tensor key mapping still works.
+    """
+    if hf_model is None and _pending_model_to_load is not None:
+        hf_model = _pending_model_to_load
+    if model_type is None and hf_model is not None:
         model_type = hf_model.config.model_type
-    if model_type == "qwen3_vl":
+    if model_type in ("qwen3_vl", "qwen3_vl_text"):
         model_type = "qwen3vl"
     return _orig_get_gguf_hf_weights_map(
         hf_model,
