@@ -15,8 +15,6 @@ Available variants:
 from typing import Optional
 
 import torch
-from diffusers import AutoencoderTiny, FluxKontextPipeline  # type: ignore[import]
-from nunchaku import NunchakuFluxTransformer2dModel  # type: ignore[import]
 
 from ...base import ForgeModel
 from ...config import (
@@ -70,6 +68,9 @@ class ModelLoader(ForgeModel):
     def _load_pipeline(self, dtype_override=None):
         """Load FluxKontextPipeline with nunchaku quantized transformer."""
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
+
+        from diffusers import AutoencoderTiny, FluxKontextPipeline  # type: ignore[import]
+        from nunchaku import NunchakuFluxTransformer2dModel  # type: ignore[import]
 
         transformer = NunchakuFluxTransformer2dModel.from_pretrained(
             NUNCHAKU_REPO,
