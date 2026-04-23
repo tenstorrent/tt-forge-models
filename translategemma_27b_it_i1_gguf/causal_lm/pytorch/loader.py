@@ -41,8 +41,8 @@ class ModelLoader(ForgeModel):
     GGUF_FILE = "translategemma-27b-it.i1-Q4_K_M.gguf"
 
     sample_text = "Hello, how are you today?"
-    source_lang_code = "eng_Latn"
-    target_lang_code = "fra_Latn"
+    source_lang_code = "en"
+    target_lang_code = "fr"
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
