@@ -73,10 +73,11 @@ def _patched_get_gguf_hf_weights_map(
     Qwen3VLConfig stores num_hidden_layers in text_config, and the gguf-py
     arch name is 'qwen3vl' while transformers model_type is 'qwen3_vl'.
     """
-    cfg = hf_model.config
-    if model_type is None and getattr(cfg, "model_type", None) == "qwen3_vl":
+    cfg = getattr(hf_model, "config", None)
+    cfg_model_type = getattr(cfg, "model_type", None)
+    if model_type is None and cfg_model_type == "qwen3_vl":
         model_type = "qwen3vl"
-    if num_layers is None and getattr(cfg, "model_type", None) == "qwen3_vl":
+    if num_layers is None and cfg_model_type == "qwen3_vl":
         num_layers = cfg.text_config.num_hidden_layers
     return _orig_get_gguf_hf_weights_map(
         hf_model, processor, model_type, num_layers, qual_name
