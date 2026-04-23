@@ -29,11 +29,11 @@ from ....config import (
 
 
 def _find_original_load_gguf():
-    """Walk the _orig_load_gguf_checkpoint globals chain to find the original transformers function.
+    """Walk the patch chain to find the real transformers load_gguf_checkpoint.
 
-    Other GGUF loaders capture the previous patch as a module-level global named
-    _orig_load_gguf_checkpoint before installing their own patch, so we can walk
-    that chain to reach the real transformers implementation.
+    Other GGUF loaders capture the previous patch either as a module-level global
+    (_orig_load_gguf_checkpoint) or as a closure variable (e.g. orig_load inside a
+    helper function). We try both to traverse the full chain.
     """
     func = _gguf_utils.load_gguf_checkpoint
     seen = set()
@@ -47,10 +47,25 @@ def _find_original_load_gguf():
             == "transformers.modeling_gguf_pytorch_utils"
         ):
             break
+        next_func = None
+        # Try module-level global first (e.g. _orig_load_gguf_checkpoint = ...)
         orig = func.__globals__.get("_orig_load_gguf_checkpoint")
-        if orig is None or not callable(orig):
+        if orig is not None and callable(orig) and id(orig) not in seen:
+            next_func = orig
+        # Fall back to closure (e.g. orig_load captured inside a helper function)
+        if next_func is None and func.__closure__:
+            for i, varname in enumerate(func.__code__.co_freevars):
+                if "orig" in varname:
+                    try:
+                        candidate = func.__closure__[i].cell_contents
+                        if callable(candidate) and id(candidate) not in seen:
+                            next_func = candidate
+                            break
+                    except ValueError:
+                        pass
+        if next_func is None:
             break
-        func = orig
+        func = next_func
     return func
 
 
