@@ -49,7 +49,9 @@ def _patch_gpt_oss_support():
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
     """Wrap load_gguf_checkpoint to add gpt-oss support and fix model_type."""
     _patch_gpt_oss_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
+    )
     if result.get("config", {}).get("model_type") == "gpt-oss":
         result["config"]["model_type"] = "qwen3_moe"
     return result
