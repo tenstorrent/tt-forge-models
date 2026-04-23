@@ -8,6 +8,7 @@ mlx-community/Qwen3-VL-4B-Instruct-8bit model loader implementation for image to
 from transformers import (
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
+    AutoConfig,
 )
 from typing import Optional
 
@@ -95,8 +96,14 @@ class ModelLoader(ForgeModel):
 
         self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
 
+        # The MLX-community 8bit model has an MLX-style quantization_config
+        # (bits/group_size/mode) that lacks the `quant_method` field required
+        # by transformers. Load with a clean config to avoid the error.
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        config.quantization_config = None
+
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, config=config, **model_kwargs
         )
         model.eval()
 
