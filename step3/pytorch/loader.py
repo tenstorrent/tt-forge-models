@@ -5,6 +5,8 @@
 Step3 VL model loader implementation for multimodal conditional generation.
 """
 
+import os
+import shutil
 import torch
 from transformers import AutoModelForCausalLM, AutoProcessor
 from PIL import Image
@@ -21,6 +23,26 @@ from ...config import (
     StrEnum,
 )
 from ...tools.utils import get_file, cast_input_to_type
+
+_LARGE_MODEL_SPACE_THRESHOLD = 10 * 1024 * 1024 * 1024  # 10 GB
+_FALLBACK_CACHE_DIR = "/tmp/hf_cache_step3"
+
+
+def _get_cache_dir():
+    """Return a cache_dir with sufficient free space for large GGUF downloads.
+
+    Falls back to /tmp when HF_HOME is on a nearly-full filesystem.
+    """
+    hf_home = os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
+    hub_dir = os.path.join(hf_home, "hub")
+    try:
+        os.makedirs(hub_dir, exist_ok=True)
+        if shutil.disk_usage(hub_dir).free >= _LARGE_MODEL_SPACE_THRESHOLD:
+            return None  # use the default HF cache
+    except OSError:
+        pass
+    os.makedirs(_FALLBACK_CACHE_DIR, exist_ok=True)
+    return _FALLBACK_CACHE_DIR
 
 
 class ModelVariant(StrEnum):
@@ -81,9 +103,11 @@ class ModelLoader(ForgeModel):
         processor_name = self._BASE_PROCESSOR_NAMES.get(
             self._variant, self._variant_config.pretrained_model_name
         )
-        self.processor = AutoProcessor.from_pretrained(
-            processor_name, trust_remote_code=True
-        )
+        cache_dir = _get_cache_dir()
+        processor_kwargs = {"trust_remote_code": True}
+        if cache_dir is not None:
+            processor_kwargs["cache_dir"] = cache_dir
+        self.processor = AutoProcessor.from_pretrained(processor_name, **processor_kwargs)
 
         return self.processor
 
@@ -93,11 +117,14 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
+        cache_dir = _get_cache_dir()
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         if self._gguf_file is not None:
             model_kwargs["gguf_file"] = self._gguf_file
+        if cache_dir is not None:
+            model_kwargs["cache_dir"] = cache_dir
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
