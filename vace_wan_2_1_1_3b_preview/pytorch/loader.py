@@ -5,16 +5,15 @@
 """
 VACE-Wan2.1-1.3B-Preview model loader implementation.
 
-Loads the ali-vilab/VACE-Wan2.1-1.3B-Preview all-in-one video creation and
-editing model and constructs a WanVACEPipeline for reference-to-video
-generation. The preview repo packages the original Wan2.1-T2V-1.3B weights
-fine-tuned with the VACE adapter.
+Loads the ali-vilab/VACE-Wan2.1-1.3B-Preview diffusion transformer using
+from_single_file with config from Wan-AI/Wan2.1-VACE-1.3B-Diffusers, since
+the Preview repo ships raw .pth weights rather than a diffusers-format pipeline.
 """
 
 from typing import Any, Optional
 
 import torch
-from PIL import Image
+from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -27,6 +26,8 @@ from ...config import (
     StrEnum,
 )
 
+DIFFUSERS_CONFIG_REPO = "Wan-AI/Wan2.1-VACE-1.3B-Diffusers"
+
 
 class ModelVariant(StrEnum):
     """Available VACE-Wan2.1-1.3B-Preview variants."""
@@ -35,7 +36,7 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """VACE-Wan2.1-1.3B-Preview model loader for reference-to-video generation."""
+    """VACE-Wan2.1-1.3B-Preview transformer loader for video generation."""
 
     _VARIANTS = {
         ModelVariant.VACE_WAN_2_1_1_3B_PREVIEW: ModelConfig(
@@ -45,14 +46,9 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.VACE_WAN_2_1_1_3B_PREVIEW
 
-    DEFAULT_PROMPT = (
-        "A character walking gracefully across a sunlit garden, "
-        "smooth animation, detailed motion, cinematic lighting"
-    )
-
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline = None
+        self._transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -67,61 +63,66 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    # The Preview repo uses raw .pth weights (not diffusers format), so we use
-    # Wan-AI/Wan2.1-VACE-1.3B-Diffusers for config and non-Preview components.
-    _DIFFUSERS_CONFIG_REPO = "Wan-AI/Wan2.1-VACE-1.3B-Diffusers"
-
     def load_model(
         self,
         *,
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the VACE-Wan2.1-1.3B-Preview pipeline."""
-        from diffusers import (
-            AutoencoderKLWan,
-            WanVACEPipeline,
-            WanVACETransformer3DModel,
-        )
-        from huggingface_hub import hf_hub_download
+        """Load the VACE-Wan2.1-1.3B-Preview transformer."""
+        from diffusers import WanVACETransformer3DModel
 
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        vae = AutoencoderKLWan.from_single_file(
-            hf_hub_download(pretrained_model_name, "Wan2.1_VAE.pth"),
-            config=self._DIFFUSERS_CONFIG_REPO,
-            subfolder="vae",
-            torch_dtype=torch.float32,
-        )
-        transformer = WanVACETransformer3DModel.from_single_file(
+        self._transformer = WanVACETransformer3DModel.from_single_file(
             hf_hub_download(
                 pretrained_model_name, "diffusion_pytorch_model.safetensors"
             ),
-            config=self._DIFFUSERS_CONFIG_REPO,
+            config=DIFFUSERS_CONFIG_REPO,
             subfolder="transformer",
             torch_dtype=dtype,
         )
-        self.pipeline = WanVACEPipeline.from_pretrained(
-            self._DIFFUSERS_CONFIG_REPO,
-            vae=vae,
-            transformer=transformer,
-            torch_dtype=dtype,
+        self._transformer.eval()
+        return self._transformer
+
+    def load_inputs(
+        self, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
+        """Prepare synthetic inputs for the VACE transformer forward pass."""
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+
+        batch_size = 1
+        in_channels = 16
+        vace_in_channels = 96
+        num_frames = 1
+        height = 8
+        width = 8
+        text_seq_len = 32
+        text_dim = 4096
+
+        hidden_states = torch.randn(
+            batch_size, in_channels, num_frames, height, width, dtype=dtype
         )
-        return self.pipeline
-
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for VACE reference-to-video generation."""
-        prompt_value = prompt if prompt is not None else self.DEFAULT_PROMPT
-
-        ref_image = Image.new("RGB", (832, 480), color=(128, 128, 200))
+        control_hidden_states = torch.randn(
+            batch_size, vace_in_channels, num_frames, height, width, dtype=dtype
+        )
+        encoder_hidden_states = torch.randn(
+            batch_size, text_seq_len, text_dim, dtype=dtype
+        )
+        timestep = torch.tensor([500] * batch_size, dtype=torch.long)
 
         return {
-            "prompt": prompt_value,
-            "reference_images": [ref_image],
-            "height": 480,
-            "width": 832,
-            "num_frames": 9,
-            "num_inference_steps": 2,
-            "guidance_scale": 5.0,
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "timestep": timestep,
+            "control_hidden_states": control_hidden_states,
+            "return_dict": False,
         }
+
+    def unpack_forward_output(self, output: Any) -> torch.Tensor:
+        if isinstance(output, (tuple, list)):
+            return output[0]
+        if hasattr(output, "sample"):
+            return output.sample
+        return output
