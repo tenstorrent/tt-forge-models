@@ -5,6 +5,7 @@
 Whisper Thai Medium model loader implementation for speech recognition tasks.
 """
 
+import numpy as np
 import torch
 from transformers import (
     WhisperForConditionalGeneration,
@@ -23,7 +24,6 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from ...tools.utils import get_file
 
 
 class ModelVariant(StrEnum):
@@ -93,10 +93,8 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name
         )
 
-        # Load audio sample
-        weights_pth = get_file("test_files/pytorch/whisper/1272-128104-0000.pt")
-        sample = torch.load(weights_pth, weights_only=False)
-        sample_audio = sample["audio"]["array"]
+        # Generate synthetic audio sample
+        sample_audio = np.random.randn(16000 * 3).astype(np.float32)
         model_param = next(self.model.parameters())
         device, dtype = model_param.device, dtype_override or model_param.dtype
 
@@ -113,4 +111,7 @@ class ModelLoader(ForgeModel):
             dtype=torch.long,
             device=device,
         )
-        return [input_features, decoder_input_ids]
+        return {
+            "input_features": input_features,
+            "decoder_input_ids": decoder_input_ids,
+        }
