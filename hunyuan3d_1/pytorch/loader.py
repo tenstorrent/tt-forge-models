@@ -11,6 +11,7 @@ UNet2DConditionModel backbone from that multi-view diffusion stage, available
 in either the lite (SD2-derived) or std (SDXL-derived) flavor.
 """
 
+import os
 from typing import Optional
 
 import torch
@@ -99,15 +100,23 @@ class ModelLoader(ForgeModel):
         variant = self._variant or self.DEFAULT_VARIANT
         params = _VARIANT_PARAMS[variant]
 
-        model_kwargs = dict(kwargs)
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-
-        model = UNet2DConditionModel.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            subfolder=params["subfolder"],
-            **model_kwargs,
-        )
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            config = UNet2DConditionModel.load_config(
+                self._variant_config.pretrained_model_name,
+                subfolder=params["subfolder"],
+            )
+            model = UNet2DConditionModel.from_config(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            model_kwargs = dict(kwargs)
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model = UNet2DConditionModel.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                subfolder=params["subfolder"],
+                **model_kwargs,
+            )
         model.eval()
         return model
 
