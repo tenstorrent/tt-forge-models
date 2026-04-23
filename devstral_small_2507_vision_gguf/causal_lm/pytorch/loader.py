@@ -39,7 +39,13 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.DEVSTRAL_SMALL_2507_VISION_Q4_K_M
 
     GGUF_FILE = "Devstral-Small-2507-Vision.Q4_K_M.gguf"
-    TOKENIZER_NAME = "unsloth/Devstral-Small-2507-GGUF"
+
+    # mradermacher GGUF repos lack config.json; use unsloth's Devstral-Small-2507
+    # repo for architecture config (same base model, includes config.json).
+    CONFIG_REPO = "unsloth/Devstral-Small-2507-GGUF"
+
+    # Download large GGUF files to /tmp to avoid filling up the main cache disk.
+    GGUF_CACHE_DIR = "/tmp/hf_gguf_cache"
 
     sample_text = "Write a Python function that checks if a number is prime."
 
@@ -63,12 +69,15 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
+        tokenizer_kwargs = {
+            "gguf_file": self.GGUF_FILE,
+            "cache_dir": self.GGUF_CACHE_DIR,
+        }
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self.TOKENIZER_NAME, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -81,15 +90,18 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        config = AutoConfig.from_pretrained(self.TOKENIZER_NAME)
+        config = AutoConfig.from_pretrained(self.CONFIG_REPO)
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
 
-        model_kwargs = {"config": config}
+        model_kwargs = {
+            "config": config,
+            "gguf_file": self.GGUF_FILE,
+            "cache_dir": self.GGUF_CACHE_DIR,
+        }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -150,5 +162,5 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(self.TOKENIZER_NAME)
+        self.config = AutoConfig.from_pretrained(self.CONFIG_REPO)
         return self.config
