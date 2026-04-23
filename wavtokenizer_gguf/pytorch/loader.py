@@ -12,6 +12,7 @@ Requires the WavTokenizer repository to be cloned at /tmp/wavtokenizer_repo.
 """
 
 import os
+import re
 import sys
 from typing import Optional
 
@@ -48,6 +49,145 @@ def _ensure_wavtokenizer_importable():
 
     if WAVTOKENIZER_REPO_PATH not in sys.path:
         sys.path.insert(0, WAVTOKENIZER_REPO_PATH)
+
+
+def _map_gguf_tensor(name, data):
+    """Map a GGUF tensor name and data to a PyTorch state dict (key, tensor) pair.
+
+    GGUFReader already reverses the GGUF axis convention so tensors arrive in
+    PyTorch order.  The only adjustments needed are:
+      - squeeze the trailing size-1 dim from biases stored as (C, 1)
+      - broadcast AdaLayerNorm scale/shift from (C,) to (4, C)
+    """
+
+    def _sq(t):
+        return t.squeeze(-1)
+
+    def _ada(t):
+        return t.unsqueeze(0).expand(4, -1).contiguous()
+
+    # ConvNeXt blocks: convnext.N.*
+    m = re.match(r"^convnext\.(\d+)\.(.+)$", name)
+    if m:
+        n, sub = m.group(1), m.group(2)
+        if sub == "gamma.weight":
+            return f"backbone.convnext.{n}.gamma", data
+        if sub == "dw.weight":
+            return f"backbone.convnext.{n}.dwconv.weight", data
+        if sub == "dw.bias":
+            return f"backbone.convnext.{n}.dwconv.bias", _sq(data)
+        if sub == "norm.weight":
+            return f"backbone.convnext.{n}.norm.scale.weight", _ada(data)
+        if sub == "norm.bias":
+            return f"backbone.convnext.{n}.norm.shift.weight", _ada(data)
+        if sub == "pw1.weight":
+            return f"backbone.convnext.{n}.pwconv1.weight", data
+        if sub == "pw1.bias":
+            return f"backbone.convnext.{n}.pwconv1.bias", data
+        if sub == "pw2.weight":
+            return f"backbone.convnext.{n}.pwconv2.weight", data
+        if sub == "pw2.bias":
+            return f"backbone.convnext.{n}.pwconv2.bias", data
+
+    # Embed Conv1d
+    if name == "conv1d.weight":
+        return "backbone.embed.weight", data
+    if name == "conv1d.bias":
+        return "backbone.embed.bias", _sq(data)
+
+    # VQ codebook (feature_extractor loaded separately; only embed is in GGUF)
+    if name == "token_embd.weight":
+        return "feature_extractor.encodec.quantizer.vq.layers.0._codebook.embed", data
+
+    # Final layer norm
+    if name == "output_norm.weight":
+        return "backbone.final_layer_norm.weight", data
+    if name == "output_norm.bias":
+        return "backbone.final_layer_norm.bias", data
+
+    # backbone.norm AdaLayerNorm (token_embd_norm in GGUF)
+    if name == "token_embd_norm.weight":
+        return "backbone.norm.scale.weight", _ada(data)
+    if name == "token_embd_norm.bias":
+        return "backbone.norm.shift.weight", _ada(data)
+
+    # pos_net blocks
+    m = re.match(r"^posnet\.(\d+)\.(.+)$", name)
+    if m:
+        n, sub = int(m.group(1)), m.group(2)
+        if n in (0, 1, 3, 4):  # ResnetBlock
+            if sub == "conv1.weight":
+                return f"backbone.pos_net.{n}.conv1.weight", data
+            if sub == "conv1.bias":
+                return f"backbone.pos_net.{n}.conv1.bias", _sq(data)
+            if sub == "conv2.weight":
+                return f"backbone.pos_net.{n}.conv2.weight", data
+            if sub == "conv2.bias":
+                return f"backbone.pos_net.{n}.conv2.bias", _sq(data)
+            if sub == "norm1.weight":
+                return f"backbone.pos_net.{n}.norm1.weight", _sq(data)
+            if sub == "norm1.bias":
+                return f"backbone.pos_net.{n}.norm1.bias", _sq(data)
+            if sub == "norm2.weight":
+                return f"backbone.pos_net.{n}.norm2.weight", _sq(data)
+            if sub == "norm2.bias":
+                return f"backbone.pos_net.{n}.norm2.bias", _sq(data)
+        elif n == 2:  # AttnBlock (Conv1d-based q/k/v/proj_out + GroupNorm)
+            _conv_attn_map = {
+                "attn_q": "q",
+                "attn_k": "k",
+                "attn_v": "v",
+                "attn_output": "proj_out",
+            }
+            for gguf_prefix, pt_prefix in _conv_attn_map.items():
+                if sub == f"{gguf_prefix}.weight":
+                    return f"backbone.pos_net.2.{pt_prefix}.weight", data
+                if sub == f"{gguf_prefix}.bias":
+                    return f"backbone.pos_net.2.{pt_prefix}.bias", _sq(data)
+            if sub == "attn_norm.weight":
+                return "backbone.pos_net.2.norm.weight", _sq(data)
+            if sub == "attn_norm.bias":
+                return "backbone.pos_net.2.norm.bias", _sq(data)
+        elif n == 5:  # GroupNorm (final Normalize)
+            if sub == "attn_norm.weight":
+                return "backbone.pos_net.5.weight", _sq(data)
+            if sub == "attn_norm.bias":
+                return "backbone.pos_net.5.bias", _sq(data)
+
+    # Head output projection
+    if name == "output.weight":
+        return "head.out.weight", data
+    if name == "output.bias":
+        return "head.out.bias", data
+
+    return None, None
+
+
+def _load_from_gguf(config_path, model_path):
+    """Load a WavTokenizer model from a GGUF checkpoint.
+
+    Creates the model from config (which initialises pretrained encodec
+    weights), then overlays backbone and head weights from the GGUF file.
+    """
+    import gguf
+
+    _ensure_wavtokenizer_importable()
+    from decoder.pretrained import WavTokenizer
+
+    model = WavTokenizer.from_hparams0802(config_path)
+
+    reader = gguf.GGUFReader(model_path)
+    state_dict = {}
+    for t in reader.tensors:
+        tensor = torch.from_numpy(t.data.copy())
+        mapped_name, mapped_tensor = _map_gguf_tensor(t.name, tensor)
+        if mapped_name is not None:
+            state_dict[mapped_name] = mapped_tensor
+
+    # strict=False: keeps pretrained encodec keys and istft.window from model init
+    model.load_state_dict(state_dict, strict=False)
+    model.eval()
+    return model
 
 
 class ModelVariant(StrEnum):
@@ -109,9 +249,6 @@ class ModelLoader(ForgeModel):
         """Load and return the GGUF-packaged WavTokenizer decoder model."""
         from huggingface_hub import hf_hub_download
 
-        _ensure_wavtokenizer_importable()
-        from decoder.pretrained import WavTokenizer
-
         config_path = hf_hub_download(
             repo_id=self._CONFIG_REPO, filename=self._CONFIG_FILENAME
         )
@@ -121,7 +258,7 @@ class ModelLoader(ForgeModel):
             filename=self._GGUF_FILES[self._variant],
         )
 
-        model = WavTokenizer.from_pretrained0802(config_path, model_path)
+        model = _load_from_gguf(config_path, model_path)
 
         if dtype_override is not None:
             model = model.to(dtype=dtype_override)
@@ -134,15 +271,15 @@ class ModelLoader(ForgeModel):
         """Load sample audio inputs for the WavTokenizer model.
 
         Returns:
-            dict: Dictionary with 'wav' tensor (1-second mono audio at 24kHz)
-                and 'bandwidth_id' tensor for codec configuration.
+            dict: Dictionary with 'audio_input' tensor (1-second mono audio at
+                24kHz, shape [B, T]) and 'bandwidth_id' tensor.
         """
         dtype = dtype_override or torch.float32
 
         torch.manual_seed(42)
         sample_rate = 24000
-        wav = torch.randn(1, 1, sample_rate, dtype=dtype)
+        audio_input = torch.randn(1, sample_rate, dtype=dtype)
 
         bandwidth_id = torch.tensor([0])
 
-        return {"wav": wav, "bandwidth_id": bandwidth_id}
+        return {"audio_input": audio_input, "bandwidth_id": bandwidth_id}
