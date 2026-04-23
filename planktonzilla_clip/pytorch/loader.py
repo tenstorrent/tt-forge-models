@@ -18,7 +18,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from datasets import load_dataset
+from PIL import Image
 
 
 class ModelVariant(StrEnum):
@@ -112,9 +112,7 @@ class ModelLoader(ForgeModel):
                 )
                 self.tokenizer = get_tokenizer("ViT-B-16")
 
-        # Load image from HuggingFace dataset
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        image = Image.new("RGB", (224, 224))
 
         self.text_prompts = [
             "a photo of plankton",
