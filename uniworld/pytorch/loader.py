@@ -9,9 +9,6 @@ from typing import Optional
 
 import torch
 from transformers import AutoProcessor
-from univa.models.qwen2p5vl.modeling_univa_qwen2p5vl import (
-    UnivaQwen2p5VLForConditionalGeneration,
-)
 
 from ...base import ForgeModel
 from ...config import (
@@ -100,6 +97,10 @@ class ModelLoader(ForgeModel):
         else:
             model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
+
+        from univa.models.qwen2p5vl.modeling_univa_qwen2p5vl import (
+            UnivaQwen2p5VLForConditionalGeneration,
+        )
 
         model = UnivaQwen2p5VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
