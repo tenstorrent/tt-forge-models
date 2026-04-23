@@ -1,1 +1,2 @@
-granite-tsfm
+transformers>=4.57.6,<5
+deprecated
