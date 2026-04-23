@@ -80,9 +80,15 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
         )
-        # OmniGenomeConfig doesn't set is_decoder; transformers v5 requires it
-        if not hasattr(config, "is_decoder"):
-            config.is_decoder = False
+        # OmniGenomeConfig omits several attrs that transformers v5 no longer sets
+        # in PretrainedConfig defaults; supply them explicitly.
+        for attr, default in [
+            ("is_decoder", False),
+            ("add_cross_attention", False),
+            ("chunk_size_feed_forward", 0),
+        ]:
+            if not hasattr(config, attr):
+                setattr(config, attr, default)
 
         model = AutoModelForSequenceClassification.from_pretrained(
             self._variant_config.pretrained_model_name,
