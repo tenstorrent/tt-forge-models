@@ -9,6 +9,9 @@ unsloth/FLUX.2-dev-GGUF. The GGUF transformer is loaded via diffusers'
 Flux2Transformer2DModel.from_single_file.
 """
 
+import json
+import os
+import tempfile
 from typing import Optional
 
 import torch
@@ -101,11 +104,36 @@ class ModelLoader(ForgeModel):
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
         gguf_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
 
-        self.transformer = Flux2Transformer2DModel.from_single_file(
-            gguf_path,
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
+        # black-forest-labs/FLUX.2-dev is a gated repo; provide config locally.
+        # Parameter values match the Flux2Transformer2DModel defaults and are
+        # confirmed by the GGUF tensor shapes (8 double_blocks, 48 single_blocks,
+        # 48 heads × 128 head_dim, guidance_in 256→6144).
+        flux2_config = {
+            "_class_name": "Flux2Transformer2DModel",
+            "_diffusers_version": "0.37.1",
+            "patch_size": 1,
+            "in_channels": 128,
+            "num_layers": 8,
+            "num_single_layers": 48,
+            "attention_head_dim": 128,
+            "num_attention_heads": 48,
+            "joint_attention_dim": 15360,
+            "timestep_guidance_channels": 256,
+            "mlp_ratio": 3.0,
+            "axes_dims_rope": [32, 32, 32, 32],
+            "rope_theta": 2000,
+            "eps": 1e-6,
+            "guidance_embeds": True,
+        }
+        with tempfile.TemporaryDirectory() as config_dir:
+            with open(os.path.join(config_dir, "config.json"), "w") as f:
+                json.dump(flux2_config, f)
+            self.transformer = Flux2Transformer2DModel.from_single_file(
+                gguf_path,
+                config=config_dir,
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
+            )
 
         return self.transformer
 
