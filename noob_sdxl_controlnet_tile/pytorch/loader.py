@@ -101,7 +101,7 @@ class ModelLoader(ForgeModel):
             down_block_additional_residuals,
             mid_block_additional_residual,
         ) = controlnet_tile_sdxl_preprocessing(
-            self.pipeline, self.prompt, control_image
+            self.pipeline, self.prompt, control_image, height=256, width=256
         )
 
         # The UNet expects a single timestep, not the full scheduler schedule.

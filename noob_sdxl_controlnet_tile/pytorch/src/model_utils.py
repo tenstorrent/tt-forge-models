@@ -50,7 +50,7 @@ def load_controlnet_tile_sdxl_pipe(controlnet_model_name, base_model_name):
     return pipe
 
 
-def create_tile_conditioning_image(height=1024, width=1024):
+def create_tile_conditioning_image(height=256, width=256):
     """Create a dummy tile conditioning image.
 
     Args:
