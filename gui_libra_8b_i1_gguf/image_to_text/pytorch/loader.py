@@ -58,6 +58,40 @@ def _patch_transformers_qwen3vl_gguf():
     if "qwen3vl" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["qwen3vl"] = GGUFQwen2Converter
 
+    # Patch load_gguf_checkpoint to inject text_config sub-dict so
+    # Qwen3VLConfig uses the GGUF hidden_size instead of defaults.
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "qwen3vl":
+            text_param_keys = [
+                "hidden_size",
+                "intermediate_size",
+                "num_hidden_layers",
+                "num_attention_heads",
+                "num_key_value_heads",
+                "rms_norm_eps",
+                "max_position_embeddings",
+                "rope_theta",
+                "vocab_size",
+                "tie_word_embeddings",
+            ]
+            config["text_config"] = {
+                k: config[k] for k in text_param_keys if k in config
+            }
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+    for mod in (config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
 
 _patch_transformers_qwen3vl_gguf()
 
