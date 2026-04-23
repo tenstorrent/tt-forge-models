@@ -6,6 +6,7 @@ Megamind VL model loader implementation for image to text.
 """
 
 from transformers import (
+    AutoConfig,
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
 )
@@ -132,6 +133,11 @@ class ModelLoader(ForgeModel):
         if self._is_gguf_variant():
             # GGUF repos do not ship a processor; use the base model
             self.processor = AutoProcessor.from_pretrained(
+                "digitranslab/Megamind-v2-VL-high"
+            )
+            # Load full config from the base model so the vision config
+            # is correct (GGUF metadata only stores text model fields).
+            model_kwargs["config"] = AutoConfig.from_pretrained(
                 "digitranslab/Megamind-v2-VL-high"
             )
         else:
