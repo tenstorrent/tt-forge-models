@@ -13,6 +13,17 @@ from transformers import AutoProcessor, AutoModelForCausalLM, AutoConfig
 from transformers.image_utils import load_image
 from typing import Optional
 
+# DynamicCache.get_usable_length was removed in transformers 5.x (replaced by get_seq_length
+# with a different signature). The old signature was (new_seq_len, layer_idx); new is (layer_idx).
+from transformers.cache_utils import DynamicCache as _DynamicCache
+
+if not hasattr(_DynamicCache, "get_usable_length"):
+
+    def _get_usable_length(self, new_seq_len, layer_idx=0):
+        return self.get_seq_length(layer_idx)
+
+    _DynamicCache.get_usable_length = _get_usable_length
+
 # SlidingWindowCache was removed in transformers 5.x; patch for model remote code compatibility
 try:
     from transformers.cache_utils import SlidingWindowCache as _  # noqa: F401
