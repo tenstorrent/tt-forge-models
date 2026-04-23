@@ -49,25 +49,59 @@ def _prepare_gguf_env():
         except Exception:
             pass
 
-    # Fix 2: ensure load_gguf_checkpoint accepts model_to_load
-    current = _gguf_utils.load_gguf_checkpoint
-    if "model_to_load" not in inspect.signature(current).parameters:
-        _captured = current
-        _has_var_kw = any(
-            p.kind == inspect.Parameter.VAR_KEYWORD
-            for p in inspect.signature(_captured).parameters.values()
-        )
-        if _has_var_kw:
-            # **kwargs patcher: pass model_to_load through so it reaches orig_load
+    # Fix 2: ensure load_gguf_checkpoint accepts model_to_load.
+    # Many models patch load_gguf_checkpoint with a 2-arg signature that strips
+    # model_to_load; the resulting patcher chain loses it before reaching the
+    # original transformers function, which then calls
+    # get_gguf_hf_weights_map(None, processor) and crashes.
+    # Strategy: find the *original* transformers function by traversing the
+    # closure chain, then bypass the patcher chain for the tensor-loading path
+    # (return_tensors=True) where model_to_load is required.
+
+    def _find_original_load_gguf(fn, _seen=None):
+        if _seen is None:
+            _seen = set()
+        fn_id = id(fn)
+        if fn_id in _seen:
+            return None
+        _seen.add(fn_id)
+        if (
+            getattr(fn, "__module__", "") == "transformers.modeling_gguf_pytorch_utils"
+            and getattr(fn, "__qualname__", "") == "load_gguf_checkpoint"
+        ):
+            return fn
+        try:
+            _cvars = inspect.getclosurevars(fn).nonlocals
+        except Exception:
+            return None
+        for _val in _cvars.values():
+            if callable(_val) and _val is not fn:
+                _r = _find_original_load_gguf(_val, _seen)
+                if _r is not None:
+                    return _r
+        return None
+
+    _current = _gguf_utils.load_gguf_checkpoint
+    if "model_to_load" not in inspect.signature(_current).parameters:
+        _captured = _current
+        _original = _find_original_load_gguf(_current)
+        if (
+            _original is not None
+            and "model_to_load" in inspect.signature(_original).parameters
+        ):
+
             def _wrapped(gguf_path, return_tensors=False, model_to_load=None):
-                return _captured(
-                    gguf_path,
-                    return_tensors=return_tensors,
-                    model_to_load=model_to_load,
-                )
+                if return_tensors and model_to_load is not None:
+                    # Call original directly; the patcher chain strips model_to_load
+                    return _original(
+                        gguf_path,
+                        return_tensors=True,
+                        model_to_load=model_to_load,
+                    )
+                return _captured(gguf_path, return_tensors=return_tensors)
 
         else:
-            # Fixed-signature patcher: strip model_to_load to avoid TypeError
+            # Could not find original; fall back to stripping model_to_load
             def _wrapped(gguf_path, return_tensors=False, model_to_load=None):
                 return _captured(gguf_path, return_tensors=return_tensors)
 
