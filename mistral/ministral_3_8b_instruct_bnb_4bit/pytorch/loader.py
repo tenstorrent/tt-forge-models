@@ -77,6 +77,7 @@ class ModelLoader(ForgeModel):
     @staticmethod
     def _dequantize_bnb_model(model):
         """Replace all BnB Linear4bit layers with regular nn.Linear using dequantized weights."""
+        import torch
         import torch.nn as nn
         import bitsandbytes.nn as bnn
         import bitsandbytes.functional as bnb_functional
