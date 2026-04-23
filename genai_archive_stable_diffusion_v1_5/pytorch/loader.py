@@ -71,32 +71,51 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Stable Diffusion v1-5 (genai-archive) pipeline from Hugging Face.
+        """Load and return the UNet from the Stable Diffusion v1-5 (genai-archive) pipeline.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use torch.bfloat16.
 
         Returns:
-            StableDiffusionPipeline: The pre-trained Stable Diffusion v1-5 pipeline object.
+            UNet2DConditionModel: The pre-trained UNet model.
         """
         dtype = dtype_override or torch.bfloat16
         pipe = StableDiffusionPipeline.from_pretrained(
             self._variant_config.pretrained_model_name, torch_dtype=dtype, **kwargs
         )
-        return pipe
+        self.tokenizer = pipe.tokenizer
+        self.text_encoder = pipe.text_encoder
+        self.scheduler = pipe.scheduler
+        self.in_channels = pipe.unet.config.in_channels
+        return pipe.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the Stable Diffusion v1-5 (genai-archive) model.
+        """Load and return sample inputs for the UNet model.
 
         Args:
-            dtype_override: This parameter is ignored for this model.
-            batch_size: Optional batch size for the prompts.
+            dtype_override: Optional torch.dtype to override the input dtype.
+            batch_size: Optional batch size for the inputs.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: Dictionary containing sample, timestep, and encoder_hidden_states.
         """
-        prompt = [
-            "a photo of an astronaut riding a horse on mars",
-        ] * batch_size
-        return prompt
+        dtype = dtype_override or torch.bfloat16
+
+        prompt = ["a photo of an astronaut riding a horse on mars"] * batch_size
+        text_input = self.tokenizer(prompt, return_tensors="pt")
+        text_embeddings = self.text_encoder(text_input.input_ids)[0]
+
+        height, width = 512, 512
+        latents = torch.randn((batch_size, self.in_channels, height // 8, width // 8))
+
+        num_inference_steps = 1
+        self.scheduler.set_timesteps(num_inference_steps)
+        latents = latents * self.scheduler.init_noise_sigma
+
+        latent_model_input = self.scheduler.scale_model_input(latents, 0)
+        return {
+            "sample": latent_model_input.to(dtype),
+            "timestep": 0,
+            "encoder_hidden_states": text_embeddings.to(dtype),
+        }
