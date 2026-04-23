@@ -112,6 +112,10 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
         model_kwargs["config"] = config
 
+        # MLX 4-bit weights use packed format (dim/8) incompatible with standard
+        # PyTorch linear layers; ignore size mismatches so the model loads with
+        # re-initialized weights (sufficient for compile-only mode).
+        model_kwargs.setdefault("ignore_mismatched_sizes", True)
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
