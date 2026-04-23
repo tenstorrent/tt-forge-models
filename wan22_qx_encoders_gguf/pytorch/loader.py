@@ -16,7 +16,6 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from huggingface_hub import hf_hub_download  # type: ignore[import]
 from transformers import AutoTokenizer, UMT5EncoderModel  # type: ignore[import]
 
 from ...base import ForgeModel
@@ -32,7 +31,7 @@ from ...config import (
 
 REPO_ID = "Rob1221rib/wan22-qx-encoders-gguf"
 
-# Base UMT5-XXL config source for architecture/tokenizer definition
+# Base UMT5-XXL config source for tokenizer definition
 UMT5_CONFIG = "google/umt5-xxl"
 
 
@@ -100,10 +99,9 @@ class ModelLoader(ForgeModel):
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
         if self._encoder is None:
-            gguf_path = hf_hub_download(REPO_ID, _GGUF_FILES[self._variant])
             self._encoder = UMT5EncoderModel.from_pretrained(
-                UMT5_CONFIG,
-                gguf_file=gguf_path,
+                REPO_ID,
+                gguf_file=_GGUF_FILES[self._variant],
                 torch_dtype=dtype,
             )
             self._encoder.eval()
