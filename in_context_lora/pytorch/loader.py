@@ -4,7 +4,7 @@
 """
 In-Context LoRA for FLUX.1-dev model loader implementation.
 
-Loads the black-forest-labs/FLUX.1-dev base pipeline and applies task-specific
+Loads the camenduru/FLUX.1-dev-ungated base pipeline and applies task-specific
 In-Context LoRA weights from ali-vilab/In-Context-LoRA for multi-task
 text-to-image generation with customizable intrinsic relationships.
 
@@ -37,7 +37,7 @@ from ...config import (
     StrEnum,
 )
 
-BASE_MODEL = "black-forest-labs/FLUX.1-dev"
+BASE_MODEL = "camenduru/FLUX.1-dev-ungated"
 LORA_REPO = "ali-vilab/In-Context-LoRA"
 
 
