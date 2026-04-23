@@ -39,6 +39,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.DEVSTRAL_SMALL_2507_VISION_Q4_K_M
 
     GGUF_FILE = "Devstral-Small-2507-Vision.Q4_K_M.gguf"
+    TOKENIZER_NAME = "mistralai/Devstral-Small-2507-Vision"
 
     sample_text = "Write a Python function that checks if a number is prime."
 
@@ -65,10 +66,9 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self.TOKENIZER_NAME, **tokenizer_kwargs
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
