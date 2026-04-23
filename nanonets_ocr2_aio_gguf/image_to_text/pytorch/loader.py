@@ -7,7 +7,8 @@ prithivMLmods/Nanonets-OCR2-3B-AIO-GGUF model loader implementation for image to
 import importlib.metadata
 from typing import Optional
 
-from transformers import Qwen2VLForConditionalGeneration, AutoProcessor, AutoConfig
+from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
+from transformers.models.qwen2_vl.configuration_qwen2_vl import Qwen2VLConfig
 
 
 def _patch_is_gguf_available():
@@ -180,7 +181,8 @@ class ModelLoader(ForgeModel):
         # text_config.hidden_size. The Qwen2VLConfig default vision hidden_size
         # (3584) does not match the GGUF text hidden_size (2048 for this model),
         # causing the vision merger output dim to mismatch text embeddings.
-        config = AutoConfig.from_pretrained(
+        # Use Qwen2VLConfig directly to bypass AutoConfig's unknown-architecture check.
+        config = Qwen2VLConfig.from_pretrained(
             pretrained_model_name, gguf_file=self._gguf_file
         )
         config.vision_config.hidden_size = config.text_config.hidden_size
@@ -237,7 +239,7 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        config = AutoConfig.from_pretrained(
+        config = Qwen2VLConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self._gguf_file
         )
         config.vision_config.hidden_size = config.text_config.hidden_size
