@@ -26,6 +26,31 @@ from ...config import (
 from ...base import ForgeModel
 
 
+def _patch_asp_for_dtype(model):
+    """Keep AttentiveStatisticsPooling in float32 and wrap it to cast in/out.
+
+    SpeechBrain's ASP forward explicitly calls .float() on a mask tensor, which
+    promotes intermediate tensors to float32 even when the model is bfloat16.
+    We keep ASP and its sub-modules in float32 and wrap the forward to cast
+    the bfloat16 input to float32 on entry and back to bfloat16 on exit.
+    """
+    import types
+
+    for module in model.modules():
+        if module.__class__.__name__ != "AttentiveStatisticsPooling":
+            continue
+        module.float()
+        orig = module.forward.__func__
+
+        def _make_patched(fn):
+            def patched(self, x, lengths=None):
+                return fn(self, x.float(), lengths).to(x.dtype)
+
+            return patched
+
+        module.forward = types.MethodType(_make_patched(orig), module)
+
+
 class ModelVariant(StrEnum):
     """Available griko gender classification model variants."""
 
@@ -72,6 +97,10 @@ class ModelLoader(ForgeModel):
 
         if dtype_override is not None:
             model = model.to(dtype_override)
+            # SpeechBrain's AttentiveStatisticsPooling uses .float() internally,
+            # causing float32/bfloat16 mismatches. Patch ASP layers to run in
+            # float32 and cast the output back to the target dtype.
+            _patch_asp_for_dtype(model)
 
         return model
 
