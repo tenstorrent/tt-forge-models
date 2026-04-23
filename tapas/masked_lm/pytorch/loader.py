@@ -49,7 +49,8 @@ class ModelLoader(ForgeModel):
         self.max_length = self._variant_config.max_length
         self.tokenizer = None
 
-        # Sample table data
+        # Sample table data; dtype=object avoids pandas 3.0 Arrow string backend
+        # incompatibility with the Cell objects TAPAS tokenizer sets internally.
         self.table = pd.DataFrame(
             {
                 "Player": [
@@ -61,7 +62,8 @@ class ModelLoader(ForgeModel):
                 "Goals": ["672", "700", "350", "210"],
                 "Assists": ["303", "220", "240", "100"],
                 "Team": ["Inter Miami", "Al Nassr", "Al Hilal", "PSG"],
-            }
+            },
+            dtype=object,
         )
         self.query = "Lionel Messi plays for [MASK] Miami."
 
