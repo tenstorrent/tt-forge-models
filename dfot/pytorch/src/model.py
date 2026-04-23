@@ -66,6 +66,7 @@ class TimestepMLP(nn.Module):
         self.linear_2 = nn.Linear(time_embed_dim, time_embed_dim)
 
     def forward(self, x):
+        x = x.to(self.linear_1.weight.dtype)
         return self.linear_2(self.act(self.linear_1(x)))
 
 
