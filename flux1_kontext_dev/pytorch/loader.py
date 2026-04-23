@@ -32,7 +32,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.KONTEXT_DEV: ModelConfig(
-            pretrained_model_name="Comfy-Org/flux1-kontext-dev_ComfyUI",
+            pretrained_model_name="black-forest-labs/FLUX.1-Kontext-dev",
         ),
     }
 
