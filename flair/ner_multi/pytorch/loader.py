@@ -9,8 +9,6 @@ with stacked Flair and GloVe embeddings. It recognizes four entity types
 (PER, LOC, ORG, MISC) across multiple languages.
 """
 
-from flair.data import Sentence
-from flair.models import SequenceTagger
 from third_party.tt_forge_models.config import (
     ModelInfo,
     ModelGroup,
@@ -60,6 +58,8 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from flair.models import SequenceTagger
+
         tagger = SequenceTagger.load(self.model_name)
         tagger.eval()
         self.model = tagger
@@ -69,10 +69,14 @@ class ModelLoader(ForgeModel):
         if self.model is None:
             self.load_model(dtype_override=dtype_override)
 
+        from flair.data import Sentence
+
         sentence = Sentence(self.sample_text)
         return [sentence]
 
     def decode_output(self, co_out):
+        from flair.data import Sentence
+
         sentence = Sentence(self.sample_text)
         self.model.predict(sentence)
         entities = sentence.get_spans("ner")

@@ -10,9 +10,6 @@ to predict fine-grained Penn Treebank style POS tags (47 classes).
 
 from typing import Optional
 
-from flair.data import Sentence
-from flair.models import SequenceTagger
-
 from ....base import ForgeModel
 from ....config import (
     ModelConfig,
@@ -62,6 +59,8 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from flair.models import SequenceTagger
+
         tagger = SequenceTagger.load(self.model_name)
 
         if dtype_override is not None:
@@ -75,10 +74,14 @@ class ModelLoader(ForgeModel):
         if self.model is None:
             self.load_model(dtype_override=dtype_override)
 
+        from flair.data import Sentence
+
         sentence = Sentence(self.sample_text)
         return [sentence]
 
     def decode_output(self, co_out):
+        from flair.data import Sentence
+
         sentence = Sentence(self.sample_text)
         self.model.predict(sentence)
 

@@ -9,8 +9,6 @@ for Arabic Named Entity Recognition using the Flair NLP framework.
 """
 
 import torch.nn as nn
-from flair.data import Sentence
-from flair.models import SequenceTagger
 
 from ...config import (
     ModelConfig,
@@ -85,6 +83,8 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load Flair Arabic Multi NER SequenceTagger model."""
+        from flair.models import SequenceTagger
+
         tagger = SequenceTagger.load(self.model_name)
         model = FlairNERWrapper(tagger)
         model.eval()
@@ -95,6 +95,8 @@ class ModelLoader(ForgeModel):
         """Prepare sample input for Flair Arabic NER."""
         if self.model is None:
             self.load_model(dtype_override=dtype_override)
+
+        from flair.data import Sentence
 
         sentence = Sentence(self.sample_text)
         return (sentence,)

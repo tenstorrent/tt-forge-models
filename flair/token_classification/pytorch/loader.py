@@ -11,7 +11,6 @@ a standard PyTorch module that accepts tensor inputs.
 
 import torch
 import torch.nn as nn
-from flair.models import SequenceTagger
 from transformers import AutoTokenizer
 from typing import Optional
 
@@ -42,6 +41,8 @@ class FlairNERWrapper(nn.Module):
 
     def __init__(self, model_name):
         super().__init__()
+        from flair.models import SequenceTagger
+
         tagger = SequenceTagger.load(model_name)
         self.transformer = tagger.embeddings.model.model
         self.classifier = tagger.linear
