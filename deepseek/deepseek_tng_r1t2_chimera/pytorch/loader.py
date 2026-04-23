@@ -47,21 +47,9 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        config = AutoConfig.from_pretrained(self.model_name, trust_remote_code=True)
-
-        # tngtech repo has auto_map pointing to modeling_deepseek.py which doesn't
-        # exist there; remove it so from_config uses the registered deepseek class
-        if hasattr(config, "auto_map"):
-            del config.auto_map
-
-        # Custom configuration_deepseek.py uses different attribute names than the
-        # registered DeepseekV3Config in transformers:
-        # - qk_head_dim is a property (qk_nope_head_dim + qk_rope_head_dim)
-        # - n_routed_experts maps to num_local_experts
-        if not hasattr(config, "qk_head_dim"):
-            config.qk_head_dim = config.qk_nope_head_dim + config.qk_rope_head_dim
-        if not hasattr(config, "num_local_experts"):
-            config.num_local_experts = config.n_routed_experts
+        # tngtech repo's custom config uses different attribute names than the
+        # registered DeepseekV3Config; use a compatible upstream config instead
+        config = AutoConfig.from_pretrained("unsloth/DeepSeek-V3-0324-BF16")
 
         # Reduce model dimensions for testing
         if self.num_layers is not None:
@@ -74,7 +62,6 @@ class ModelLoader(ForgeModel):
         config.intermediate_size = 1024 * 4
         config.num_experts_per_tok = 2
         config.q_lora_rank = 256
-        config.use_flash_attention = False
 
         model_kwargs = {
             "attn_implementation": "eager",
