@@ -77,8 +77,9 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.gguf_file
 
+        # Load tokenizer without gguf_file so the chat_template from the repo's
+        # tokenizer_config.json is preserved (GGUF format omits chat templates).
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
