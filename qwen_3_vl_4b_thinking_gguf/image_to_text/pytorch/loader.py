@@ -68,6 +68,15 @@ def _patched_get_gguf_hf_weights_map(
         model_type = hf_model.config.model_type
     if model_type == "qwen3_vl":
         model_type = "qwen3vl"
+        # Qwen3VLConfig nests num_hidden_layers inside text_config; the base
+        # get_gguf_hf_weights_map reads it from the top-level config, so we
+        # must resolve it here before handing off.
+        if (
+            num_layers is None
+            and hasattr(hf_model, "config")
+            and hasattr(hf_model.config, "text_config")
+        ):
+            num_layers = hf_model.config.text_config.num_hidden_layers
     return _orig_get_gguf_hf_weights_map(
         hf_model,
         processor,
