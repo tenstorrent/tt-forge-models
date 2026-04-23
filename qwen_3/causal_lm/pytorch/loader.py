@@ -69,6 +69,8 @@ class ModelVariant(StrEnum):
     QWEN_3_32B_UNSLOTH_BNB_4BIT = "32B_Unsloth_bnb_4bit"
     QWEN_3_235B_A22B_THINKING_2507_FP8 = "235B_A22B_Thinking_2507_FP8"
     QWEN_3_32B_T_PRO_IT_2_0 = "32B_T_pro_it_2.0"
+    QWEN_3_1_7B_GGUF = "1_7B_GGUF"
+    QWEN_3_32B_GUARDPOINT_GGUF = "32B_Guardpoint_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -218,6 +220,14 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_32B_T_PRO_IT_2_0: LLMModelConfig(
             pretrained_model_name="t-tech/T-pro-it-2.0",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_1_7B_GGUF: LLMModelConfig(
+            pretrained_model_name="geoffmunn/Qwen3-1.7B-f16",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_32B_GUARDPOINT_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/Qwen3-32B-Guardpoint-i1-GGUF",
             max_length=128,
         ),
     }
