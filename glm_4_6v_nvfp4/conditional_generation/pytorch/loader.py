@@ -83,6 +83,16 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
         model.eval()
+
+        # NVFP4 static activation scales are calibrated for fixed sequence lengths;
+        # disable activation quantization so variable-length inputs are supported.
+        for module in model.modules():
+            if hasattr(module, "scheme") and module.scheme is not None:
+                if hasattr(module.scheme, "input_activations"):
+                    module.scheme.input_activations = None
+                if hasattr(module.scheme, "output_activations"):
+                    module.scheme.output_activations = None
+
         self.model = model
         self.config = model.config
         return model
