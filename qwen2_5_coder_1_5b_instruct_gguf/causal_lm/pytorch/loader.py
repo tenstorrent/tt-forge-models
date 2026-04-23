@@ -4,6 +4,8 @@
 """
 Qwen 2.5 Coder 1.5B Instruct GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
+import inspect
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -18,6 +20,45 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _prepare_gguf_env():
+    """Fix two runtime GGUF issues before any transformers GGUF call.
+
+    1. PACKAGE_DISTRIBUTION_MAPPING fix: transformers caches
+       importlib.metadata.packages_distributions() at import time. If gguf is
+       installed mid-session the cached map is stale, causing is_gguf_available()
+       to return version 'N/A' and packaging.version.InvalidVersion. Refresh it.
+
+    2. model_to_load fix: some model loaders patch load_gguf_checkpoint with a
+       signature that omits model_to_load. Newer transformers passes that kwarg,
+       raising TypeError. Wrap the live function at call time to accept it.
+    """
+    import transformers.configuration_utils as _config_utils
+    import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+    import transformers.modeling_utils as _modeling_utils
+    import transformers.models.auto.tokenization_auto as _auto_tokenizer
+    import transformers.utils.import_utils as _import_utils
+
+    # Fix 1: refresh stale PACKAGE_DISTRIBUTION_MAPPING
+    if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+        try:
+            _import_utils.PACKAGE_DISTRIBUTION_MAPPING.update(
+                importlib.metadata.packages_distributions()
+            )
+        except Exception:
+            pass
+
+    # Fix 2: ensure load_gguf_checkpoint accepts model_to_load
+    current = _gguf_utils.load_gguf_checkpoint
+    if "model_to_load" not in inspect.signature(current).parameters:
+        _captured = current
+
+        def _wrapped(gguf_path, return_tensors=False, model_to_load=None):
+            return _captured(gguf_path, return_tensors=return_tensors)
+
+        for _mod in (_gguf_utils, _config_utils, _auto_tokenizer, _modeling_utils):
+            _mod.load_gguf_checkpoint = _wrapped
 
 
 class ModelVariant(StrEnum):
@@ -90,6 +131,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _prepare_gguf_env()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -168,6 +210,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        _prepare_gguf_env()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
         )
