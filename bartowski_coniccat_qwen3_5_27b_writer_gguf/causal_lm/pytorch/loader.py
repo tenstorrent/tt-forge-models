@@ -24,16 +24,22 @@ def _patch_qwen35_support():
 
     Qwen 3.5 uses the same model architecture as Qwen 3 but the GGUF file
     declares architecture as 'qwen35' and tokenizer class as 'qwen3_5_text',
-    which transformers 5.x does not yet recognise.
+    which transformers 5.x does not yet recognise. Qwen 3.5 uses head_dim=256
+    (stored as attention.key_length in the GGUF metadata) which must be mapped
+    explicitly since the base qwen3 mapping omits it.
     """
     if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
         GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
     for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
         if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
-            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
-                "qwen35",
-                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
-            )
+            if "qwen35" not in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+                qwen35_mapping = dict(
+                    _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"]
+                )
+                qwen35_mapping["attention.key_length"] = "head_dim"
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section][
+                    "qwen35"
+                ] = qwen35_mapping
     if "qwen3" in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
         GGUF_TO_FAST_CONVERTERS.setdefault(
