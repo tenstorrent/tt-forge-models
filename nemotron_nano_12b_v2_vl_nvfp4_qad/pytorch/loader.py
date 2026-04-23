@@ -6,6 +6,7 @@ NVIDIA Nemotron Nano 12B v2 VL NVFP4-QAD model loader implementation for image t
 """
 
 from transformers import AutoModel, AutoProcessor
+from transformers.modeling_utils import PreTrainedModel
 from PIL import Image
 from typing import Optional
 
@@ -20,6 +21,20 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+
+# Fix: NemotronH_Nano_VL_V2 doesn't call post_init() so all_tied_weights_keys is never set.
+# Patch the method that first accesses it to initialize the attribute if missing.
+_orig_adjust_tied = PreTrainedModel._adjust_tied_keys_with_tied_pointers
+
+
+def _safe_adjust_tied(self, missing_keys):
+    if not hasattr(self, "all_tied_weights_keys"):
+        self.all_tied_weights_keys = {}
+    _orig_adjust_tied(self, missing_keys)
+
+
+PreTrainedModel._adjust_tied_keys_with_tied_pointers = _safe_adjust_tied
 
 
 class ModelVariant(StrEnum):
