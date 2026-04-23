@@ -32,7 +32,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.OV_TINY_RANDOM_GPT2_WITH_CACHE: LLMModelConfig(
-            pretrained_model_name="optimum-intel-internal-testing/ov-tiny-random-gpt2-with-cache",
+            pretrained_model_name="peft-internal-testing/tiny-random-GPT2LMHeadModel",
             max_length=128,
         ),
     }
@@ -62,13 +62,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
-            **tokenizer_kwargs,
         )
 
         return self.tokenizer
@@ -81,7 +76,7 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
