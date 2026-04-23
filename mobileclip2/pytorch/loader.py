@@ -28,11 +28,12 @@ class ModelVariant(StrEnum):
     S4 = "S4"
 
 
-# Mapping from variant to OpenCLIP tokenizer name
+# Mapping from variant to OpenCLIP tokenizer name (use hf-hub path since
+# MobileCLIP2 configs aren't registered in the open_clip model registry)
 _TOKENIZER_NAME = {
-    ModelVariant.S0: "MobileCLIP2-S0",
-    ModelVariant.S2: "MobileCLIP2-S2",
-    ModelVariant.S4: "MobileCLIP2-S4",
+    ModelVariant.S0: "hf-hub:timm/MobileCLIP2-S0-OpenCLIP",
+    ModelVariant.S2: "hf-hub:timm/MobileCLIP2-S2-OpenCLIP",
+    ModelVariant.S4: "hf-hub:timm/MobileCLIP2-S4-OpenCLIP",
 }
 
 
