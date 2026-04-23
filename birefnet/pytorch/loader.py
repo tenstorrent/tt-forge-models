@@ -85,9 +85,8 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
-        model_kwargs["dtype"] = (
-            dtype_override if dtype_override is not None else torch.float32
-        )
+        # deform_conv2d (used in BiRefNet) doesn't support BFloat16, force float32
+        model_kwargs["dtype"] = torch.float32
         model_kwargs |= kwargs
 
         model = AutoModelForImageSegmentation.from_pretrained(
@@ -110,8 +109,7 @@ class ModelLoader(ForgeModel):
 
         inputs = self.transform_image(self.image).unsqueeze(0)
 
-        if dtype_override is not None:
-            inputs = inputs.to(dtype_override)
+        # Keep inputs as float32 to match model dtype (deform_conv2d doesn't support BFloat16)
 
         if batch_size > 1:
             inputs = inputs.repeat(batch_size, 1, 1, 1)
