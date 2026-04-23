@@ -12,6 +12,7 @@ FluxPipeline built from the original black-forest-labs/FLUX.1-dev
 repository.
 """
 
+import importlib.metadata
 from typing import Optional
 
 import torch
@@ -75,8 +76,25 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _fix_gguf_version_detection():
+        """Fix gguf availability flag when gguf is installed at runtime by RequirementsManager.
+
+        diffusers sets _gguf_available at import time. When gguf is installed later,
+        the cached flag remains False and GGUF loading fails. Patch it directly.
+        """
+        import diffusers.utils.import_utils as _import_utils
+
+        if not _import_utils.is_gguf_available():
+            try:
+                importlib.metadata.version("gguf")
+                _import_utils._gguf_available = True
+            except importlib.metadata.PackageNotFoundError:
+                pass
+
     def _load_pipeline(self, dtype: torch.dtype = torch.bfloat16):
         """Load the FluxPipeline with a GGUF-quantized transformer."""
+        self._fix_gguf_version_detection()
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=dtype)
 
