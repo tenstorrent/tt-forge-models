@@ -1,1 +1,10 @@
-gptqmodel
+# gptqmodel lightweight deps (installed without gptqmodel itself to avoid
+# gptqmodel's numpy==2.2.6 / torchao pins that conflict with the base env).
+# gptqmodel is installed via requirements.nodeps.txt (--no-deps).
+logbar
+defuser
+device-smi
+tokenicer
+tomlkit
+pypcre
+kernels
