@@ -8,6 +8,28 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+
+def _patch_gguf_availability():
+    """Work around transformers bug where gguf version detection fails.
+
+    gguf is absent from transformers' PACKAGE_DISTRIBUTION_MAPPING, so the
+    fallback uses getattr(gguf, "__version__", "N/A"), but gguf exposes no
+    __version__ attribute.  version.parse("N/A") then raises InvalidVersion.
+    Adding 'gguf' to the mapping lets importlib.metadata resolve the real
+    version string (e.g. "0.18.0") and clears the stale lru_cache entry.
+    """
+    from transformers.utils.import_utils import (
+        PACKAGE_DISTRIBUTION_MAPPING,
+        is_gguf_available,
+    )
+
+    if "gguf" not in PACKAGE_DISTRIBUTION_MAPPING:
+        PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+    is_gguf_available.cache_clear()
+
+
+_patch_gguf_availability()
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
