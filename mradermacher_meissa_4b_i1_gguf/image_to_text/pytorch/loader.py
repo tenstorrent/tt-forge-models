@@ -6,7 +6,6 @@ mradermacher/Meissa-4B-i1-GGUF model loader implementation for image to text.
 """
 
 from transformers import (
-    Qwen3VLConfig,
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
 )
@@ -86,14 +85,37 @@ def _patch_transformers_qwen3vl_gguf():
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
 
-    # 5. Patch load_gguf_checkpoint to remap model_type qwen3 -> qwen3_vl
+    # 5. Patch load_gguf_checkpoint to remap model_type and restructure config
+    #    so that flat text-model fields are nested under 'text_config', which is
+    #    required for Qwen3VLConfig to be initialised with correct dimensions.
+    _TEXT_CONFIG_KEYS = frozenset(
+        {
+            "num_hidden_layers",
+            "hidden_size",
+            "intermediate_size",
+            "num_attention_heads",
+            "num_key_value_heads",
+            "vocab_size",
+            "max_position_embeddings",
+            "rope_theta",
+            "rms_norm_eps",
+            "tie_word_embeddings",
+            "head_dim",
+        }
+    )
+
     orig_load = gguf_utils.load_gguf_checkpoint
 
     def patched_load_gguf_checkpoint(*args, **kwargs):
         result = orig_load(*args, **kwargs)
         config = result.get("config", {})
         if config.get("model_type") in ("qwen3", "qwen3vl"):
+            text_cfg = {
+                k: config.pop(k) for k in list(config.keys()) if k in _TEXT_CONFIG_KEYS
+            }
             config["model_type"] = "qwen3_vl"
+            if text_cfg:
+                config["text_config"] = text_cfg
         return result
 
     gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
@@ -165,11 +187,8 @@ class ModelLoader(ForgeModel):
         # GGUF repos do not ship a processor; use the base model
         self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-4B-Instruct")
 
-        # Pass explicit config so random_weights AutoConfig skips GGUF parsing
-        # (qwen3vl architecture is not yet registered in transformers GGUF support).
-        config = Qwen3VLConfig()
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, config=config, **model_kwargs
+            pretrained_model_name, **model_kwargs
         )
         model.eval()
 
