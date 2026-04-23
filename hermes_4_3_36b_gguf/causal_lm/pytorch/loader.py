@@ -40,9 +40,9 @@ def _patch_seed_oss_support():
         GGUF_TO_FAST_CONVERTERS["seed_oss"] = GGUF_TO_FAST_CONVERTERS["qwen3"]
     if hasattr(_gguf_utils, "GGUF_CONFIG_DEFAULTS_MAPPING"):
         if "qwen3" in _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING:
-            _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["seed_oss"] = (
-                _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["qwen3"]
-            )
+            _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING[
+                "seed_oss"
+            ] = _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["qwen3"]
 
 
 def _patched_load_gguf_checkpoint(*args, **kwargs):
@@ -136,12 +136,15 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, gguf_file=self.GGUF_FILE
+        )
+        # seed-coder tokenizer has 155,136 tokens vs qwen3's 151,936 default;
+        # align embedding table to the actual tokenizer vocabulary.
+        config.vocab_size = len(self.tokenizer)
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
