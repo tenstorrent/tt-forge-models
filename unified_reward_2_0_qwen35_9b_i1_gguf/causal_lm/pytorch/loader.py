@@ -42,7 +42,9 @@ def _patch_qwen35_support():
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     """Wrap load_gguf_checkpoint to add qwen35 support and accept all kwargs."""
     _patch_qwen35_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
     if result.get("config", {}).get("model_type") == "qwen35":
         result["config"]["model_type"] = "qwen3"
     return result
@@ -132,6 +134,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["ignore_mismatched_sizes"] = True
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
