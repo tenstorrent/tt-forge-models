@@ -2,10 +2,11 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Qwen 3.5 27B HERETIC Polaris Advanced Thinking Alpha Uncensored model loader implementation for image to text.
+Qwen 3.5 27B HERETIC Polaris Advanced Thinking Alpha Uncensored model loader implementation for causal language modeling.
 """
 
-from transformers import AutoModelForImageTextToText, AutoProcessor
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -21,13 +22,13 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Qwen 3.5 27B HERETIC Polaris model variants for image to text."""
+    """Available Qwen 3.5 27B HERETIC Polaris model variants."""
 
     QWEN_3_5_27B_HERETIC_POLARIS = "27B_HERETIC_POLARIS"
 
 
 class ModelLoader(ForgeModel):
-    """Qwen 3.5 27B HERETIC Polaris model loader implementation for image to text tasks."""
+    """Qwen 3.5 27B HERETIC Polaris model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.QWEN_3_5_27B_HERETIC_POLARIS: LLMModelConfig(
@@ -38,9 +39,11 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.QWEN_3_5_27B_HERETIC_POLARIS
 
+    sample_text = "How often does the letter r occur in strawberry?"
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.processor = None
+        self.tokenizer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -48,7 +51,7 @@ class ModelLoader(ForgeModel):
             model="Qwen 3.5 27B HERETIC Polaris",
             variant=variant,
             group=ModelGroup.VULCAN,
-            task=ModelTask.NLP_IMAGE_TO_TEXT,
+            task=ModelTask.NLP_CAUSAL_LM,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
@@ -56,15 +59,17 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {}
+        if self.tokenizer is None:
+            self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+
+        model_kwargs = {"low_cpu_mem_usage": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
         model_kwargs |= kwargs
 
-        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
-
-        model = AutoModelForImageTextToText.from_pretrained(
+        model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
         model.eval()
@@ -72,24 +77,21 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
-                    },
-                    {"type": "text", "text": "Describe this image."},
-                ],
-            }
-        ]
+        if self.tokenizer is None:
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name
+            )
+            self.tokenizer.pad_token = self.tokenizer.eos_token
 
-        inputs = self.processor.apply_chat_template(
-            messages,
-            tokenize=True,
-            add_generation_prompt=True,
-            return_dict=True,
+        inputs = self.tokenizer(
+            self.sample_text,
             return_tensors="pt",
+            padding=True,
+            truncation=True,
         )
+
+        for key in inputs:
+            if torch.is_tensor(inputs[key]):
+                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+
         return inputs
