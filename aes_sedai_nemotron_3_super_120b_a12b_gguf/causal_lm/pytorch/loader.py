@@ -64,7 +64,7 @@ _NEMOTRON_H_MOE_CONFIG_MAPPING = {
 
 
 def _patch_nemotron_h_moe_support():
-    """Register nemotron_h_moe GGUF architecture and NemotronHConfig."""
+    """Register nemotron_h_moe GGUF architecture support."""
     if "nemotron_h_moe" in GGUF_SUPPORTED_ARCHITECTURES:
         return
 
@@ -82,88 +82,10 @@ def _patch_nemotron_h_moe_support():
     # Reuse nemotron tensor processor (handles norm.weight offset)
     TENSOR_PROCESSORS["nemotron_h_moe"] = NemotronTensorProcessor
 
-    # Reuse nemotron fast tokenizer converter if available
+    # Reuse nemotron fast tokenizer converter for both arch names
     if "nemotron" in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["nemotron_h_moe"] = GGUF_TO_FAST_CONVERTERS["nemotron"]
-
-    # Register NemotronHConfig from HEAD transformers (installed in /tmp)
-    _register_nemotron_h_config()
-
-
-def _register_nemotron_h_config():
-    """Register a minimal NemotronH config stub in the auto config mapping.
-
-    The installed transformers does not know about nemotron_h, so we register a
-    minimal PreTrainedConfig subclass that accepts the GGUF-extracted fields.
-    This is sufficient for tokenizer loading and config introspection.
-    """
-    from transformers import PreTrainedConfig
-    from transformers.models.auto.configuration_auto import CONFIG_MAPPING
-
-    if "nemotron_h" in CONFIG_MAPPING:
-        return
-
-    class NemotronHConfigStub(PreTrainedConfig):
-        model_type = "nemotron_h"
-
-        def __init__(
-            self,
-            vocab_size=131072,
-            hidden_size=4096,
-            num_hidden_layers=88,
-            num_attention_heads=32,
-            num_key_value_heads=2,
-            intermediate_size=2688,
-            max_position_embeddings=1048576,
-            rope_theta=10000.0,
-            layer_norm_epsilon=1e-5,
-            conv_kernel=4,
-            ssm_state_size=128,
-            n_groups=8,
-            num_experts_per_tok=22,
-            n_group=1,
-            moe_intermediate_size=2688,
-            moe_shared_expert_intermediate_size=5376,
-            n_routed_experts=512,
-            n_shared_experts=1,
-            moe_latent_size=1024,
-            hybrid_override_pattern=None,
-            **kwargs,
-        ):
-            super().__init__(**kwargs)
-            self.vocab_size = vocab_size
-            self.hidden_size = hidden_size
-            self.num_hidden_layers = num_hidden_layers
-            self.num_attention_heads = num_attention_heads
-            self.num_key_value_heads = num_key_value_heads
-            self.intermediate_size = intermediate_size
-            self.max_position_embeddings = max_position_embeddings
-            self.rope_theta = rope_theta
-            self.layer_norm_epsilon = layer_norm_epsilon
-            self.conv_kernel = conv_kernel
-            self.ssm_state_size = ssm_state_size
-            self.n_groups = n_groups
-            self.num_experts_per_tok = num_experts_per_tok
-            self.n_group = n_group
-            self.moe_intermediate_size = moe_intermediate_size
-            self.moe_shared_expert_intermediate_size = (
-                moe_shared_expert_intermediate_size
-            )
-            self.n_routed_experts = n_routed_experts
-            self.n_shared_experts = n_shared_experts
-            self.moe_latent_size = moe_latent_size
-            self.hybrid_override_pattern = hybrid_override_pattern
-
-    CONFIG_MAPPING["nemotron_h"] = NemotronHConfigStub
-
-    try:
-        from transformers.models.auto.modeling_auto import (
-            MODEL_FOR_CAUSAL_LM_MAPPING_NAMES,
-        )
-
-        MODEL_FOR_CAUSAL_LM_MAPPING_NAMES["nemotron_h"] = "NemotronHForCausalLM"
-    except (ImportError, AttributeError):
-        pass
+        GGUF_TO_FAST_CONVERTERS["nemotron_h"] = GGUF_TO_FAST_CONVERTERS["nemotron"]
 
 
 def _patched_load_gguf_checkpoint(*args, **kwargs):
@@ -174,9 +96,12 @@ def _patched_load_gguf_checkpoint(*args, **kwargs):
     if cfg.get("model_type") == "nemotron_h_moe":
         cfg["model_type"] = "nemotron_h"
         cfg["hybrid_override_pattern"] = _HYBRID_OVERRIDE_PATTERN
-        # GGUF reports 0 KV heads for MHA layers; use actual value from config
-        if cfg.get("num_key_value_heads", 0) == 0:
-            cfg["num_key_value_heads"] = 2
+        # GGUF reports per-layer lists for hybrid models (0 for non-applicable layers)
+        for key in list(cfg.keys()):
+            val = cfg[key]
+            if isinstance(val, list):
+                nonzero = [v for v in val if v and v != 0]
+                cfg[key] = nonzero[0] if nonzero else 0
     return result
 
 
