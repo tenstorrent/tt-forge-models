@@ -98,9 +98,10 @@ class ModelLoader(ForgeModel):
 
         # The MLX-community 8bit model has an MLX-style quantization_config
         # (bits/group_size/mode) that lacks the `quant_method` field required
-        # by transformers. Load with a clean config to avoid the error.
+        # by transformers. Delete the attribute so transformers skips quantization.
         config = AutoConfig.from_pretrained(pretrained_model_name)
-        config.quantization_config = None
+        if hasattr(config, "quantization_config"):
+            del config.quantization_config
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, config=config, **model_kwargs
