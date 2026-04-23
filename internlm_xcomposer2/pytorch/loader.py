@@ -90,9 +90,32 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        # Transformers 5.x always wraps model __init__ in torch.device("meta") via
+        # get_init_context. InternLM-XComposer2's __init__ calls
+        # CLIPVisionModel.from_pretrained nested inside that meta context, which newer
+        # transformers rejects. Temporarily disable the meta device context for loading.
+        from transformers.modeling_utils import PreTrainedModel
+
+        _orig_get_init_context = PreTrainedModel.get_init_context.__func__
+
+        @classmethod
+        def _no_meta_get_init_context(cls, dtype, is_quantized, _is_ds_init_called):
+            contexts = _orig_get_init_context(
+                cls, dtype, is_quantized, _is_ds_init_called
+            )
+            return [
+                c
+                for c in contexts
+                if not (isinstance(c, torch.device) and c.type == "meta")
+            ]
+
+        PreTrainedModel.get_init_context = _no_meta_get_init_context
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+        finally:
+            PreTrainedModel.get_init_context = classmethod(_orig_get_init_context)
         model.eval()
         self.model = model
 
