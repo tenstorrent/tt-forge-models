@@ -5,7 +5,7 @@
 InternVL3.5 GGUF model loader implementation for image to text.
 """
 
-from transformers import AutoModelForImageTextToText, AutoProcessor
+from transformers import InternVLForConditionalGeneration, AutoProcessor
 from typing import Optional
 
 from ....base import ForgeModel
@@ -32,37 +32,26 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """InternVL3.5 GGUF model loader implementation for image to text tasks."""
 
+    # Transformers GGUF support cannot load InternVL from bartowski's GGUF files
+    # because those use the llama.cpp split format (qwen3 backbone + separate mmproj),
+    # which transformers does not support. Load from the base HF model instead.
     _VARIANTS = {
         ModelVariant.INTERN_VL3_5_4B_Q4_K_M: LLMModelConfig(
-            pretrained_model_name="bartowski/OpenGVLab_InternVL3_5-4B-GGUF",
+            pretrained_model_name="OpenGVLab/InternVL3_5-4B-HF",
             max_length=128,
         ),
         ModelVariant.INTERN_VL3_5_4B_Q8_0: LLMModelConfig(
-            pretrained_model_name="bartowski/OpenGVLab_InternVL3_5-4B-GGUF",
+            pretrained_model_name="OpenGVLab/InternVL3_5-4B-HF",
             max_length=128,
         ),
         ModelVariant.INTERN_VL3_5_14B_Q4_K_M: LLMModelConfig(
-            pretrained_model_name="bartowski/OpenGVLab_InternVL3_5-14B-GGUF",
+            pretrained_model_name="OpenGVLab/InternVL3_5-14B-HF",
             max_length=128,
         ),
         ModelVariant.INTERN_VL3_5_14B_Q8_0: LLMModelConfig(
-            pretrained_model_name="bartowski/OpenGVLab_InternVL3_5-14B-GGUF",
+            pretrained_model_name="OpenGVLab/InternVL3_5-14B-HF",
             max_length=128,
         ),
-    }
-
-    _GGUF_FILES = {
-        ModelVariant.INTERN_VL3_5_4B_Q4_K_M: "OpenGVLab_InternVL3_5-4B-Q4_K_M.gguf",
-        ModelVariant.INTERN_VL3_5_4B_Q8_0: "OpenGVLab_InternVL3_5-4B-Q8_0.gguf",
-        ModelVariant.INTERN_VL3_5_14B_Q4_K_M: "OpenGVLab_InternVL3_5-14B-Q4_K_M.gguf",
-        ModelVariant.INTERN_VL3_5_14B_Q8_0: "OpenGVLab_InternVL3_5-14B-Q8_0.gguf",
-    }
-
-    _HF_PROCESSORS = {
-        ModelVariant.INTERN_VL3_5_4B_Q4_K_M: "OpenGVLab/InternVL3_5-4B-HF",
-        ModelVariant.INTERN_VL3_5_4B_Q8_0: "OpenGVLab/InternVL3_5-4B-HF",
-        ModelVariant.INTERN_VL3_5_14B_Q4_K_M: "OpenGVLab/InternVL3_5-14B-HF",
-        ModelVariant.INTERN_VL3_5_14B_Q8_0: "OpenGVLab/InternVL3_5-14B-HF",
     }
 
     DEFAULT_VARIANT = ModelVariant.INTERN_VL3_5_4B_Q4_K_M
@@ -88,21 +77,16 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
-        gguf_file = self._GGUF_FILES[self._variant]
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
-        model_kwargs["gguf_file"] = gguf_file
         model_kwargs |= kwargs
 
-        self.processor = AutoProcessor.from_pretrained(
-            self._HF_PROCESSORS[self._variant],
-            trust_remote_code=True,
-        )
+        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
 
-        model = AutoModelForImageTextToText.from_pretrained(
+        model = InternVLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
         model.eval()
