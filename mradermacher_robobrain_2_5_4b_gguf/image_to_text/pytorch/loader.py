@@ -29,6 +29,8 @@ def _patch_transformers_qwen3vl_gguf():
     The qwen3vl architecture (Qwen3-VL vision-language models) is not yet
     registered in transformers' GGUF loader. We reuse the qwen3 config key
     mapping for the text portion and fix the model_type in the parsed config.
+    We also patch get_gguf_hf_weights_map to translate qwen3_vl -> qwen3vl
+    for the gguf-py tensor name lookup.
     """
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
@@ -70,6 +72,21 @@ def _patch_transformers_qwen3vl_gguf():
     for mod in (tok_auto, config_utils, modeling_utils):
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+    # Patch get_gguf_hf_weights_map to translate qwen3_vl -> qwen3vl for
+    # gguf-py MODEL_ARCH_NAMES lookup (transformers uses underscores, gguf-py
+    # uses camelCase without underscores for VL architectures)
+    orig_weights_map = gguf_utils.get_gguf_hf_weights_map
+
+    def _patched_get_gguf_hf_weights_map(hf_model, model_type=None, num_layers=None):
+        mt = model_type
+        if mt is None and hasattr(hf_model, "config"):
+            mt = hf_model.config.model_type
+        if mt == "qwen3_vl":
+            model_type = "qwen3vl"
+        return orig_weights_map(hf_model, model_type=model_type, num_layers=num_layers)
+
+    gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 
 _patch_transformers_qwen3vl_gguf()
