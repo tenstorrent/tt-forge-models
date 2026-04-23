@@ -5,6 +5,10 @@
 bartowski kurage-en GGUF model loader implementation for causal language modeling.
 """
 import torch
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.configuration_utils as _config_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_base as _tok_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -93,6 +97,20 @@ class ModelLoader(ForgeModel):
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
+
+        # Wrap whatever load_gguf_checkpoint is currently installed so it accepts
+        # model_to_load (added in transformers 5.2.0). Other loaders may have
+        # patched it with a narrow signature that omits this parameter.
+        _current_load_gguf = _gguf_utils.load_gguf_checkpoint
+
+        def _compat_load_gguf(*args, **kw):
+            kw.pop("model_to_load", None)
+            return _current_load_gguf(*args, **kw)
+
+        _gguf_utils.load_gguf_checkpoint = _compat_load_gguf
+        _config_utils.load_gguf_checkpoint = _compat_load_gguf
+        _auto_tokenizer.load_gguf_checkpoint = _compat_load_gguf
+        _tok_utils.load_gguf_checkpoint = _compat_load_gguf
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
