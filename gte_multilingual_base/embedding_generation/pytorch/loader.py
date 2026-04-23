@@ -98,6 +98,18 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
+        # The custom Alibaba-NLP/new-impl model has a persistent=False position_ids
+        # buffer that contains garbage values when loaded with torch 2.9+. Pass
+        # position_ids explicitly to bypass the internal buffer computation.
+        seq_length = inputs["input_ids"].shape[1]
+        batch_size = inputs["input_ids"].shape[0]
+        inputs["position_ids"] = (
+            torch.arange(seq_length, dtype=torch.long)
+            .unsqueeze(0)
+            .expand(batch_size, -1)
+            .contiguous()
+        )
+
         if dtype_override is not None:
             for key, value in inputs.items():
                 if isinstance(value, torch.Tensor) and value.dtype == torch.float32:
