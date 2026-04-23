@@ -1,0 +1,5 @@
+results:
+- test_name: "tests/runner/test_models.py::test_all_models_torch[minimax_m2_thrift/causal_lm/pytorch-M2-THRIFT-single_device-inference]"
+  status: "MODEL_TOO_LARGE"
+  date: "20260423_033325"
+  branch: "ip-172-31-23-5-tt-xla-dev/ubuntu/2026-04-23_02-28/hf-bringup-33"
