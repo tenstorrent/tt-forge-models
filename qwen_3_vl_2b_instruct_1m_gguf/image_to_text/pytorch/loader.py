@@ -40,9 +40,13 @@ def _patch_transformers_qwen3vl_gguf():
     """Monkey-patch transformers to add qwen3vl GGUF architecture support.
 
     Transformers 5.2.0 knows about qwen3 (text-only) but not qwen3vl (the
-    vision-language variant).  We bridge the gap by registering the
-    architecture in the GGUF tables and post-processing the config dict so
-    that Qwen3VLConfig.from_dict receives a properly nested text_config.
+    vision-language variant).  We bridge the gap by:
+
+    1. Registering qwen3vl in the GGUF architecture tables.
+    2. Wrapping load_gguf_checkpoint to post-process the config dict so that
+       Qwen3VLConfig.from_dict receives a properly nested text_config.
+    3. Handling the tensor-loading phase ourselves because other patches in
+       the chain do not propagate the model_to_load argument.
     """
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
@@ -79,22 +83,78 @@ def _patch_transformers_qwen3vl_gguf():
     if "qwen3vl" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["qwen3vl"] = GGUFQwen2Converter
 
-    # 4. Post-process the config dict:
-    #    - change model_type from "qwen3vl" to "qwen3_vl"
-    #    - nest text-model fields under text_config so Qwen3VLConfig.from_dict works
+    # 4. Wrap load_gguf_checkpoint
+    #
+    #    Other patches in the chain (from other GGUF loaders) have hard-coded
+    #    two-argument signatures and silently drop the model_to_load kwarg
+    #    introduced in transformers 5.2.  We must NOT propagate model_to_load
+    #    through the chain; instead we handle tensor loading directly.
     orig_load = gguf_utils.load_gguf_checkpoint
 
-    def patched_load_gguf_checkpoint(*args, **kwargs):
-        result = orig_load(*args, **kwargs)
+    def patched_load_gguf_checkpoint(
+        gguf_checkpoint_path, return_tensors=False, model_to_load=None
+    ):
+        # Always call the chain without model_to_load for config+tokenizer.
+        result = orig_load(gguf_checkpoint_path, return_tensors=False)
+
         config = result.get("config", {})
-        if config.get("model_type") == "qwen3vl":
-            config["model_type"] = "qwen3_vl"
-            text_config = {}
-            for field in list(config.keys()):
-                if field in _QWEN3VL_TEXT_CONFIG_FIELDS:
-                    text_config[field] = config.pop(field)
-            if text_config:
-                config["text_config"] = text_config
+        if config.get("model_type") != "qwen3vl":
+            # Not a qwen3vl checkpoint – fall through with original semantics.
+            if return_tensors:
+                result = orig_load(gguf_checkpoint_path, return_tensors=True)
+            return result
+
+        # ── Fix config for Qwen3VLConfig compatibility ──────────────────────
+        config["model_type"] = "qwen3_vl"
+        text_config = {}
+        for field in list(config.keys()):
+            if field in _QWEN3VL_TEXT_CONFIG_FIELDS:
+                text_config[field] = config.pop(field)
+        if text_config:
+            config["text_config"] = text_config
+
+        if not return_tensors or model_to_load is None:
+            return result
+
+        # ── Tensor loading for qwen3vl ───────────────────────────────────────
+        import numpy as np
+        import torch
+        from tqdm import tqdm
+        from gguf import GGUFReader, MODEL_ARCH
+        from transformers.modeling_gguf_pytorch_utils import (
+            TENSOR_PROCESSORS,
+            TensorProcessor,
+            dequantize,
+            get_gguf_hf_weights_map,
+        )
+
+        reader = GGUFReader(gguf_checkpoint_path)
+        processor = TensorProcessor(config=config)
+        num_layers = model_to_load.config.text_config.num_hidden_layers
+        tensor_key_mapping = get_gguf_hf_weights_map(
+            model_to_load,
+            processor,
+            model_type="qwen3vl",
+            num_layers=num_layers,
+        )
+
+        result["tensors"] = {}
+        for tensor in tqdm(reader.tensors, desc="Converting qwen3vl GGUF tensors..."):
+            name = tensor.name
+            weights = dequantize(tensor.data, tensor.tensor_type)
+            tensor_result = processor.process(
+                weights=weights,
+                name=name,
+                tensor_key_mapping=tensor_key_mapping,
+                parsed_parameters=result,
+            )
+            weights = tensor_result.weights
+            name = tensor_result.name
+            if name not in tensor_key_mapping:
+                continue
+            name = tensor_key_mapping[name]
+            result["tensors"][name] = torch.from_numpy(np.copy(weights))
+
         return result
 
     gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
