@@ -90,7 +90,9 @@ class ModelLoader(ForgeModel):
         """Load sample inputs for the SD 3.5 Large TensorRT transformer.
 
         Returns:
-            list: [latent_model_input, timestep, prompt_embeds, pooled_prompt_embeds]
+            list: [latent_model_input, prompt_embeds, pooled_prompt_embeds, timestep]
+                  matching SD3Transformer2DModel.forward positional arg order:
+                  (hidden_states, encoder_hidden_states, pooled_projections, timestep)
         """
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
@@ -108,4 +110,4 @@ class ModelLoader(ForgeModel):
             prompt_embeds = prompt_embeds.to(dtype_override)
             pooled_prompt_embeds = pooled_prompt_embeds.to(dtype_override)
 
-        return [latent_model_input, timestep, prompt_embeds, pooled_prompt_embeds]
+        return [latent_model_input, prompt_embeds, pooled_prompt_embeds, timestep]
