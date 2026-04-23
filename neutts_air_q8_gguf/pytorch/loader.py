@@ -6,7 +6,19 @@ NeuTTS Air Q8 GGUF model loader implementation for text-to-speech tasks.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from typing import Optional
+
+# Wrap the monkey-patched load_gguf_checkpoint chain to forward unknown kwargs
+# (e.g. model_to_load added in newer transformers) that older patches drop.
+_gguf_chain = _gguf_utils.load_gguf_checkpoint
+
+
+def _compat_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    return _gguf_chain(gguf_path, return_tensors=return_tensors)
+
+
+_gguf_utils.load_gguf_checkpoint = _compat_load_gguf_checkpoint
 
 from ...base import ForgeModel
 from ...config import (
