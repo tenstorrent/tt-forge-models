@@ -38,7 +38,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.FLUX_1_DEV_CONTROLNET_UNION
 
-    base_model = "black-forest-labs/FLUX.1-dev"
+    base_model = "sayakpaul/FLUX.1-merged"
     prompt = "A bohemian-style female travel blogger with sun-kissed skin and messy beach waves."
 
     def __init__(self, variant: Optional[ModelVariant] = None):
