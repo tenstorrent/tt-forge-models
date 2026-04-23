@@ -5,7 +5,7 @@
 UMT5 XXL Encoder GGUF model loader implementation for text embedding generation.
 """
 
-from transformers import AutoTokenizer, AutoModel, AutoConfig
+from transformers import AutoTokenizer, AutoConfig, UMT5EncoderModel
 from typing import Optional
 
 from ...base import ForgeModel
@@ -91,7 +91,7 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        model = UMT5EncoderModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
         return model
 
