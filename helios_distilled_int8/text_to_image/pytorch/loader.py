@@ -22,8 +22,8 @@ from ....config import (
     StrEnum,
 )
 
-# The reference model provides configs for text_encoder and transformer,
-# since the int8 repo only has flat safetensors without subdirectory configs.
+# The reference model provides the text_encoder config, since the int8 repo
+# only has flat safetensors at root without subdirectory configs.
 _REFERENCE_MODEL = "BestWishYsh/Helios-Distilled"
 
 
@@ -73,14 +73,14 @@ class ModelLoader(ForgeModel):
         if extra_pipe_kwargs is None:
             extra_pipe_kwargs = {}
 
-        # Use bfloat16 as default; the model is ~26B params and float32 would need ~104 GB RAM.
+        # Use bfloat16 as default; the model is ~26B params and float32 needs ~104 GB RAM.
         model_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         # The int8 repo (szwagros/Helios-Distilled-int8) omits text_encoder/ and
-        # transformer/ subdirectories, causing DiffusionPipeline.from_pretrained to
-        # fail looking for config.json. Pre-initialize these components from the
-        # reference model's configs so from_pretrained can load scheduler/tokenizer/vae
-        # from the int8 repo without error.
+        # transformer/ subdirectories, so DiffusionPipeline.from_pretrained fails
+        # looking for config.json. Pre-initialize these components from the reference
+        # model's configs (small downloads) so from_pretrained loads scheduler/
+        # tokenizer/vae from the int8 repo without error.
         transformer = HeliosTransformer3DModel().to(dtype=model_dtype)
 
         text_encoder_config = AutoConfig.from_pretrained(
@@ -112,12 +112,12 @@ class ModelLoader(ForgeModel):
         low_cpu_mem_usage: bool = True,
         extra_pipe_kwargs: Optional[Dict[str, Any]] = None,
         **kwargs,
-    ):
+    ) -> torch.nn.Module:
         """
-        Load and return the Helios-Distilled-int8 text-to-image pipeline.
+        Load and return the Helios transformer denoiser from the pipeline.
         """
         if self.pipeline is None:
-            return self._load_pipeline(
+            self._load_pipeline(
                 dtype_override=dtype_override,
                 device_map=device_map,
                 low_cpu_mem_usage=low_cpu_mem_usage,
@@ -125,10 +125,33 @@ class ModelLoader(ForgeModel):
             )
 
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype=dtype_override)
+            self.pipeline.transformer = self.pipeline.transformer.to(
+                dtype=dtype_override
+            )
 
-        return self.pipeline
+        return self.pipeline.transformer
 
-    def load_inputs(self, prompt: Optional[str] = None) -> Dict[str, Any]:
-        prompt_value = prompt if prompt is not None else self.DEFAULT_PROMPT
-        return {"prompt": prompt_value}
+    def load_inputs(
+        self, prompt: Optional[str] = None, batch_size: int = 1
+    ) -> Dict[str, Any]:
+        """Return dummy inputs for the HeliosTransformer3DModel forward pass."""
+        # Determine dtype from the loaded transformer, defaulting to bfloat16
+        if self.pipeline is not None:
+            model_dtype = next(self.pipeline.transformer.parameters()).dtype
+        else:
+            model_dtype = torch.bfloat16
+
+        # hidden_states: (B, in_channels=16, frames, H, W) — VAE latents before denoising
+        hidden_states = torch.zeros(batch_size, 16, 1, 8, 8, dtype=model_dtype)
+
+        # timestep: (B,) — denoising step index
+        timestep = torch.tensor([500] * batch_size, dtype=torch.long)
+
+        # encoder_hidden_states: (B, seq_len, text_dim=4096) — text encoder output
+        encoder_hidden_states = torch.zeros(batch_size, 16, 4096, dtype=model_dtype)
+
+        return {
+            "hidden_states": hidden_states,
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states,
+        }
