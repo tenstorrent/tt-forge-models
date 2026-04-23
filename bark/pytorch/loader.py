@@ -65,7 +65,9 @@ class ModelLoader(ForgeModel):
             torch_dtype=dtype_override,
         )
         model.eval()
-        return model
+        # BarkModel has no forward(); use the semantic sub-model which takes
+        # input_ids/attention_mask produced by the processor.
+        return model.semantic
 
     def load_inputs(self, dtype_override=None):
         inputs = self.processor(
