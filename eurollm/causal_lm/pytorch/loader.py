@@ -4,6 +4,7 @@
 """
 EuroLLM model loader implementation for causal language modeling.
 """
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -89,6 +90,11 @@ class ModelLoader(ForgeModel):
 
         if self._variant == ModelVariant.STELTERLAB_EUROLLM_9B_INSTRUCT_AWQ:
             model_kwargs["device_map"] = "cpu"
+            # Pre-import gptqmodel before from_pretrained so its module-level
+            # torch.tensor().item() constants are initialized on CPU, not under
+            # accelerate's init_empty_weights() which routes all tensor creation
+            # to meta device and causes Tensor.item() to fail.
+            import gptqmodel  # noqa: F401
 
         model_kwargs |= kwargs
 
