@@ -7,9 +7,11 @@ DeepSeek-V2-Lite-Chat BF16 FP8-STATIC FP8-KV model loader implementation for cau
 Loads INC4AI's compressed-tensors quantized variant of deepseek-ai/DeepSeek-V2-Lite-Chat,
 which applies BF16 weights with FP8 static activation quantization and FP8 KV cache.
 """
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import contextlib
 from typing import Optional
+
+import torch
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
@@ -21,6 +23,23 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+@contextlib.contextmanager
+def _skip_fp8_weight_init():
+    """Prevent normal_() from failing on Float8 tensors during weight initialization."""
+    original_normal_ = torch.Tensor.normal_
+
+    def patched_normal_(self, mean=0, std=1):
+        if self.dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
+            return self
+        return original_normal_(self, mean=mean, std=std)
+
+    torch.Tensor.normal_ = patched_normal_
+    try:
+        yield
+    finally:
+        torch.Tensor.normal_ = original_normal_
 
 
 class ModelVariant(StrEnum):
@@ -100,9 +119,10 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        with _skip_fp8_weight_init():
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
