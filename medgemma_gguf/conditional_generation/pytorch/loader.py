@@ -84,6 +84,8 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name,
             gguf_file=self.gguf_file,
         )
+        # Gemma3Processor requires image_token_id; set it from the GGUF vocab.
+        tokenizer.image_token_id = tokenizer.convert_tokens_to_ids("<image_soft_token>")
         image_processor = SiglipImageProcessor.from_pretrained(self._SIGLIP_MODEL)
         self.processor = Gemma3Processor(
             image_processor=image_processor,
