@@ -266,6 +266,8 @@ class Gr00tN1d6(PreTrainedModel):
 
         self.action_head = Gr00tN1d6ActionHead(config)
 
+        self.post_init()
+
     def prepare_input(self, inputs: dict) -> Tuple[BatchFeature, BatchFeature]:
         backbone_inputs = self.backbone.prepare_input(inputs)
         action_inputs = self.action_head.prepare_input(inputs)
