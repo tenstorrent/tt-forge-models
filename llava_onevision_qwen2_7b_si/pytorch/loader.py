@@ -5,17 +5,15 @@
 LLaVA-OneVision-Qwen2-7B-SI model loader implementation for multimodal
 conditional generation.
 
-This loads the original lmms-lab single-image checkpoint
-(``lmms-lab/llava-onevision-qwen2-7b-si``), distinct from the HF-converted
-variant ``llava-hf/llava-onevision-qwen2-7b-si-hf`` served by the
-``llava_onevision`` loader.
+Uses the HF-converted checkpoint (``llava-hf/llava-onevision-qwen2-7b-si-hf``)
+which is compatible with ``LlavaOnevisionForConditionalGeneration`` and
+``LlavaOnevisionProcessor``.
 """
 
 from typing import Optional
 
-import torch
 from PIL import Image
-from transformers import AutoProcessor, LlavaOnevisionForConditionalGeneration
+from transformers import LlavaOnevisionForConditionalGeneration, LlavaOnevisionProcessor
 
 from ...base import ForgeModel
 from ...config import (
@@ -41,7 +39,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.LLAVA_ONEVISION_QWEN2_7B_SI: ModelConfig(
-            pretrained_model_name="lmms-lab/llava-onevision-qwen2-7b-si",
+            pretrained_model_name="llava-hf/llava-onevision-qwen2-7b-si-hf",
         ),
     }
 
@@ -68,9 +66,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
-        # AutoProcessor resolves to LlavaProcessor; pass patch_size for SiGLIP-patch14 backbone.
-        self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, patch_size=14
+        self.processor = LlavaOnevisionProcessor.from_pretrained(
+            self._variant_config.pretrained_model_name
         )
         return self.processor
 
@@ -78,7 +75,7 @@ class ModelLoader(ForgeModel):
         """Load and return the LLaVA-OneVision-Qwen2-7B-SI model instance."""
         model_name = self._variant_config.pretrained_model_name
         model = LlavaOnevisionForConditionalGeneration.from_pretrained(
-            str(model_name), ignore_mismatched_sizes=True, **kwargs
+            str(model_name), **kwargs
         )
         model.eval()
 
@@ -95,11 +92,18 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        # lmms-lab checkpoint has no chat template in the processor; build manually.
-        image_token = self.processor.image_token
-        text_prompt = (
-            f"<|im_start|>user\n{image_token}\n{self.sample_text}<|im_end|>\n"
-            "<|im_start|>assistant\n"
+        conversation = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image"},
+                    {"type": "text", "text": self.sample_text},
+                ],
+            }
+        ]
+
+        text_prompt = self.processor.apply_chat_template(
+            conversation, add_generation_prompt=True
         )
 
         image_file = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
@@ -110,13 +114,13 @@ class ModelLoader(ForgeModel):
         input_ids = inputs["input_ids"]
         attention_mask = inputs["attention_mask"]
         pixel_values = inputs["pixel_values"]
-        # LlavaProcessor doesn't provide image_sizes; derive from the loaded image.
-        image_sizes = torch.tensor([[image.height, image.width]])
+        image_sizes = inputs["image_sizes"]
 
         if dtype_override:
             input_ids = cast_input_to_type(input_ids, dtype_override)
             attention_mask = cast_input_to_type(attention_mask, dtype_override)
             pixel_values = cast_input_to_type(pixel_values, dtype_override)
+            image_sizes = cast_input_to_type(image_sizes, dtype_override)
 
         return {
             "input_ids": input_ids,
