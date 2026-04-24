@@ -52,6 +52,11 @@ def _patch_gguf_mistral3():
 
     tokenization_auto_mod.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
+    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+    if "mistral3" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["mistral3"] = GGUF_TO_FAST_CONVERTERS["llama"]
+
 
 from ....base import ForgeModel
 from ....config import (
