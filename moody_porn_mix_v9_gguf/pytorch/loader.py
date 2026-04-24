@@ -7,6 +7,10 @@ Moody Porn Mix v9 GGUF (Gthalmie1/moody-porn-mix-v9-gguf) model loader implement
 Moody Porn Mix v9 is a text-to-image generation model in GGUF quantized format,
 based on the Lumina2 architecture with a Qwen3 text encoder.
 
+The loader instantiates the Lumina2 transformer with the architecture inferred
+from the GGUF checkpoint's tensor shapes and uses synthetic float32 weights for
+compile-only testing.
+
 Available variants:
 - MOODY_PORN_MIX_V9_Q4_K_M: Q4_K_M quantized variant
 """
@@ -50,8 +54,6 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.MOODY_PORN_MIX_V9_Q4_K_M
 
-    GGUF_FILE = "moodyPornMix_zitV9_q4_k_m.gguf"
-
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.transformer = None
@@ -70,13 +72,13 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Lumina2 transformer from GGUF checkpoint.
+        """Load and return the Lumina2 transformer with architecture from the GGUF checkpoint.
 
         Returns:
             Lumina2Transformer2DModel: The loaded transformer instance.
         """
         if self.transformer is None:
-            self.transformer = load_lumina2_transformer(REPO_ID, self.GGUF_FILE)
+            self.transformer = load_lumina2_transformer()
 
         if dtype_override is not None:
             self.transformer = self.transformer.to(dtype_override)
