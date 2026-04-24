@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.COGITO_V1_PREVIEW_LLAMA_3B_4BIT: LLMModelConfig(
-            pretrained_model_name="mlx-community/deepcogito-cogito-v1-preview-llama-3B-4bit",
+            pretrained_model_name="deepcogito/cogito-v1-preview-llama-3B",
             max_length=128,
         ),
     }
