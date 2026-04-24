@@ -6,9 +6,31 @@ Qwen/Qwen-14B model loader implementation for causal language modeling.
 """
 from typing import Optional
 
+import transformers
+import transformers.generation.utils
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
+
+
+def _patch_transformers_for_qwen():
+    """Patch missing transformers v4 symbols required by Qwen-14B's custom modeling code."""
+    missing = [
+        "DisjunctiveConstraint",
+        "PhrasalConstraint",
+        "BeamSearchScorer",
+        "ConstrainedBeamSearchScorer",
+    ]
+    for name in missing:
+        if not hasattr(transformers, name):
+            setattr(transformers, name, type(name, (), {}))
+    # SampleOutput was renamed in transformers v5
+    if not hasattr(transformers.generation.utils, "SampleOutput"):
+        transformers.generation.utils.SampleOutput = (
+            transformers.generation.utils.GenerateOutput
+        )
+
+
 from ....config import (
     Framework,
     LLMModelConfig,
@@ -56,6 +78,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _patch_transformers_for_qwen()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         tokenizer_kwargs = {}
