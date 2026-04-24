@@ -14,9 +14,9 @@ from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     AutoConfig,
+    LlamaConfig,
     LlamaForCausalLM,
 )
-from transformers import LlamaConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -105,9 +105,15 @@ class ModelLoader(ForgeModel):
 
         if os.environ.get("TT_RANDOM_WEIGHTS"):
             config = self._llama33_70b_config()
-            model = LlamaForCausalLM(config)
-            if dtype_override is not None:
-                model = model.to(dtype_override)
+            target_dtype = (
+                dtype_override if dtype_override is not None else torch.bfloat16
+            )
+            orig_dtype = torch.get_default_dtype()
+            torch.set_default_dtype(target_dtype)
+            try:
+                model = LlamaForCausalLM(config)
+            finally:
+                torch.set_default_dtype(orig_dtype)
             model.eval()
             self.config = model.config
             self.model = model
