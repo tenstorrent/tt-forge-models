@@ -89,6 +89,10 @@ def _patch_transformers_qwen3vl_gguf():
                     text_config[key] = config.pop(key)
             if text_config:
                 config["text_config"] = text_config
+                # Vision merger must output to text hidden_size; override default 3584
+                config["vision_config"] = {
+                    "out_hidden_size": text_config.get("hidden_size", 3584)
+                }
         return result
 
     gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
