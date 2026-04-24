@@ -4,9 +4,94 @@
 """
 Qwen 3.5 Creative GGUF model loader implementation for causal language modeling.
 """
+import re as _re
+
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.modeling_utils as _modeling_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_SUPPORTED_ARCHITECTURES,
+    GGUF_TO_TRANSFORMERS_MAPPING,
+    TENSOR_PROCESSORS,
+)
 from typing import Optional
+
+
+def _patch_qwen35moe_gguf():
+    """Patch transformers to support qwen35moe GGUF architecture with split MoE expert tensors.
+
+    The qwen35moe GGUF format stores MoE expert weights as separate ffn_gate_exps and
+    ffn_up_exps tensors, but the gguf-py qwen35moe name map expects a merged ffn_gate_up_exps
+    tensor. This patch bridges that gap by adding the split keys to the tensor key mapping.
+    """
+    if "qwen35moe" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen35moe")
+        GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen35moe"] = {
+            "context_length": "max_position_embeddings",
+            "block_count": "num_hidden_layers",
+            "feed_forward_length": "intermediate_size",
+            "embedding_length": "hidden_size",
+            "rope.dimension_count": None,
+            "rope.freq_base": "rope_theta",
+            "attention.key_length": "head_dim",
+            "attention.head_count": "num_attention_heads",
+            "attention.head_count_kv": "num_key_value_heads",
+            "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+            "vocab_size": "vocab_size",
+            "expert_count": "num_experts",
+            "expert_used_count": "num_experts_per_tok",
+            "full_attention_interval": "full_attention_interval",
+        }
+        if "qwen3moe" in TENSOR_PROCESSORS:
+            TENSOR_PROCESSORS["qwen35moe"] = TENSOR_PROCESSORS["qwen3moe"]
+        if "qwen3_moe" in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS["qwen35moe"] = GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
+            GGUF_TO_FAST_CONVERTERS.setdefault(
+                "qwen3_5_moe_text", GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
+            )
+
+    _orig_load = _gguf_utils.load_gguf_checkpoint
+
+    def _patched_load(*args, **kwargs):
+        result = _orig_load(*args, **kwargs)
+        if result.get("config", {}).get("model_type") == "qwen35moe":
+            result["config"]["model_type"] = "qwen3_5_moe"
+        return result
+
+    _gguf_utils.load_gguf_checkpoint = _patched_load
+    for _mod in (_config_utils, _modeling_utils, _auto_tokenizer):
+        if hasattr(_mod, "load_gguf_checkpoint"):
+            _mod.load_gguf_checkpoint = _patched_load
+
+    # The qwen35moe gguf-py name map maps gate_up_proj -> ffn_gate_up_exps (merged),
+    # but actual GGUF files store separate ffn_gate_exps and ffn_up_exps tensors.
+    # Wrap get_gguf_hf_weights_map to also add the split keys so Qwen2MoeTensorProcessor
+    # can find them.
+    _orig_get_map = _gguf_utils.get_gguf_hf_weights_map
+
+    def _patched_get_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = getattr(hf_model.config, "model_type", None)
+        if model_type in ("qwen3_5_moe", "qwen3_5_moe_text"):
+            model_type = "qwen35moe"
+        result = _orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+        split_additions = {}
+        for key, hf_name in result.items():
+            m = _re.fullmatch(r"(blk\.\d+)\.ffn_gate_up_exps(.*)", key)
+            if m:
+                split_additions[f"{m.group(1)}.ffn_gate_exps{m.group(2)}"] = hf_name
+                split_additions[f"{m.group(1)}.ffn_up_exps{m.group(2)}"] = hf_name
+        result.update(split_additions)
+        return result
+
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_map
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -18,6 +103,8 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+_patch_qwen35moe_gguf()
 
 
 class ModelVariant(StrEnum):
