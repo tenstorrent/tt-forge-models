@@ -5,7 +5,7 @@
 Jina Reranker v1 tiny English model loader implementation for passage ranking.
 """
 import torch
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from transformers import AutoConfig, AutoModelForSequenceClassification, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -73,8 +73,17 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
+        # transformers>=5 no longer provides default values for unknown config
+        # attributes; the custom JinaBertSelfAttention reads config.is_decoder,
+        # so we must set it explicitly before the model is instantiated.
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True, num_labels=1
+        )
+        if not hasattr(config, "is_decoder"):
+            config.is_decoder = False
+
         model_kwargs = {
-            "num_labels": 1,
+            "config": config,
             "return_dict": False,
             "trust_remote_code": True,
         }
