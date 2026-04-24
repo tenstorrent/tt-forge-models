@@ -148,12 +148,14 @@ class ModelLoader(ForgeModel):
             self._vae = self._vae.to(dtype=dtype_override)
         return self._vae
 
-    def load_inputs(self, **kwargs) -> Any:
+    def load_inputs(
+        self, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
         """Prepare inputs for the VAE.
 
         Pass vae_type="decoder" (default) or vae_type="encoder".
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
+        dtype = dtype_override if dtype_override is not None else torch.float32
         vae_type = kwargs.get("vae_type", "decoder")
         latent_channels = self._latent_channels()
 
