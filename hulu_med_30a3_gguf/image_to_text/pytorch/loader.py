@@ -8,6 +8,7 @@ Hulu-Med 30A3 GGUF model loader implementation for medical image to text.
 from transformers import (
     Qwen3VLMoeForConditionalGeneration,
     AutoProcessor,
+    AutoConfig,
 )
 from typing import Optional
 
@@ -129,12 +130,22 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["low_cpu_mem_usage"] = True
         model_kwargs |= kwargs
 
         # GGUF repos do not ship a processor; use the base model
         self.processor = AutoProcessor.from_pretrained(
             "ZJU-AI4H/Hulu-Med-30A3", trust_remote_code=True
         )
+
+        # Load config from the base model: the GGUF metadata doesn't carry the
+        # nested VL config structure (text_config / vision_config) that
+        # Qwen3VLMoeForConditionalGeneration requires, so it maps tensors to
+        # wrong shapes. Using the base config ensures correct architecture.
+        config = AutoConfig.from_pretrained(
+            "ZJU-AI4H/Hulu-Med-30A3", trust_remote_code=True
+        )
+        model_kwargs["config"] = config
 
         model = Qwen3VLMoeForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
