@@ -5,7 +5,6 @@
 Wan 2.2 Fun InP GGUF model loader implementation for video generation
 """
 import torch
-from diffusers import WanTransformer3DModel
 from typing import Optional
 
 from ...base import ForgeModel
@@ -19,6 +18,15 @@ from ...config import (
     StrEnum,
 )
 
+GGUF_REPO = "QuantStack/Wan2.2-Fun-A14B-InP-GGUF"
+CONFIG_REPO = "Wan-AI/Wan2.2-I2V-A14B-Diffusers"
+
+# Small spatial dimensions for compile-only testing
+TRANSFORMER_NUM_FRAMES = 1
+TRANSFORMER_HEIGHT = 32
+TRANSFORMER_WIDTH = 32
+TRANSFORMER_TEXT_SEQ_LEN = 64
+
 
 class ModelVariant(StrEnum):
     """Available Wan 2.2 Fun InP GGUF model variants."""
@@ -26,18 +34,21 @@ class ModelVariant(StrEnum):
     A14B_HIGHNOISE_Q4_K_M = "A14B_HighNoise_Q4_K_M"
 
 
+_GGUF_FILES = {
+    ModelVariant.A14B_HIGHNOISE_Q4_K_M: "HighNoise/Wan2.2-Fun-A14B-InP_HighNoise-Q4_K_M.gguf",
+}
+
+
 class ModelLoader(ForgeModel):
     """Wan 2.2 Fun InP GGUF model loader for video generation tasks."""
 
     _VARIANTS = {
         ModelVariant.A14B_HIGHNOISE_Q4_K_M: ModelConfig(
-            pretrained_model_name="QuantStack/Wan2.2-Fun-A14B-InP-GGUF",
+            pretrained_model_name=GGUF_REPO,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.A14B_HIGHNOISE_Q4_K_M
-
-    GGUF_FILE = "HighNoise/Wan2.2-Fun-A14B-InP_HighNoise-Q4_K_M.gguf"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -57,18 +68,59 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
-        load_kwargs = {"gguf_file": self.GGUF_FILE}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
+    @staticmethod
+    def _ensure_gguf_available():
+        import importlib.metadata
+        import importlib.util
 
-        self.transformer = WanTransformer3DModel.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            **load_kwargs,
+        import diffusers.utils.import_utils as _diffusers_import_utils
+
+        if _diffusers_import_utils._gguf_available:
+            return
+
+        if importlib.util.find_spec("gguf") is None:
+            return
+
+        _diffusers_import_utils._gguf_available = True
+        try:
+            _diffusers_import_utils._gguf_version = importlib.metadata.version("gguf")
+        except importlib.metadata.PackageNotFoundError:
+            pass
+
+    def load_model(self, *, dtype_override=None, **kwargs):
+        self._ensure_gguf_available()
+
+        from diffusers import WanTransformer3DModel
+        from diffusers.models.model_loading_utils import load_gguf_checkpoint
+        from diffusers.quantizers.gguf.utils import (
+            GGUFParameter,
+            dequantize_gguf_tensor,
+        )
+        from huggingface_hub import hf_hub_download
+
+        compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+
+        gguf_file = _GGUF_FILES[self._variant]
+        local_gguf_path = hf_hub_download(
+            repo_id=GGUF_REPO,
+            filename=gguf_file,
         )
 
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
+        gguf_checkpoint = load_gguf_checkpoint(local_gguf_path)
+        dequantized = {
+            name: dequantize_gguf_tensor(param).to(compute_dtype)
+            if isinstance(param, GGUFParameter)
+            else param.to(compute_dtype)
+            for name, param in gguf_checkpoint.items()
+        }
+
+        config = WanTransformer3DModel.load_config(
+            CONFIG_REPO,
+            subfolder="transformer",
+        )
+        self.transformer = WanTransformer3DModel.from_config(config)
+        self.transformer.load_state_dict(dequantized, strict=False)
+        self.transformer = self.transformer.to(compute_dtype)
 
         return self.transformer
 
@@ -79,28 +131,25 @@ class ModelLoader(ForgeModel):
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
         config = self.transformer.config
 
-        # Video dimensions: (batch, channels, frames, height, width)
-        num_frames = 1
-        height = 32
-        width = 32
         in_channels = config.in_channels
-
         hidden_states = torch.randn(
-            batch_size, in_channels, num_frames, height, width, dtype=dtype
+            batch_size,
+            in_channels,
+            TRANSFORMER_NUM_FRAMES,
+            TRANSFORMER_HEIGHT,
+            TRANSFORMER_WIDTH,
+            dtype=dtype,
         )
 
-        # Timestep
         timestep = torch.tensor([1], dtype=torch.long).expand(batch_size)
 
-        # Text encoder hidden states
         text_dim = config.text_dim
-        seq_len = 64
-        encoder_hidden_states = torch.randn(batch_size, seq_len, text_dim, dtype=dtype)
+        encoder_hidden_states = torch.randn(
+            batch_size, TRANSFORMER_TEXT_SEQ_LEN, text_dim, dtype=dtype
+        )
 
-        inputs = {
+        return {
             "hidden_states": hidden_states,
             "timestep": timestep,
             "encoder_hidden_states": encoder_hidden_states,
         }
-
-        return inputs
