@@ -84,13 +84,20 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
         model_kwargs |= kwargs
+
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        if self.num_layers is not None:
+            config.num_hidden_layers = self.num_layers
+
+        # MLX quantized models have a quantization_config without quant_method.
+        # Strip it so transformers doesn't try to apply an unsupported quantizer.
+        if hasattr(config, "quantization_config") and not hasattr(
+            config.quantization_config, "quant_method"
+        ):
+            config.quantization_config = None
+
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
