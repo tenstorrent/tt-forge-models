@@ -19,7 +19,7 @@ from transformers.modeling_gguf_pytorch_utils import (
 )
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+def _patched_load_gguf_checkpoint(*args, **kwargs):
     _import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
         importlib.metadata.packages_distributions()
     )

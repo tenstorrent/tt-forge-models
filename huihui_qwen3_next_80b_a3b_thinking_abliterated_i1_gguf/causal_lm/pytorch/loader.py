@@ -47,7 +47,7 @@ def _patch_qwen3next_gguf_support():
         GGUF_TO_FAST_CONVERTERS["qwen3next"] = GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+def _patched_load_gguf_checkpoint(*args, **kwargs):
     # Refresh the stale module-level PACKAGE_DISTRIBUTION_MAPPING so that
     # is_gguf_available() sees gguf after RequirementsManager installs it at
     # test runtime (the mapping is cached at transformers import time).
@@ -55,7 +55,7 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
         importlib.metadata.packages_distributions()
     )
     _patch_qwen3next_gguf_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
     cfg = result.get("config", {})
     if cfg.get("model_type") == "qwen3next":
         cfg["model_type"] = "qwen3_moe"
