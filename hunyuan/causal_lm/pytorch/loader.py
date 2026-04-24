@@ -10,6 +10,7 @@ from typing import Optional
 
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import modeling_utils as _modeling_utils
 
 from ....base import ForgeModel
 from ....config import (
@@ -20,6 +21,24 @@ from ....config import (
     ModelSource,
     ModelTask,
     StrEnum,
+)
+
+# transformers 5.2.0 changed _tied_weights_keys to expect a dict {target: source},
+# but Hunyuan defines it as a list. Patch to convert list → identity dict so that
+# tie_weights() treats each entry as tied to itself (effectively a no-op tying).
+_orig_get_expanded_tied_weights_keys = (
+    _modeling_utils.PreTrainedModel.get_expanded_tied_weights_keys
+)
+
+
+def _patched_get_expanded_tied_weights_keys(self, all_submodels=True):
+    if isinstance(self._tied_weights_keys, list):
+        self._tied_weights_keys = {k: k for k in self._tied_weights_keys}
+    return _orig_get_expanded_tied_weights_keys(self, all_submodels=all_submodels)
+
+
+_modeling_utils.PreTrainedModel.get_expanded_tied_weights_keys = (
+    _patched_get_expanded_tied_weights_keys
 )
 
 
