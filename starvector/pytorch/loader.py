@@ -6,8 +6,11 @@ StarVector model loader implementation for image-to-SVG generation.
 """
 
 from typing import Optional
+
+import torch
+import torch.nn as nn
+from PIL import Image
 from transformers import AutoModelForCausalLM, AutoProcessor
-from datasets import load_dataset
 
 from ...base import ForgeModel
 from ...config import (
@@ -19,6 +22,134 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_starcoder_init():
+    """Patch starvector internals to avoid downloading the gated bigcode/starcoderbase-1b model.
+
+    StarCoderModel: uses bigcode/starcoder2-3b tokenizer (same 49152-token vocab, ungated)
+    and initializes GPTBigCode from config instead of from pretrained weights.  The
+    starvector from_pretrained call that follows will override all weights anyway.
+
+    StarVectorStarCoder: wraps the processor assignment in a try/except because the
+    starvector HF repo has no processor_config.json; the processor is recovered later
+    from the image encoder when load_inputs is called.
+    """
+    import torch.nn as nn
+    from transformers import (
+        AutoTokenizer,
+        GPTBigCodeConfig,
+        GPTBigCodeForCausalLM,
+        utils,
+    )
+    import starvector.model.llm.starcoder as sc_module
+    import starvector.model.models.starvector_v1 as sv1_module
+
+    def _patched_starcoder_init(self, config, **kwargs):
+        nn.Module.__init__(self)
+
+        # Use ungated starcoder2 tokenizer (identical 49152-token vocabulary)
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            "bigcode/starcoder2-3b", use_fast=False
+        )
+        if self.tokenizer.pad_token_id is None:
+            self.tokenizer.add_special_tokens({"pad_token": "[PAD]"})
+        for special_token in ["<svg-start>", "<image-start>", "<caption-start>"]:
+            self.tokenizer.add_tokens([special_token])
+        self.svg_start_token = "<svg-start>"
+        self.image_start_token = "<image-start>"
+        self.text_start_token = "<caption-start>"
+        self.svg_start_token_id = self.tokenizer.encode(self.svg_start_token)[0]
+
+        self.max_length = config.max_length
+
+        # Build GPTBigCode config from starvector config params (no gated download needed).
+        # Set vocab_size to the post-resize size so resize_token_embeddings is not needed
+        # (calling it on meta tensors would fail; weights are overridden by from_pretrained).
+        vocab_size = len(self.tokenizer)
+        model_config = GPTBigCodeConfig(
+            vocab_size=vocab_size,
+            n_positions=getattr(config, "max_length", 8192),
+            n_embd=config.hidden_size,
+            n_layer=config.num_hidden_layers,
+            n_head=config.num_attention_heads,
+            n_inner=config.hidden_size * 4,
+            multi_query=getattr(config, "multi_query", True),
+            eos_token_id=self.tokenizer.eos_token_id,
+            bos_token_id=self.tokenizer.bos_token_id,
+            pad_token_id=self.tokenizer.pad_token_id,
+        )
+        model_config.torch_dtype = getattr(config, "torch_dtype", "float16")
+        if not utils.is_flash_attn_2_available():
+            config.use_flash_attn = False
+
+        self.transformer = GPTBigCodeForCausalLM(model_config)
+        self.prompt = "<svg"
+
+    sc_module.StarCoderModel.__init__ = _patched_starcoder_init
+
+    original_sv1_init = sv1_module.StarVectorStarCoder.__init__
+
+    def _patched_sv1_init(self, config, **kwargs):
+        # Call StarVectorBase.__init__ (sets up image encoder, adapter, etc.)
+        sv1_module.StarVectorStarCoder.__bases__[0].__init__(self, config, **kwargs)
+        try:
+            from transformers import AutoProcessor
+
+            self.processor = AutoProcessor.from_pretrained(
+                config._name_or_path, trust_remote_code=True
+            )
+        except Exception:
+            # Processor will be recovered from image_encoder.processor in load_inputs
+            self.processor = getattr(
+                getattr(self, "image_encoder", None), "processor", None
+            )
+
+    sv1_module.StarVectorStarCoder.__init__ = _patched_sv1_init
+
+    # starvector_arch.py (written for transformers 4.x) never calls post_init(), so
+    # all_tied_weights_keys is missing in transformers 5.x.  Guard the method that needs it.
+    from transformers import PreTrainedModel
+
+    original_adjust = PreTrainedModel._adjust_tied_keys_with_tied_pointers
+
+    def _patched_adjust(self, missing_and_mismatched):
+        if not hasattr(self, "all_tied_weights_keys"):
+            self.all_tied_weights_keys = {}
+        return original_adjust(self, missing_and_mismatched)
+
+    PreTrainedModel._adjust_tied_keys_with_tied_pointers = _patched_adjust
+
+
+class _StarVectorWrapper(nn.Module):
+    """Wraps StarVectorForCausalLM to accept raw pixel_values.
+
+    StarVectorForCausalLM.forward() requires pre-encoded vision_embeds plus
+    text token tensors.  This wrapper encodes the image through the model's own
+    image encoder and supplies fixed dummy token inputs so the test harness can
+    call model(pixel_values) directly.
+    """
+
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+        # Store a reference to the svg_transformer tokenizer for building dummy inputs.
+        self._tokenizer = model.model.svg_transformer.tokenizer
+
+    def forward(self, pixel_values):
+        sv = self.model.model
+        vision_embeds = sv.image_encoder(pixel_values.to(sv.model_precision))
+        vision_embeds = sv.image_projection(vision_embeds)
+        svg_start_id = sv.svg_transformer.svg_start_token_id
+        input_ids = torch.tensor(
+            [[svg_start_id]], dtype=torch.long, device=pixel_values.device
+        )
+        return self.model(
+            vision_embeds=vision_embeds,
+            input_ids=input_ids,
+            num_generations=1,
+            num_logits_to_keep=1,
+        )
 
 
 class ModelVariant(StrEnum):
@@ -60,6 +191,8 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
+        _patch_starcoder_init()
+
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
@@ -70,21 +203,35 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
 
-        self.processor = model.model.processor
+        self.processor = getattr(model.model, "processor", None)
 
-        return model
+        return _StarVectorWrapper(model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.processor is None:
             pretrained_model_name = self._variant_config.pretrained_model_name
-            self.processor = AutoProcessor.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
+            try:
+                self.processor = AutoProcessor.from_pretrained(
+                    pretrained_model_name, trust_remote_code=True
+                )
+            except Exception:
+                from starvector.data.util import ImageTrainProcessor
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"].convert("RGB")
+                self.processor = ImageTrainProcessor(size=224)
 
-        pixel_values = self.processor(image, return_tensors="pt")["pixel_values"]
+        # Use a synthetic image to avoid importing datasets (local spacy/ dir shadows the
+        # real spacy package and breaks datasets fingerprinting).
+        image = Image.new("RGB", (224, 224), color=(128, 128, 128))
+
+        result = self.processor(image)
+        if isinstance(result, dict) or hasattr(result, "data"):
+            pixel_values = result["pixel_values"]
+            # SimpleStarVectorProcessor returns [C, H, W] for single images; add batch dim
+            if isinstance(pixel_values, torch.Tensor) and pixel_values.dim() == 3:
+                pixel_values = pixel_values.unsqueeze(0)
+        else:
+            # ImageTrainProcessor returns a raw tensor
+            pixel_values = result.unsqueeze(0) if result.dim() == 3 else result
 
         if batch_size > 1:
             pixel_values = pixel_values.repeat_interleave(batch_size, dim=0)

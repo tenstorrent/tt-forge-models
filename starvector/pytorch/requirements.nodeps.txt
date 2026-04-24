@@ -1,0 +1,1 @@
+starvector @ https://github.com/joanrod/star-vector/archive/refs/heads/main.tar.gz
