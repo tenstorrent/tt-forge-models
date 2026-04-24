@@ -164,11 +164,33 @@ def _patched_get_gguf_hf_weights_map(
 
 
 _patch_qwen35_ssm_support()
-_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
+
+def _apply_qwen35_patches():
+    _patch_qwen35_ssm_support()
+    _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
+
+def _restore_patches(saved):
+    _gguf_utils.load_gguf_checkpoint = saved["load_gguf_checkpoint"]
+    _config_utils.load_gguf_checkpoint = saved["config_load_gguf_checkpoint"]
+    _auto_tokenizer.load_gguf_checkpoint = saved["auto_tokenizer_load_gguf_checkpoint"]
+    _tok_utils.load_gguf_checkpoint = saved["tok_utils_load_gguf_checkpoint"]
+    _gguf_utils.get_gguf_hf_weights_map = saved["get_gguf_hf_weights_map"]
+
+
+def _save_current_patches():
+    return {
+        "load_gguf_checkpoint": _gguf_utils.load_gguf_checkpoint,
+        "config_load_gguf_checkpoint": _config_utils.load_gguf_checkpoint,
+        "auto_tokenizer_load_gguf_checkpoint": _auto_tokenizer.load_gguf_checkpoint,
+        "tok_utils_load_gguf_checkpoint": _tok_utils.load_gguf_checkpoint,
+        "get_gguf_hf_weights_map": _gguf_utils.get_gguf_hf_weights_map,
+    }
 
 
 class ModelVariant(StrEnum):
@@ -218,9 +240,15 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
         tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+        saved = _save_current_patches()
+        try:
+            _apply_qwen35_patches()
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            )
+        finally:
+            _restore_patches(saved)
+
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -238,18 +266,24 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
-            config.num_hidden_layers = self.num_layers
-            if hasattr(config, "layer_types") and config.layer_types:
-                config.layer_types = config.layer_types[: self.num_layers]
-            model_kwargs["config"] = config
+        saved = _save_current_patches()
+        try:
+            _apply_qwen35_patches()
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+            if self.num_layers is not None:
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name, gguf_file=self.GGUF_FILE
+                )
+                config.num_hidden_layers = self.num_layers
+                if hasattr(config, "layer_types") and config.layer_types:
+                    config.layer_types = config.layer_types[: self.num_layers]
+                model_kwargs["config"] = config
+
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _restore_patches(saved)
 
         self.config = model.config
         self.model = model
@@ -310,7 +344,12 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        saved = _save_current_patches()
+        try:
+            _apply_qwen35_patches()
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
+        finally:
+            _restore_patches(saved)
         return self.config
