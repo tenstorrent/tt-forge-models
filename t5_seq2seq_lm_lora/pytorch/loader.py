@@ -149,5 +149,6 @@ class ModelLoader(ForgeModel):
             torch.ones((1, 1), dtype=torch.long) * decoder_start_token_tensor
         )
         inputs["decoder_input_ids"] = decoder_input_ids
+        inputs["use_cache"] = False
 
         return inputs
