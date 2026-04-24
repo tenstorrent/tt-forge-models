@@ -55,6 +55,41 @@ def _patch_transformers_qwen2vl_gguf():
             lambda self: self.text_config.num_hidden_layers
         )
 
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") != "qwen2vl":
+            return result
+        # Inject rope_scaling with mrope_section from GGUF dimension_sections.
+        # Qwen2_5_VLTextConfig needs rope_scaling to populate rope_parameters["mrope_section"].
+        if "rope_scaling" not in config:
+            try:
+                import gguf as _gguf
+
+                reader = _gguf.GGUFReader(args[0])
+                dim_field = reader.fields.get("qwen2vl.rope.dimension_sections")
+                if dim_field is not None:
+                    sections = [int(dim_field.parts[p][0]) for p in dim_field.data]
+                    sections = [s for s in sections if s > 0]
+                    config["rope_scaling"] = {
+                        "type": "mrope",
+                        "mrope_section": sections,
+                    }
+            except Exception:
+                pass
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
 
 _patch_transformers_qwen2vl_gguf()
 
