@@ -8,6 +8,50 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.configuration_utils as _config_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
+from transformers.integrations.ggml import (
+    GGUF_TO_FAST_CONVERTERS,
+    GGUF_CONFIG_MAPPING,
+    GGUFLlamaConverter,
+)
+
+
+def _patch_deepseek_v2_gguf_support():
+    """Register deepseek_v2 GGUF architecture support.
+
+    The GigaChat3 model uses the 'deepseek_v2' architecture identifier in its
+    GGUF metadata. Transformers 5.x has DeepseekV2ForCausalLM but lacks GGUF
+    loading support for the deepseek_v2 architecture. DeepSeek V2 uses a
+    SentencePiece BPE tokenizer compatible with GGUFLlamaConverter.
+    """
+    if "deepseek_v2" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("deepseek_v2")
+
+    GGUF_CONFIG_MAPPING.setdefault(
+        "deepseek_v2",
+        {
+            "context_length": "max_position_embeddings",
+            "block_count": "num_hidden_layers",
+            "feed_forward_length": "intermediate_size",
+            "embedding_length": "hidden_size",
+            "rope.dimension_count": None,
+            "rope.freq_base": "rope_theta",
+            "attention.head_count": "num_attention_heads",
+            "attention.head_count_kv": "num_key_value_heads",
+            "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+            "vocab_size": "vocab_size",
+        },
+    )
+
+    GGUF_TO_FAST_CONVERTERS.setdefault("deepseek_v2", GGUFLlamaConverter)
+
+
+_patch_deepseek_v2_gguf_support()
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
