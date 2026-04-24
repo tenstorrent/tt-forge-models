@@ -13,7 +13,8 @@ Available variants:
 """
 
 import torch
-from diffusers import DiffusionPipeline
+from diffusers import AutoencoderKL, UNet2DConditionModel
+from transformers import CLIPTextModel, CLIPTokenizer
 from typing import Optional
 
 from ...base import ForgeModel
@@ -67,14 +68,29 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_pipeline(self, dtype_override=None):
-        """Load and cache the Difix pipeline."""
-        pipe_kwargs = {"trust_remote_code": True}
+        """Load and cache the Difix pipeline components individually."""
+        model_name = self._variant_config.pretrained_model_name
+        kwargs = {}
         if dtype_override is not None:
-            pipe_kwargs["torch_dtype"] = dtype_override
+            kwargs["torch_dtype"] = dtype_override
 
-        self.pipe = DiffusionPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name, **pipe_kwargs
+        unet = UNet2DConditionModel.from_pretrained(
+            model_name, subfolder="unet", **kwargs
         )
+        tokenizer = CLIPTokenizer.from_pretrained(model_name, subfolder="tokenizer")
+        text_encoder = CLIPTextModel.from_pretrained(
+            model_name, subfolder="text_encoder", **kwargs
+        )
+        vae = AutoencoderKL.from_pretrained(model_name, subfolder="vae", **kwargs)
+
+        class _Pipeline:
+            pass
+
+        self.pipe = _Pipeline()
+        self.pipe.unet = unet
+        self.pipe.tokenizer = tokenizer
+        self.pipe.text_encoder = text_encoder
+        self.pipe.vae = vae
         return self.pipe
 
     def load_model(self, *, dtype_override=None, **kwargs):
