@@ -77,6 +77,18 @@ class ModelLoader(ForgeModel):
 
     def _load_pipeline(self, dtype: torch.dtype = torch.bfloat16):
         """Load the FluxPipeline with a GGUF-quantized transformer."""
+        # diffusers caches `_gguf_available` at import time; if gguf was
+        # installed after diffusers was first imported (e.g. via the
+        # RequirementsManager), the flag stays False.  Patch it here so
+        # load_gguf_checkpoint can actually use the now-installed gguf package.
+        try:
+            import gguf  # noqa: F401
+            import diffusers.utils.import_utils as _diff_utils
+
+            _diff_utils._gguf_available = True
+        except ImportError:
+            pass
+
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=dtype)
 
