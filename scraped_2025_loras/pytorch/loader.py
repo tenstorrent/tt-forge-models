@@ -98,7 +98,7 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The UNet model used for denoising.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         self.pipeline = AutoPipelineForText2Image.from_pretrained(
             self._variant_config.pretrained_model_name,
@@ -112,7 +112,7 @@ class ModelLoader(ForgeModel):
             weight_name=lora_file,
         )
 
-        self.pipeline.to("cpu", dtype=torch.float32)
+        self.pipeline.to("cpu", dtype=dtype)
         self.pipeline.unet.eval()
         for param in self.pipeline.unet.parameters():
             param.requires_grad = False
@@ -128,6 +128,8 @@ class ModelLoader(ForgeModel):
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
 
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+
         (
             latent_model_input,
             timesteps,
@@ -138,10 +140,13 @@ class ModelLoader(ForgeModel):
 
         timestep = timesteps[0]
 
-        if dtype_override is not None:
-            latent_model_input = latent_model_input.to(dtype_override)
-            timestep = timestep.to(dtype_override)
-            prompt_embeds = prompt_embeds.to(dtype_override)
+        latent_model_input = latent_model_input.to(dtype)
+        timestep = timestep.to(dtype)
+        prompt_embeds = prompt_embeds.to(dtype)
+        added_cond_kwargs = {
+            k: v.to(dtype) if isinstance(v, torch.Tensor) else v
+            for k, v in added_cond_kwargs.items()
+        }
 
         return {
             "sample": latent_model_input,
