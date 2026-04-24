@@ -71,22 +71,10 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _is_gguf_variant(self):
-        """Check if the current variant uses GGUF quantization."""
-        return self._variant in self._GGUF_FILES
-
-    @property
-    def _gguf_file(self):
-        """Get the GGUF filename for the current variant."""
-        return self._GGUF_FILES.get(self._variant)
-
     def _load_tokenizer(self, dtype_override=None):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-
-        if self._is_gguf_variant():
-            tokenizer_kwargs["gguf_file"] = self._gguf_file
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -106,9 +94,6 @@ class ModelLoader(ForgeModel):
         if self._variant in self._NVFP4_VARIANTS:
             model_kwargs["ignore_mismatched_sizes"] = True
         model_kwargs |= kwargs
-
-        if self._is_gguf_variant():
-            model_kwargs["gguf_file"] = self._gguf_file
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
@@ -141,8 +126,6 @@ class ModelLoader(ForgeModel):
             "tokenize": False,
             "add_generation_prompt": True,
         }
-        if self._variant == ModelVariant.QWEN_3_NEXT_80B_A3B_THINKING:
-            chat_kwargs["enable_thinking"] = True
         text = self.tokenizer.apply_chat_template(
             messages,
             **chat_kwargs,
@@ -164,12 +147,8 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        config_kwargs = {}
-        if self._is_gguf_variant():
-            config_kwargs["gguf_file"] = self._gguf_file
-
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, **config_kwargs
+            self._variant_config.pretrained_model_name
         )
 
         return self.config
