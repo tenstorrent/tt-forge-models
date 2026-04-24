@@ -115,4 +115,10 @@ class ModelLoader(ForgeModel):
         )
         inputs["decoder_input_ids"] = decoder_input_ids
 
+        if dtype_override is not None:
+            inputs = {
+                k: v.to(dtype_override) if v.is_floating_point() else v
+                for k, v in inputs.items()
+            }
+
         return inputs
