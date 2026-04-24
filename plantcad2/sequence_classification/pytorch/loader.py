@@ -11,6 +11,10 @@ import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from typing import Optional
 
+from . import _mamba_ssm_stubs
+
+_mamba_ssm_stubs._install()
+
 from ....base import ForgeModel
 from ....config import (
     ModelConfig,
@@ -82,6 +86,7 @@ class ModelLoader(ForgeModel):
         model = AutoModelForSequenceClassification.from_pretrained(
             pretrained_model_name,
             trust_remote_code=True,
+            ignore_mismatched_sizes=True,
             **model_kwargs,
         )
         model.eval()
@@ -99,6 +104,9 @@ class ModelLoader(ForgeModel):
             truncation=True,
             max_length=128,
         )
+
+        # CaduceusForSequenceClassification does not accept attention_mask
+        inputs = {k: v for k, v in inputs.items() if k in ("input_ids",)}
 
         if batch_size > 1:
             for key in inputs:
