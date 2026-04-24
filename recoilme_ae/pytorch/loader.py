@@ -4,15 +4,14 @@
 """
 Recoilme AE model loader implementation.
 
-Loads the recoilme/ae autoencoder checkpoint as an AutoencoderKL.
-The repository hosts a collection of VAE checkpoints at the root
-without a diffusers-style config.json, so we pull the primary
-``diffusion_pytorch_model.safetensors`` file and load it through
-``AutoencoderKL.from_single_file`` with the SDXL VAE architecture
-as the reference configuration.
+Loads the recoilme/ae VAE checkpoint as an AutoencoderKL.
+The repository hosts a collection of model checkpoints; the
+``vae_v1.safetensors`` file is the AutoencoderKL-compatible
+checkpoint with standard encoder/decoder keys matching the
+SDXL VAE architecture.
 
 Available variants:
-- BASE: primary ``diffusion_pytorch_model.safetensors`` checkpoint
+- BASE: ``vae_v1.safetensors`` checkpoint
 """
 
 from typing import Any, Optional
@@ -34,15 +33,15 @@ from ...config import (
 )
 
 REPO_ID = "recoilme/ae"
-CHECKPOINT_FILENAME = "diffusion_pytorch_model.safetensors"
+CHECKPOINT_FILENAME = "vae_v1.safetensors"
 
 # Reference VAE architecture used to interpret the checkpoint.
 REFERENCE_VAE_CONFIG = "stabilityai/sdxl-vae"
 
-# SDXL VAE latent space: 4 channels, 8x spatial compression from 512x512 input.
-LATENT_CHANNELS = 4
-LATENT_HEIGHT = 64
-LATENT_WIDTH = 64
+# SDXL VAE input: 3-channel RGB image at 512x512.
+IMAGE_CHANNELS = 3
+IMAGE_HEIGHT = 512
+IMAGE_WIDTH = 512
 
 
 class ModelVariant(StrEnum):
@@ -96,16 +95,16 @@ class ModelLoader(ForgeModel):
         return self._vae
 
     def load_inputs(self, **kwargs) -> Any:
-        """Prepare latent inputs for the VAE decoder.
+        """Prepare image inputs for the VAE encode-decode pass.
 
         Returns:
-            Latent tensor of shape [1, 4, 64, 64].
+            Image tensor of shape [1, 3, 512, 512].
         """
         dtype = kwargs.get("dtype_override", torch.float32)
         return torch.randn(
             1,
-            LATENT_CHANNELS,
-            LATENT_HEIGHT,
-            LATENT_WIDTH,
+            IMAGE_CHANNELS,
+            IMAGE_HEIGHT,
+            IMAGE_WIDTH,
             dtype=dtype,
         )
