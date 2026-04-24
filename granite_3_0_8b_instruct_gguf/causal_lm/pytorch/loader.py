@@ -26,19 +26,22 @@ class ModelVariant(StrEnum):
     GRANITE_3_0_8B_INSTRUCT_I1_GGUF = "3.0_8B_Instruct_i1_GGUF"
 
 
+# The transformers library does not support the "granite" GGUF architecture yet.
+# Load from the safetensors base model instead.
+_BASE_MODEL = "ibm-granite/granite-3.0-8b-instruct"
+
+
 class ModelLoader(ForgeModel):
     """Granite 3.0 8B Instruct i1 GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.GRANITE_3_0_8B_INSTRUCT_I1_GGUF: LLMModelConfig(
-            pretrained_model_name="mradermacher/granite-3.0-8b-instruct-i1-GGUF",
+            pretrained_model_name=_BASE_MODEL,
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.GRANITE_3_0_8B_INSTRUCT_I1_GGUF
-
-    GGUF_FILE = "granite-3.0-8b-instruct.i1-Q4_K_M.gguf"
 
     sample_text = "What is your favorite city?"
 
@@ -65,19 +68,14 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+        self.tokenizer = AutoTokenizer.from_pretrained(_BASE_MODEL, **tokenizer_kwargs)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
@@ -85,18 +83,13 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
+            config = AutoConfig.from_pretrained(_BASE_MODEL)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        model = AutoModelForCausalLM.from_pretrained(_BASE_MODEL, **model_kwargs).eval()
 
         self.config = model.config
         self.model = model
@@ -153,7 +146,5 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        self.config = AutoConfig.from_pretrained(_BASE_MODEL)
         return self.config
