@@ -8,6 +8,25 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.configuration_utils as _config_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+
+_prev_load_gguf_checkpoint = _gguf_utils.load_gguf_checkpoint
+
+
+def _chimera_patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    return _prev_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
+
+
+_gguf_utils.load_gguf_checkpoint = _chimera_patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _chimera_patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _chimera_patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _chimera_patched_load_gguf_checkpoint
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
