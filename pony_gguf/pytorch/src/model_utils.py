@@ -6,31 +6,43 @@ Helper functions for loading GGUF-quantized SDXL-based pony models.
 """
 
 import torch
-from diffusers import GGUFQuantizationConfig, StableDiffusionXLPipeline
+from diffusers import (
+    GGUFQuantizationConfig,
+    StableDiffusionXLPipeline,
+    UNet2DConditionModel,
+)
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
     retrieve_timesteps,
 )
-from huggingface_hub import hf_hub_download
 from typing import Optional, Tuple
+
+BASE_SDXL_REPO = "stabilityai/stable-diffusion-xl-base-1.0"
 
 
 def load_pony_gguf_pipe(repo_id: str, gguf_filename: str):
     """Load an SDXL-based pipeline from a GGUF checkpoint.
 
+    The GGUF file contains only the UNet weights; text encoders, VAE, and
+    scheduler are loaded from the base SDXL model.
+
     Args:
-        repo_id: HuggingFace repository ID.
+        repo_id: HuggingFace repository ID containing the GGUF file.
         gguf_filename: Filename of the GGUF checkpoint within the repo.
 
     Returns:
-        DiffusionPipeline: Loaded pipeline with components set to eval mode.
+        StableDiffusionXLPipeline: Loaded pipeline with components set to eval mode.
     """
-    model_path = hf_hub_download(repo_id=repo_id, filename=gguf_filename)
-
     quantization_config = GGUFQuantizationConfig(compute_dtype=torch.float32)
 
-    pipe = StableDiffusionXLPipeline.from_single_file(
-        model_path,
+    unet = UNet2DConditionModel.from_single_file(
+        f"https://huggingface.co/{repo_id}/blob/main/{gguf_filename}",
         quantization_config=quantization_config,
+        torch_dtype=torch.float32,
+    )
+
+    pipe = StableDiffusionXLPipeline.from_pretrained(
+        BASE_SDXL_REPO,
+        unet=unet,
         torch_dtype=torch.float32,
     )
 
