@@ -44,6 +44,7 @@ _FLUX_FILL_DEV_TRANSFORMER_CONFIG = {
     "axes_dims_rope": [16, 56, 56],
     "guidance_embeds": True,
     "in_channels": 384,
+    "out_channels": 64,
     "joint_attention_dim": 4096,
     "num_attention_heads": 24,
     "num_layers": 19,
