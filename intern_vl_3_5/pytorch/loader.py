@@ -224,7 +224,8 @@ class ModelLoader(ForgeModel):
             "attn_implementation": "eager",
         }
         if not self._is_hf_native:
-            model_kwargs["device_map"] = "cpu"
+            # Disable fast init to avoid meta tensor context that breaks .item() in model __init__
+            model_kwargs["_fast_init"] = False
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
