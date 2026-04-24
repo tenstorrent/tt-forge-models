@@ -31,6 +31,7 @@ from ...config import (
 )
 
 GGUF_REPO = "jayn7/HunyuanVideo-1.5_I2V_720p-GGUF"
+DIFFUSERS_CONFIG_REPO = "hunyuanvideo-community/HunyuanVideo-1.5-Diffusers-720p_i2v"
 
 # Small spatial/temporal dimensions for compile-only testing.
 TRANSFORMER_NUM_FRAMES = 4
@@ -140,6 +141,8 @@ class ModelLoader(ForgeModel):
 
         self._transformer = HunyuanVideo15Transformer3DModel.from_single_file(
             f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
+            config=DIFFUSERS_CONFIG_REPO,
+            subfolder="transformer",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
