@@ -76,10 +76,11 @@ class ModelLoader(ForgeModel):
         3. SigLipVisionTower.device unconditionally returns xm.xla_device()
            when torch_xla is importable, breaking CPU baseline runs when model weights
            are on CPU. Override to follow actual parameter device.
-        4. SigLipVisionEmbeddings registers position_ids as a non-persistent buffer
-           via expand() which creates a non-contiguous view. In torch 2.9+ non-persistent
-           non-contiguous buffers can contain garbage values after model loading.
-           Override __init__ to use contiguous storage.
+        4. SigLipVisionEmbeddings registers position_ids as a non-persistent buffer.
+           When device_map is used, from_pretrained initializes the model inside
+           accelerate.init_empty_weights(), making all tensors meta. Non-persistent
+           buffers are not in the state dict and stay as meta/garbage tensors.
+           Patch forward() to recompute position_ids from the input tensor's device.
         """
         import torch.nn as nn
         from cambrian.model.language_model.cambrian_qwen2 import (
@@ -126,19 +127,21 @@ class ModelLoader(ForgeModel):
 
         SigLipVisionTower.device = patched_device
 
-        _orig_embeddings_init = SigLipVisionEmbeddings.__init__
+        # When device_map is used, from_pretrained initializes the model inside
+        # accelerate.init_empty_weights(), making all tensors meta. Non-persistent
+        # buffers like position_ids are not in the state dict, so they stay as
+        # meta/garbage tensors. Patch forward() to recompute position_ids from
+        # the input tensor's device, avoiding the stale cached buffer entirely.
+        def patched_embeddings_forward(self, pixel_values):
+            patch_embeds = self.patch_embedding(pixel_values)
+            embeddings = patch_embeds.flatten(2).transpose(1, 2)
+            position_ids = torch.arange(
+                self.num_positions, device=pixel_values.device
+            ).unsqueeze(0)
+            embeddings = embeddings + self.position_embedding(position_ids)
+            return embeddings
 
-        def patched_embeddings_init(self, config):
-            _orig_embeddings_init(self, config)
-            # Fix: expand() creates a non-contiguous view; replace with contiguous clone
-            # to avoid garbage values in non-persistent buffers with torch 2.9+.
-            self.register_buffer(
-                "position_ids",
-                torch.arange(self.num_positions).unsqueeze(0),
-                persistent=False,
-            )
-
-        SigLipVisionEmbeddings.__init__ = patched_embeddings_init
+        SigLipVisionEmbeddings.forward = patched_embeddings_forward
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Cambrian-S model instance."""
