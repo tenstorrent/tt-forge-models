@@ -4,6 +4,9 @@
 """
 TranslateGemma 4B IT GGUF model loader implementation for causal language modeling.
 """
+import importlib
+import importlib.metadata
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -78,6 +81,14 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import transformers.utils.import_utils as _import_utils
+
+        importlib.invalidate_caches()
+        _import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+            importlib.metadata.packages_distributions()
+        )
+        _import_utils.is_gguf_available.cache_clear()
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
