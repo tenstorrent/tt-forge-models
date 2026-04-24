@@ -123,6 +123,17 @@ class ModelLoader(ForgeModel):
             HunyuanVideo15Transformer3DModel,
         )
 
+        # diffusers 0.37.x omits HunyuanVideo15Transformer3DModel from the
+        # from_single_file allow-list. Register it with a pass-through mapping
+        # so GGUF quantization (which handles weight conversion itself) works.
+        from diffusers.loaders.single_file_model import SINGLE_FILE_LOADABLE_CLASSES
+
+        if "HunyuanVideo15Transformer3DModel" not in SINGLE_FILE_LOADABLE_CLASSES:
+            SINGLE_FILE_LOADABLE_CLASSES["HunyuanVideo15Transformer3DModel"] = {
+                "checkpoint_mapping_fn": lambda checkpoint, **kw: checkpoint,
+                "default_subfolder": "transformer",
+            }
+
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         gguf_file = _GGUF_FILES[self._variant]
