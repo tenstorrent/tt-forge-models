@@ -5,6 +5,7 @@
 Sa2VA-Qwen3-VL model loader implementation for multimodal visual question answering.
 """
 
+import torch
 from transformers import AutoModel, AutoProcessor
 from typing import Optional
 
@@ -73,12 +74,35 @@ class ModelLoader(ForgeModel):
         model_kwargs = {
             "trust_remote_code": True,
             "attn_implementation": "eager",
+            "low_cpu_mem_usage": False,
         }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        # SAM2/Hiera inside Sa2VA calls .item() on torch.linspace() during __init__,
+        # which fails when transformers 5.x wraps initialization in a meta-device
+        # context.  Strip that context so .item() works on real CPU tensors.
+        from transformers import PreTrainedModel
+
+        _orig_get_init_context = PreTrainedModel.get_init_context.__func__
+
+        @classmethod
+        def _no_meta_init_context(cls, dtype, is_quantized, _is_ds_init_called):
+            contexts = _orig_get_init_context(
+                cls, dtype, is_quantized, _is_ds_init_called
+            )
+            return [
+                c
+                for c in contexts
+                if not (isinstance(c, torch.device) and c.type == "meta")
+            ]
+
+        PreTrainedModel.get_init_context = _no_meta_init_context
+        try:
+            model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        finally:
+            PreTrainedModel.get_init_context = classmethod(_orig_get_init_context)
         model.eval()
 
         return model
