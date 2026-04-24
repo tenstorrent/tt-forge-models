@@ -47,8 +47,8 @@ class ModelLoader(ForgeModel):
     }
 
     _GGUF_FILES = {
-        ModelVariant.Q4_0: "flux1-kontext-dev-q4_0.gguf",
-        ModelVariant.Q8_0: "flux1-kontext-dev-q8_0.gguf",
+        ModelVariant.Q4_0: "flux1-kontext-dev-f32-q4_0.gguf",
+        ModelVariant.Q8_0: "flux1-kontext-dev-f32-q8_0.gguf",
     }
 
     DEFAULT_VARIANT = ModelVariant.Q4_0
