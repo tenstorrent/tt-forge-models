@@ -71,6 +71,8 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import gptqmodel  # noqa: F401 — must import before from_pretrained opens a meta-device context
+
         model_kwargs = {
             "trust_remote_code": True,
             "device_map": "cpu",
