@@ -89,9 +89,7 @@ class ModelLoader(ForgeModel):
 
         dtype = self.pipeline.unet.dtype
 
-        prompt = (
-            "Self-portrait oil painting, a beautiful cyborg with golden hair, 8k"
-        )
+        prompt = "Self-portrait oil painting, a beautiful cyborg with golden hair, 8k"
 
         # Encode text prompt into embeddings
         text_inputs = self.pipeline.tokenizer(
@@ -102,9 +100,9 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
         with torch.no_grad():
-            encoder_hidden_states = self.pipeline.text_encoder(
-                text_inputs.input_ids
-            )[0].to(dtype)
+            encoder_hidden_states = self.pipeline.text_encoder(text_inputs.input_ids)[
+                0
+            ].to(dtype)
 
         # Create latent noise input and timestep
         in_channels = self.pipeline.unet.config.in_channels
