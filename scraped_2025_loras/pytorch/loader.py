@@ -32,6 +32,9 @@ from ...config import (
     Framework,
     StrEnum,
 )
+from ...stable_diffusion_xl.pytorch.src.model_utils import (
+    stable_diffusion_preprocessing_xl,
+)
 
 
 LORA_REPO = "MLbackup/Scraped_2025_Loras"
@@ -58,6 +61,13 @@ _BASE_MODELS = {
     ModelVariant.ARCANE_STYLE_PONYXL: "AstraliteHeart/pony-diffusion-v6",
     ModelVariant.NOOBAI_32K_UHD_AESTHETIC: "Laxhar/noobai-XL-1.1",
     ModelVariant.MICRO_CUBE_WORLDS_SDXL: "stabilityai/stable-diffusion-xl-base-1.0",
+}
+
+_PROMPTS = {
+    ModelVariant.ARCANE_STYLE_ILLUSTRIOUS: "A cinematic shot of a baby raccoon wearing an intricate italian priest robe.",
+    ModelVariant.ARCANE_STYLE_PONYXL: "A cinematic shot of a baby raccoon wearing an intricate italian priest robe.",
+    ModelVariant.NOOBAI_32K_UHD_AESTHETIC: "A cinematic shot of a baby raccoon wearing an intricate italian priest robe.",
+    ModelVariant.MICRO_CUBE_WORLDS_SDXL: "A cinematic shot of a baby raccoon wearing an intricate italian priest robe.",
 }
 
 
@@ -88,10 +98,10 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load an SDXL-family pipeline and apply the selected LoRA weights.
+        """Load an SDXL-family pipeline, apply the selected LoRA weights, and return the UNet.
 
         Returns:
-            AutoPipelineForText2Image with LoRA weights loaded.
+            torch.nn.Module: The UNet model with LoRA weights fused.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
 
@@ -106,15 +116,50 @@ class ModelLoader(ForgeModel):
             LORA_REPO,
             weight_name=lora_file,
         )
+        self.pipeline.fuse_lora()
 
-        return self.pipeline
+        modules = [self.pipeline.unet, self.pipeline.vae]
+        if self.pipeline.text_encoder is not None:
+            modules.append(self.pipeline.text_encoder)
+        if self.pipeline.text_encoder_2 is not None:
+            modules.append(self.pipeline.text_encoder_2)
+        for module in modules:
+            module.eval()
+            for param in module.parameters():
+                if param.requires_grad:
+                    param.requires_grad = False
+
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the selected LoRA variant.
+        """Load and return sample inputs for the UNet model.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: Keyword arguments for the UNet forward method.
         """
-        return [
-            "A cinematic shot of a baby raccoon wearing an intricate italian priest robe."
-        ] * batch_size
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
+
+        prompt = _PROMPTS[self._variant]
+        (
+            latent_model_input,
+            timesteps,
+            prompt_embeds,
+            timestep_cond,
+            added_cond_kwargs,
+            add_time_ids,
+        ) = stable_diffusion_preprocessing_xl(self.pipeline, prompt)
+
+        timestep = timesteps[0]
+
+        if dtype_override is not None:
+            latent_model_input = latent_model_input.to(dtype_override)
+            timestep = timestep.to(dtype_override)
+            prompt_embeds = prompt_embeds.to(dtype_override)
+
+        return {
+            "sample": latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "added_cond_kwargs": added_cond_kwargs,
+        }
