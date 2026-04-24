@@ -133,6 +133,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["trust_remote_code"] = True
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
