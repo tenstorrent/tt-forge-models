@@ -58,6 +58,7 @@ def _patch_nemotron_h_moe_support():
 
     if "gpt2" in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["nemotron_h_moe"] = GGUF_TO_FAST_CONVERTERS["gpt2"]
+        GGUF_TO_FAST_CONVERTERS["nemotron_h"] = GGUF_TO_FAST_CONVERTERS["gpt2"]
 
 
 def _derive_nemotron_h_layer_info(gguf_path):
