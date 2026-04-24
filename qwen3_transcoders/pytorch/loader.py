@@ -131,4 +131,8 @@ class ModelLoader(ForgeModel):
             for key in inputs:
                 inputs[key] = cast_input_to_type(inputs[key], dtype_override)
 
-        return inputs
+        # HookedTransformer.forward() uses 'input' not 'input_ids'
+        result = {"input": inputs["input_ids"]}
+        if "attention_mask" in inputs:
+            result["attention_mask"] = inputs["attention_mask"]
+        return result
