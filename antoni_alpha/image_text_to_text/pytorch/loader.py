@@ -11,7 +11,7 @@ consumes pre-extracted Prism slide embeddings rather than raw whole-slide
 images.
 
 The AntoniAlphaPreTrained class is provided by the antoni_alpha package
-(https://github.com/computationalpathologygroup/ANTONI-Alpha).
+(https://github.com/computationalpathologygroup/Antoni-Alpha).
 """
 
 from typing import Optional
@@ -41,7 +41,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.ANTONI_ALPHA: ModelConfig(
-            pretrained_model_name="SaltySander/ANTONI-Alpha",
+            pretrained_model_name="SaltySander/Antoni-Alpha",
         ),
     }
 
@@ -72,9 +72,29 @@ class ModelLoader(ForgeModel):
         """Load and return the ANTONI-Alpha model instance.
 
         Requires the antoni_alpha package:
-            pip install git+https://github.com/computationalpathologygroup/ANTONI-Alpha.git
+            pip install git+https://github.com/computationalpathologygroup/Antoni-Alpha.git
         """
-        from antoni_alpha.models.antoni_pretrained import AntoniAlphaPreTrained
+        import importlib
+        import os
+        import sys
+        from pathlib import Path
+
+        # The local antoni_alpha dir shadows the installed antoni_alpha pip package
+        # on sys.path. Temporarily remove conflicting paths to import installed package.
+        local_root = os.path.normpath(str(Path(__file__).parents[3]))
+        filtered = [
+            p for p in sys.path if p != "" and os.path.normpath(p) != local_root
+        ]
+        for key in list(sys.modules.keys()):
+            if key == "antoni_alpha" or key.startswith("antoni_alpha."):
+                del sys.modules[key]
+        original_path = sys.path[:]
+        sys.path = filtered
+        try:
+            mod = importlib.import_module("antoni_alpha.models.antoni_pretrained")
+            AntoniAlphaPreTrained = mod.AntoniAlphaPreTrained
+        finally:
+            sys.path = original_path
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -92,19 +112,19 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the ANTONI-Alpha model.
 
-        ANTONI-Alpha operates on pre-extracted Prism slide embeddings of
+        Antoni-Alpha operates on pre-extracted Prism slide embeddings of
         shape [batch_size, num_tiles, 1280], paired with an OpenAI-style
         conversation. Synthetic slide latents are produced here to match
         the expected feature dimensions.
         """
-        slide_latents = torch.randn(batch_size, self.num_tiles, self.prism_embedding_dim)
+        slide_latents = torch.randn(
+            batch_size, self.num_tiles, self.prism_embedding_dim
+        )
 
         if dtype_override is not None:
             slide_latents = slide_latents.to(dtype_override)
 
-        conversations = [
-            [{"role": "user", "content": self.sample_prompt}]
-        ] * batch_size
+        conversations = [[{"role": "user", "content": self.sample_prompt}]] * batch_size
 
         return {
             "slide_latents": slide_latents,
