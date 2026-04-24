@@ -98,6 +98,8 @@ class ModelLoader(ForgeModel):
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
+        inputs["decoder_input_ids"] = torch.zeros((batch_size, 1), dtype=torch.long)
+
         if dtype_override is not None:
             for key in inputs:
                 if torch.is_tensor(inputs[key]) and inputs[key].is_floating_point():
