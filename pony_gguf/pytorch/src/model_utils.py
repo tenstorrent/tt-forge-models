@@ -52,7 +52,17 @@ def load_pony_gguf_pipe(repo_id: str, gguf_filename: str):
         config=unet_config, checkpoint=prefixed_checkpoint
     )
     unet = UNet2DConditionModel.from_config(unet_config)
-    unet.load_state_dict(diffusers_state_dict, strict=False)
+
+    # GGUF stores conv weights as 2D arrays; reshape to match PyTorch model shapes
+    model_shapes = {k: v.shape for k, v in unet.state_dict().items()}
+    reshaped = {}
+    for key, tensor in diffusers_state_dict.items():
+        if key in model_shapes and tensor.shape != model_shapes[key]:
+            reshaped[key] = tensor.reshape(model_shapes[key])
+        else:
+            reshaped[key] = tensor
+
+    unet.load_state_dict(reshaped, strict=False)
     unet = unet.to(torch.float32)
 
     pipe = StableDiffusionXLPipeline.from_pretrained(
