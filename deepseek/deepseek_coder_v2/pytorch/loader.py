@@ -142,11 +142,12 @@ class ModelLoader(ForgeModel):
             ).input_ids
         else:
             messages = [{"role": "user", "content": self.sample_text}]
-            inputs = self.tokenizer.apply_chat_template(
+            text = self.tokenizer.apply_chat_template(
                 messages,
                 add_generation_prompt=True,
-                return_tensors="pt",
+                tokenize=False,
             )
+            inputs = self.tokenizer(text, return_tensors="pt").input_ids
         padded_inputs, seq_len = pad_inputs(inputs)
         self.seq_len = seq_len
 
