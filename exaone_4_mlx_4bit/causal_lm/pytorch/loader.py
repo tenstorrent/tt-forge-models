@@ -4,6 +4,8 @@
 """
 EXAONE 4.0 MLX 4-bit model loader implementation for causal language modeling.
 """
+import os
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -106,20 +108,37 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
+        config = AutoConfig.from_pretrained(pretrained_model_name)
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
+
+        # MLX quantization config (bits/group_size only, no quant_method) is not
+        # loadable with PyTorch. Use from_config with random weights instead.
+        quant_cfg = getattr(config, "quantization_config", None)
+        mlx_quant = isinstance(quant_cfg, dict) and "quant_method" not in quant_cfg
+        use_random = bool(
+            mlx_quant
+            or os.environ.get("TT_RANDOM_WEIGHTS")
+            or os.environ.get("TT_COMPILE_ONLY_SYSTEM_DESC")
+        )
+
+        if use_random:
+            config.quantization_config = None
+            model = AutoModelForCausalLM.from_config(config)
+        else:
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
             model_kwargs["config"] = config
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        if dtype_override is not None:
+            model = model.to(dtype_override)
 
+        model = model.eval()
         self.config = model.config
         self.model = model
         return model
