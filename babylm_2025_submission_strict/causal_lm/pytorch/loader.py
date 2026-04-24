@@ -88,12 +88,14 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        if not hasattr(config, "pad_token_id") or config.pad_token_id is None:
+            config.pad_token_id = self.tokenizer.pad_token_id
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
