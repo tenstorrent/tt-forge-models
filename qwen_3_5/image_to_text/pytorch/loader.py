@@ -105,6 +105,11 @@ class ModelLoader(ForgeModel):
         if self._variant == ModelVariant.QWEN_3_5_2B_INT4_AUTOROUND:
             model_kwargs["device_map"] = "cpu"
 
+        # NVFP4 uses modelopt quantization unsupported by transformers, causing
+        # size mismatches when weights are loaded without quantization awareness
+        if "NVFP4" in str(self._variant):
+            model_kwargs["ignore_mismatched_sizes"] = True
+
         model_kwargs |= kwargs
 
         self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
