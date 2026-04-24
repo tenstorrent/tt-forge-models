@@ -110,13 +110,18 @@ class ModelLoader(ForgeModel):
         max_length = self._variant_config.max_length
 
         if self._is_dflash_draft:
-            position_ids = torch.arange(max_length).unsqueeze(0).expand(batch_size, -1)
+            # ctx_len == q_len == max_length; position_ids must span ctx+noise for RoPE
+            ctx_len = max_length
+            q_len = max_length
+            position_ids = (
+                torch.arange(ctx_len + q_len).unsqueeze(0).expand(batch_size, -1)
+            )
             noise_embedding = torch.zeros(
-                batch_size, max_length, self._hidden_size, dtype=self._model_dtype
+                batch_size, q_len, self._hidden_size, dtype=self._model_dtype
             )
             target_hidden = torch.zeros(
                 batch_size,
-                max_length,
+                ctx_len,
                 self._num_target_layers * self._hidden_size,
                 dtype=self._model_dtype,
             )
