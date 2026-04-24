@@ -6,6 +6,7 @@ OpenMed PII EuroMed model loader for token classification.
 """
 
 import torch
+import transformers.modeling_rope_utils as _rope_utils
 from transformers import AutoTokenizer, AutoModelForTokenClassification
 from ....base import ForgeModel
 from ....config import (
@@ -61,6 +62,28 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        # EuroBertRotaryEmbedding uses ROPE_INIT_FUNCTIONS['default'] but older
+        # transformers versions only ship linear/dynamic/yarn/longrope/llama3.
+        if "default" not in _rope_utils.ROPE_INIT_FUNCTIONS:
+
+            def _default_rope(config, device=None, seq_len=None, **kw):
+                head_dim = getattr(
+                    config,
+                    "head_dim",
+                    config.hidden_size // config.num_attention_heads,
+                )
+                theta = getattr(config, "rope_theta", 10000)
+                inv_freq = 1.0 / (
+                    theta
+                    ** (
+                        torch.arange(0, head_dim, 2, dtype=torch.float32, device=device)
+                        / head_dim
+                    )
+                )
+                return inv_freq, 1.0
+
+            _rope_utils.ROPE_INIT_FUNCTIONS["default"] = _default_rope
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             pretrained_model_name, trust_remote_code=True
