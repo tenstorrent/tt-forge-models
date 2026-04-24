@@ -44,6 +44,8 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.NUEXTRACT_2_0_8B
 
     # Sample extraction messages using an image input
+    # NuExtract's chat template drops images when text is also present in the content list,
+    # so use image-only content to ensure image tokens are properly embedded.
     messages = [
         {
             "role": "user",
@@ -52,7 +54,6 @@ class ModelLoader(ForgeModel):
                     "type": "image",
                     "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
                 },
-                {"type": "text", "text": "Describe this image."},
             ],
         }
     ]
