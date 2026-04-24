@@ -177,6 +177,8 @@ class ModelLoader(ForgeModel):
                 add_generation_prompt=True,
                 return_tensors="pt",
             )
+            if hasattr(inputs, "input_ids"):
+                inputs = inputs.input_ids
         padded_inputs, seq_len = pad_inputs(inputs)
         self.seq_len = seq_len
 
