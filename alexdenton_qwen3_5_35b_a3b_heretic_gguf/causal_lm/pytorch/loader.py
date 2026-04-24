@@ -4,6 +4,7 @@
 """
 alexdenton Qwen3.5 35B A3B Heretic GGUF model loader implementation for causal language modeling.
 """
+import re
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -18,6 +19,177 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _get_gguf_arch_and_interval(gguf_path):
+    """Read architecture and full_attention_interval from GGUF header."""
+    try:
+        from gguf import GGUFReader
+
+        reader = GGUFReader(str(gguf_path))
+        arch = ""
+        interval = 4
+        for key, field in reader.fields.items():
+            if key == "general.architecture":
+                parts = [field.parts[i] for i in field.data]
+                if parts:
+                    arch = parts[0].tobytes().decode("utf-8")
+            elif "full_attention_interval" in key:
+                parts = [field.parts[i] for i in field.data]
+                if parts:
+                    val = parts[0]
+                    interval = int(val.item()) if hasattr(val, "item") else int(val)
+        return arch, interval
+    except Exception:
+        return "", 4
+
+
+def _patch_transformers_qwen35moe_gguf():
+    """Patch transformers to support qwen35moe GGUF loading for Qwen3.5 MoE models.
+
+    Transformers string-replaces 'qwen35moe' -> 'qwen3_moe' (substring match on 'qwen3moe'),
+    which prevents correct Qwen3.5 MoE loading. This patch:
+    1. Fixes the config model_type and layer_types after the first (config-only) GGUF load
+    2. Fixes the MoE expert tensor key mapping so Qwen2MoeTensorProcessor.process() works
+       (process() looks up keys without .weight suffix, but the map uses .weight suffixes)
+    """
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        TENSOR_PROCESSORS,
+    )
+
+    if getattr(gguf_utils, "_alexdenton_qwen35moe_patched", False):
+        return
+    gguf_utils._alexdenton_qwen35moe_patched = True
+
+    # Register qwen35moe as supported (may already be done by other loaders)
+    if "qwen35moe" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen35moe")
+
+    if "qwen35moe" not in GGUF_TO_TRANSFORMERS_MAPPING.get("config", {}):
+        GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen35moe"] = {
+            "context_length": "max_position_embeddings",
+            "block_count": "num_hidden_layers",
+            "feed_forward_length": "intermediate_size",
+            "embedding_length": "hidden_size",
+            "rope.dimension_count": None,
+            "rope.freq_base": "rope_theta",
+            "attention.key_length": "head_dim",
+            "attention.head_count": "num_attention_heads",
+            "attention.head_count_kv": "num_key_value_heads",
+            "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+            "vocab_size": "vocab_size",
+            "expert_count": "num_experts",
+            "expert_used_count": "num_experts_per_tok",
+            "full_attention_interval": "full_attention_interval",
+        }
+
+    if "qwen3moe" in TENSOR_PROCESSORS:
+        TENSOR_PROCESSORS.setdefault("qwen35moe", TENSOR_PROCESSORS["qwen3moe"])
+
+    try:
+        from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+        if "qwen3_moe" in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS.setdefault(
+                "qwen35moe", GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
+            )
+            GGUF_TO_FAST_CONVERTERS.setdefault(
+                "qwen3_5_moe_text", GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
+            )
+    except Exception:
+        pass
+
+    _orig_load = gguf_utils.load_gguf_checkpoint
+
+    def _patched_load_gguf_checkpoint(
+        gguf_checkpoint_path, return_tensors=False, model_to_load=None
+    ):
+        result = _orig_load(gguf_checkpoint_path, return_tensors, model_to_load)
+
+        # Fix config on the first (config-only) call so the right model class is used
+        if not return_tensors:
+            arch, interval = _get_gguf_arch_and_interval(gguf_checkpoint_path)
+            if arch == "qwen35moe" and result.get("config", {}).get("model_type") in (
+                "qwen3_moe",
+                "qwen35moe",
+            ):
+                config = result["config"]
+                config["model_type"] = "qwen3_5_moe_text"
+                num_layers = config.get("num_hidden_layers", 40)
+                layer_types = [
+                    "full_attention" if (i + 1) % interval == 0 else "linear_attention"
+                    for i in range(num_layers)
+                ]
+                config["layer_types"] = layer_types
+                config.pop("full_attention_interval", None)
+
+        return result
+
+    gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    import transformers.models.auto.tokenization_auto as _tok_auto
+    import transformers.configuration_utils as _config_utils
+    import transformers.modeling_utils as _modeling_utils
+
+    for _mod in (_tok_auto, _config_utils, _modeling_utils):
+        if hasattr(_mod, "load_gguf_checkpoint"):
+            _mod.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+    # Fix get_gguf_hf_weights_map: Qwen2MoeTensorProcessor.process() looks up
+    # tensor_key_mapping[name_without_weight], but keys in the map have .weight suffix.
+    # Also add separate gate_exps/up_exps entries when the map only has gate_up_exps.
+    _orig_get_map = gguf_utils.get_gguf_hf_weights_map
+    _MOE_EXPS_WITH_WEIGHT = re.compile(
+        r"(blk\.\d+\.ffn_(?:gate|up|down)_exps)\.weight$"
+    )
+    _COMBINED_EXPS_WITH_WEIGHT = re.compile(r"blk\.(\d+)\.ffn_gate_up_exps\.weight$")
+
+    def _patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        result = _orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+        extra = {}
+        for key, val in result.items():
+            # Add keys without .weight for MoE exps so process() lookup succeeds
+            m = _MOE_EXPS_WITH_WEIGHT.match(key)
+            if m:
+                bare = m.group(1)
+                if bare not in result and bare not in extra:
+                    extra[bare] = val
+            # When map has combined gate_up_exps, add separate gate_exps and up_exps
+            # because some GGUF files store gate and up as separate tensors
+            m2 = _COMBINED_EXPS_WITH_WEIGHT.match(key)
+            if m2:
+                bid = m2.group(1)
+                extra[f"blk.{bid}.ffn_gate_exps"] = val
+                extra[f"blk.{bid}.ffn_up_exps"] = val
+        result.update(extra)
+        return result
+
+    gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
+    # Also patch get_gguf_hf_weights_map so qwen3_5_moe_text uses qwen35moe arch
+    # (in case momix_44's patch is not already applied)
+    if not getattr(gguf_utils, "_momix44_qwen35moe_patched", False):
+        _inner_get_map = gguf_utils.get_gguf_hf_weights_map
+
+        def _convert_model_type_get_map(
+            hf_model, processor, model_type=None, num_layers=None, qual_name=""
+        ):
+            if model_type is None:
+                model_type = hf_model.config.model_type
+            if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
+                model_type = "qwen35moe"
+            return _inner_get_map(
+                hf_model, processor, model_type, num_layers, qual_name
+            )
+
+        gguf_utils.get_gguf_hf_weights_map = _convert_model_type_get_map
+
+
+_patch_transformers_qwen35moe_gguf()
 
 
 class ModelVariant(StrEnum):
@@ -99,6 +271,8 @@ class ModelLoader(ForgeModel):
                     ]
             else:
                 config.num_hidden_layers = self.num_layers
+                if hasattr(config, "layer_types"):
+                    config.layer_types = config.layer_types[: self.num_layers]
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
