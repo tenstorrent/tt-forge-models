@@ -171,9 +171,10 @@ class ModelLoader(ForgeModel):
         image = Image.open(image_file).convert("RGB")
 
         vision_tower = self.model.get_vision_tower()
-        pixel_values = vision_tower.image_processor(images=image, return_tensors="pt")[
-            "pixel_values"
-        ]
+        img_proc = vision_tower.image_processor
+        # SigLipImageProcessor exposes preprocess() rather than __call__.
+        process_fn = img_proc if callable(img_proc) else img_proc.preprocess
+        pixel_values = process_fn(images=image, return_tensors="pt")["pixel_values"]
 
         if dtype_override is not None:
             pixel_values = pixel_values.to(dtype_override)
