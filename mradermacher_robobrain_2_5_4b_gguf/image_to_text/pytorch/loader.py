@@ -34,14 +34,15 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.ROBOBRAIN_2_5_4B_GGUF: LLMModelConfig(
-            pretrained_model_name="mradermacher/RoboBrain2.5-4B-GGUF",
+            # mradermacher/RoboBrain2.5-4B-GGUF only contains quantized text weights;
+            # use the full safetensors repo so Qwen3VLForConditionalGeneration can load
+            # the complete multimodal architecture (text + vision encoder + projector).
+            pretrained_model_name="BAAI/RoboBrain2.5-4B",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.ROBOBRAIN_2_5_4B_GGUF
-
-    GGUF_FILE = "RoboBrain2.5-4B.Q4_K_M.gguf"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -66,11 +67,9 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs["gguf_file"] = self.GGUF_FILE
         model_kwargs |= kwargs
 
-        # GGUF repos do not ship a processor; use the base model
-        self.processor = AutoProcessor.from_pretrained("BAAI/RoboBrain2.5-4B")
+        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
