@@ -62,8 +62,11 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self):
+        tokenizer_kwargs = {}
+        if self._variant == ModelVariant.NOMIC_XLM_2048:
+            tokenizer_kwargs["trust_remote_code"] = True
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
         return self.tokenizer
 
@@ -77,7 +80,11 @@ class ModelLoader(ForgeModel):
         if self._variant == ModelVariant.TF_XLM_ROBERTA_BASE:
             model_kwargs["from_tf"] = True
         if self._variant == ModelVariant.NOMIC_XLM_2048:
+            from huggingface_hub import snapshot_download
+
+            local_path = snapshot_download(pretrained_model_name)
             model_kwargs["trust_remote_code"] = True
+            pretrained_model_name = local_path
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
