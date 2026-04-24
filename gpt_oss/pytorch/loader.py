@@ -9,6 +9,7 @@ from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from transformers.utils.quantization_config import Mxfp4Config
 from typing import Optional
 
+from .overrides import override_gpt_oss_modules
 from ...base import ForgeModel
 from ...config import (
     LLMModelConfig,
@@ -108,16 +109,18 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, *, dtype_override=None, patch_modules=False, **kwargs):
         """Load and return the gpt-oss model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use bfloat16 as default.
+            patch_modules: If True, apply module overrides to de-interleave expert weights and do dense MoE execution.
 
         Returns:
             torch.nn.Module: The gpt-oss model instance for causal language modeling.
         """
+
         # Ensure tokenizer is loaded
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
@@ -149,6 +152,9 @@ class ModelLoader(ForgeModel):
         model.eval()
 
         self.model = model
+
+        if patch_modules:
+            override_gpt_oss_modules(model)
 
         return model
 
