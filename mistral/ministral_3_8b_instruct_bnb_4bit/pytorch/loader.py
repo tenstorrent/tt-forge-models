@@ -83,6 +83,9 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The model instance.
         """
+        import torch
+        import torch.nn as nn
+        from bitsandbytes.nn import Linear4bit
         from transformers import Mistral3ForConditionalGeneration
 
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -101,6 +104,26 @@ class ModelLoader(ForgeModel):
         model = Mistral3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        # The unsloth model's llm_int8_skip_modules list is incomplete: some
+        # vision tower attention layers (e.g. layers.14 and layers.19) are
+        # missing, so they get created as Linear4bit even though their weights
+        # are stored as bfloat16 (not uint8-packed). Replace them with regular
+        # nn.Linear to avoid the bitsandbytes quant_state assertion failure.
+        replacements = {}
+        for name, module in model.named_modules():
+            if isinstance(module, Linear4bit) and module.weight.dtype != torch.uint8:
+                out_f, in_f = module.weight.shape
+                new_linear = nn.Linear(in_f, out_f, bias=module.bias is not None).to(
+                    dtype=module.weight.dtype, device=module.weight.device
+                )
+                new_linear.weight = nn.Parameter(module.weight.data.clone())
+                if module.bias is not None:
+                    new_linear.bias = nn.Parameter(module.bias.data.clone())
+                replacements[name] = new_linear
+        for name, new_module in replacements.items():
+            parent_name, child_name = name.rsplit(".", 1)
+            setattr(model.get_submodule(parent_name), child_name, new_module)
 
         model.eval()
         self.model = model
