@@ -87,6 +87,10 @@ class ModelLoader(ForgeModel):
 
             _gguf_utils.load_gguf_checkpoint = _patched_load
 
+            import transformers.configuration_utils as _config_utils
+
+            _config_utils.load_gguf_checkpoint = _patched_load
+
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
     ):
