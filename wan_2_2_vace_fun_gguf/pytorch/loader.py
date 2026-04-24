@@ -4,8 +4,9 @@
 """
 Wan 2.2 VACE Fun A14B GGUF model loader implementation for video generation
 """
+
 import torch
-from diffusers import WanTransformer3DModel
+from diffusers import GGUFQuantizationConfig, WanTransformer3DModel
 from typing import Optional
 
 from ...base import ForgeModel
@@ -58,17 +59,15 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        load_kwargs = {"gguf_file": self.GGUF_FILE}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
+        compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+        gguf_url = f"https://huggingface.co/{self._variant_config.pretrained_model_name}/resolve/main/{self.GGUF_FILE}"
 
-        self.transformer = WanTransformer3DModel.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            **load_kwargs,
+        self.transformer = WanTransformer3DModel.from_single_file(
+            gguf_url,
+            quantization_config=quantization_config,
+            torch_dtype=compute_dtype,
         )
-
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
 
         return self.transformer
 
