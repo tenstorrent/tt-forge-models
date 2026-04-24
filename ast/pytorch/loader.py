@@ -72,6 +72,7 @@ class ModelLoader(ForgeModel):
         return self._processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import torch
         from transformers import ASTForAudioClassification
 
         model_kwargs = {}
@@ -85,8 +86,8 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
 
-        if dtype_override is not None:
-            model.to(dtype_override)
+        target_dtype = dtype_override if dtype_override is not None else torch.float32
+        model.to(target_dtype)
 
         return model
 
