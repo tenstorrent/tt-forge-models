@@ -89,7 +89,7 @@ class ModelLoader(ForgeModel):
 
         config = AutoConfig.from_pretrained(pretrained_model_name)
         if hasattr(config, "quantization_config"):
-            config.quantization_config = None
+            delattr(config, "quantization_config")
         if self.num_layers is not None:
             if hasattr(config, "text_config"):
                 config.text_config.num_hidden_layers = self.num_layers
@@ -102,7 +102,7 @@ class ModelLoader(ForgeModel):
         model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
