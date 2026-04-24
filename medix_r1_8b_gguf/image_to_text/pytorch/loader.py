@@ -5,7 +5,7 @@
 MediX R1 8B GGUF model loader implementation for image to text.
 """
 
-from transformers import Qwen3VLForConditionalGeneration, AutoProcessor, AutoConfig
+from transformers import Qwen3VLForConditionalGeneration, AutoProcessor
 from typing import Optional
 
 from ....base import ForgeModel
@@ -52,6 +52,43 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.processor = None
 
+    @staticmethod
+    def _fix_gguf_qwen3vl():
+        """Register qwen3vl GGUF architecture so transformers can load it.
+
+        The GGUF file stores architecture as "qwen3vl" which transformers does
+        not yet support. We alias it to qwen3's config mapping (text backbone is
+        identical) and patch load_gguf_checkpoint to set the correct model_type
+        for Qwen3VLForConditionalGeneration.
+        """
+        import transformers.configuration_utils as _config_utils
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+        import transformers.modeling_utils as _modeling_utils
+
+        if "qwen3vl" in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
+            return
+
+        _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"][
+            "qwen3vl"
+        ] = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen3"]
+        _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vl")
+
+        _orig_load = _gguf_utils.load_gguf_checkpoint
+
+        def _patched_load(*args, **kwargs):
+            result = _orig_load(*args, **kwargs)
+            if isinstance(result, dict) and isinstance(result.get("config"), dict):
+                if result["config"].get("model_type") == "qwen3vl":
+                    result["config"]["model_type"] = "qwen3_vl"
+                    result["config"]["architectures"] = [
+                        "Qwen3VLForConditionalGeneration"
+                    ]
+            return result
+
+        _gguf_utils.load_gguf_checkpoint = _patched_load
+        _config_utils.load_gguf_checkpoint = _patched_load
+        _modeling_utils.load_gguf_checkpoint = _patched_load
+
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         if variant is None:
@@ -66,6 +103,8 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        self._fix_gguf_qwen3vl()
+
         pretrained_model_name = self._variant_config.pretrained_model_name
         gguf_file = self._GGUF_FILES[self._variant]
 
@@ -77,8 +116,6 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         self.processor = AutoProcessor.from_pretrained(self.BASE_MODEL)
-
-        model_kwargs["config"] = AutoConfig.from_pretrained(self.BASE_MODEL)
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
