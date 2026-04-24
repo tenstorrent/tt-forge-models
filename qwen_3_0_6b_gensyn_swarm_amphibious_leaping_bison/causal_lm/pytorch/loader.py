@@ -79,6 +79,8 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    BASE_MODEL_NAME = "Qwen/Qwen3-0.6B"
+
     def _load_tokenizer(self, dtype_override=None):
         """Load tokenizer for the current variant.
 
@@ -95,6 +97,10 @@ class ModelLoader(ForgeModel):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
+
+        if self.tokenizer.chat_template is None:
+            base_tokenizer = AutoTokenizer.from_pretrained(self.BASE_MODEL_NAME)
+            self.tokenizer.chat_template = base_tokenizer.chat_template
 
         return self.tokenizer
 
