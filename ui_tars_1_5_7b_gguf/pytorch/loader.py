@@ -11,6 +11,104 @@ import torch
 from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+
+
+def _patch_qwen2vl_gguf_support():
+    """Register qwen2vl as a supported GGUF architecture mapped to qwen2_vl.
+
+    UI-TARS and similar models use GGUF files declaring architecture 'qwen2vl'
+    which transformers 5.x does not recognise. The GGUF only stores the LM
+    backbone; vision encoder weights are absent and will use default init,
+    which is acceptable for compile-only tests.
+    """
+    if "qwen2vl" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen2vl")
+    if "qwen2vl" not in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]:
+        _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen2vl"] = {
+            "context_length": "max_position_embeddings",
+            "block_count": "num_hidden_layers",
+            "feed_forward_length": "intermediate_size",
+            "embedding_length": "hidden_size",
+            "rope.dimension_count": None,
+            "rope.freq_base": "rope_theta",
+            "attention.head_count": "num_attention_heads",
+            "attention.head_count_kv": "num_key_value_heads",
+            "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+            "vocab_size": "vocab_size",
+        }
+    for section in ("tokenizer", "tokenizer_config"):
+        mapping = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING.get(section, {})
+        if "qwen2" in mapping:
+            mapping.setdefault("qwen2vl", mapping["qwen2"])
+
+
+def _read_gguf_mrope_section(gguf_path):
+    """Read rope.dimension_sections from a GGUF file and return as a list."""
+    try:
+        from gguf import GGUFReader
+
+        reader = GGUFReader(gguf_path)
+        field_name = "qwen2vl.rope.dimension_sections"
+        if field_name not in reader.fields:
+            return None
+        field = reader.fields[field_name]
+        # field.data indexes into field.parts; parts are int32 values
+        values = [
+            int(field.parts[i][0]) for i in field.data if int(field.parts[i][0]) != 0
+        ]
+        return values if values else None
+    except Exception:
+        return None
+
+
+def _patched_load_gguf_checkpoint(*args, **kwargs):
+    _patch_qwen2vl_gguf_support()
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
+    cfg = result.get("config", {})
+    if cfg.get("model_type") == "qwen2vl":
+        cfg["model_type"] = "qwen2_vl"
+        # The GGUF loader doesn't extract rope.dimension_sections into
+        # rope_parameters, so we read it directly and inject it.
+        gguf_path = args[0] if args else kwargs.get("gguf_checkpoint_path")
+        if gguf_path:
+            mrope_section = _read_gguf_mrope_section(gguf_path)
+            if mrope_section:
+                cfg.setdefault("rope_parameters", {})["mrope_section"] = mrope_section
+    return result
+
+
+_orig_get_gguf_hf_weights_map = _gguf_utils.get_gguf_hf_weights_map
+
+
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
+    if model_type is None and hf_model is not None:
+        model_type = hf_model.config.model_type
+    if model_type == "qwen2_vl":
+        if num_layers is None and hf_model is not None:
+            num_layers = hf_model.config.text_config.num_hidden_layers
+        model_type = "qwen2vl"
+    return _orig_get_gguf_hf_weights_map(
+        hf_model, processor, model_type, num_layers, qual_name
+    )
+
+
+_patch_qwen2vl_gguf_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
 
 from ...base import ForgeModel
 from ...config import (
