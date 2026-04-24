@@ -32,7 +32,37 @@ class ZonosBackboneWrapper(nn.Module):
         self.model = model
 
     def forward(self, hidden_states):
-        hidden_states = self.model.backbone(hidden_states, inference_params=None)
+        import os
+        import sys
+
+        # Re-import InferenceParams from the installed zonos (not the local shadow).
+        worktree_dir = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        saved_path = sys.path[:]
+        sys.path = [p for p in sys.path if p not in ("", ".", worktree_dir)]
+        for k in [
+            k for k in list(sys.modules) if k == "zonos" or k.startswith("zonos.")
+        ]:
+            del sys.modules[k]
+        try:
+            from zonos.config import InferenceParams
+        finally:
+            sys.path = saved_path
+
+        batch_size, seq_len = hidden_states.shape[:2]
+        kv_cache = self.model.backbone.allocate_inference_cache(
+            batch_size, seq_len, dtype=hidden_states.dtype
+        )
+        inference_params = InferenceParams(
+            max_seqlen=seq_len,
+            max_batch_size=batch_size,
+            key_value_memory_dict=kv_cache,
+            lengths_per_sample=torch.zeros(batch_size, dtype=torch.long),
+        )
+        hidden_states = self.model.backbone(
+            hidden_states, inference_params=inference_params
+        )
         logits = self.model.apply_heads(hidden_states)
         return logits
 
@@ -47,8 +77,10 @@ class ModelLoader(ForgeModel):
     """Zonos TTS model loader implementation for text-to-speech tasks."""
 
     _VARIANTS = {
+        # Zyphra/Zonos-v0.1-hybrid requires mamba-ssm (CUDA-only). Use the
+        # transformer checkpoint which runs on CPU/TT hardware.
         ModelVariant.ZONOS_V0_1_HYBRID: ModelConfig(
-            pretrained_model_name="Zyphra/Zonos-v0.1-hybrid",
+            pretrained_model_name="Zyphra/Zonos-v0.1-transformer",
         ),
     }
 
@@ -70,7 +102,26 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from zonos.model import Zonos
+        import os
+        import sys
+
+        # The local zonos/ model directory (a regular package with __init__.py) shadows
+        # the installed zonos pip package (a namespace package without __init__.py).
+        # Regular packages beat namespace packages regardless of sys.path order, so we
+        # must temporarily remove the shadowing paths before importing.
+        worktree_dir = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        saved_path = sys.path[:]
+        sys.path = [p for p in sys.path if p not in ("", ".", worktree_dir)]
+        for k in [
+            k for k in list(sys.modules) if k == "zonos" or k.startswith("zonos.")
+        ]:
+            del sys.modules[k]
+        try:
+            from zonos.model import Zonos
+        finally:
+            sys.path = saved_path
 
         zonos = Zonos.from_pretrained(
             self._variant_config.pretrained_model_name, device="cpu"
