@@ -10,6 +10,8 @@ from typing import Optional
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 
 try:
+    import contextlib
+    import fla.utils as _fla_utils
     from fla.models.gla.configuration_gla import GLAConfig
     from fla.models.gla.modeling_gla import GLAForCausalLM
 
@@ -17,6 +19,15 @@ try:
     GLAForCausalLM._tied_weights_keys = {"lm_head.weight": "model.embeddings.weight"}
     AutoConfig.register("gla", GLAConfig, exist_ok=True)
     AutoModelForCausalLM.register(GLAConfig, GLAForCausalLM, exist_ok=True)
+
+    # fla 0.5.0 bug: custom_device_ctx calls torch.cpu.device() which doesn't exist;
+    # on CPU (index=None) return a no-op context manager instead.
+    def _cpu_safe_device_ctx(index):
+        if index is None or not hasattr(_fla_utils.device_torch_lib, "device"):
+            return contextlib.nullcontext()
+        return _fla_utils.device_torch_lib.device(index)
+
+    _fla_utils.custom_device_ctx = _cpu_safe_device_ctx
 except ImportError:
     pass
 
