@@ -11,6 +11,7 @@ transcribes Hindi audio into romanized Hinglish text.
 
 from typing import Optional
 
+import numpy as np
 import torch
 
 from ...base import ForgeModel
@@ -23,7 +24,6 @@ from ...config import (
     ModelTask,
     StrEnum,
 )
-from ...tools.utils import get_file
 
 
 class ModelVariant(StrEnum):
@@ -124,18 +124,12 @@ class ModelLoader(ForgeModel):
 
         whisper_config = WhisperConfig.from_pretrained(self._model_name)
 
-        # Load audio sample
-        weights_pth = get_file("test_files/pytorch/whisper/1272-128104-0000.pt")
-        sample = torch.load(weights_pth, weights_only=False)
-        sample_audio = sample["audio"]["array"]
         model_param = next(self.model.parameters())
         device, dtype = model_param.device, dtype_override or model_param.dtype
 
-        # Preprocess audio
-        sampling_rate = 16000
-        inputs = self.processor(
-            sample_audio, return_tensors="pt", sampling_rate=sampling_rate
-        )
+        # Generate synthetic audio and process through the feature extractor
+        sample_audio = np.random.randn(16000 * 3).astype(np.float32)
+        inputs = self.processor(sample_audio, return_tensors="pt", sampling_rate=16000)
         input_features = inputs.input_features.to(device=device, dtype=dtype)
 
         # Build decoder input IDs for Hinglish (English-script) transcription
