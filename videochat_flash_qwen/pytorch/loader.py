@@ -74,6 +74,9 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {
             "trust_remote_code": True,
+            # The custom vision tower calls .item() during __init__, which fails when
+            # low_cpu_mem_usage places tensors on the meta device.
+            "low_cpu_mem_usage": False,
         }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
