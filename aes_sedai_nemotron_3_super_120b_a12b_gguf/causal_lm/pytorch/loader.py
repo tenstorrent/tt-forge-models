@@ -175,9 +175,10 @@ class ModelLoader(ForgeModel):
         "Q4_K_M/NVIDIA-Nemotron-3-Super-120B-A12B-BF16-Q4_K_M-00001-of-00003.gguf"
     )
 
-    # Default to 2 layers for compile-only testing: full 88-layer model exceeds
-    # practical memory limits when instantiated with random weights.
-    DEFAULT_NUM_LAYERS = 2
+    # Default to 8 layers: the pattern is "MEMEMEM*..." so we need at least 8
+    # layers to include one attention layer (*); fewer layers cause HybridCache
+    # to fail with "only LinearAttention layers".  Full 88-layer model OOMs.
+    DEFAULT_NUM_LAYERS = 8
 
     sample_text = "Give me a short introduction to large language models."
 
