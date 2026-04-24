@@ -59,6 +59,9 @@ class ModelLoader(ForgeModel):
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.DEEPSEEK_1_3B_INSTRUCT
 
+    # No GGUF variants; AWQ uses AutoAWQ format instead
+    _GGUF_FILES = {}
+
     # Sample prompt text
     sample_text = "write a bubble sort algorithm in python."
 
