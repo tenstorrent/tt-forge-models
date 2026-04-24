@@ -8,8 +8,10 @@ Supports distilled variants of DeepSeek-R1 that are compatible with
 HuggingFace Transformers (the full 671B MoE model is not).
 """
 
+import os
 from typing import Optional
 
+from huggingface_hub import snapshot_download
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
@@ -131,18 +133,32 @@ class ModelLoader(ForgeModel):
         """Get the GGUF filename for the current variant."""
         return self._GGUF_FILES.get(self._variant)
 
+    def _resolve_model_path(self):
+        """Resolve the HF repo + subfolder to a local absolute path.
+
+        When a subfolder is specified on a repo that also has an adapter_config.json
+        at its root, transformers' PEFT-detection logic intercepts the from_pretrained
+        call and redirects weight loading to the base model while carrying the
+        subfolder kwarg forward — which then fails because the base model has no such
+        subfolder.  Loading from an absolute local directory bypasses that detection.
+        """
+        subfolder = self._SUBFOLDERS.get(self._variant)
+        if subfolder is None:
+            return self._variant_config.pretrained_model_name, None
+
+        local_path = snapshot_download(self._variant_config.pretrained_model_name)
+        return os.path.join(local_path, subfolder), None
+
     def _load_tokenizer(self, dtype_override=None):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
         if self._is_gguf_variant():
             tokenizer_kwargs["gguf_file"] = self._gguf_file
-        subfolder = self._SUBFOLDERS.get(self._variant)
-        if subfolder is not None:
-            tokenizer_kwargs["subfolder"] = subfolder
 
+        model_path, _ = self._resolve_model_path()
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
+            model_path,
             trust_remote_code=True,
             **tokenizer_kwargs,
         )
@@ -157,18 +173,14 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         if self._variant in (ModelVariant.DISTILL_LLAMA_70B_BNB_4BIT,):
             model_kwargs["device_map"] = "cpu"
-        subfolder = self._SUBFOLDERS.get(self._variant)
-        if subfolder is not None:
-            model_kwargs["subfolder"] = subfolder
         model_kwargs |= kwargs
 
         # Quantized variants need device_map="cpu" for CPU-based loading
         if self._variant in (ModelVariant.DISTILL_QWEN_7B_UNSLOTH_BNB_4BIT,):
             model_kwargs["device_map"] = "cpu"
 
-        model = AutoModelForCausalLM.from_pretrained(
-            self._variant_config.pretrained_model_name, **model_kwargs
-        )
+        model_path, _ = self._resolve_model_path()
+        model = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs)
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
