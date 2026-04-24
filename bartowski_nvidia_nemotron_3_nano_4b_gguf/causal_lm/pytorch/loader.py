@@ -71,14 +71,23 @@ def _patch_transformers_nemotron_h_gguf():
             hf_name = re.sub(
                 r"^model\.layers\.(\d+)\.", r"backbone.layers.\1.", hf_name
             )
-            # dt_bias in HF is stored as blk.N.ssm_dt.bias in GGUF
-            hf_name = hf_name.replace(".mixer.dt_bias", ".mixer.dt.bias")
             return hf_name
+
+        def perform_fallback_tensor_mapping(
+            self, gguf_to_hf_name_map, suffix, qual_name, hf_name
+        ):
+            # dt_bias in HF maps to blk.N.ssm_dt.bias in GGUF
+            m = re.match(r"backbone\.layers\.(\d+)\.mixer\.dt_bias$", hf_name)
+            if m:
+                gguf_name = f"blk.{m.group(1)}.ssm_dt.bias"
+                gguf_to_hf_name_map[gguf_name] = qual_name + re.sub(
+                    r"^backbone", "model", hf_name
+                )
 
         def process(self, weights, name, **kwargs):
             if "ssm_conv1d.weight" in name:
-                # GGUF: [kernel, conv_dim] -> HF: [conv_dim, 1, kernel]
-                weights = np.expand_dims(weights.T, axis=1)
+                # Dequantized shape is [conv_dim, kernel]; HF expects [conv_dim, 1, kernel]
+                weights = np.expand_dims(weights, axis=1)
             elif "ssm_a" in name:
                 # GGUF stores raw negative A; A_log = log(-A), flatten to 1D
                 weights = np.log(-weights).flatten()
