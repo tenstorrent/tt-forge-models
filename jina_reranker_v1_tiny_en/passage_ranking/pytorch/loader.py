@@ -93,6 +93,10 @@ class ModelLoader(ForgeModel):
         model_kwargs = {
             "config": config,
             "trust_remote_code": True,
+            # JinaBertEncoder does real tensor math in __init__ (alibi), so
+            # meta-device lazy loading (triggered by dtype kwarg in transformers>=5)
+            # must be disabled.
+            "low_cpu_mem_usage": False,
         }
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
