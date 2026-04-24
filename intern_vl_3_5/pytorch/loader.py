@@ -15,6 +15,7 @@ from transformers import (
     AutoProcessor,
     AutoTokenizer,
 )
+from transformers.modeling_utils import PreTrainedModel
 from typing import Optional
 
 from ...tools.utils import get_file
@@ -233,11 +234,26 @@ class ModelLoader(ForgeModel):
                 pretrained_model_name, **model_kwargs
             )
         else:
-            # low_cpu_mem_usage=False avoids meta tensors during init; the custom
-            # InternVL model calls .item() in __init__ which fails on meta tensors.
-            model = AutoModel.from_pretrained(
-                pretrained_model_name, low_cpu_mem_usage=False, **model_kwargs
-            )
+            # The custom InternVL code calls .item() in __init__ which fails when
+            # transformers uses torch.device("meta") during model construction.
+            # Temporarily patch get_init_context to exclude the meta device context.
+            _orig_get_init_ctx = PreTrainedModel.get_init_context.__func__
+
+            @classmethod
+            def _cpu_init_ctx(cls, dtype, is_quantized, _is_ds_init_called):
+                return [
+                    c
+                    for c in _orig_get_init_ctx(
+                        cls, dtype, is_quantized, _is_ds_init_called
+                    )
+                    if not isinstance(c, torch.device)
+                ]
+
+            PreTrainedModel.get_init_context = _cpu_init_ctx
+            try:
+                model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+            finally:
+                PreTrainedModel.get_init_context = classmethod(_orig_get_init_ctx)
 
         model.eval()
         self.model = model
