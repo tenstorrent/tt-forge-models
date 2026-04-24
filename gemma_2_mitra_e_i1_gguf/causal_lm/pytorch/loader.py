@@ -4,9 +4,34 @@
 """
 Gemma 2 Mitra E i1 GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+
+def _fix_gguf_version_detection():
+    """Ensure gguf has __version__ so transformers' is_gguf_available() works.
+
+    gguf >= 0.10.0 omits __version__; transformers falls back to getattr and
+    gets 'N/A', then version.parse('N/A') raises InvalidVersion.  Setting
+    __version__ from importlib.metadata and clearing the lru_cache lets the
+    version check succeed.
+    """
+    try:
+        import gguf as _gguf_mod
+
+        if not hasattr(_gguf_mod, "__version__"):
+            _gguf_mod.__version__ = importlib.metadata.version("gguf")
+    except Exception:
+        return
+    try:
+        from transformers.utils.import_utils import is_gguf_available
+
+        is_gguf_available.cache_clear()
+    except Exception:
+        pass
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -76,6 +101,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _fix_gguf_version_detection()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
