@@ -205,10 +205,7 @@ class ModelLoader(ForgeModel):
         # Get max_length from the variant config
         max_length = self._variant_config.max_length
 
-        if self._variant in (
-            ModelVariant.QWEN2_AB_ZSX,
-            ModelVariant.KO_YOSHIDA_SAMPLE1,
-        ):
+        if self._variant in (ModelVariant.QWEN2_AB_ZSX,):
             prompts = [self.sample_text]
         else:
             messages = [{"role": "user", "content": self.sample_text}]
