@@ -83,6 +83,17 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The Mistral Small 4 model instance.
         """
+        import sys
+        import types
+
+        import torch
+
+        # The model ships with FP8 quantization. transformers/integrations/finegrained_fp8.py
+        # imports triton at module level, which is GPU-only. Stub it out so the module can
+        # be imported on CPU; the actual triton kernels are never called in compile-only mode.
+        if "triton" not in sys.modules:
+            sys.modules["triton"] = types.ModuleType("triton")
+
         from transformers import Mistral3ForConditionalGeneration
 
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -98,6 +109,14 @@ class ModelLoader(ForgeModel):
         )
 
         model.eval()
+
+        # The model checkpoint stores FP8 weights. Cast them to the target dtype so
+        # that forward passes don't try to invoke GPU-only FP8 grouped-matmul kernels.
+        target_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        for param in model.parameters():
+            if param.dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
+                param.data = param.data.to(target_dtype)
+
         self.model = model
         self.config = model.config
         return model
