@@ -52,6 +52,12 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import os
+
+        # surya/settings.py calls torch_xla.devices() at import time which crashes on TT hardware.
+        # Setting TORCH_DEVICE=cpu short-circuits that path.
+        os.environ.setdefault("TORCH_DEVICE", "cpu")
+
         from surya.foundation import FoundationPredictor
         from surya.recognition import RecognitionPredictor
 
