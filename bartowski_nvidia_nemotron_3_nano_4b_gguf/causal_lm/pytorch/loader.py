@@ -4,20 +4,172 @@
 """
 bartowski nvidia Nemotron-3-Nano-4B GGUF model loader implementation for causal language modeling.
 """
+import re
+
+import numpy as np
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
 from ....config import (
-    LLMModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
+
+
+def _patch_transformers_nemotron_h_gguf():
+    """Register nemotron_h as a supported GGUF architecture.
+
+    transformers 5.6.2 has NemotronHForCausalLM but no GGUF loading support.
+    This patch adds the config mapping, a tensor processor, and derives the
+    hybrid layer pattern from the GGUF tensor names.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        TENSOR_PROCESSORS,
+        GGUFTensor,
+        TensorProcessor,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "nemotron_h" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("nemotron_h")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["nemotron_h"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": None,  # derived from layers_block_type
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": None,  # GGUF stores 0; derived from tensors
+        "attention.layer_norm_rms_epsilon": "layer_norm_epsilon",
+        "attention.key_length": "head_dim",
+        "vocab_size": "vocab_size",
+        "ssm.conv_kernel": "mamba_d_conv",
+        "ssm.state_size": "ssm_state_size",
+        "ssm.group_count": "mamba_n_groups",
+        "ssm.time_step_rank": "mamba_num_heads",
+        "ssm.inner_size": None,  # used below to derive mamba_head_dim
+        "rope.dimension_count": None,
+        "attention.value_length": None,
+        "rope.scaling.finetuned": None,
+        "attention.layer_norm_epsilon": None,
+    }
+
+    class NemotronHTensorProcessor(TensorProcessor):
+        def preprocess_name(self, hf_name: str) -> str:
+            # gguf-py maps backbone.layers.N.* but NemotronH uses model.layers.N.*
+            hf_name = re.sub(
+                r"^model\.layers\.(\d+)\.", r"backbone.layers.\1.", hf_name
+            )
+            # dt_bias in HF is stored as blk.N.ssm_dt.bias in GGUF
+            hf_name = hf_name.replace(".mixer.dt_bias", ".mixer.dt.bias")
+            return hf_name
+
+        def process(self, weights, name, **kwargs):
+            if "ssm_conv1d.weight" in name:
+                # GGUF: [kernel, conv_dim] -> HF: [conv_dim, 1, kernel]
+                weights = np.expand_dims(weights.T, axis=1)
+            elif "ssm_a" in name:
+                # GGUF stores raw A values; A_log = log(-A) for Mamba, squeeze [1,H]->[H]
+                weights = np.log(-weights).squeeze(0)
+            elif "ssm_d" in name:
+                # GGUF: [1, H] -> HF: [H]
+                weights = weights.squeeze(0)
+            elif "ssm_norm.weight" in name:
+                # GGUF: [group_size, n_groups] -> HF: [intermediate_size]
+                weights = weights.flatten()
+            return GGUFTensor(weights, name, {})
+
+    TENSOR_PROCESSORS["nemotron_h"] = NemotronHTensorProcessor
+
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+
+        if config.get("model_type") != "nemotron_h":
+            return result
+
+        from gguf import GGUFReader
+        from transformers import NemotronHConfig
+
+        gguf_path = args[0] if args else kwargs.get("gguf_checkpoint_path")
+        if not gguf_path:
+            return result
+
+        reader = GGUFReader(gguf_path)
+        tensor_names = {t.name for t in reader.tensors}
+
+        # Derive layers_block_type from tensor presence
+        block_count = 0
+        for t in reader.tensors:
+            m = re.match(r"blk\.(\d+)\.", t.name)
+            if m:
+                block_count = max(block_count, int(m.group(1)) + 1)
+
+        layer_types = []
+        for i in range(block_count):
+            if f"blk.{i}.ssm_a" in tensor_names:
+                layer_types.append("mamba")
+            elif f"blk.{i}.attn_q" in tensor_names:
+                layer_types.append("attention")
+            else:
+                layer_types.append("mlp")
+
+        config["hybrid_override_pattern"] = NemotronHConfig._list_to_pattern(
+            layer_types
+        )
+
+        # Derive mamba_head_dim from ssm.inner_size / mamba_num_heads
+        mamba_num_heads = config.get("mamba_num_heads", 0)
+        # Read ssm.inner_size directly from GGUF
+        if "nemotron_h.ssm.inner_size" in reader.fields:
+            inner_size = int(reader.fields["nemotron_h.ssm.inner_size"].parts[-1][0])
+            if mamba_num_heads:
+                config["mamba_head_dim"] = inner_size // mamba_num_heads
+
+        # Derive num_key_value_heads from attn_k tensor shape (GGUF stores 0)
+        head_dim = config.get("head_dim", 128)
+        for t in reader.tensors:
+            m = re.match(r"blk\.(\d+)\.attn_k\.weight", t.name)
+            if m:
+                config["num_key_value_heads"] = int(t.shape[1]) // head_dim
+                break
+
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+    import transformers.models.auto.tokenization_auto as tok_auto
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    # Register nemotron_h in fast tokenizer converters if nemotron is present
+    try:
+        from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+        if "nemotron" in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS["nemotron_h"] = GGUF_TO_FAST_CONVERTERS["nemotron"]
+    except (ImportError, AttributeError):
+        pass
+
+
+_patch_transformers_nemotron_h_gguf()
 
 
 class ModelVariant(StrEnum):
@@ -97,7 +249,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
