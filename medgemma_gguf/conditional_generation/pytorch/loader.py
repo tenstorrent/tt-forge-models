@@ -8,9 +8,11 @@ import torch
 from transformers import (
     AutoConfig,
     AutoModelForImageTextToText,
+    Gemma3Config,
     Gemma3Processor,
     GemmaTokenizer,
     SiglipImageProcessor,
+    SiglipVisionConfig,
 )
 from typing import Optional
 
@@ -97,6 +99,13 @@ class ModelLoader(ForgeModel):
         )
         return self.processor
 
+    def _build_config(self):
+        text_config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
+        )
+        vision_config = SiglipVisionConfig.from_pretrained(self._SIGLIP_MODEL)
+        return Gemma3Config(text_config=text_config, vision_config=vision_config)
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the MedGemma GGUF model instance."""
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -104,11 +113,12 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
-        model_kwargs = {}
+        config = self._build_config()
+
+        model_kwargs = {"config": config, "gguf_file": self.gguf_file}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.gguf_file
 
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -155,7 +165,5 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         """Load and return the model configuration."""
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
-        )
+        self.config = self._build_config()
         return self.config
