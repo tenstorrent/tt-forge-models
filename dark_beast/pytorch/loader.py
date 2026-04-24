@@ -15,6 +15,8 @@ from typing import Optional
 
 import torch
 from diffusers import Flux2KleinPipeline
+from huggingface_hub import hf_hub_download
+from safetensors import safe_open
 
 from ...base import ForgeModel
 from ...config import (
@@ -30,6 +32,90 @@ from ...config import (
 BASE_MODEL = "Runware/BFL-FLUX.2-klein-9B"
 LORA_REPO = "Keltezaa/Dark_Beast"
 LORA_WEIGHT_NAME = "darkBeastMar0326Latest_dbkleinv2BFS.safetensors"
+
+
+def _convert_comfyui_to_diffusers(state_dict):
+    """Convert ComfyUI-format FLUX.2 checkpoint keys to HuggingFace diffusers format.
+
+    The Dark Beast checkpoint uses ComfyUI naming (model.diffusion_model.*) with
+    fused QKV weights, while diffusers uses separate Q/K/V projections.
+    """
+    new_sd = {}
+    for orig_key, tensor in state_dict.items():
+        key = orig_key.replace("model.diffusion_model.", "")
+
+        if key.startswith("double_blocks."):
+            parts = key.split(".")
+            idx = parts[1]
+            rest = ".".join(parts[2:])
+            if rest == "img_attn.qkv.weight":
+                q, k, v = tensor.chunk(3, dim=0)
+                new_sd[f"transformer_blocks.{idx}.attn.to_q.weight"] = q
+                new_sd[f"transformer_blocks.{idx}.attn.to_k.weight"] = k
+                new_sd[f"transformer_blocks.{idx}.attn.to_v.weight"] = v
+            elif rest == "img_attn.proj.weight":
+                new_sd[f"transformer_blocks.{idx}.attn.to_out.0.weight"] = tensor
+            elif rest == "img_attn.norm.query_norm.scale":
+                new_sd[f"transformer_blocks.{idx}.attn.norm_q.weight"] = tensor
+            elif rest == "img_attn.norm.key_norm.scale":
+                new_sd[f"transformer_blocks.{idx}.attn.norm_k.weight"] = tensor
+            elif rest == "txt_attn.qkv.weight":
+                q, k, v = tensor.chunk(3, dim=0)
+                new_sd[f"transformer_blocks.{idx}.attn.add_q_proj.weight"] = q
+                new_sd[f"transformer_blocks.{idx}.attn.add_k_proj.weight"] = k
+                new_sd[f"transformer_blocks.{idx}.attn.add_v_proj.weight"] = v
+            elif rest == "txt_attn.proj.weight":
+                new_sd[f"transformer_blocks.{idx}.attn.to_add_out.weight"] = tensor
+            elif rest == "txt_attn.norm.query_norm.scale":
+                new_sd[f"transformer_blocks.{idx}.attn.norm_added_q.weight"] = tensor
+            elif rest == "txt_attn.norm.key_norm.scale":
+                new_sd[f"transformer_blocks.{idx}.attn.norm_added_k.weight"] = tensor
+            elif rest == "img_mlp.0.weight":
+                new_sd[f"transformer_blocks.{idx}.ff.linear_in.weight"] = tensor
+            elif rest == "img_mlp.2.weight":
+                new_sd[f"transformer_blocks.{idx}.ff.linear_out.weight"] = tensor
+            elif rest == "txt_mlp.0.weight":
+                new_sd[f"transformer_blocks.{idx}.ff_context.linear_in.weight"] = tensor
+            elif rest == "txt_mlp.2.weight":
+                new_sd[
+                    f"transformer_blocks.{idx}.ff_context.linear_out.weight"
+                ] = tensor
+
+        elif key.startswith("single_blocks."):
+            parts = key.split(".")
+            idx = parts[1]
+            rest = ".".join(parts[2:])
+            if rest == "linear1.weight":
+                new_sd[
+                    f"single_transformer_blocks.{idx}.attn.to_qkv_mlp_proj.weight"
+                ] = tensor
+            elif rest == "linear2.weight":
+                new_sd[f"single_transformer_blocks.{idx}.attn.to_out.weight"] = tensor
+            elif rest == "norm.query_norm.scale":
+                new_sd[f"single_transformer_blocks.{idx}.attn.norm_q.weight"] = tensor
+            elif rest == "norm.key_norm.scale":
+                new_sd[f"single_transformer_blocks.{idx}.attn.norm_k.weight"] = tensor
+
+        elif key == "img_in.weight":
+            new_sd["x_embedder.weight"] = tensor
+        elif key == "txt_in.weight":
+            new_sd["context_embedder.weight"] = tensor
+        elif key == "time_in.in_layer.weight":
+            new_sd["time_guidance_embed.timestep_embedder.linear_1.weight"] = tensor
+        elif key == "time_in.out_layer.weight":
+            new_sd["time_guidance_embed.timestep_embedder.linear_2.weight"] = tensor
+        elif key == "double_stream_modulation_img.lin.weight":
+            new_sd["double_stream_modulation_img.linear.weight"] = tensor
+        elif key == "double_stream_modulation_txt.lin.weight":
+            new_sd["double_stream_modulation_txt.linear.weight"] = tensor
+        elif key == "single_stream_modulation.lin.weight":
+            new_sd["single_stream_modulation.linear.weight"] = tensor
+        elif key == "final_layer.adaLN_modulation.1.weight":
+            new_sd["norm_out.linear.weight"] = tensor
+        elif key == "final_layer.linear.weight":
+            new_sd["proj_out.weight"] = tensor
+
+    return new_sd
 
 
 class ModelVariant(StrEnum):
@@ -84,10 +170,14 @@ class ModelLoader(ForgeModel):
             use_safetensors=True,
         )
 
-        self.pipeline.load_lora_weights(
-            LORA_REPO,
-            weight_name=LORA_WEIGHT_NAME,
-        )
+        checkpoint_path = hf_hub_download(LORA_REPO, filename=LORA_WEIGHT_NAME)
+        raw_sd = {}
+        with safe_open(checkpoint_path, framework="pt", device="cpu") as f:
+            for key in f.keys():
+                raw_sd[key] = f.get_tensor(key).to(dtype)
+
+        converted_sd = _convert_comfyui_to_diffusers(raw_sd)
+        self.pipeline.transformer.load_state_dict(converted_sd, strict=False)
 
         return self.pipeline.transformer
 
