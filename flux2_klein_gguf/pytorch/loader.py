@@ -5,6 +5,8 @@
 FLUX.2 Klein GGUF model loader implementation for text-to-image generation
 """
 
+import os
+
 import torch
 from diffusers.models import Flux2Transformer2DModel
 from huggingface_hub import hf_hub_download
@@ -81,6 +83,7 @@ class ModelLoader(ForgeModel):
 
         if self._variant in self._USE_SINGLE_FILE:
             repo_id = self._variant_config.pretrained_model_name
+            os.environ["HF_HUB_DISABLE_XET"] = "1"
             local_path = hf_hub_download(repo_id=repo_id, filename=gguf_file)
             self.transformer = Flux2Transformer2DModel.from_single_file(
                 local_path, **load_kwargs
