@@ -196,7 +196,15 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _reapply_patches(self):
+        """Re-apply GGUF patches so our function is the active one at call time."""
+        _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
     def _load_tokenizer(self, dtype_override=None):
+        self._reapply_patches()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -211,6 +219,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        self._reapply_patches()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -266,6 +275,7 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
+        self._reapply_patches()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
         )
