@@ -72,7 +72,7 @@ def make_sincos_pos_embed(
     emb_cos = torch.cos(out)  # (M, D/2)
 
     emb = torch.cat([emb_sin, emb_cos], dim=1)  # (M, D)
-    return emb.float()
+    return emb.to(pos.dtype)
 
 
 # Inspired by https://github.com/microsoft/moge
