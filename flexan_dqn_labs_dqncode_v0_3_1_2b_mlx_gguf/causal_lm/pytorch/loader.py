@@ -8,6 +8,11 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFLlamaConverter
+
+# LFM2 (Liquid Foundation Model 2) uses a SentencePiece tokenizer compatible with GGUFLlamaConverter
+GGUF_TO_FAST_CONVERTERS.setdefault("lfm2", GGUFLlamaConverter)
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -95,7 +100,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
