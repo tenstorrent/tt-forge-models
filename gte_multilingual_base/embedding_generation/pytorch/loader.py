@@ -84,6 +84,15 @@ class ModelLoader(ForgeModel):
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
 
+        # HuggingFace meta-device loading corrupts non-persistent buffers (like
+        # position_ids) that are not in the checkpoint. Reset them after loading.
+        if hasattr(model, "embeddings") and hasattr(model.embeddings, "position_ids"):
+            model.embeddings.register_buffer(
+                "position_ids",
+                torch.arange(model.config.max_position_embeddings),
+                persistent=False,
+            )
+
         return model
 
     def load_inputs(self, dtype_override=None):
