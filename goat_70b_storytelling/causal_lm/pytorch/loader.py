@@ -97,6 +97,30 @@ class ModelLoader(ForgeModel):
         self.config = model.config
         return model
 
+    def get_mesh_config(self, num_devices: int):
+        if num_devices == 32:
+            mesh_shape = (4, 8)
+        else:
+            mesh_shape = (2, num_devices // 2)
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        shard_specs = {}
+        shard_specs[model.model.embed_tokens.weight] = (None, "batch")
+        shard_specs[model.lm_head.weight] = ("model", "batch")
+        shard_specs[model.model.norm.weight] = ("batch",)
+        for layer in model.model.layers:
+            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+            shard_specs[layer.input_layernorm.weight] = ("batch",)
+            shard_specs[layer.post_attention_layernorm.weight] = ("batch",)
+        return shard_specs
+
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
