@@ -116,8 +116,18 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"return_dict": False}
 
         # Load the model with dtype override if specified
-        if dtype_override is not None:
+        # Skip bf16 for Large_Patch14_336 - accumulated BF16 precision error across encoder
+        # layers gets amplified by the non-linear QuickGELU activation
+        # Reference: https://github.com/tenstorrent/tt-xla/issues/4185
+        if (
+            dtype_override is not None
+            and self._variant != ModelVariant.LARGE_PATCH14_336
+        ):
             model_kwargs["torch_dtype"] = dtype_override
+        elif dtype_override is not None:
+            print(
+                "NOTE: dtype_override ignored for Large_Patch14_336 - BF16 precision error amplified by QuickGELU"
+            )
         model_kwargs |= kwargs
 
         model = CLIPModel.from_pretrained(pretrained_model_name, **model_kwargs)
@@ -157,9 +167,18 @@ class ModelLoader(ForgeModel):
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
-        # Convert the input dtype to dtype_override if specified
-        if dtype_override is not None:
+        # Skip bf16 for Large_Patch14_336 - accumulated BF16 precision error across encoder
+        # layers gets amplified by the non-linear QuickGELU activation
+        # Reference: https://github.com/tenstorrent/tt-xla/issues/4185
+        if (
+            dtype_override is not None
+            and self._variant != ModelVariant.LARGE_PATCH14_336
+        ):
             inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
+        elif dtype_override is not None:
+            print(
+                "NOTE: dtype_override ignored for Large_Patch14_336 - BF16 precision error amplified by QuickGELU"
+            )
 
         return inputs
 

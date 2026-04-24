@@ -174,6 +174,7 @@ class ModelLoader(ForgeModel):
 
         # Apply preprocessing
         observations = self._model.preprocess(observations)
+        observations["preprocessed"] = True
 
         return observations
 

@@ -442,6 +442,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.LLAMA_3_2_3B,
             ModelVariant.LLAMA_3_2_3B_INSTRUCT,
             ModelVariant.HUGGYLLAMA_7B,
+            ModelVariant.TINYLLAMA_V1_1,
         ]:
             return None
 

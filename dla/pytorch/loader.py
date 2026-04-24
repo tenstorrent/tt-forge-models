@@ -6,8 +6,6 @@ DLA model loader implementation
 """
 
 from typing import Optional
-from PIL import Image
-from torchvision import transforms
 from dataclasses import dataclass
 import timm
 from timm.data import resolve_data_config
@@ -25,7 +23,6 @@ from ...config import (
 )
 from ...base import ForgeModel
 from ...tools.utils import print_compiled_model_results
-from .src import dla_model
 
 
 @dataclass
@@ -36,9 +33,8 @@ class DLAConfig(ModelConfig):
 
 
 class ModelVariant(StrEnum):
-    """Available DLA model variants."""
+    """Available DLA model variants (all loaded via timm / HuggingFace Hub)."""
 
-    # Torchvision variants
     DLA34 = "34"
     DLA46_C = "46_C"
     DLA46X_C = "46x_C"
@@ -50,58 +46,52 @@ class ModelVariant(StrEnum):
     DLA102X2 = "102x2"
     DLA169 = "169"
 
-    # Timm variants
-    DLA34_IN1K = "34.in1k"
-
 
 class ModelLoader(ForgeModel):
     """DLA model loader implementation."""
 
-    # Dictionary of available model variants using structured configs
+    # Dictionary of available model variants using structured configs.
+    # All variants use timm (HuggingFace Hub) — the original dl.yf.io host
+    # has been permanently down since 2024.
     _VARIANTS = {
-        # Torchvision variants
         ModelVariant.DLA34: DLAConfig(
-            pretrained_model_name="dla34",
-            source=ModelSource.TORCH_HUB,
+            pretrained_model_name="dla34.in1k",
+            source=ModelSource.TIMM,
         ),
         ModelVariant.DLA46_C: DLAConfig(
-            pretrained_model_name="dla46_c",
-            source=ModelSource.TORCH_HUB,
+            pretrained_model_name="dla46_c.in1k",
+            source=ModelSource.TIMM,
         ),
         ModelVariant.DLA46X_C: DLAConfig(
-            pretrained_model_name="dla46x_c",
-            source=ModelSource.TORCH_HUB,
+            pretrained_model_name="dla46x_c.in1k",
+            source=ModelSource.TIMM,
         ),
         ModelVariant.DLA60: DLAConfig(
-            pretrained_model_name="dla60",
-            source=ModelSource.TORCH_HUB,
+            pretrained_model_name="dla60.in1k",
+            source=ModelSource.TIMM,
         ),
         ModelVariant.DLA60X: DLAConfig(
-            pretrained_model_name="dla60x",
-            source=ModelSource.TORCH_HUB,
+            pretrained_model_name="dla60x.in1k",
+            source=ModelSource.TIMM,
         ),
         ModelVariant.DLA60X_C: DLAConfig(
-            pretrained_model_name="dla60x_c",
-            source=ModelSource.TORCH_HUB,
+            pretrained_model_name="dla60x_c.in1k",
+            source=ModelSource.TIMM,
         ),
         ModelVariant.DLA102: DLAConfig(
-            pretrained_model_name="dla102",
-            source=ModelSource.TORCH_HUB,
+            pretrained_model_name="dla102.in1k",
+            source=ModelSource.TIMM,
         ),
         ModelVariant.DLA102X: DLAConfig(
-            pretrained_model_name="dla102x",
-            source=ModelSource.TORCH_HUB,
+            pretrained_model_name="dla102x.in1k",
+            source=ModelSource.TIMM,
         ),
         ModelVariant.DLA102X2: DLAConfig(
-            pretrained_model_name="dla102x2",
-            source=ModelSource.TORCH_HUB,
+            pretrained_model_name="dla102x2.in1k",
+            source=ModelSource.TIMM,
         ),
         ModelVariant.DLA169: DLAConfig(
-            pretrained_model_name="dla169",
-            source=ModelSource.TORCH_HUB,
-        ),
-        ModelVariant.DLA34_IN1K: DLAConfig(
-            pretrained_model_name="dla34.in1k",
+            pretrained_model_name="dla169.in1k",
             source=ModelSource.TIMM,
         ),
     }
@@ -155,24 +145,13 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The DLA model instance.
         """
-        # Get the pretrained model name from the instance's variant config
         model_name = self._variant_config.pretrained_model_name
-        source = self._variant_config.source
-
-        if source == ModelSource.TIMM:
-            # Load model using timm
-            model = timm.create_model(model_name, pretrained=True)
-        else:
-            # Load model using the dla_model module (torchvision style)
-            func = getattr(dla_model, model_name)
-            model = func(pretrained="imagenet")
-
+        model = timm.create_model(model_name, pretrained=True)
         model.eval()
 
         # Cache model for use in load_inputs (to avoid reloading)
         self._cached_model = model
 
-        # Only convert dtype if explicitly requested
         if dtype_override is not None:
             model = model.to(dtype_override)
 
@@ -189,40 +168,21 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.Tensor: Preprocessed input tensor suitable for DLA.
         """
-        # Load image from HuggingFace dataset
         dataset = load_dataset("huggingface/cats-image")["test"]
         image = dataset[0]["image"].convert("RGB")
 
-        source = self._variant_config.source
-
-        if source == ModelSource.TIMM:
-            if hasattr(self, "_cached_model") and self._cached_model is not None:
-                model_for_config = self._cached_model
-            else:
-                model_for_config = self.load_model(dtype_override=dtype_override)
-
-            # Preprocess image using model's data config
-            data_config = resolve_data_config({}, model=model_for_config)
-            timm_transforms = create_transform(**data_config)
-            inputs = timm_transforms(image).unsqueeze(0)
+        if hasattr(self, "_cached_model") and self._cached_model is not None:
+            model_for_config = self._cached_model
         else:
-            # Use standard torchvision preprocessing
-            preprocess = transforms.Compose(
-                [
-                    transforms.Resize(256),
-                    transforms.CenterCrop(224),
-                    transforms.ToTensor(),
-                    transforms.Normalize(
-                        mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-                    ),
-                ]
-            )
-            inputs = preprocess(image).unsqueeze(0)
+            model_for_config = self.load_model(dtype_override=dtype_override)
 
-        # Replicate tensors for batch size
+        # Use the model's own data config so crop/resize/norm are always correct
+        data_config = resolve_data_config({}, model=model_for_config)
+        timm_transforms = create_transform(**data_config)
+        inputs = timm_transforms(image).unsqueeze(0)
+
         inputs = inputs.repeat_interleave(batch_size, dim=0)
 
-        # Only convert dtype if explicitly requested
         if dtype_override is not None:
             inputs = inputs.to(dtype_override)
 

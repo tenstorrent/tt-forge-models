@@ -3106,124 +3106,169 @@ def get_indice_pairs_3d_cpu(
     subm: int,
     transpose: int,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """
-    Python implementation of getIndicePairs function for both SubManifold and regular convolution
-    """
 
-    num_act_in = indices.shape[0]
+    N = indices.shape[0]
+    dev = indices.device
 
-    if num_act_in == 0:
-        kernel_volume = torch.tensor(ksize).prod().item()
-        indice_pairs = torch.full((kernel_volume, 2, 1000), -1, dtype=torch.int32)
-        out_indices = torch.zeros((0, 4), dtype=torch.int32)
-        indice_num = torch.zeros(kernel_volume, dtype=torch.int32)
-        return out_indices, indice_pairs, indice_num
-
-    # Calculate spatial volume
-    spatial_volume = torch.tensor(out_shape).prod().item()
-    kernel_volume = torch.tensor(ksize).prod().item()
-
-    # Initialize grids
+    spatial_volume = out_shape[0] * out_shape[1] * out_shape[2]
     total_grid_size = batch_size * spatial_volume
-    grids_out = torch.full((total_grid_size,), -1, dtype=torch.int32)
+    grids_out = torch.full((total_grid_size + 1,), -1, dtype=torch.int32, device=dev)
 
-    # Initialize output structures
-    indice_num = torch.zeros(kernel_volume, dtype=torch.int32)
-    max_indices = num_act_in  # Use same size as input for consistent shape
-    indice_pairs = torch.full((kernel_volume, 2, max_indices), -1, dtype=torch.int32)
+    K = ksize[0] * ksize[1] * ksize[2]
+    max_indices = N
+
+    if N == 0:
+        return (
+            torch.zeros((0, 4), dtype=torch.int32, device=dev),
+            torch.full((K, 2, max_indices), -1, dtype=torch.int32, device=dev),
+            torch.zeros(K, dtype=torch.int32, device=dev),
+        )
+
+    pad_t = torch.tensor(padding, device=dev)
+    str_t = torch.tensor(stride, device=dev)
+    dil_t = torch.tensor(dilation, device=dev)
+    out_shp_t = torch.tensor(out_shape, device=dev)
+
+    cx = torch.arange(ksize[0], device=dev)
+    cy = torch.arange(ksize[1], device=dev)
+    cz = torch.arange(ksize[2], device=dev)
+    c_grid_x, c_grid_y, c_grid_z = torch.meshgrid(cx, cy, cz, indexing="ij")
+    c_offsets = torch.stack([c_grid_x, c_grid_y, c_grid_z], dim=-1).view(
+        -1, 3
+    )  # [K, 3]
+
+    in_batch = indices[:, 0]
+    in_pos = indices[:, 1:4]
+
+    in_pos_ext = in_pos.unsqueeze(1)  # [N, 1, 3]
+    c_off_ext = c_offsets.unsqueeze(0)  # [1, K, 3]
+    batch_idx_ext = in_batch.view(N, 1, 1).expand(N, K, 1)
 
     if subm == 1:
-        # SubM convolution
-        # Populate grids with input indices
-        for j in range(num_act_in):
-            batch_idx = indices[j, 0].item()
-            spatial_coords = indices[j, 1:4]
-            index = (
-                row_array_idx_3d(spatial_coords, out_shape) + spatial_volume * batch_idx
-            )
-            grids_out[index] = j
+        out_indices = indices.to(torch.int32)
+        in_idx_1d = (
+            in_batch * spatial_volume
+            + in_pos[:, 0] * out_shape[1] * out_shape[2]
+            + in_pos[:, 1] * out_shape[2]
+            + in_pos[:, 2]
+        )
 
-        # Process each input sequentially
-        for j in range(num_act_in):
-            batch_idx = indices[j, 0].item()
-            input_pos = indices[j, 1:4]
+        grids_out[in_idx_1d.long()] = torch.arange(N, dtype=torch.int32, device=dev)
 
-            # Get valid output positions
-            valid_points, num_valid = get_valid_out_pos_3d(
-                input_pos, ksize, stride, padding, dilation, out_shape
-            )
+        out_pos_all = in_pos_ext + pad_t - c_off_ext  # [N, K, 3]
+        bound_mask = (out_pos_all >= 0).all(dim=-1) & (out_pos_all < out_shp_t).all(
+            dim=-1
+        )  # [N, K]
 
-            # Process each valid point
-            for i in range(num_valid):
-                point = valid_points[i]
-                offset = point[3].item()  # kernel offset
-                out_coords = point[:3]  # spatial coordinates
+        out_idx_1d_all = (
+            batch_idx_ext[..., 0] * spatial_volume
+            + out_pos_all[..., 0] * out_shape[1] * out_shape[2]
+            + out_pos_all[..., 1] * out_shape[2]
+            + out_pos_all[..., 2]
+        )  # [N, K]
 
-                # Calculate output index
-                index = (
-                    row_array_idx_3d(out_coords, out_shape) + spatial_volume * batch_idx
-                )
+        # Natively trace dense statically allocated TT-tensors across the map without generating size variants!
+        safe_flat_indices = torch.where(
+            bound_mask,
+            out_idx_1d_all.long(),
+            torch.tensor(0, dtype=torch.long, device=dev),
+        )
+        mapped_ids = grids_out[safe_flat_indices]  # [N, K]
+        hit_mask = (mapped_ids > -1) & bound_mask  # [N, K]
 
-                if grids_out[index] > -1:
-                    current_slot = indice_num[offset].item()
-                    indice_pairs[offset, 0, current_slot] = j
-                    indice_pairs[offset, 1, current_slot] = grids_out[index]
-                    indice_num[offset] += 1
+        local_idx = torch.cumsum(hit_mask.int(), dim=0) - 1  # [N, K]
+        safe_local_idx = torch.where(
+            hit_mask,
+            local_idx.long(),
+            torch.tensor(max_indices, device=dev, dtype=torch.long),
+        )  # [N, K]
 
-        # Return original indices for SubM
-        out_indices = indices.int()
+        indice_pairs_ext = torch.full(
+            (K, 2, max_indices + 1), -1, dtype=torch.int32, device=dev
+        )
+
+        N_arange = torch.arange(N, device=dev).unsqueeze(1).expand(N, K)
+        src_stack = torch.stack([N_arange, mapped_ids], dim=2).int()  # [N, K, 2]
+        src_stack_t = src_stack.permute(1, 2, 0)  # [K, 2, N]
+
+        idx_stack = safe_local_idx.t().unsqueeze(1).expand(K, 2, N)  # [K, 2, N]
+
+        indice_pairs_ext.scatter_(dim=2, index=idx_stack, src=src_stack_t)
+        indice_pairs = indice_pairs_ext[:, :, :max_indices]
+        indice_num = hit_mask.int().sum(dim=0).int()  # [K]
 
     else:
-        # Regular convolution (subm=0)
-        out_indices_list = []
-        num_act_out = 0
+        numerator = in_pos_ext + pad_t - c_off_ext * dil_t
+        div_mask = (numerator % str_t == 0).all(dim=-1)
+        out_pos_all = numerator // str_t
 
-        for j in range(num_act_in):
-            batch_idx = indices[j, 0].item()
-            input_pos = indices[j, 1:4]
+        bound_mask = (out_pos_all >= 0).all(dim=-1) & (out_pos_all < out_shp_t).all(
+            dim=-1
+        )
+        valid_mask = div_mask & bound_mask  # [N, K]
 
-            # Get valid output positions for this input
-            valid_points, num_valid = get_valid_out_pos_3d(
-                input_pos, ksize, stride, padding, dilation, out_shape
-            )
+        out_idx_1d_all = (
+            batch_idx_ext[..., 0] * spatial_volume
+            + out_pos_all[..., 0] * out_shape[1] * out_shape[2]
+            + out_pos_all[..., 1] * out_shape[2]
+            + out_pos_all[..., 2]
+        )
+        safe_coords_raw = torch.where(
+            valid_mask,
+            out_idx_1d_all.long(),
+            torch.tensor(total_grid_size, device=dev, dtype=torch.long),
+        )  # [N, K]
 
-            # Process each valid point
-            for i in range(num_valid):
-                point = valid_points[i]
-                offset = point[3].item()  # kernel offset
-                out_coords = point[:3]  # spatial coordinates
+        # Instantly aggregate consecutive unique output destinations utilizing purely static dense shapes
+        active_cells_ext = torch.zeros(
+            total_grid_size + 1, dtype=torch.int32, device=dev
+        )
+        ones_flat = torch.ones(N * K, dtype=torch.int32, device=dev)
+        active_cells_ext.scatter_(dim=0, index=safe_coords_raw.view(-1), src=ones_flat)
+        active_cells = active_cells_ext[:total_grid_size]  # [total_grid_size]
 
-                # Calculate grid index
-                grid_idx = (
-                    row_array_idx_3d(out_coords, out_shape) + spatial_volume * batch_idx
-                )
+        active_id_map_ext = torch.cumsum(active_cells_ext, dim=0) - 1  # size 945001
 
-                # Check if this output position is new
-                if grids_out[grid_idx] == -1:
-                    # New output position - add to output indices
-                    out_indices_list.append(
-                        [
-                            batch_idx,
-                            out_coords[0].item(),
-                            out_coords[1].item(),
-                            out_coords[2].item(),
-                        ]
-                    )
-                    grids_out[grid_idx] = num_act_out
-                    num_act_out += 1
+        valid_flat_unique_mask = active_cells > 0
+        unique_flat = torch.where(valid_flat_unique_mask)[0].int()
+        grids_out = torch.where(  # size 945001
+            active_cells_ext > 0,
+            active_id_map_ext,
+            torch.tensor(-1, dtype=torch.int32, device=dev),
+        )
 
-                # Add indice pair
-                current_slot = indice_num[offset].item()
-                if current_slot < max_indices:
-                    indice_pairs[offset, 0, current_slot] = j
-                    indice_pairs[offset, 1, current_slot] = grids_out[grid_idx]
-                    indice_num[offset] += 1
+        out_batch = unique_flat // spatial_volume
+        rem = unique_flat % spatial_volume
+        out_x = rem // (out_shape[1] * out_shape[2])
+        rem = rem % (out_shape[1] * out_shape[2])
+        out_y = rem // out_shape[2]
+        out_z = rem % out_shape[2]
+        out_indices = torch.stack(
+            [out_batch, out_x, out_y, out_z], dim=-1
+        ).int()  # [V, 4]
 
-        # Convert output indices list to tensor
-        if out_indices_list:
-            out_indices = torch.tensor(out_indices_list, dtype=torch.int32)
-        else:
-            out_indices = torch.zeros((0, 4), dtype=torch.int32)
+        mapped_ids = grids_out[safe_coords_raw]  # [N, K]
+        hit_mask = (mapped_ids > -1) & valid_mask  # [N, K]
+
+        local_idx = torch.cumsum(hit_mask.int(), dim=0) - 1  # [N, K]
+        N_arange = torch.arange(N, device=dev).unsqueeze(1).expand(N, K)
+        safe_local_idx = torch.where(
+            hit_mask,
+            local_idx.long(),
+            torch.tensor(max_indices, device=dev, dtype=torch.long),
+        )  # [N, K]
+
+        indice_pairs_ext = torch.full(
+            (K, 2, max_indices + 1), -1, dtype=torch.int32, device=dev
+        )
+        src_stack = torch.stack([N_arange, mapped_ids], dim=2).int()  # [N, K, 2]
+        src_stack_t = src_stack.permute(1, 2, 0)  # [K, 2, N]
+        idx_stack = safe_local_idx.t().unsqueeze(1).expand(K, 2, N)  # [K, 2, N]
+
+        indice_pairs_ext.scatter_(dim=2, index=idx_stack, src=src_stack_t)
+
+        indice_pairs = indice_pairs_ext[:, :, :max_indices]
+        indice_num = hit_mask.int().sum(dim=0).int()  # [K]
 
     return out_indices, indice_pairs, indice_num
 
@@ -3778,7 +3823,12 @@ class SparseConvTensor:
 
     @property
     def sparity(self):
-        return self.indices.shape[0] / np.prod(self.spatial_shape) / self.batch_size
+        # return self.indices.shape[0] / np.prod(self.spatial_shape) / self.batch_size
+        return (
+            self.indices.shape[0]
+            / torch.prod(torch.tensor(self.spatial_shape))
+            / self.batch_size
+        )
 
 
 def is_spconv_module(module):
@@ -6388,17 +6438,8 @@ class MapTR(MVXTwoStageDetector):
         tmp_pos = copy.deepcopy(img_metas[0][0]["can_bus"][:3])
         tmp_angle = copy.deepcopy(img_metas[0][0]["can_bus"][-1])
 
-        # Keep can_bus as a tensor on the model device before any in-place edits.
-        # Using Python scalar/list slice assignment on an XLA tensor can introduce
-        # CPU values into the graph and trigger device propagation failures.
-        _dev = next(self.parameters()).device
-        can_bus = torch.as_tensor(img_metas[0][0]["can_bus"], dtype=torch.float64).to(
-            _dev
-        )
-        can_bus = can_bus.clone()
-        can_bus[:3] = 0.0
-        can_bus[-1] = 0.0
-        img_metas[0][0]["can_bus"] = can_bus
+        img_metas[0][0]["can_bus"][-1] = 0
+        img_metas[0][0]["can_bus"][:3] = 0
 
         new_prev_bev, bbox_results = self.simple_test(
             img_metas[0],

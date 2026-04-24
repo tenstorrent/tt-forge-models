@@ -8,11 +8,14 @@ RetinaNet model loader implementation
 import os
 import shutil
 import zipfile
+from collections import OrderedDict
+from typing import Optional
+
 import requests
 import torch
+from torch import Tensor
 from PIL import Image
 from torchvision import transforms, models
-from typing import Optional
 from dataclasses import dataclass
 from ...config import (
     ModelInfo,
@@ -26,6 +29,72 @@ from ...config import (
 from ...base import ForgeModel
 from .src.model import Model
 from datasets import load_dataset
+
+
+def patched_retinanet_forward(
+    self,
+    images: list[Tensor],
+    targets: Optional[list[dict[str, Tensor]]] = None,
+) -> tuple[dict[str, Tensor], list[Tensor]]:
+    """Run transform + backbone + head + anchor generation, skip postprocess.
+
+    RetinaNet's postprocess_detections uses masked_select and batched_nms
+    which cause L1 memory overflow on TT device.
+    See: https://github.com/tenstorrent/tt-xla/issues/3389
+    """
+    if self.training:
+        if targets is None:
+            torch._assert(False, "targets should not be none when in training mode")
+        else:
+            for target in targets:
+                boxes = target["boxes"]
+                if isinstance(boxes, torch.Tensor):
+                    torch._assert(
+                        len(boxes.shape) == 2 and boxes.shape[-1] == 4,
+                        f"Expected target boxes to be a tensor of shape [N, 4], got {boxes.shape}.",
+                    )
+                else:
+                    torch._assert(
+                        False,
+                        f"Expected target boxes to be of type Tensor, got {type(boxes)}.",
+                    )
+
+    original_image_sizes: list[tuple[int, int]] = []
+    for img in images:
+        val = img.shape[-2:]
+        torch._assert(
+            len(val) == 2,
+            f"expecting the last two dimensions of the Tensor to be H and W "
+            f"instead got {img.shape[-2:]}",
+        )
+        original_image_sizes.append((val[0], val[1]))
+
+    images, targets = self.transform(images, targets)
+
+    if targets is not None:
+        for target_idx, target in enumerate(targets):
+            boxes = target["boxes"]
+            degenerate_boxes = boxes[:, 2:] <= boxes[:, :2]
+            if degenerate_boxes.any():
+                bb_idx = torch.where(degenerate_boxes.any(dim=1))[0][0]
+                degen_bb: list[float] = boxes[bb_idx].tolist()
+                torch._assert(
+                    False,
+                    "All bounding boxes should have positive height and width."
+                    f" Found invalid box {degen_bb} for target at index {target_idx}.",
+                )
+
+    features = self.backbone(images.tensors)
+    if isinstance(features, torch.Tensor):
+        features = OrderedDict([("0", features)])
+
+    features = list(features.values())
+
+    head_outputs = self.head(features)
+
+    anchors = self.anchor_generator(images, features)
+
+    return (head_outputs, anchors)
 
 
 @dataclass
@@ -127,6 +196,7 @@ class ModelLoader(ForgeModel):
 
         # Configuration parameters
         self._cleanup_files = []  # Track files to cleanup
+        self.image_sizes = None
 
     def _download_nvidia_model(self, variant_name):
         """Download and extract NVIDIA RetinaNet model."""
@@ -157,7 +227,10 @@ class ModelLoader(ForgeModel):
         return checkpoint_path
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the RetinaNet model instance for this instance's variant.
+        """Load RetinaNet with forward patched to return raw head outputs and anchors.
+
+        Post-processing (postprocess_detections, NMS) is decoupled and available via
+        postprocess_detections() to avoid L1 memory overflow on TT device.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
@@ -166,37 +239,34 @@ class ModelLoader(ForgeModel):
                            TODO (@ppadjinTT): remove this when torchvision starts supporting torchvision.ops.nms for bfloat16
 
         Returns:
-            torch.nn.Module: The RetinaNet model instance.
+            torch.nn.Module: The RetinaNet model instance with patched forward.
         """
         # Get the pretrained model name and source from the instance's variant config
         model_name = self._variant_config.pretrained_model_name
         source = self._variant_config.source
 
         if source == ModelSource.TORCHVISION:
-            # Load torchvision model
+            from torchvision.models.detection.retinanet import RetinaNet
+
+            RetinaNet.forward = patched_retinanet_forward
+
             weight_name = self._TORCHVISION_WEIGHTS[self._variant]
             weights = getattr(models.detection, weight_name).DEFAULT
-            model = getattr(models.detection, model_name)(weights=weights)
-            # Show where torchvision RetinaNet is loaded from
-            # import torchvision.models.detection.retinanet as _retinanet_mod
-            # print("torchvision RetinaNet loaded from:", getattr(_retinanet_mod, "__file__", "?"))
+            self.model = getattr(models.detection, model_name)(weights=weights)
         elif source == ModelSource.CUSTOM:
-            # Load custom model
             checkpoint_path = self._download_nvidia_model(model_name)
-            model = Model.load(checkpoint_path)
-        model.eval()
+            self.model = Model.load(checkpoint_path)
+        self.model.eval()
 
-        # Only convert dtype if explicitly requested
         if dtype_override is not None:
             if model_name == "retinanet_resnet50_fpn_v2":
-                # TODO (@ppadjinTT): remove this when torchvision starts supporting torchvision.ops.nms for bfloat16
                 print(
                     "NOTE: dtype_override ignored - batched_nms lacks BFloat16 support"
                 )
             else:
-                model = model.to(dtype_override)
+                self.model = self.model.to(dtype_override)
 
-        return model
+        return self.model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the RetinaNet model with this instance's variant settings.
@@ -244,10 +314,12 @@ class ModelLoader(ForgeModel):
         # Replicate tensors for batch size
         batch_t = batch_t.repeat_interleave(batch_size, dim=0)
 
+        # Store image sizes for postprocessing
+        self.image_sizes = [(batch_t.shape[2], batch_t.shape[3])]
+
         # Only convert dtype if explicitly requested
         if dtype_override is not None:
             if model_name == "retinanet_resnet50_fpn_v2":
-                # TODO (@ppadjinTT): remove this when torchvision starts supporting torchvision.ops.nms for bfloat16
                 print(
                     "NOTE: dtype_override ignored - batched_nms lacks BFloat16 support"
                 )
@@ -255,6 +327,24 @@ class ModelLoader(ForgeModel):
                 batch_t = batch_t.to(dtype_override)
 
         return batch_t
+
+    def postprocess_detections(self, outputs):
+        """Run post-processing (NMS, score filtering) on CPU.
+
+        Args:
+            outputs: Tuple of (head_outputs, anchors) from the patched forward.
+
+        Returns:
+            list[dict]: Detection results with boxes, scores, labels.
+        """
+        head_outputs, anchors = outputs
+        detections = self.model.postprocess_detections(
+            head_outputs, anchors, self.image_sizes
+        )
+        detections = self.model.transform.postprocess(
+            detections, self.image_sizes, self.image_sizes
+        )
+        return detections
 
     def cleanup(self):
         """Clean up downloaded files."""
