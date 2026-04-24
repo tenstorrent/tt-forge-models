@@ -5,7 +5,10 @@
 InternVL3 model loader implementation for multimodal visual question answering.
 """
 
+import sys
+
 import torch
+import torch.nn as nn
 import torchvision.transforms as T
 from PIL import Image
 from torchvision.transforms.functional import InterpolationMode
@@ -171,6 +174,55 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        # Pre-load dynamic modules so we can patch them before model init.
+        # Two issues with newer transformers (5.x) and the InternVL3-AWQ custom code:
+        #   1. InternVisionEncoder.__init__ calls torch.linspace(...).item() which
+        #      raises RuntimeError on meta tensors (transformers loads on meta device).
+        #   2. InternVLChatModel.__init__ never calls self.post_init(), so
+        #      self.all_tied_weights_keys is never set — causing AttributeError during
+        #      _finalize_model_loading.
+        from transformers.dynamic_module_utils import get_class_from_dynamic_module
+
+        encoder_cls = get_class_from_dynamic_module(
+            "modeling_intern_vit.InternVisionEncoder",
+            pretrained_model_name,
+        )
+        if not getattr(encoder_cls.__init__, "_tt_patched", False):
+            vit_mod = sys.modules[encoder_cls.__module__]
+            layer_cls = vit_mod.InternVisionEncoderLayer
+
+            def _patched_init(self, config, _layer_cls=layer_cls):
+                nn.Module.__init__(self)
+                self.config = config
+                n = config.num_hidden_layers
+                dpr = (
+                    [config.drop_path_rate * i / (n - 1) for i in range(n)]
+                    if n > 1
+                    else [0.0] * n
+                )
+                self.layers = nn.ModuleList(
+                    [_layer_cls(config, dpr[idx]) for idx in range(n)]
+                )
+                self.gradient_checkpointing = True
+
+            _patched_init._tt_patched = True
+            encoder_cls.__init__ = _patched_init
+
+        chat_cls = get_class_from_dynamic_module(
+            "modeling_internvl_chat.InternVLChatModel",
+            pretrained_model_name,
+        )
+        if not getattr(chat_cls.__init__, "_tt_patched", False):
+            _orig_chat_init = chat_cls.__init__
+
+            def _patched_chat_init(self, *args, **kw):
+                _orig_chat_init(self, *args, **kw)
+                if not hasattr(self, "all_tied_weights_keys"):
+                    self.post_init()
+
+            _patched_chat_init._tt_patched = True
+            chat_cls.__init__ = _patched_chat_init
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
