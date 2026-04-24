@@ -127,6 +127,17 @@ class ModelLoader(ForgeModel):
                 model = _load_model()
         finally:
             _t_modeling.check_and_set_device_map = _orig_check
+        # Non-persistent buffers (e.g. position_ids) are not saved in the
+        # checkpoint, so when __init__ runs under the meta-device context that
+        # transformers 5.x injects, the buffer is created as a meta tensor and
+        # later materialised with uninitialised memory.  Re-register them here.
+        for m in model.modules():
+            if (
+                hasattr(m, "num_positions")
+                and hasattr(m, "position_ids")
+                and hasattr(m, "position_embedding")
+            ):
+                m.position_ids = torch.arange(m.num_positions).expand((1, -1))
         model.resize_token_embeddings(len(self.tokenizer))
         model.tie_weights()
         model.eval()
