@@ -81,10 +81,10 @@ class ModelLoader(ForgeModel):
         )
         if not hasattr(config, "is_decoder"):
             config.is_decoder = False
+        config.use_return_dict = False
 
         model_kwargs = {
             "config": config,
-            "return_dict": False,
             "trust_remote_code": True,
         }
         if dtype_override is not None:
