@@ -36,6 +36,23 @@ if "falcon-h1" not in _tx_gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]:
     }
     _tx_gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("falcon-h1")
 
+# Patch load_gguf_checkpoint to translate falcon-h1 model_type to falcon_h1
+# (transformers CONFIG_MAPPING uses underscores but GGUF uses hyphens).
+_orig_load_gguf_checkpoint = _tx_gguf_utils.load_gguf_checkpoint
+
+
+def _patched_load_gguf_checkpoint(*args, **kwargs):
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
+    if (
+        isinstance(result, dict)
+        and result.get("config", {}).get("model_type") == "falcon-h1"
+    ):
+        result["config"]["model_type"] = "falcon_h1"
+    return result
+
+
+_tx_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
