@@ -5,7 +5,7 @@
 Llama 3.1 8B Instruct OpenbookQA SFT Para model loader implementation for causal language modeling.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig, LlamaConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -143,7 +143,13 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+        try:
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name
+            )
+        except ValueError:
+            # config.json lacks model_type; this is a Llama LoRA fine-tune
+            self.config = LlamaConfig.from_pretrained(
+                self._variant_config.pretrained_model_name
+            )
         return self.config
