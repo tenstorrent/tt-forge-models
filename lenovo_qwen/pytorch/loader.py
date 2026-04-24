@@ -5,15 +5,16 @@
 """
 Lenovo Qwen LoRA model loader implementation.
 
-Loads the Qwen/Qwen-Image base diffusion pipeline and applies the
+Loads the Qwen/Qwen-Image base diffusion transformer and applies the
 Danrisi/Lenovo_Qwen LoRA weights for realistic amateur-style candid
 photography with controllable indoor/outdoor and exposure attributes.
+Returns the transformer component for testing.
 
 Available variants:
 - LENOVO_QWEN: Lenovo Qwen LoRA on Qwen-Image
 """
 
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 import torch
 from diffusers import DiffusionPipeline
@@ -52,7 +53,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline: Optional[DiffusionPipeline] = None
+        self._transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -73,41 +74,62 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the Qwen-Image pipeline with Lenovo Qwen LoRA weights.
+        """Load the Qwen-Image transformer with Lenovo LoRA weights fused.
 
         Returns:
-            DiffusionPipeline with LoRA weights loaded.
+            QwenImageTransformer2DModel with LoRA weights fused.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        self.pipeline = DiffusionPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
-        )
+        if self._transformer is None:
+            pipe = DiffusionPipeline.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                torch_dtype=dtype,
+                low_cpu_mem_usage=False,
+            )
+            pipe.load_lora_weights(
+                LORA_REPO,
+                weight_name=LORA_WEIGHT_NAME,
+            )
+            pipe.fuse_lora()
+            self._transformer = pipe.transformer
+            self._transformer.eval()
+            del pipe
+        elif dtype_override is not None:
+            self._transformer = self._transformer.to(dtype=dtype_override)
 
-        self.pipeline.load_lora_weights(
-            LORA_REPO,
-            weight_name=LORA_WEIGHT_NAME,
-        )
+        return self._transformer
 
-        return self.pipeline
+    def load_inputs(self, **kwargs) -> Dict[str, Any]:
+        """Prepare sample inputs for the diffusion transformer.
 
-    def load_inputs(self, **kwargs) -> Any:
-        """Prepare inputs for realistic candid photo generation.
-
-        Returns:
-            dict with prompt and negative_prompt keys.
+        Returns a dict matching QwenImageTransformer2DModel.forward() signature.
         """
-        prompt = (
-            "overexposed indoor scene, raw unedited amateurish candid shot of "
-            "a woman standing by a window in a cluttered apartment"
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
+        batch_size = kwargs.get("batch_size", 1)
+
+        # From Qwen-Image transformer config: in_channels=64
+        img_dim = 64
+        # joint_attention_dim from config = 4096
+        text_dim = 4096
+        txt_seq_len = 32
+
+        # img_seq_len must equal frame * height * width for positional encoding
+        frame, height, width = 1, 8, 8
+        img_seq_len = frame * height * width
+
+        hidden_states = torch.randn(batch_size, img_seq_len, img_dim, dtype=dtype)
+        encoder_hidden_states = torch.randn(
+            batch_size, txt_seq_len, text_dim, dtype=dtype
         )
-        negative_prompt = (
-            "blurry, worst quality, low quality, jpeg artifacts, "
-            "professional studio lighting, overly polished"
-        )
+        encoder_hidden_states_mask = torch.ones(batch_size, txt_seq_len, dtype=dtype)
+        timestep = torch.tensor([500.0] * batch_size, dtype=dtype)
+        img_shapes = [(frame, height, width)] * batch_size
 
         return {
-            "prompt": prompt,
-            "negative_prompt": negative_prompt,
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "encoder_hidden_states_mask": encoder_hidden_states_mask,
+            "timestep": timestep,
+            "img_shapes": img_shapes,
         }
