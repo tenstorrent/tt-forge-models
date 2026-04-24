@@ -21,6 +21,45 @@ from ....config import (
 )
 
 
+def _patch_gguf_hunyuan_dense():
+    """Register hunyuan-dense GGUF architecture with transformers.
+
+    transformers 5.2.0 lacks a mapping for the hunyuan-dense GGUF architecture.
+    Hunyuan Dense uses the same GGUF config parameter layout as llama, so we
+    reuse that mapping. We also remap model_type from hunyuan-dense to
+    hunyuan_v1_dense so AutoConfig can resolve the correct config class.
+    """
+    import transformers.configuration_utils as config_utils_mod
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils_mod
+
+    if "hunyuan-dense" in gguf_utils_mod.GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    llama_map = gguf_utils_mod.GGUF_TO_TRANSFORMERS_MAPPING["config"].get("llama", {})
+    gguf_utils_mod.GGUF_TO_TRANSFORMERS_MAPPING["config"][
+        "hunyuan-dense"
+    ] = llama_map.copy()
+    gguf_utils_mod.GGUF_SUPPORTED_ARCHITECTURES.append("hunyuan-dense")
+
+    _original_load = gguf_utils_mod.load_gguf_checkpoint
+
+    def _patched_load_gguf_checkpoint(
+        gguf_checkpoint_path, return_tensors=False, model_to_load=None, **kwargs
+    ):
+        result = _original_load(
+            gguf_checkpoint_path,
+            return_tensors=return_tensors,
+            model_to_load=model_to_load,
+            **kwargs,
+        )
+        if result.get("config", {}).get("model_type") == "hunyuan-dense":
+            result["config"]["model_type"] = "hunyuan_v1_dense"
+        return result
+
+    gguf_utils_mod.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    config_utils_mod.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+
 class ModelVariant(StrEnum):
     """Available Huihui HY-MT1.5 7B abliterated i1 GGUF model variants for causal language modeling."""
 
@@ -65,6 +104,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _patch_gguf_hunyuan_dense()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -79,6 +119,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _patch_gguf_hunyuan_dense()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -157,6 +198,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        _patch_gguf_hunyuan_dense()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
