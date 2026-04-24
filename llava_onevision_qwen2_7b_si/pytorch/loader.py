@@ -13,6 +13,7 @@ variant ``llava-hf/llava-onevision-qwen2-7b-si-hf`` served by the
 
 from typing import Optional
 
+import torch
 from PIL import Image
 from transformers import AutoProcessor, LlavaOnevisionForConditionalGeneration
 
@@ -109,13 +110,13 @@ class ModelLoader(ForgeModel):
         input_ids = inputs["input_ids"]
         attention_mask = inputs["attention_mask"]
         pixel_values = inputs["pixel_values"]
-        image_sizes = inputs["image_sizes"]
+        # LlavaProcessor doesn't provide image_sizes; derive from the loaded image.
+        image_sizes = torch.tensor([[image.height, image.width]])
 
         if dtype_override:
             input_ids = cast_input_to_type(input_ids, dtype_override)
             attention_mask = cast_input_to_type(attention_mask, dtype_override)
             pixel_values = cast_input_to_type(pixel_values, dtype_override)
-            image_sizes = cast_input_to_type(image_sizes, dtype_override)
 
         return {
             "input_ids": input_ids,
