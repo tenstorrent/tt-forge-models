@@ -78,7 +78,9 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"trust_remote_code": True}
+        # low_cpu_mem_usage=False avoids the meta device context manager, which
+        # would break the nested from_pretrained inside this model's __init__.
+        model_kwargs = {"trust_remote_code": True, "low_cpu_mem_usage": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
