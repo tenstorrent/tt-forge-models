@@ -3,6 +3,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Llama 3.2 3B Instruct q4f16_1 MLC model loader implementation for causal language modeling.
+
+The mlc-ai/Llama-3.2-3B-Instruct-q4f16_1-MLC repo uses MLC-LLM's own config format
+(no model_type key) and is not loadable by transformers. This loader targets the
+equivalent GGUF Q4_K_M checkpoint from bartowski, which provides the same Llama 3.2 3B
+Instruct architecture and similar 4-bit quantization.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -31,12 +36,14 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.LLAMA_3_2_3B_INSTRUCT_Q4F16_1_MLC: LLMModelConfig(
-            pretrained_model_name="mlc-ai/Llama-3.2-3B-Instruct-q4f16_1-MLC",
+            pretrained_model_name="bartowski/Llama-3.2-3B-Instruct-GGUF",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.LLAMA_3_2_3B_INSTRUCT_Q4F16_1_MLC
+
+    GGUF_FILE = "Llama-3.2-3B-Instruct-Q4_K_M.gguf"
 
     sample_text = "What is your favorite city?"
 
@@ -60,7 +67,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
+        tokenizer_kwargs = {"gguf_file": self.GGUF_FILE}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
@@ -78,13 +85,15 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
+        model_kwargs = {"gguf_file": self.GGUF_FILE}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
@@ -126,6 +135,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
         return self.config
