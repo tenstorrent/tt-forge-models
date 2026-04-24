@@ -6,7 +6,7 @@ Ovis2.6 model loader implementation for multimodal visual question answering.
 """
 
 import torch
-from transformers import AutoModelForCausalLM, PreTrainedModel
+from transformers import AutoImageProcessor, AutoModelForCausalLM, PreTrainedModel
 from PIL import Image
 from typing import Optional
 
@@ -103,6 +103,14 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
         model.eval()
+
+        # transformers 5.x loads SiglipImageProcessor as a fast processor by default,
+        # but modeling_ovis2_6.py calls preprocess(..., return_tensors="np") which
+        # the fast processor does not support. Reload with use_fast=False.
+        model.visual_tokenizer.image_processor = AutoImageProcessor.from_pretrained(
+            pretrained_model_name, do_center_crop=False, use_fast=False
+        )
+
         self.model = model
 
         return model
