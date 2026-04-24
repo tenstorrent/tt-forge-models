@@ -5,8 +5,14 @@
 cyankiwi Llama 3.3 Nemotron Super 49B v1.5 AWQ 4bit model loader implementation for causal language modeling.
 """
 import torch
+import transformers.generation.utils as _gen_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+# Compatibility shim: NEED_SETUP_CACHE_CLASSES_MAPPING was removed in transformers 5.x
+# but the cached remote model code (modeling_decilm.py) still references it.
+if not hasattr(_gen_utils, "NEED_SETUP_CACHE_CLASSES_MAPPING"):
+    _gen_utils.NEED_SETUP_CACHE_CLASSES_MAPPING = {}
 
 from ....base import ForgeModel
 from ....config import (
