@@ -101,7 +101,7 @@ class ModelLoader(ForgeModel):
         )
 
         image_file = get_file(
-            "https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/American_Eskimo_Dog.jpg/360px-American_Eskimo_Dog.jpg"
+            "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg"
         )
         image = Image.open(image_file)
 
