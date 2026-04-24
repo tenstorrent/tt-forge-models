@@ -242,6 +242,7 @@ class ModelLoader(ForgeModel):
 
             class _InitWeightsProxy:
                 def __bool__(self):
+                    import torch
                     from transformers.modeling_utils import (
                         get_torch_context_manager_or_global_device,
                     )
