@@ -33,12 +33,41 @@ def _get_real_load_gguf_checkpoint():
     module-level globals rather than closures, making closure traversal impossible.
     Loading a fresh copy from source bypasses all patches while still seeing our
     GGUF_CONFIG_MAPPING modifications (shared dict via sys.modules).
+
+    Also patches get_gguf_hf_weights_map in the fresh module to handle Qwen2VL:
+    - maps model_type "qwen2_vl" → "qwen2vl" (the gguf arch name)
+    - resolves num_hidden_layers via text_config for VL models that nest it there
     """
     import importlib.util
 
     spec = importlib.util.find_spec("transformers.modeling_gguf_pytorch_utils")
     fresh_module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(fresh_module)
+
+    _orig_get_weights_map = fresh_module.get_gguf_hf_weights_map
+
+    def _qwen2vl_get_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        cfg = hf_model.config
+        if model_type is None:
+            raw = getattr(cfg, "model_type", None)
+            model_type = "qwen2vl" if raw == "qwen2_vl" else raw
+        if num_layers is None:
+            if hasattr(cfg, "text_config"):
+                num_layers = cfg.text_config.num_hidden_layers
+            elif hasattr(cfg, "num_hidden_layers"):
+                num_layers = cfg.num_hidden_layers
+        return _orig_get_weights_map(
+            hf_model,
+            processor,
+            model_type=model_type,
+            num_layers=num_layers,
+            qual_name=qual_name,
+        )
+
+    fresh_module.get_gguf_hf_weights_map = _qwen2vl_get_weights_map
+
     return fresh_module.load_gguf_checkpoint
 
 
