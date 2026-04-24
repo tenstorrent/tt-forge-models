@@ -89,6 +89,16 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
+        # gptqmodel 6.x removed BACKEND.EXLLAMA_V1; add compat shim so that
+        # optimum 2.1.0's post_init_model comparison always evaluates False.
+        try:
+            from gptqmodel import BACKEND
+
+            if not hasattr(BACKEND, "EXLLAMA_V1"):
+                BACKEND.EXLLAMA_V1 = "exllama_v1_compat"
+        except ImportError:
+            pass
+
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
