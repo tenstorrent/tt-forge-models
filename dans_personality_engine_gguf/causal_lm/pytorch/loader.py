@@ -15,21 +15,60 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
 
-def _make_model_to_load_compat(fn):
-    if "model_to_load" in inspect.signature(fn).parameters:
-        return fn
+def _unwrap_to_real_load_gguf_checkpoint():
+    """Walk the monkey-patch closure chain to find the real transformers function.
 
-    def _wrapper(gguf_path, return_tensors=False, model_to_load=None):
-        return fn(gguf_path, return_tensors=return_tensors)
-
-    return _wrapper
+    Other loaders patch load_gguf_checkpoint at import time, forming a chain
+    where each wrapper drops model_to_load. We need the real transformers
+    function which accepts model_to_load so GGUF tensor mapping works correctly.
+    """
+    fn = _gguf_utils.load_gguf_checkpoint
+    visited = set()
+    while fn is not None and id(fn) not in visited:
+        visited.add(id(fn))
+        try:
+            if "model_to_load" in inspect.signature(fn).parameters:
+                return fn
+        except (TypeError, ValueError):
+            pass
+        if not (hasattr(fn, "__code__") and fn.__closure__ and fn.__code__.co_freevars):
+            break
+        next_fn = None
+        for name, cell in zip(fn.__code__.co_freevars, fn.__closure__):
+            try:
+                val = cell.cell_contents
+            except ValueError:
+                continue
+            if not callable(val) or id(val) in visited:
+                continue
+            if any(k in name.lower() for k in ("orig", "load")):
+                next_fn = val
+                break
+            if next_fn is None:
+                next_fn = val
+        if next_fn is None:
+            break
+        fn = next_fn
+    return None
 
 
 def _apply_model_to_load_compat():
-    wrapped = _make_model_to_load_compat(_gguf_utils.load_gguf_checkpoint)
-    _gguf_utils.load_gguf_checkpoint = wrapped
-    for _mod in (_config_utils, _auto_tok, _tok_utils):
-        _mod.load_gguf_checkpoint = wrapped
+    real_fn = _unwrap_to_real_load_gguf_checkpoint()
+    if real_fn is not None:
+        _gguf_utils.load_gguf_checkpoint = real_fn
+        for _mod in (_config_utils, _auto_tok, _tok_utils):
+            _mod.load_gguf_checkpoint = real_fn
+    else:
+        # Fallback: wrap to at least accept model_to_load kwarg
+        fn = _gguf_utils.load_gguf_checkpoint
+        if "model_to_load" not in inspect.signature(fn).parameters:
+
+            def _wrapper(gguf_path, return_tensors=False, model_to_load=None):
+                return fn(gguf_path, return_tensors=return_tensors)
+
+            _gguf_utils.load_gguf_checkpoint = _wrapper
+            for _mod in (_config_utils, _auto_tok, _tok_utils):
+                _mod.load_gguf_checkpoint = _wrapper
 
 
 from ....base import ForgeModel
