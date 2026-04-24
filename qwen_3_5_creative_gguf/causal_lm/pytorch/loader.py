@@ -17,16 +17,63 @@ def _patch_transformers_qwen35moe_gguf():
     Transformers 5.x has Qwen3_5MoeForCausalLM but lacks GGUF loading support
     for the qwen35moe architecture. We bridge the gap by registering qwen35moe
     config/tensor mappings and converting the model_type to qwen3_5_moe_text.
+
+    Also fixes the tensor_key_mapping for split MoE expert tensors: the gguf-py
+    name map uses combined ffn_gate_up_exps but real GGUF files may store
+    separate ffn_gate_exps and ffn_up_exps. Additionally, process() strips
+    .weight from tensor names before lookup, so map keys must be without .weight.
     """
+    import re
+
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
         GGUF_TO_TRANSFORMERS_MAPPING,
         TENSOR_PROCESSORS,
     )
-    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    # Fix get_gguf_hf_weights_map for qwen35moe split/combined expert tensors.
+    # This must be applied once, even if architecture was already registered by
+    # another loader, because process() looks up keys without .weight suffix but
+    # the map is built with .weight suffix, and combined gate_up_exps must be
+    # split into separate ffn_gate_exps and ffn_up_exps entries.
+    if not getattr(gguf_utils, "_qwen35moe_weights_map_patched", False):
+        _orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+        def patched_get_gguf_hf_weights_map(
+            hf_model, processor, model_type=None, num_layers=None, qual_name=""
+        ):
+            _model_type = (
+                hf_model.config.model_type if model_type is None else model_type
+            )
+            if _model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
+                _model_type = "qwen35moe"
+            result = _orig_get_map(
+                hf_model, processor, _model_type, num_layers, qual_name
+            )
+            if _model_type == "qwen35moe":
+                # process() strips .weight from GGUF tensor names before lookup,
+                # so we need keys without .weight for MoE expert tensors.
+                # Also, GGUF files store split gate/up (ffn_gate_exps,
+                # ffn_up_exps) but the name map only has combined gate_up_exps.
+                new_entries = {}
+                for key, hf_name in list(result.items()):
+                    m = re.fullmatch(r"(blk\.\d+)\.ffn_gate_up_exps\.weight", key)
+                    if m:
+                        bid = m.group(1)
+                        new_entries[f"{bid}.ffn_gate_exps"] = hf_name
+                        new_entries[f"{bid}.ffn_up_exps"] = hf_name
+                    m2 = re.fullmatch(r"(blk\.\d+\.ffn_down_exps)\.weight", key)
+                    if m2:
+                        new_entries[m2.group(1)] = hf_name
+                result.update(new_entries)
+            return result
+
+        gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+        gguf_utils._qwen35moe_weights_map_patched = True
 
     if "qwen35moe" in GGUF_SUPPORTED_ARCHITECTURES:
-        return  # Already patched
+        return  # Architecture already registered by another loader
 
     # 1. Register qwen35moe as a supported architecture
     GGUF_SUPPORTED_ARCHITECTURES.append("qwen35moe")
@@ -69,7 +116,6 @@ def _patch_transformers_qwen35moe_gguf():
         result = orig_load(*args, **kwargs)
         if result.get("config", {}).get("model_type") == "qwen35moe":
             result["config"]["model_type"] = "qwen3_5_moe_text"
-            # Generate layer_types from full_attention_interval
             config = result["config"]
             num_layers = config.get("num_hidden_layers", 40)
             interval = config.pop("full_attention_interval", 4)
@@ -84,28 +130,13 @@ def _patch_transformers_qwen35moe_gguf():
 
     gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
-    # Also patch modules that imported load_gguf_checkpoint directly
-    import transformers.models.auto.tokenization_auto as tok_auto
     import transformers.configuration_utils as config_utils
     import transformers.modeling_utils as modeling_utils
+    import transformers.models.auto.tokenization_auto as tok_auto
 
     for mod in (tok_auto, config_utils, modeling_utils):
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
-
-    # 6. Patch get_gguf_hf_weights_map to handle qwen3_5_moe_text -> qwen35moe
-    orig_get_map = gguf_utils.get_gguf_hf_weights_map
-
-    def patched_get_gguf_hf_weights_map(
-        hf_model, processor, model_type=None, num_layers=None, qual_name=""
-    ):
-        if model_type is None:
-            model_type = hf_model.config.model_type
-        if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
-            model_type = "qwen35moe"
-        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
-
-    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
 
 
 # Apply the monkey-patch at import time
