@@ -129,13 +129,21 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
 
-        # Load config and remove quantization_config to avoid bitsandbytes dependency
-        config = Qwen2VLConfig.from_pretrained(pretrained_model_name)
+        # The NAMAA model has no config.json (it's a LoRA-merged checkpoint).
+        # Load architecture config from its BNB base to get correct 2B params
+        # (hidden_size=1536, vocab_size=151936), then strip quantization_config.
+        base_config_name = "unsloth/qwen2-vl-2b-instruct-unsloth-bnb-4bit"
+        config = Qwen2VLConfig.from_pretrained(base_config_name)
         if hasattr(config, "quantization_config"):
             delattr(config, "quantization_config")
 
+        # ignore_mismatched_sizes=True is needed because linear layer weights are
+        # stored in BNB 4-bit packed format and cannot be loaded without bitsandbytes.
         model = Qwen2VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, config=config, **model_kwargs
+            pretrained_model_name,
+            config=config,
+            ignore_mismatched_sizes=True,
+            **model_kwargs
         )
         model.eval()
         model = Wrapper(model)
