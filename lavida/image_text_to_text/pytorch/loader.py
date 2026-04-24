@@ -38,52 +38,48 @@ def _patch_lavida_cached_module():
     tie_weights(recompute_mapping=False). We find the cached module on sys.path and
     patch the class before from_pretrained instantiates it.
     """
-    # transformers adds the huggingface modules cache dir to sys.path for trust_remote_code.
-    # Find the modeling_lavida.py under any of the known cache paths.
-    org = _HF_MODEL_ID.split("/")[0]
-    candidate_roots = [p for p in sys.path if "huggingface" in p and "modules" in p]
-    # Also check TRANSFORMERS_CACHE / HF_HOME / XDG_CACHE
-    for env_var in ("TRANSFORMERS_CACHE", "HF_HOME", "HF_DATASETS_CACHE"):
+    # HF_HOME points to the huggingface cache root (e.g. .cache/huggingface).
+    # The modules directory used by trust_remote_code is at $HF_HOME/modules.
+    # Structure: $HF_HOME/modules/transformers_modules/<org>/<model-slug>/<hash>/modeling_lavida.py
+    candidate_roots = []
+    hf_home = os.environ.get("HF_HOME", "")
+    if hf_home:
+        candidate_roots.append(os.path.join(hf_home, "modules"))
+    for env_var in ("TRANSFORMERS_CACHE",):
         val = os.environ.get(env_var, "")
         if val:
-            candidate_roots.append(os.path.join(val, "modules"))
+            candidate_roots.append(val)
+    # sys.path entries added by transformers for trust_remote_code
+    candidate_roots.extend(p for p in sys.path if "huggingface" in p and "modules" in p)
     # Fallback: local .cache relative to CWD
     candidate_roots.append(
         os.path.join(os.getcwd(), ".cache", "huggingface", "modules")
     )
 
     for root in candidate_roots:
-        pattern = os.path.join(
-            root, "transformers_modules", org, "*", "modeling_lavida.py"
-        )
-        matches = glob.glob(pattern)
+        # Use recursive glob: structure has org/model-slug/hash/modeling_lavida.py
+        pattern = os.path.join(root, "transformers_modules", "**", "modeling_lavida.py")
+        matches = glob.glob(pattern, recursive=True)
         if not matches:
-            # Also try without subdir org (some versions flatten the path)
-            pattern = os.path.join(
-                root, "transformers_modules", "*", "modeling_lavida.py"
-            )
-            matches = glob.glob(pattern)
-        if matches:
-            modeling_file = matches[0]
-            # Derive Python module name from path relative to root
-            rel = os.path.relpath(modeling_file, root).replace(os.sep, ".")
-            module_name = rel.removesuffix(".py")
-            if module_name in sys.modules:
-                mod = sys.modules[module_name]
-            else:
-                if root not in sys.path:
-                    sys.path.insert(0, root)
-                spec = importlib.util.spec_from_file_location(
-                    module_name, modeling_file
-                )
-                mod = importlib.util.module_from_spec(spec)
-                sys.modules[module_name] = mod
-                spec.loader.exec_module(mod)
-            # Patch tie_weights to accept **kwargs (transformers 5.x passes recompute_mapping)
-            if hasattr(mod, "LLaDAModelLM"):
-                _orig_tw = mod.LLaDAModelLM.tie_weights
-                mod.LLaDAModelLM.tie_weights = lambda self, **kw: _orig_tw(self)
-            return
+            continue
+        modeling_file = matches[0]
+        # Derive Python module name from path relative to root
+        rel = os.path.relpath(modeling_file, root).replace(os.sep, ".")
+        module_name = rel.removesuffix(".py")
+        if module_name in sys.modules:
+            mod = sys.modules[module_name]
+        else:
+            if root not in sys.path:
+                sys.path.insert(0, root)
+            spec = importlib.util.spec_from_file_location(module_name, modeling_file)
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules[module_name] = mod
+            spec.loader.exec_module(mod)
+        # Patch tie_weights to accept **kwargs (transformers 5.x passes recompute_mapping)
+        if hasattr(mod, "LLaDAModelLM"):
+            _orig_tw = mod.LLaDAModelLM.tie_weights
+            mod.LLaDAModelLM.tie_weights = lambda self, **kw: _orig_tw(self)
+        return
 
 
 class ModelVariant(StrEnum):
