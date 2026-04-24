@@ -76,14 +76,24 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import importlib.util
         import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 
-        _orig_load = _gguf_utils.load_gguf_checkpoint
+        # Load a pristine copy of the gguf utils module to bypass the monkey-patch
+        # chain accumulated by other GGUF loaders collected in the same pytest session.
+        _spec = importlib.util.spec_from_file_location(
+            "_gguf_utils_pristine", _gguf_utils.__file__
+        )
+        _pristine = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(_pristine)
+        _real_load = _pristine.load_gguf_checkpoint
 
         def _compat_load_gguf_checkpoint(
             gguf_path, return_tensors=False, model_to_load=None
         ):
-            return _orig_load(gguf_path, return_tensors=return_tensors)
+            return _real_load(
+                gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
+            )
 
         _gguf_utils.load_gguf_checkpoint = _compat_load_gguf_checkpoint
 
