@@ -1,0 +1,3 @@
+cambrian @ git+https://github.com/cambrian-mllm/cambrian-s.git
+ezcolorlog
+decord

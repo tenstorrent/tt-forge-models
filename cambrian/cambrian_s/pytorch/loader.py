@@ -7,7 +7,6 @@ Cambrian-S model loader implementation for multimodal visual question answering.
 
 import torch
 from PIL import Image
-from transformers import AutoModelForCausalLM, AutoProcessor
 from typing import Optional
 
 from ....base import ForgeModel
@@ -20,7 +19,7 @@ from ....config import (
     Framework,
     StrEnum,
 )
-from ....tools.utils import get_file, cast_input_to_type
+from ....tools.utils import get_file
 
 
 class ModelVariant(StrEnum):
@@ -46,7 +45,8 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.processor = None
+        self.tokenizer = None
+        self.image_processor = None
         self.model = None
 
     @classmethod
@@ -62,84 +62,84 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_processor(self):
-        self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
-        )
-        return self.processor
-
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Cambrian-S model instance."""
+        from cambrian.model.builder import load_pretrained_model
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        if self.processor is None:
-            self._load_processor()
-
-        model_kwargs = {
-            "trust_remote_code": True,
-            "attn_implementation": "eager",
-        }
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+        self.tokenizer, model, self.image_processor, _ = load_pretrained_model(
+            pretrained_model_name,
+            None,
+            "cambrian-s",
+            device="cpu",
+            device_map={"": "cpu"},
         )
+
+        if dtype_override is not None and dtype_override != torch.float16:
+            model = model.to(dtype=dtype_override)
+
         model.eval()
         self.model = model
-
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for Cambrian-S."""
-        if self.processor is None:
-            self._load_processor()
+        from cambrian.mm_utils import process_images, tokenizer_image_token
+        from cambrian.conversation import conv_templates
+        from cambrian.constants import DEFAULT_IMAGE_TOKEN, IMAGE_TOKEN_INDEX
+
+        if self.model is None:
+            self.load_model(dtype_override=dtype_override)
 
         image_file = get_file(
             "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
         )
-        image = Image.open(image_file)
+        image = Image.open(image_file).convert("RGB")
 
-        conversation = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": "What is shown in this image?"},
-                ],
-            }
-        ]
-
-        text_prompt = self.processor.apply_chat_template(
-            conversation, add_generation_prompt=True
+        image_tensor_list = process_images(
+            [image], self.image_processor, self.model.config
         )
-
-        inputs = self.processor(images=image, text=text_prompt, return_tensors="pt")
+        images = image_tensor_list[0]
 
         if dtype_override is not None:
-            for key in inputs:
-                if torch.is_tensor(inputs[key]):
-                    inputs[key] = cast_input_to_type(inputs[key], dtype_override)
+            images = images.to(dtype=dtype_override)
+
+        conv = conv_templates["qwen_2"].copy()
+        conv.append_message(
+            conv.roles[0],
+            f"{DEFAULT_IMAGE_TOKEN}\nWhat is shown in this image?",
+        )
+        conv.append_message(conv.roles[1], None)
+        prompt = conv.get_prompt()
+
+        input_ids = tokenizer_image_token(
+            prompt, self.tokenizer, IMAGE_TOKEN_INDEX, return_tensors="pt"
+        ).unsqueeze(0)
+
+        attention_mask = torch.ones_like(input_ids)
 
         if batch_size > 1:
-            for key in inputs:
-                if torch.is_tensor(inputs[key]):
-                    inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+            input_ids = input_ids.repeat(batch_size, 1)
+            attention_mask = attention_mask.repeat(batch_size, 1)
+            images = images.repeat(batch_size, 1, 1, 1)
 
-        return dict(inputs)
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "images": images,
+        }
 
     def decode_output(self, outputs, input_length=None):
         """Decode model outputs into human-readable text."""
-        if self.processor is None:
-            self._load_processor()
+        if self.tokenizer is None:
+            self.load_model()
 
         if torch.is_tensor(outputs) and outputs.dtype in [torch.long, torch.int]:
             if input_length is not None:
                 outputs = outputs[:, input_length:]
-            return self.processor.batch_decode(outputs, skip_special_tokens=True)[0]
+            return self.tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
         else:
             logits = outputs.logits if hasattr(outputs, "logits") else outputs[0]
             next_token_id = torch.argmax(logits[:, -1, :], dim=-1)
-            return self.processor.decode(next_token_id)
+            return self.tokenizer.decode(next_token_id)
