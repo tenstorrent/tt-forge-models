@@ -188,7 +188,46 @@ class ModelLoader(ForgeModel):
                 or fname.endswith(".model")
             ):
                 src = hf_hub_download(pretrained_model_name, fname)
-                shutil.copy2(src, os.path.join(tmpdir, fname))
+                dst = os.path.join(tmpdir, fname)
+                shutil.copy2(src, dst)
+                # Patch ultravox_model.py: replace removed transformers attribute with
+                # a meta-device context check (the original intent of _init_weights).
+                if fname.endswith("ultravox_model.py"):
+                    with open(dst) as f:
+                        content = f.read()
+                    content = content.replace(
+                        "transformers.modeling_utils._init_weights",
+                        "(torch.tensor([]).device.type != 'meta')",
+                    )
+                    with open(dst, "w") as f:
+                        f.write(content)
+                # Patch ultravox_processing.py for transformers 5.x:
+                # MODALITY_TO_BASE_CLASS_MAPPING["audio_processor"] now requires
+                # FeatureExtractionMixin, so extract feature_extractor from the
+                # WhisperProcessor returned by AutoProcessor.from_pretrained().
+                if fname.endswith("ultravox_processing.py"):
+                    with open(dst) as f:
+                        content = f.read()
+                    content = content.replace(
+                        "        audio_processor = transformers.AutoProcessor.from_pretrained(\n"
+                        "            config.audio_model_id\n"
+                        "            or config.audio_config._name_or_path\n"
+                        '            or "openai/whisper-tiny"\n'
+                        "        )",
+                        "        _audio_proc = transformers.AutoProcessor.from_pretrained(\n"
+                        "            config.audio_model_id\n"
+                        "            or config.audio_config._name_or_path\n"
+                        '            or "openai/whisper-tiny"\n'
+                        "        )\n"
+                        "        audio_processor = getattr(_audio_proc, 'feature_extractor', _audio_proc)",
+                    )
+                    content = content.replace(
+                        "            hop_length = self.audio_processor.feature_extractor.hop_length",
+                        "            _fe = getattr(self.audio_processor, 'feature_extractor', self.audio_processor)\n"
+                        "            hop_length = _fe.hop_length",
+                    )
+                    with open(dst, "w") as f:
+                        f.write(content)
 
         self._patched_dir = tmpdir
         return tmpdir
@@ -210,6 +249,85 @@ class ModelLoader(ForgeModel):
 
         return self.processor
 
+    def _patch_hf_module_cache(self):
+        """Patch the HuggingFace cached ultravox_model.py to fix transformers API changes.
+
+        In transformers 5.x, modeling_utils._init_weights was removed. The cached
+        ultravox_model.py uses it to detect whether model init is running inside a
+        meta-device context (transformers now always wraps cls() in torch.device('meta')).
+        Replace all references with an equivalent runtime check.
+        """
+        import glob
+        import sys
+
+        hf_home = os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
+        local_hf_home = os.path.join(
+            os.path.dirname(__file__), "..", "..", ".cache", "huggingface"
+        )
+
+        replacements = [
+            # transformers 5.x removed _init_weights module attribute; replace with
+            # equivalent meta-device context check (models must not call from_pretrained
+            # while a meta device is active, so we use the empty-weights path instead).
+            (
+                "transformers.modeling_utils._init_weights",
+                "(torch.tensor([]).device.type != 'meta')",
+            ),
+            # transformers 5.x added recompute_mapping kwarg to tie_weights(); the old
+            # UltravoxModel.tie_weights() override does not accept it.
+            (
+                "    def tie_weights(self):",
+                "    def tie_weights(self, **kwargs):",
+            ),
+            # transformers 5.x removed layer_head_mask from WhisperEncoderLayer.forward().
+            (
+                "                    layer_outputs = encoder_layer(\n"
+                "                        hidden_states,\n"
+                "                        attention_mask,\n"
+                "                        layer_head_mask=(\n"
+                "                            head_mask[idx] if head_mask is not None else None\n"
+                "                        ),\n"
+                "                        output_attentions=output_attentions,\n"
+                "                    )",
+                "                    layer_outputs = encoder_layer(\n"
+                "                        hidden_states,\n"
+                "                        attention_mask,\n"
+                "                        output_attentions=output_attentions,\n"
+                "                    )",
+            ),
+        ]
+
+        for search_root in [local_hf_home, hf_home]:
+            pattern = os.path.join(
+                search_root,
+                "modules",
+                "transformers_modules",
+                "**",
+                "ultravox_model.py",
+            )
+            for cached_file in glob.glob(pattern, recursive=True):
+                with open(cached_file) as f:
+                    content = f.read()
+                patched = content
+                for old, new in replacements:
+                    patched = patched.replace(old, new)
+                if patched != content:
+                    with open(cached_file, "w") as f:
+                        f.write(patched)
+                    # Remove stale .pyc so Python reloads the patched source.
+                    pycache = os.path.join(
+                        os.path.dirname(cached_file),
+                        "__pycache__",
+                    )
+                    if os.path.isdir(pycache):
+                        shutil.rmtree(pycache)
+                    # Invalidate any already-imported module.
+                    mod_name = next(
+                        (k for k in sys.modules if "ultravox_model" in k), None
+                    )
+                    if mod_name:
+                        del sys.modules[mod_name]
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Ultravox model instance.
 
@@ -220,6 +338,8 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The Ultravox model instance.
         """
         import transformers
+
+        self._patch_hf_module_cache()
 
         pretrained_model_name = self._variant_config.pretrained_model_name
         patched_dir = self._get_patched_model_dir()
