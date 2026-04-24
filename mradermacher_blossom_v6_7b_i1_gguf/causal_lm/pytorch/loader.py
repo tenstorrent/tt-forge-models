@@ -5,14 +5,26 @@
 mradermacher Blossom-V6-7B i1 GGUF model loader implementation for causal language modeling.
 """
 import inspect
+from contextlib import contextmanager
+from typing import Optional
 
 import torch
 import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
-from typing import Optional
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+
+from ....base import ForgeModel
+from ....config import (
+    Framework,
+    LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
+    StrEnum,
+)
 
 
 def _find_original_gguf_loader(fn):
@@ -48,23 +60,37 @@ def _find_original_gguf_loader(fn):
     return None
 
 
+# Capture the original at import time; works whether we're imported before or after qwen35 loaders
 _orig_gguf_loader = _find_original_gguf_loader(_gguf_utils.load_gguf_checkpoint)
-if _orig_gguf_loader is not None:
+
+
+@contextmanager
+def _original_gguf_loader_ctx():
+    """Temporarily restore the original load_gguf_checkpoint for non-qwen35 GGUF models.
+
+    qwen35 loaders patch load_gguf_checkpoint globally.  Since pytest collects all
+    loaders before running any test, the patch is always active at call time even if
+    this module was imported first.  We save the current (patched) references, swap
+    in the originals, yield, and then restore – so other tests are unaffected.
+    """
+    if _orig_gguf_loader is None:
+        yield
+        return
+    saved_gguf = _gguf_utils.load_gguf_checkpoint
+    saved_cfg = _config_utils.load_gguf_checkpoint
+    saved_tok_auto = _auto_tokenizer.load_gguf_checkpoint
+    saved_tok = _tok_utils.load_gguf_checkpoint
     _gguf_utils.load_gguf_checkpoint = _orig_gguf_loader
     _config_utils.load_gguf_checkpoint = _orig_gguf_loader
     _auto_tokenizer.load_gguf_checkpoint = _orig_gguf_loader
     _tok_utils.load_gguf_checkpoint = _orig_gguf_loader
-
-from ....base import ForgeModel
-from ....config import (
-    LLMModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
-    Framework,
-    StrEnum,
-)
+    try:
+        yield
+    finally:
+        _gguf_utils.load_gguf_checkpoint = saved_gguf
+        _config_utils.load_gguf_checkpoint = saved_cfg
+        _auto_tokenizer.load_gguf_checkpoint = saved_tok_auto
+        _tok_utils.load_gguf_checkpoint = saved_tok
 
 
 class ModelVariant(StrEnum):
@@ -114,9 +140,10 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
         tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+        with _original_gguf_loader_ctx():
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -135,15 +162,17 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
+            with _original_gguf_loader_ctx():
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name, gguf_file=self.GGUF_FILE
+                )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        with _original_gguf_loader_ctx():
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
@@ -201,7 +230,8 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        with _original_gguf_loader_ctx():
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
         return self.config
