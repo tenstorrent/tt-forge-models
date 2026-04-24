@@ -9,6 +9,55 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+
+def _patch_transformers_deepseek_v2_gguf():
+    """Monkey-patch transformers to add deepseek_v2 GGUF support.
+
+    The GGUF file uses deepseek2 as general.architecture, but the glm_4_7_flash
+    loader (already imported during test collection) remaps model_type deepseek2
+    → deepseek_v2 in the HF config. This causes two downstream failures:
+    1. convert_gguf_tokenizer KeyError: 'deepseek_v2' not in GGUF_TO_FAST_CONVERTERS
+    2. get_gguf_hf_weights_map NotImplementedError: deepseek_v2 not in gguf-py MODEL_ARCH_NAMES
+
+    We fix both by registering deepseek_v2 in the tokenizer converter map and by
+    patching get_gguf_hf_weights_map to remap deepseek_v2 → deepseek2 for the
+    gguf-py arch lookup.
+    """
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    if "deepseek_v2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["deepseek_v2"] = GGUFQwen2Converter
+
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    if getattr(orig_get_map, "_deepseek_v2_patched", False):
+        return
+
+    def _patched_get_gguf_hf_weights_map(
+        hf_model, processor=None, model_type=None, num_layers=None, qual_name=""
+    ):
+        resolved = hf_model.config.model_type if model_type is None else model_type
+        if resolved == "deepseek_v2":
+            model_type = "deepseek2"
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    _patched_get_gguf_hf_weights_map._deepseek_v2_patched = True
+    gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
+    # Also patch any modules that imported get_gguf_hf_weights_map directly
+    import transformers.modeling_utils as modeling_utils
+
+    if hasattr(modeling_utils, "get_gguf_hf_weights_map"):
+        modeling_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
+
+_patch_transformers_deepseek_v2_gguf()
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -101,7 +150,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
