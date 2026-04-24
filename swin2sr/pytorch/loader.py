@@ -76,7 +76,7 @@ class ModelLoader(ForgeModel):
             self._model = self._model.to(dtype=dtype_override)
         return self._model
 
-    def load_inputs(self, **kwargs):
+    def load_inputs(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
         """Load and return sample inputs for the Swin2SR model."""
         model_name = self._variant_config.pretrained_model_name
         if self._processor is None:
@@ -84,4 +84,7 @@ class ModelLoader(ForgeModel):
 
         image = Image.new("RGB", (64, 64), color=(128, 128, 128))
         inputs = self._processor(images=image, return_tensors="pt")
-        return inputs["pixel_values"]
+        pixel_values = inputs["pixel_values"]
+        if dtype_override is not None:
+            pixel_values = pixel_values.to(dtype_override)
+        return pixel_values
