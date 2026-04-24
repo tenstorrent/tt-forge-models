@@ -61,11 +61,30 @@ def _patched_load_gguf_checkpoint(*args, **kwargs):
     return result
 
 
+_orig_get_gguf_hf_weights_map = _gguf_utils.get_gguf_hf_weights_map
+
+
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
+    """Map qwen3_vl (transformers name) to qwen3vl (gguf-py name) for tensor mapping."""
+    if model_type is None:
+        cfg = getattr(hf_model, "config", None)
+        if cfg is not None:
+            model_type = getattr(cfg, "model_type", None)
+    if model_type == "qwen3_vl":
+        model_type = "qwen3vl"
+    return _orig_get_gguf_hf_weights_map(
+        hf_model, processor, model_type, num_layers, qual_name
+    )
+
+
 _patch_qwen3vl_support()
 _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 
 class ModelVariant(StrEnum):
