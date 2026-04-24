@@ -115,3 +115,7 @@ results:
   status: "PASS"
   date: "20260424_003413"
   branch: "arch-c-36-tt-xla-dev/nsmith/2026-04-22_16-58/hf-bringup-8"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[mn_violet_lotus_12b_gguf/causal_lm/pytorch-12B_Q4_K_M_GGUF-single_device-inference]"
+  status: "PASS"
+  date: "20260424_005115"
+  branch: "arch-c-36-tt-xla-dev/nsmith/2026-04-22_16-58/hf-bringup-8"
