@@ -185,7 +185,12 @@ class ModelLoader(ForgeModel):
             # ignore list before the model is loaded.
             cfg = AutoConfig.from_pretrained(pretrained_model_name)
             qcfg = getattr(cfg, "quantization_config", None)
-            if qcfg is not None and hasattr(qcfg, "ignore") and qcfg.ignore:
+            if isinstance(qcfg, dict) and qcfg.get("ignore"):
+                qcfg["ignore"] = [
+                    f"model.{entry}" if not entry.startswith("model.") else entry
+                    for entry in qcfg["ignore"]
+                ]
+            elif qcfg is not None and hasattr(qcfg, "ignore") and qcfg.ignore:
                 qcfg.ignore = [
                     f"model.{entry}" if not entry.startswith("model.") else entry
                     for entry in qcfg.ignore
