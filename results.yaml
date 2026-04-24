@@ -167,3 +167,7 @@ results:
   status: "PASS"
   date: "20260424_151818"
   branch: "arch-c-36-tt-xla-dev/nsmith/2026-04-22_16-58/hf-bringup-8"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[personal_gpt_oss_20b_gguf/causal_lm/pytorch-personal_20B_GGUF-single_device-inference]"
+  status: "PASS"
+  date: "20260424_160313"
+  branch: "arch-c-36-tt-xla-dev/nsmith/2026-04-22_16-58/hf-bringup-8"
