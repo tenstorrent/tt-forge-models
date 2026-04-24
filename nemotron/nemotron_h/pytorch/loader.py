@@ -21,6 +21,34 @@ from ....config import (
 )
 
 
+def _patched_block_forward(
+    self, hidden_states, cache_params=None, cache_position=None, attention_mask=None
+):
+    residual = hidden_states
+    hidden_states = self.norm(hidden_states.to(dtype=self.norm.weight.dtype))
+    if self.residual_in_fp32:
+        residual = residual.to(torch.float32)
+    if self.block_type == "mamba":
+        hidden_states = self.mixer(
+            hidden_states, cache_params=cache_params, cache_position=cache_position
+        )
+    elif self.block_type == "attention":
+        hidden_states = self.mixer(hidden_states, cache_position=cache_position)
+        hidden_states = hidden_states[0]
+    elif self.block_type == "mlp":
+        hidden_states = self.mixer(hidden_states)
+    else:
+        raise ValueError(f"Invalid block_type: {self.block_type}")
+    hidden_states = residual + hidden_states
+    return hidden_states
+
+
+def _patch_nemotron_h_block_for_non_cuda(model):
+    layers = getattr(getattr(model, "backbone", None), "layers", None)
+    if layers:
+        type(layers[0]).forward = _patched_block_forward
+
+
 class ModelVariant(StrEnum):
     """Available Nemotron-H model variants for causal language modeling."""
 
@@ -120,6 +148,12 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
         self.config = model.config
+
+        if self._variant == ModelVariant.NEMOTRON_NANO_9B_V2_FP8_DYNAMIC:
+            # NemotronHBlock.forward wraps everything in torch.cuda.stream()
+            # which requires CUDA. Patch the class to skip that context on
+            # non-CUDA devices so the model can run on CPU/Tenstorrent.
+            _patch_nemotron_h_block_for_non_cuda(model)
 
         return model
 
