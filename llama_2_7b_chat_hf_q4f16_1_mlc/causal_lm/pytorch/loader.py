@@ -4,8 +4,9 @@
 """
 Llama 2 7B Chat HF Q4F16_1 MLC model loader implementation for causal language modeling.
 """
+import json
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -61,13 +62,37 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
+    def _build_llama_config(self):
+        from huggingface_hub import hf_hub_download
 
+        config_file = hf_hub_download(
+            repo_id=self._variant_config.pretrained_model_name,
+            filename="mlc-chat-config.json",
+        )
+        with open(config_file) as f:
+            mlc_config = json.load(f)
+
+        mc = mlc_config.get("model_config", {})
+        num_layers = (
+            self.num_layers if self.num_layers is not None else mc["num_hidden_layers"]
+        )
+        return LlamaConfig(
+            hidden_size=mc["hidden_size"],
+            intermediate_size=mc["intermediate_size"],
+            num_hidden_layers=num_layers,
+            num_attention_heads=mc["num_attention_heads"],
+            num_key_value_heads=mc["num_key_value_heads"],
+            max_position_embeddings=mc["context_window_size"],
+            rms_norm_eps=mc["rms_norm_eps"],
+            vocab_size=mlc_config["vocab_size"],
+            rope_theta=mc["position_embedding_base"],
+            bos_token_id=mlc_config["bos_token_id"],
+            eos_token_id=mlc_config["eos_token_id"],
+        )
+
+    def _load_tokenizer(self, dtype_override=None):
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -75,35 +100,27 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        if self.config is None:
+            self.load_config()
 
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
-        model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            self.config.torch_dtype = dtype_override
 
-        model_kwargs["device_map"] = "cpu"
+        model = AutoModelForCausalLM.from_config(self.config)
 
-        model_kwargs |= kwargs
+        if dtype_override is not None:
+            model = model.to(dtype=dtype_override)
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
-
-        self.config = model.config
+        model = model.eval()
         self.model = model
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
         max_length = self._variant_config.max_length
 
@@ -125,7 +142,7 @@ class ModelLoader(ForgeModel):
 
     def decode_output(self, outputs, dtype_override=None):
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override)
+            self._load_tokenizer()
 
         if torch.is_tensor(outputs) and outputs.dtype in [torch.long, torch.int]:
             decoded_output = self.tokenizer.decode(outputs)
@@ -155,7 +172,5 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+        self.config = self._build_llama_config()
         return self.config
