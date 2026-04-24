@@ -3,6 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 mradermacher/SpaceThinker-Qwen2.5VL-3B-GGUF model loader implementation for image to text.
+
+Note: The qwen2vl GGUF architecture is not yet supported by the transformers
+GGUF loader, so we load from the HF-native base checkpoint instead.
 """
 
 from transformers import (
@@ -30,20 +33,20 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """mradermacher SpaceThinker-Qwen2.5VL-3B-GGUF loader for image to text tasks."""
+    """mradermacher SpaceThinker-Qwen2.5VL-3B-GGUF loader for image to text tasks.
+
+    Note: Uses the base model (safetensors) instead of GGUF because the
+    qwen2vl GGUF architecture is not yet supported by transformers.
+    """
 
     _VARIANTS = {
         ModelVariant.SPACETHINKER_QWEN2_5_VL_3B_Q4_K_M_GGUF: LLMModelConfig(
-            pretrained_model_name="mradermacher/SpaceThinker-Qwen2.5VL-3B-GGUF",
+            pretrained_model_name="GAIR/SpaceThinker-Qwen2.5VL-3B",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.SPACETHINKER_QWEN2_5_VL_3B_Q4_K_M_GGUF
-
-    _GGUF_FILES = {
-        ModelVariant.SPACETHINKER_QWEN2_5_VL_3B_Q4_K_M_GGUF: "SpaceThinker-Qwen2.5VL-3B.Q4_K_M.gguf",
-    }
 
     sample_image = (
         "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg"
@@ -64,11 +67,6 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    @property
-    def _gguf_file(self):
-        """Get the GGUF filename for the current variant."""
-        return self._GGUF_FILES.get(self._variant)
-
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -76,11 +74,10 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
-        model_kwargs["gguf_file"] = self._gguf_file
         model_kwargs |= kwargs
 
         self.processor = AutoProcessor.from_pretrained(
-            "Qwen/Qwen2.5-VL-3B-Instruct",
+            pretrained_model_name,
         )
 
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
