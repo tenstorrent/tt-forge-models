@@ -6,8 +6,8 @@ Mochi GGUF model loader implementation.
 
 Mochi is a ~10B text-to-video diffusion model by Genmo. This loader uses the
 GGUF-quantized transformer repackaged by calcuis for ComfyUI / gguf-node.
-The GGUF transformer is loaded via diffusers'
-MochiTransformer3DModel.from_single_file.
+Weights are dequantized via the gguf library's native dequantize function and
+loaded into a standard MochiTransformer3DModel for XLA tracing.
 
 Repository:
 - https://huggingface.co/calcuis/mochi
@@ -29,7 +29,7 @@ from ...config import (
     StrEnum,
 )
 
-GGUF_BASE_URL = "https://huggingface.co/calcuis/mochi/blob/main"
+REPO_ID = "calcuis/mochi"
 
 
 class ModelVariant(StrEnum):
@@ -43,7 +43,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.Q3_K_M: ModelConfig(
-            pretrained_model_name="calcuis/mochi",
+            pretrained_model_name=REPO_ID,
         ),
     }
 
@@ -72,22 +72,45 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the GGUF-quantized Mochi transformer."""
+        """Load and return the Mochi transformer, dequantizing GGUF weights to float."""
+        try:
+            import gguf as gguf_lib
+            from diffusers.loaders.single_file_utils import (
+                convert_mochi_transformer_checkpoint_to_diffusers,
+            )
+            from huggingface_hub import hf_hub_download
+        except ImportError as e:
+            raise ImportError(
+                "Install `gguf>=0.10.0` and `huggingface_hub` to load GGUF checkpoints."
+            ) from e
+
         gguf_file = self._GGUF_FILES[self._variant]
-        gguf_url = f"{GGUF_BASE_URL}/{gguf_file}"
+        gguf_path = hf_hub_download(repo_id=REPO_ID, filename=gguf_file)
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        load_kwargs = {}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
+        float_types = {
+            gguf_lib.GGMLQuantizationType.F32,
+            gguf_lib.GGMLQuantizationType.F16,
+            gguf_lib.GGMLQuantizationType.BF16,
+        }
 
-        self.transformer = MochiTransformer3DModel.from_single_file(
-            gguf_url,
-            time_embed_dim=110,
-            **load_kwargs,
+        reader = gguf_lib.GGUFReader(gguf_path)
+        checkpoint = {}
+        for tensor in reader.tensors:
+            if tensor.tensor_type in float_types:
+                data = torch.from_numpy(tensor.data.copy())
+            else:
+                deq = gguf_lib.dequantize(tensor.data, tensor.tensor_type)
+                data = torch.from_numpy(deq.copy()).to(torch.float32)
+            checkpoint[tensor.name] = data
+
+        diffusers_checkpoint = convert_mochi_transformer_checkpoint_to_diffusers(
+            checkpoint
         )
 
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
+        self.transformer = MochiTransformer3DModel()
+        self.transformer.load_state_dict(diffusers_checkpoint, strict=True)
+        self.transformer = self.transformer.to(dtype)
 
         return self.transformer
 
