@@ -5,7 +5,12 @@
 GLM-4V model loader implementation for multimodal conditional generation.
 """
 import torch
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import (
+    AutoConfig,
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    PreTrainedModel,
+)
 from typing import Optional
 
 from ...base import ForgeModel
@@ -65,6 +70,9 @@ class ModelLoader(ForgeModel):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, trust_remote_code=True
         )
+        # batch_encode_plus was removed in transformers v5; the custom tokenizer still calls it
+        if not hasattr(self.tokenizer, "batch_encode_plus"):
+            self.tokenizer.batch_encode_plus = self.tokenizer.__call__
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -79,15 +87,31 @@ class ModelLoader(ForgeModel):
         # modeling_chatglm.py uses max_length but ChatGLMConfig exposes seq_length
         if not hasattr(config, "max_length") and hasattr(config, "seq_length"):
             config.max_length = config.seq_length
+        # modeling_chatglm.py uses use_cache which ChatGLMConfig doesn't set
+        if not hasattr(config, "use_cache"):
+            config.use_cache = True
+
+        # ChatGLMForConditionalGeneration predates transformers v5 all_tied_weights_keys API
+        _orig_adjust = PreTrainedModel._adjust_tied_keys_with_tied_pointers
+
+        def _patched_adjust(self, missing_and_mismatched):
+            if not hasattr(self, "all_tied_weights_keys"):
+                self.all_tied_weights_keys = {}
+            return _orig_adjust(self, missing_and_mismatched)
+
+        PreTrainedModel._adjust_tied_keys_with_tied_pointers = _patched_adjust
 
         model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+        finally:
+            PreTrainedModel._adjust_tied_keys_with_tied_pointers = _orig_adjust
         model.eval()
         self.model = model
         self.config = model.config
