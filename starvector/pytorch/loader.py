@@ -25,13 +25,13 @@ from ...config import (
 
 
 def _patch_starcoder_init():
-    """Patch starvector internals to avoid downloading the gated bigcode/starcoderbase-1b model.
+    """Patch starvector v1 internals to avoid downloading the gated bigcode/starcoderbase-1b model.
 
-    StarCoderModel: uses bigcode/starcoder2-3b tokenizer (same 49152-token vocab, ungated)
+    StarCoderModel (v1): uses bigcode/starcoder2-3b tokenizer (same 49152-token vocab, ungated)
     and initializes GPTBigCode from config instead of from pretrained weights.  The
     starvector from_pretrained call that follows will override all weights anyway.
 
-    StarVectorStarCoder: wraps the processor assignment in a try/except because the
+    StarVectorStarCoder (v1): wraps the processor assignment in a try/except because the
     starvector HF repo has no processor_config.json; the processor is recovered later
     from the image encoder when load_inputs is called.
     """
@@ -121,34 +121,93 @@ def _patch_starcoder_init():
     PreTrainedModel._adjust_tied_keys_with_tied_pointers = _patched_adjust
 
 
+def _patch_starcoder2_init():
+    """Patch starvector v2 internals to avoid downloading bigcode/starcoder2-7b with flash attention.
+
+    StarCoderModel (v2): downloads starcoder2-7b config and builds the model from config instead
+    of from pretrained weights.  The starvector from_pretrained call overrides all weights anyway.
+    Flash attention is disabled since flash-attn is not installed in this environment.
+    """
+    import torch.nn as nn
+    from transformers import AutoConfig, AutoModelForCausalLM
+    import starvector.model.llm.starcoder2 as sc2_module
+
+    def _patched_starcoder2_init(self, config, **kwargs):
+        nn.Module.__init__(self)
+
+        # Downloads tokenizer only (small, fast); starcoder2-7b is ungated
+        self.init_tokenizer(config.starcoder_model_name)
+        self.max_length = config.max_length
+
+        # Download just config (tiny JSON) from the base model; no weight download
+        model_config = AutoConfig.from_pretrained(
+            config.starcoder_model_name, trust_remote_code=True
+        )
+        model_config.use_cache = getattr(config, "use_cache", True)
+        model_config.use_bfloat16 = True
+        # Disable flash attention (not installed)
+        if hasattr(model_config, "attn_implementation"):
+            model_config.attn_implementation = None
+        # Pre-set vocab_size to avoid resize_token_embeddings on the fresh model
+        model_config.vocab_size = len(self.tokenizer)
+
+        # Build model from config (no weight download); starvector weights override later
+        model = AutoModelForCausalLM.from_config(model_config)
+        self.transformer = model
+
+        self.prompt = "<svg"
+
+        # transformer_layer_cls is only needed for FSDP training; safe to skip for inference
+        try:
+            from starvector.train.util import get_module_class_from_name
+
+            self.transformer_layer_cls = get_module_class_from_name(
+                self, kwargs.get("transformer_layer_cls", "Starcoder2DecoderLayer")
+            )
+        except Exception:
+            self.transformer_layer_cls = None
+
+    sc2_module.StarCoderModel.__init__ = _patched_starcoder2_init
+
+
 class _StarVectorWrapper(nn.Module):
     """Wraps StarVectorForCausalLM to accept raw pixel_values.
 
-    StarVectorForCausalLM.forward() requires pre-encoded vision_embeds plus
-    text token tensors.  This wrapper encodes the image through the model's own
-    image encoder and supplies fixed dummy token inputs so the test harness can
-    call model(pixel_values) directly.
+    StarVectorForCausalLM.forward() expects a batch dict with 'image', 'svg', etc.
+    for training.  This wrapper encodes the image through the model's own image
+    encoder and runs a single forward through the underlying LLM so the test
+    harness can call model(pixel_values) directly.
     """
 
     def __init__(self, model):
         super().__init__()
         self.model = model
-        # Store a reference to the svg_transformer tokenizer for building dummy inputs.
-        self._tokenizer = model.model.svg_transformer.tokenizer
 
     def forward(self, pixel_values):
-        sv = self.model.model
+        sv = self.model.model  # StarVectorBase subclass (v1 or v2)
+
+        # Encode image through vision encoder + projection adapter
         vision_embeds = sv.image_encoder(pixel_values.to(sv.model_precision))
-        vision_embeds = sv.image_projection(vision_embeds)
+        vision_embeds = sv.image_projection(vision_embeds)  # [B, Q, hidden]
+
+        # Build a minimal token embedding for the SVG start token
         svg_start_id = sv.svg_transformer.svg_start_token_id
         input_ids = torch.tensor(
             [[svg_start_id]], dtype=torch.long, device=pixel_values.device
         )
-        return self.model(
-            vision_embeds=vision_embeds,
-            input_ids=input_ids,
-            num_generations=1,
-            num_logits_to_keep=1,
+        token_embeds = sv._get_embeddings(input_ids)  # [1, 1, hidden]
+
+        # Concatenate vision features with the start token and run LLM forward
+        inputs_embeds = torch.cat([vision_embeds, token_embeds], dim=1)
+        attention_mask = torch.ones(
+            inputs_embeds.shape[:2], dtype=torch.long, device=pixel_values.device
+        )
+
+        return sv.svg_transformer.transformer(
+            inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+            use_cache=False,
+            return_dict=True,
         )
 
 
@@ -192,6 +251,7 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         _patch_starcoder_init()
+        _patch_starcoder2_init()
 
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
@@ -221,7 +281,7 @@ class ModelLoader(ForgeModel):
 
         # Use a synthetic image to avoid importing datasets (local spacy/ dir shadows the
         # real spacy package and breaks datasets fingerprinting).
-        image = Image.new("RGB", (224, 224), color=(128, 128, 128))
+        image = Image.new("RGB", (384, 384), color=(128, 128, 128))
 
         result = self.processor(image)
         if isinstance(result, dict) or hasattr(result, "data"):
