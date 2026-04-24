@@ -71,10 +71,25 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from transformers import AutoModel
+        from transformers import AutoConfig, AutoModel
+
+        config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            trust_remote_code=True,
+        )
+        # transformers>=5 no longer sets pad_token_id by default on PretrainedConfig;
+        # derive it from pad_token list in config.json (first element is the text pad token).
+        if not hasattr(config, "pad_token_id"):
+            if hasattr(config, "pad_token") and isinstance(
+                config.pad_token, (list, tuple)
+            ):
+                config.pad_token_id = config.pad_token[0]
+            else:
+                config.pad_token_id = getattr(config, "bos_token_id", None)
 
         full_model = AutoModel.from_pretrained(
             self._variant_config.pretrained_model_name,
+            config=config,
             trust_remote_code=True,
             torch_dtype=dtype_override or torch.float32,
         )
