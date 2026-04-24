@@ -78,6 +78,23 @@ def _patch_transformers_minimax_m2_gguf():
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
+    # 6. Patch get_gguf_hf_weights_map to translate minimax_m2 -> minimax-m2
+    # (gguf-py uses the hyphenated name from the GGUF metadata)
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, *args, **kwargs
+    ):
+        if model_type == "minimax_m2" or (
+            model_type is None
+            and getattr(getattr(hf_model, "config", None), "model_type", None)
+            == "minimax_m2"
+        ):
+            model_type = "minimax-m2"
+        return orig_get_map(hf_model, processor, model_type, *args, **kwargs)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
 
 # Apply the monkey-patch at import time
 _patch_transformers_minimax_m2_gguf()
