@@ -11,11 +11,18 @@ model is too large to load directly.
 from typing import Optional
 
 import transformers.models.gpt2.tokenization_gpt2 as _gpt2_tok
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, DynamicCache
 from transformers.convert_slow_tokenizer import bytes_to_unicode as _bytes_to_unicode
 
 if not hasattr(_gpt2_tok, "bytes_to_unicode"):
     _gpt2_tok.bytes_to_unicode = _bytes_to_unicode
+
+if not hasattr(DynamicCache, "get_usable_length"):
+
+    def _get_usable_length(self, new_seq_length: int, layer_idx: int = 0) -> int:
+        return new_seq_length + self.get_seq_length(layer_idx)
+
+    DynamicCache.get_usable_length = _get_usable_length
 
 from ...base import ForgeModel
 from ...config import (
