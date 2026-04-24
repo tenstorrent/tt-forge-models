@@ -95,6 +95,8 @@ class ModelLoader(ForgeModel):
             The loaded tokenizer instance
         """
         self.tokenizer = AutoTokenizer.from_pretrained(self._TOKENIZER_SOURCE)
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
