@@ -6,6 +6,9 @@ MM Grounding DINO model loader implementation for zero-shot object detection.
 """
 import torch
 from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
+from transformers.models.mm_grounding_dino.modeling_mm_grounding_dino import (
+    MMGroundingDinoTextEnhancerLayer,
+)
 from datasets import load_dataset
 from typing import Optional
 
@@ -108,13 +111,17 @@ class ModelLoader(ForgeModel):
 
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        else:
-            model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
 
         model = AutoModelForZeroShotObjectDetection.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        # gen_sine_position_embeddings hardcodes dtype=float32; cast to match hidden states
+        MMGroundingDinoTextEnhancerLayer.with_pos_embed = lambda self, h, pe: (
+            h if pe is None else h + pe.to(h.dtype)
+        )
+
         model.eval()
 
         return model
