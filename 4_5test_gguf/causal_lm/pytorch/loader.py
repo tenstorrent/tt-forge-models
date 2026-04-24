@@ -61,6 +61,9 @@ def _patch_transformers_glm4moe_gguf():
 
     if "glm4moe" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["glm4moe"] = GGUFQwen2Converter
+    # convert_gguf_tokenizer looks up by model_type (after our remap: 'glm4_moe')
+    if "glm4_moe" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["glm4_moe"] = GGUFQwen2Converter
 
     orig_load = gguf_utils.load_gguf_checkpoint
 
