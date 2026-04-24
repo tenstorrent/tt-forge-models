@@ -7,10 +7,8 @@ Whisper Small GGUF model loader implementation for automatic speech recognition.
 Repository:
 - https://huggingface.co/FL33TW00D-HF/whisper-small
 """
-import importlib.metadata
-import importlib.util
-
 import torch
+from huggingface_hub import hf_hub_download
 from transformers import (
     WhisperForConditionalGeneration,
     WhisperProcessor,
@@ -76,38 +74,27 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        # gguf 0.18.0 has no __version__; transformers' is_gguf_available() needs it.
-        if importlib.util.find_spec("gguf") is not None:
-            import gguf as _gguf_mod
-
-            if not hasattr(_gguf_mod, "__version__"):
-                try:
-                    _gguf_mod.__version__ = importlib.metadata.version("gguf")
-                except Exception:
-                    pass
+        from gguf import GGUFReader, dequantize
 
         pretrained_model_name = self._variant_config.pretrained_model_name
         gguf_file = self._GGUF_FILES[self._variant]
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = gguf_file
-
-        # Pre-load config from the base Whisper model so that random-weights
-        # mode does not need to download/parse the GGUF file just for config.
         config = WhisperConfig.from_pretrained("openai/whisper-small")
-        model_kwargs["config"] = config
-
+        config.use_cache = False
         self.processor = WhisperProcessor.from_pretrained("openai/whisper-small")
 
-        model = WhisperForConditionalGeneration.from_pretrained(
-            pretrained_model_name, use_cache=False, **model_kwargs
-        ).eval()
+        local_path = hf_hub_download(repo_id=pretrained_model_name, filename=gguf_file)
+        reader = GGUFReader(local_path)
 
-        if dtype_override is not None:
-            model = model.to(dtype_override)
+        target_dtype = dtype_override if dtype_override is not None else torch.float32
+        state_dict = {}
+        for tensor in reader.tensors:
+            arr = dequantize(tensor.data, tensor.tensor_type)
+            state_dict[tensor.name] = torch.from_numpy(arr).to(target_dtype)
+
+        model = WhisperForConditionalGeneration(config)
+        model.load_state_dict(state_dict, strict=False)
+        model.eval()
 
         self.model = model
         return model
