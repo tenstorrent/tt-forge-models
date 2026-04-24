@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import timm
 from timm.data import resolve_data_config
 from timm.data.transforms_factory import create_transform
-from datasets import load_dataset
+from PIL import Image
 
 from ...config import (
     ModelConfig,
@@ -95,8 +95,7 @@ class ModelLoader(ForgeModel):
                 )
 
         if image is None:
-            dataset = load_dataset("huggingface/cats-image", split="test")
-            image = dataset[0]["image"]
+            image = Image.new("RGB", (224, 224), color=(128, 128, 128))
 
         image = image.convert("RGB")
 
