@@ -7,11 +7,11 @@ Res2Net model loader implementation (timm variants)
 
 from typing import Optional
 
+import numpy as np
 import timm
+from PIL import Image
 from timm.data import resolve_data_config
 from timm.data.transforms_factory import create_transform
-
-from datasets import load_dataset
 
 from ...config import (
     ModelConfig,
@@ -71,8 +71,9 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size: int = 1):
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"].convert("RGB")
+        image = Image.fromarray(
+            np.random.randint(0, 256, (256, 256, 3), dtype=np.uint8), mode="RGB"
+        )
 
         model_for_config = (
             self._cached_model
