@@ -6,6 +6,7 @@ LaViDa-LLaDA model loader implementation for image-text-to-text tasks.
 """
 
 import torch
+from contextlib import contextmanager
 from PIL import Image
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
@@ -76,14 +77,36 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        model_kwargs = {"trust_remote_code": True, "low_cpu_mem_usage": False}
+        model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+        # transformers 5.x wraps model __init__ in torch.device("meta"), which breaks
+        # lavida's vision tower that calls from_pretrained inside __init__. Patch
+        # check_and_set_device_map to return "cpu" instead of raising in that case.
+        import transformers.integrations.accelerate as _t_accel
+        from transformers.modeling_utils import (
+            get_torch_context_manager_or_global_device,
         )
+
+        _orig_check = _t_accel.check_and_set_device_map
+
+        def _patched_check(device_map):
+            if (
+                device_map is None
+                and get_torch_context_manager_or_global_device() == torch.device("meta")
+            ):
+                return "cpu"
+            return _orig_check(device_map)
+
+        _t_accel.check_and_set_device_map = _patched_check
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+        finally:
+            _t_accel.check_and_set_device_map = _orig_check
         model.resize_token_embeddings(len(self.tokenizer))
         model.tie_weights()
         model.eval()
