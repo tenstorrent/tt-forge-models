@@ -8,6 +8,81 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+
+
+def _patch_qwen35_moa_support():
+    from gguf import MODEL_ARCH, MODEL_ARCH_NAMES
+
+    MODEL_ARCH_NAMES[MODEL_ARCH.QWEN35] = "qwen3_5_text"
+    if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
+    _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen35"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.key_length": "head_dim",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+        "ssm.group_count": "linear_num_value_heads",
+    }
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if (
+            section != "config"
+            and "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]
+        ):
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "qwen35", _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"]
+            )
+    if "qwen3" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "qwen3_5_text", GGUF_TO_FAST_CONVERTERS["qwen3"]
+        )
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
+    _patch_qwen35_moa_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
+    )
+    cfg = result.get("config", {})
+    if cfg.get("model_type") in ("qwen35", "qwen3"):
+        try:
+            from gguf import GGUFReader
+
+            reader = GGUFReader(gguf_path)
+            arch_field = reader.fields.get("general.architecture")
+            if arch_field:
+                arch = bytes(arch_field.parts[-1]).decode()
+                if (
+                    arch == "qwen35"
+                    and reader.fields.get("qwen35.full_attention_interval") is not None
+                ):
+                    cfg["model_type"] = "qwen3_5_text"
+        except Exception:
+            pass
+    return result
+
+
+_patch_qwen35_moa_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
