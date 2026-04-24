@@ -87,8 +87,13 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.gguf_file
 
+        # The GGUF repo lacks config.json; load architecture config from the HF version
+        config = AutoConfig.from_pretrained(self._PROCESSOR_NAME)
         model = LlavaForConditionalGeneration.from_pretrained(
-            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
+            pretrained_model_name,
+            config=config,
+            ignore_mismatched_sizes=True,
+            **model_kwargs,
         ).eval()
 
         self.config = model.config
