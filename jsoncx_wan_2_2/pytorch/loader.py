@@ -88,6 +88,7 @@ class ModelLoader(ForgeModel):
             subfolder="vae",
             torch_dtype=dtype,
         )
+        self._vae = self._vae.to(dtype=dtype)
         self._vae.eval()
         return self._vae
 
