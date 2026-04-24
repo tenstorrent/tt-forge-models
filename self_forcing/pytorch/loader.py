@@ -115,7 +115,7 @@ class ModelLoader(ForgeModel):
         Returns:
             WanTransformer3DModel with Self-Forcing weights applied.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         vae = AutoencoderKLWan.from_pretrained(
             self._variant_config.pretrained_model_name,
@@ -145,7 +145,7 @@ class ModelLoader(ForgeModel):
         if self._transformer is None:
             self.load_model()
 
-        dtype = torch.float32
+        dtype = torch.bfloat16
         config = self._transformer.config
 
         return {
