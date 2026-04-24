@@ -7,6 +7,8 @@ Enteles v0 27B i1 GGUF model loader implementation for causal language modeling.
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+from gguf import GGUFReader
+from huggingface_hub import hf_hub_download
 
 from ....base import ForgeModel
 from ....config import (
@@ -75,6 +77,15 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    def _get_num_v_heads_from_gguf(self, gguf_path):
+        # The GGUF loader doesn't correctly map blk.N.ssm_a to linear_num_value_heads
+        # for Qwen3.5 GatedDeltaNet hybrid models. We read it directly from the GGUF.
+        reader = GGUFReader(gguf_path, mode="r")
+        for tensor in reader.tensors:
+            if tensor.name == "blk.0.ssm_a":
+                return int(tensor.shape[0])
+        return None
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -87,12 +98,18 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
+        gguf_path = hf_hub_download(
+            repo_id=pretrained_model_name, filename=self.GGUF_FILE
+        )
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, gguf_file=self.GGUF_FILE
+        )
+        num_v_heads = self._get_num_v_heads_from_gguf(gguf_path)
+        if num_v_heads is not None:
+            config.linear_num_value_heads = num_v_heads
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
