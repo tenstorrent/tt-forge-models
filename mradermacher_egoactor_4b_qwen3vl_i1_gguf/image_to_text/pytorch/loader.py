@@ -15,6 +15,7 @@ from transformers import (
 from transformers.modeling_gguf_pytorch_utils import (
     GGUF_SUPPORTED_ARCHITECTURES,
     GGUF_TO_TRANSFORMERS_MAPPING,
+    get_gguf_hf_weights_map as _orig_get_gguf_hf_weights_map,
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
 )
 from typing import Optional
@@ -72,8 +73,31 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     return result
 
 
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
+    """Wrap get_gguf_hf_weights_map to handle Qwen3VL composite config.
+
+    Qwen3VLConfig stores num_hidden_layers in text_config, not at the top level.
+    Also maps model_type 'qwen3_vl' to 'qwen3vl' for the gguf-py library lookup.
+    """
+    if model_type is None:
+        model_type = hf_model.config.model_type
+    if model_type == "qwen3_vl":
+        model_type = "qwen3vl"
+    if num_layers is None:
+        if hasattr(hf_model.config, "num_hidden_layers"):
+            num_layers = hf_model.config.num_hidden_layers
+        elif hasattr(hf_model.config, "text_config"):
+            num_layers = hf_model.config.text_config.num_hidden_layers
+    return _orig_get_gguf_hf_weights_map(
+        hf_model, processor, model_type, num_layers, qual_name
+    )
+
+
 _patch_qwen3vl_support()
 _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 
 class ModelVariant(StrEnum):
@@ -139,16 +163,20 @@ class ModelLoader(ForgeModel):
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        # GGUF repo lacks processor and has a default vision config mismatched for 4B;
-        # use the base model for both.
+        # GGUF repo lacks processor and uses a wrong default vision config for 4B;
+        # load both from the base unquantized model.
         self.processor = AutoProcessor.from_pretrained(self._BASE_MODEL)
+        base_config = AutoConfig.from_pretrained(self._BASE_MODEL)
+        # Expose num_hidden_layers at the top level so get_gguf_hf_weights_map can
+        # find it without descending into text_config.
+        base_config.num_hidden_layers = base_config.text_config.num_hidden_layers
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs["gguf_file"] = self.GGUF_FILE
         model_kwargs["ignore_mismatched_sizes"] = True
-        model_kwargs["config"] = AutoConfig.from_pretrained(self._BASE_MODEL)
+        model_kwargs["config"] = base_config
         model_kwargs |= kwargs
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
