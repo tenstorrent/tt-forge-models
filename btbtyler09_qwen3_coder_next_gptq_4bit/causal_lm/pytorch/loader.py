@@ -5,7 +5,7 @@
 btbtyler09/Qwen3-Coder-Next-GPTQ-4bit model loader implementation for causal language modeling.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig, GPTQConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -88,11 +88,23 @@ class ModelLoader(ForgeModel):
                 config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
+        # Force GPTQ_TORCH backend for CPU compatibility: the default HF_KERNEL
+        # backend's _build_ret_idx has a bug when a group has more elements than
+        # group_size (act-order models), which causes a size mismatch at runtime.
+        model_kwargs["quantization_config"] = GPTQConfig(bits=4, backend="gptq_torch")
+
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
+
+        # Dequantize GPTQ weights to float for TT backend compilation
+        from gptqmodel.nn_modules.qlinear.torch import dequantize_model
+
+        model = dequantize_model(model)
+        if dtype_override is not None:
+            model = model.to(dtype_override)
 
         self.config = model.config
         self.model = model
