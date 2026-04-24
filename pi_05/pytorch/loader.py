@@ -94,11 +94,18 @@ class ModelLoader(ForgeModel):
         from lerobot.policies.factory import make_pre_post_processors
         from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
-        self.preprocess, self.postprocess_fn = make_pre_post_processors(
-            self.pi_05.config,
-            self.pretrained_model_name,
-            preprocessor_overrides={"device_processor": {"device": "cpu"}},
-        )
+        try:
+            self.preprocess, self.postprocess_fn = make_pre_post_processors(
+                self.pi_05.config,
+                self.pretrained_model_name,
+                preprocessor_overrides={"device_processor": {"device": "cpu"}},
+            )
+        except FileNotFoundError:
+            # Fall back to creating processors from config if policy_preprocessor.json is missing
+            self.preprocess, self.postprocess_fn = make_pre_post_processors(
+                self.pi_05.config,
+                preprocessor_overrides={"device_processor": {"device": "cpu"}},
+            )
         dataset = LeRobotDataset("lerobot/libero")
         frame_index = dataset.meta.episodes["dataset_from_index"][episode_index]
         frame = dict(dataset[frame_index])
