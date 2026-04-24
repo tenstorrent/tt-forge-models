@@ -6,6 +6,8 @@ concedo/llama-joycaption-beta-one-hf-llava-mmproj-gguf model loader implementati
 for multimodal conditional generation.
 """
 
+import importlib
+import importlib.metadata
 from typing import Optional
 
 from datasets import load_dataset
@@ -72,12 +74,34 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _refresh_gguf_detection():
+        import inspect
+        import transformers.utils.import_utils as _tx
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+        _tx.PACKAGE_DISTRIBUTION_MAPPING = importlib.metadata.packages_distributions()
+        _tx.is_gguf_available.cache_clear()
+
+        # Other models' loaders patch load_gguf_checkpoint with old signatures that lack
+        # model_to_load (added in transformers 5.2.0). Reload the module to restore the
+        # original implementation and clear any installed patchers.
+        try:
+            sig = inspect.signature(_gguf_utils.load_gguf_checkpoint)
+            has_model_to_load = "model_to_load" in sig.parameters
+        except (ValueError, TypeError):
+            has_model_to_load = False
+
+        if not has_model_to_load:
+            importlib.reload(_gguf_utils)
+
     def _load_processor(self):
         self.processor = AutoProcessor.from_pretrained(self._PROCESSOR_NAME)
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the llama-joycaption-beta-one-hf-llava-mmproj-gguf model instance."""
+        self._refresh_gguf_detection()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
