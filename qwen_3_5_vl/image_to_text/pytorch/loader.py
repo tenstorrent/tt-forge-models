@@ -101,6 +101,20 @@ class ModelLoader(ForgeModel):
 
         self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
 
+        # MLX quantization (Apple-specific format with bits/group_size/mode) lacks
+        # the quant_method field required by transformers. Load architecture from
+        # config with random weights for compile testing.
+        if self._variant == ModelVariant.DEALIGNAI_QWEN3_5_VL_35B_A3B_4BIT_MLX_CRACK:
+            from transformers import AutoConfig
+
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config.quantization_config = None
+            model = AutoModelForImageTextToText.from_config(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+            model.eval()
+            return model
+
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
