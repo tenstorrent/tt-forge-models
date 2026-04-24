@@ -6,8 +6,25 @@ FlauBERT masked language model loader.
 FlauBERT is a French language model pretrained on a large and heterogeneous French corpus.
 """
 import torch
-from transformers import AutoTokenizer, AutoModelForMaskedLM
+from transformers import AutoTokenizer, AutoModelForMaskedLM, AutoConfig
 from typing import Optional
+
+
+class _NoCacheCompat:
+    """Workaround for transformers 5.x FlauBERT pre_norm=True branch.
+
+    The pre_norm branch calls cache[i] (subscript) but transformers 5.x
+    now initializes cache as EncoderDecoderCache which is not subscriptable.
+    This shim is not None (bypassing EncoderDecoderCache creation), returns 0
+    from get_seq_length() so no tokens are skipped, and returns None on
+    subscript so MultiHeadAttention skips caching entirely.
+    """
+
+    def get_seq_length(self):
+        return 0
+
+    def __getitem__(self, i):
+        return None
 
 from third_party.tt_forge_models.config import (
     ModelInfo,
@@ -96,6 +113,13 @@ class ModelLoader(ForgeModel):
         for key in inputs:
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+
+        # Transformers 5.x FlauBERT pre_norm=True branch calls cache[i] but
+        # now initializes cache as EncoderDecoderCache (not subscriptable). Pass
+        # a shim that satisfies all cache access patterns without actual caching.
+        config = AutoConfig.from_pretrained(self._variant_config.pretrained_model_name)
+        if getattr(config, "pre_norm", False):
+            inputs["cache"] = _NoCacheCompat()
 
         return inputs
 
