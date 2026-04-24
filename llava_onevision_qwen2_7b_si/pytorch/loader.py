@@ -93,18 +93,11 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        conversation = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": self.sample_text},
-                ],
-            }
-        ]
-
-        text_prompt = self.processor.apply_chat_template(
-            conversation, add_generation_prompt=True
+        # lmms-lab checkpoint has no chat template in the processor; build manually.
+        image_token = self.processor.image_token
+        text_prompt = (
+            f"<|im_start|>user\n{image_token}\n{self.sample_text}<|im_end|>\n"
+            "<|im_start|>assistant\n"
         )
 
         image_file = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
