@@ -5,7 +5,7 @@
 DeepSeek Coder V2 model loader implementation for causal language modeling.
 """
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, DynamicCache
 from typing import Optional
 from ....tools.utils import generate_no_cache, pad_inputs
 from ....base import ForgeModel
@@ -18,6 +18,12 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+if not hasattr(DynamicCache, "get_usable_length"):
+    DynamicCache.get_usable_length = (
+        lambda self, new_seq_length, layer_idx=0: self.get_seq_length(layer_idx)
+    )
 
 
 class ModelVariant(StrEnum):
@@ -111,9 +117,15 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
-        # AWQ variants require explicit CPU device mapping
+        # AWQ variants require explicit CPU device mapping and quantization bypass
         if pretrained_model_name == "TechxGenus/DeepSeek-Coder-V2-Lite-Instruct-AWQ":
             model_kwargs["device_map"] = "cpu"
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, trust_remote_code=True
+            )
+            if hasattr(config, "quantization_config"):
+                delattr(config, "quantization_config")
+            model_kwargs["config"] = config
 
         model_kwargs |= kwargs
 
@@ -138,11 +150,12 @@ class ModelLoader(ForgeModel):
             ).input_ids
         else:
             messages = [{"role": "user", "content": self.sample_text}]
-            inputs = self.tokenizer.apply_chat_template(
+            result = self.tokenizer.apply_chat_template(
                 messages,
                 add_generation_prompt=True,
                 return_tensors="pt",
             )
+            inputs = result.input_ids if hasattr(result, "input_ids") else result
         padded_inputs, seq_len = pad_inputs(inputs)
         self.seq_len = seq_len
 
