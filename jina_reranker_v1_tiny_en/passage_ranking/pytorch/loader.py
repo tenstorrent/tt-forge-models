@@ -81,7 +81,6 @@ class ModelLoader(ForgeModel):
         )
         if not hasattr(config, "is_decoder"):
             config.is_decoder = False
-        config.use_return_dict = False
 
         model_kwargs = {
             "config": config,
