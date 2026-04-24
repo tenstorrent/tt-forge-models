@@ -3,9 +3,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 MediX R1 8B i1 GGUF model loader implementation for image to text.
+
+Note: The qwen3vl GGUF architecture is not yet supported by the transformers
+GGUF loader, so we load from the HF-native base checkpoint instead.
 """
 
-from transformers import Qwen3VLForConditionalGeneration, AutoProcessor, AutoConfig
+from transformers import Qwen3VLForConditionalGeneration, AutoProcessor
 from typing import Optional
 
 from ....base import ForgeModel
@@ -19,6 +22,9 @@ from ....config import (
     StrEnum,
 )
 
+# qwen3vl GGUF arch is not supported by transformers; use the HF-native base model.
+HF_MODEL_NAME = "Qwen/Qwen3-VL-8B-Instruct"
+
 
 class ModelVariant(StrEnum):
     """Available MediX R1 8B i1 GGUF model variants for image to text."""
@@ -31,18 +37,12 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.MEDIX_R1_8B_I1_Q4_K_M: LLMModelConfig(
-            pretrained_model_name="mradermacher/MediX-R1-8B-i1-GGUF",
+            pretrained_model_name=HF_MODEL_NAME,
             max_length=128,
         ),
     }
 
-    _GGUF_FILES = {
-        ModelVariant.MEDIX_R1_8B_I1_Q4_K_M: "MediX-R1-8B.i1-Q4_K_M.gguf",
-    }
-
     DEFAULT_VARIANT = ModelVariant.MEDIX_R1_8B_I1_Q4_K_M
-
-    BASE_MODEL = "Qwen/Qwen3-VL-8B-Instruct"
 
     sample_image = (
         "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg"
@@ -67,17 +67,13 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
-        gguf_file = self._GGUF_FILES[self._variant]
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-
-        model_kwargs["gguf_file"] = gguf_file
-        model_kwargs["config"] = AutoConfig.from_pretrained(self.BASE_MODEL)
         model_kwargs |= kwargs
 
-        self.processor = AutoProcessor.from_pretrained(self.BASE_MODEL)
+        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
