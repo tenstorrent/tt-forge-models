@@ -9,6 +9,7 @@ from typing import Optional
 
 import torch
 from diffusers.models import Flux2Transformer2DModel
+from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -80,9 +81,9 @@ class ModelLoader(ForgeModel):
         if self._variant in self._SINGLE_FILE_VARIANTS:
             repo_id = self._variant_config.pretrained_model_name
             gguf_file = self._GGUF_FILES[self._variant]
-            gguf_url = f"https://huggingface.co/{repo_id}/blob/main/{gguf_file}"
+            local_path = hf_hub_download(repo_id=repo_id, filename=gguf_file)
             self.transformer = Flux2Transformer2DModel.from_single_file(
-                gguf_url,
+                local_path,
                 **load_kwargs,
             )
         else:
