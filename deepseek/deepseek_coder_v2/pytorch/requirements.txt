@@ -1,2 +1,1 @@
 gptqmodel==4.2.5
-pytest>=9.0.0
