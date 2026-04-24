@@ -59,11 +59,28 @@ def _patch_qwen3vl_support():
         GGUF_TO_FAST_CONVERTERS.setdefault("qwen3vl", GGUF_TO_FAST_CONVERTERS["qwen3"])
 
 
+_LM_CONFIG_KEYS = {
+    "intermediate_size",
+    "hidden_size",
+    "num_hidden_layers",
+    "num_attention_heads",
+    "num_key_value_heads",
+    "rms_norm_eps",
+    "rope_theta",
+    "vocab_size",
+    "max_position_embeddings",
+}
+
+
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
     """Wrap load_gguf_checkpoint to add qwen3vl support and fix model_type.
 
     Stores model_to_load so that _patched_get_gguf_hf_weights_map can recover
     it even if older loaders in the patch chain discard the kwarg.
+
+    Also restructures the flat GGUF config dict so that language-model params
+    are nested under 'text_config', which is required for Qwen3VLConfig to
+    correctly propagate e.g. intermediate_size instead of using its defaults.
     """
     global _current_model_to_load
     _patch_qwen3vl_support()
@@ -71,8 +88,11 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load
         _current_model_to_load = model_to_load
     result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
     if not return_tensors:
-        if result.get("config", {}).get("model_type") == "qwen3vl":
-            result["config"]["model_type"] = "qwen3_vl"
+        config = result.get("config", {})
+        if config.get("model_type") == "qwen3vl":
+            config["model_type"] = "qwen3_vl"
+            text_config = {k: config.pop(k) for k in _LM_CONFIG_KEYS if k in config}
+            config["text_config"] = text_config
     return result
 
 
@@ -184,7 +204,7 @@ class ModelLoader(ForgeModel):
         self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-8B-Instruct")
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         )
         model.eval()
 
