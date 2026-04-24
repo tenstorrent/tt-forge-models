@@ -154,12 +154,21 @@ class ModelLoader(ForgeModel):
         grid_thw = processed["grid_thw"].to(dtype=torch.long)
 
         with torch.no_grad():
-            image_embeddings = model.get_image_embeddings(
-                pixel_values=image_tiles,
-                grid_thw=grid_thw,
-                encoder_chunk_size=4096,
-                valid_batch_size=batch_size,
+            # When TORCH_DEVICE_MODEL=xla, FOUNDATION_STATIC_CACHE=True causes
+            # get_image_embeddings() to pad tiles to encoder_chunk_size, making
+            # the vision encoder output more merged tokens than get_2d_learned_embeddings
+            # expects. Bypass by calling embed_images and get_2d_learned_embeddings
+            # directly with the exact (unpadded) tiles.
+            raw_embeddings = model.vision_encoder.embed_images(
+                image_batch=image_tiles.unsqueeze(0).to(device=model.device),
+                grid_thw=grid_thw.unsqueeze(0),
+            ).squeeze(0)
+            encoding_2d = model.get_2d_learned_embeddings(
+                grid_thw,
+                device=model.device,
+                bbox_size=model.config.image_embed_encoding_multiplier,
             )
+            image_embeddings = raw_embeddings + encoding_2d
 
         cache_position = (
             torch.arange(input_ids.shape[1], dtype=torch.long)
