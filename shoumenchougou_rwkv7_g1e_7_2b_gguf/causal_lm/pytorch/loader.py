@@ -3,9 +3,19 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 shoumenchougou RWKV7 G1e 7.2B GGUF model loader implementation for causal language modeling.
+
+Transformers 5.x does not support loading rwkv7 from GGUF checkpoints, and
+the fla library (which implements RWKV7) requires Triton unavailable on
+Tenstorrent hardware.  We therefore:
+  1. Use a custom pure-PyTorch RWKV7 model (model.py in this package) that
+     reads and dequantises the GGUF weights directly.
+  2. Load the tokenizer using the rwkv package's TRIE_TOKENIZER with the
+     bundled RWKV World v2 vocabulary file, bypassing transformers' GGUF
+     tokenizer conversion path which doesn't support RWKV.
 """
+import os
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from huggingface_hub import hf_hub_download
 from typing import Optional
 
 from ....base import ForgeModel
@@ -18,6 +28,42 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+class _RWKVWorldTokenizer:
+    """Minimal tokenizer wrapper around RWKV World v2 TRIE_TOKENIZER."""
+
+    def __init__(self, trie_tok):
+        self._tok = trie_tok
+        self.pad_token = "\x00"
+        self.eos_token = "\x00"
+        self.pad_token_id = 0
+        self.eos_token_id = 0
+
+    def __call__(
+        self, texts, return_tensors=None, padding=True, truncation=True, max_length=None
+    ):
+        if isinstance(texts, str):
+            texts = [texts]
+
+        encoded = [self._tok.encode(t) for t in texts]
+
+        if truncation and max_length is not None:
+            encoded = [e[:max_length] for e in encoded]
+
+        max_len = max(len(e) for e in encoded)
+
+        padded = []
+        masks = []
+        for e in encoded:
+            pad_len = max_len - len(e)
+            padded.append(e + [self.pad_token_id] * pad_len)
+            masks.append([1] * len(e) + [0] * pad_len)
+
+        return {
+            "input_ids": torch.tensor(padded, dtype=torch.long),
+            "attention_mask": torch.tensor(masks, dtype=torch.long),
+        }
 
 
 class ModelVariant(StrEnum):
@@ -49,6 +95,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self.config = None
         self.num_layers = num_layers
+        self._gguf_path = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -61,44 +108,38 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _get_gguf_path(self) -> str:
+        if self._gguf_path is None:
+            self._gguf_path = hf_hub_download(
+                self._variant_config.pretrained_model_name, self.GGUF_FILE
+            )
+        return self._gguf_path
+
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        from rwkv.rwkv_tokenizer import TRIE_TOKENIZER
+        import rwkv.rwkv_tokenizer as _rwkv_tok_mod
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+        vocab_file = os.path.join(
+            os.path.dirname(os.path.abspath(_rwkv_tok_mod.__file__)),
+            "rwkv_vocab_v20230424.txt",
         )
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
-
+        self.tokenizer = _RWKVWorldTokenizer(TRIE_TOKENIZER(vocab_file))
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        from .model import load_rwkv7_from_gguf
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
+        gguf_path = self._get_gguf_path()
+
+        model = load_rwkv7_from_gguf(gguf_path)
+
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+            model = model.to(dtype_override)
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
-
-        self.config = model.config
+        self.config = model.cfg
         self.model = model
         return model
 
@@ -123,7 +164,9 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        from .model import load_rwkv7_from_gguf
+
+        gguf_path = self._get_gguf_path()
+        model = load_rwkv7_from_gguf(gguf_path)
+        self.config = model.cfg
         return self.config
