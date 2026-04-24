@@ -107,12 +107,17 @@ class ModelLoader(ForgeModel):
             self.pipeline, self.prompt, control_image
         )
 
-        timestep = timesteps[0]
+        timestep = timesteps[0].float()
 
         if dtype_override:
             latent_model_input = latent_model_input.to(dtype_override)
             timestep = timestep.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
+
+        down_block_additional_residuals = [
+            r.float() for r in down_block_additional_residuals
+        ]
+        mid_block_additional_residual = mid_block_additional_residual.float()
 
         return {
             "sample": latent_model_input,
