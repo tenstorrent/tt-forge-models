@@ -139,6 +139,10 @@ def _patch_transformers_nemotron_h_gguf():
             if mamba_num_heads:
                 config["mamba_head_dim"] = inner_size // mamba_num_heads
 
+        # intermediate_size is stored per-layer in GGUF (0 for mamba, N for mlp/attn)
+        if isinstance(config.get("intermediate_size"), list):
+            config["intermediate_size"] = max(config["intermediate_size"])
+
         # Derive num_key_value_heads from attn_k tensor shape (GGUF stores 0)
         head_dim = config.get("head_dim", 128)
         for t in reader.tensors:
