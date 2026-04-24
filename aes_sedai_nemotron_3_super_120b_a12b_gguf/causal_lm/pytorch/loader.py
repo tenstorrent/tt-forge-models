@@ -61,7 +61,7 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     result = _orig_load_gguf_checkpoint(
         gguf_path, return_tensors=return_tensors, **kwargs
     )
-    if result.get("config", {}).get("model_type") == "nemotron":
+    if result.get("config", {}).get("model_type") in ("nemotron", "nemotron_h_moe"):
         result["config"]["model_type"] = "nemotron_h"
     return result
 
