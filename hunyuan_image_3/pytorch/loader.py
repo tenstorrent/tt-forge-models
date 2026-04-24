@@ -124,6 +124,12 @@ class ModelLoader(ForgeModel):
         if not hasattr(model, "post_token_len"):
             model.post_token_len = None
 
+        # In eval mode, forward sets seqlen=max_position_embeddings causing a
+        # shape mismatch with actual inputs. Set training=True only on the
+        # top-level module so forward uses seqlen=input_ids.size(1) while
+        # submodule BN/dropout layers remain in eval mode.
+        model.training = True
+
         self.config = model.config
         self.model = model
         return model
