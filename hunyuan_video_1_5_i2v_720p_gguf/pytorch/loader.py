@@ -74,6 +74,112 @@ _GGUF_FILES = {
 }
 
 
+def _convert_hunyuan_video15_i2v_gguf_to_diffusers(checkpoint, **kwargs):
+    """Convert HunyuanVideo 1.5 I2V GGUF checkpoint keys to diffusers format."""
+    import torch
+
+    def remap_norm_scale_shift_(key, state_dict):
+        weight = state_dict.pop(key)
+        shift, scale = weight.chunk(2, dim=0)
+        state_dict[
+            key.replace("final_layer.adaLN_modulation.1", "norm_out.linear")
+        ] = torch.cat([scale, shift], dim=0)
+
+    def remap_txt_in_(key, state_dict):
+        def rename_key(k):
+            k = k.replace(
+                "individual_token_refiner.blocks", "token_refiner.refiner_blocks"
+            )
+            k = k.replace("adaLN_modulation.1", "norm_out.linear")
+            k = k.replace("txt_in", "context_embedder")
+            k = k.replace(
+                "t_embedder.mlp.0", "time_text_embed.timestep_embedder.linear_1"
+            )
+            k = k.replace(
+                "t_embedder.mlp.2", "time_text_embed.timestep_embedder.linear_2"
+            )
+            k = k.replace("c_embedder", "time_text_embed.text_embedder")
+            k = k.replace("mlp", "ff")
+            return k
+
+        if "self_attn_qkv" in key:
+            weight = state_dict.pop(key)
+            to_q, to_k, to_v = weight.chunk(3, dim=0)
+            state_dict[rename_key(key.replace("self_attn_qkv", "attn.to_q"))] = to_q
+            state_dict[rename_key(key.replace("self_attn_qkv", "attn.to_k"))] = to_k
+            state_dict[rename_key(key.replace("self_attn_qkv", "attn.to_v"))] = to_v
+        else:
+            state_dict[rename_key(key)] = state_dict.pop(key)
+
+    def remap_img_attn_qkv_(key, state_dict):
+        weight = state_dict.pop(key)
+        to_q, to_k, to_v = weight.chunk(3, dim=0)
+        state_dict[key.replace("img_attn_qkv", "attn.to_q")] = to_q
+        state_dict[key.replace("img_attn_qkv", "attn.to_k")] = to_k
+        state_dict[key.replace("img_attn_qkv", "attn.to_v")] = to_v
+
+    def remap_txt_attn_qkv_(key, state_dict):
+        weight = state_dict.pop(key)
+        to_q, to_k, to_v = weight.chunk(3, dim=0)
+        state_dict[key.replace("txt_attn_qkv", "attn.add_q_proj")] = to_q
+        state_dict[key.replace("txt_attn_qkv", "attn.add_k_proj")] = to_k
+        state_dict[key.replace("txt_attn_qkv", "attn.add_v_proj")] = to_v
+
+    # More specific renames must come before general ones to prevent partial matches.
+    RENAME_DICT = {
+        "img_in.proj": "x_embedder.proj",
+        "vision_in.proj.0": "image_embedder.norm_in",
+        "vision_in.proj.1": "image_embedder.linear_1",
+        "vision_in.proj.3": "image_embedder.linear_2",
+        "vision_in.proj.4": "image_embedder.norm_out",
+        "byt5_in.layernorm": "context_embedder_2.norm",
+        "byt5_in.fc1": "context_embedder_2.linear_1",
+        "byt5_in.fc2": "context_embedder_2.linear_2",
+        "byt5_in.fc3": "context_embedder_2.linear_3",
+        "time_in.mlp.0": "time_embed.timestep_embedder.linear_1",
+        "time_in.mlp.2": "time_embed.timestep_embedder.linear_2",
+        "cond_type_embedding": "cond_type_embed",
+        "double_blocks": "transformer_blocks",
+        "img_attn_q_norm": "attn.norm_q",
+        "img_attn_k_norm": "attn.norm_k",
+        "img_attn_proj": "attn.to_out.0",
+        "txt_attn_q_norm": "attn.norm_added_q",
+        "txt_attn_k_norm": "attn.norm_added_k",
+        "txt_attn_proj": "attn.to_add_out",
+        "img_mod.linear": "norm1.linear",
+        "img_mlp": "ff",
+        "txt_mod.linear": "norm1_context.linear",
+        "txt_mlp": "ff_context",
+        "self_attn_proj": "attn.to_out.0",
+        "final_layer.linear": "proj_out",
+        "input_embedder": "proj_in",
+        "fc1": "net.0.proj",
+        "fc2": "net.2",
+    }
+
+    SPECIAL_KEYS = {
+        "txt_in": remap_txt_in_,
+        "img_attn_qkv": remap_img_attn_qkv_,
+        "txt_attn_qkv": remap_txt_attn_qkv_,
+        "final_layer.adaLN_modulation.1": remap_norm_scale_shift_,
+    }
+
+    for key in list(checkpoint.keys()):
+        new_key = key
+        for old, new in RENAME_DICT.items():
+            new_key = new_key.replace(old, new)
+        if new_key != key:
+            checkpoint[new_key] = checkpoint.pop(key)
+
+    for key in list(checkpoint.keys()):
+        for special_key, handler_fn in SPECIAL_KEYS.items():
+            if special_key in key:
+                handler_fn(key, checkpoint)
+                break
+
+    return checkpoint
+
+
 class ModelLoader(ForgeModel):
     """HunyuanVideo 1.5 I2V 720p GGUF model loader."""
 
@@ -107,13 +213,13 @@ class ModelLoader(ForgeModel):
     ):
         """Load the GGUF-quantized HunyuanVideo 1.5 I2V transformer.
 
-        Uses diffusers GGUFQuantizationConfig to load the quantized transformer.
-        Returns the transformer nn.Module directly for compilation testing.
+        Downloads the GGUF checkpoint, converts keys to diffusers format, and
+        loads quantized weights into a HunyuanVideo15Transformer3DModel with
+        the correct I2V architecture config.
         """
         import importlib
         import importlib.metadata
         import importlib.util
-        import sys
 
         import diffusers.utils.import_utils as _diffusers_import_utils
 
@@ -157,32 +263,57 @@ class ModelLoader(ForgeModel):
                     _replace_with_gguf_linear
                 )
 
-        from diffusers import (
-            GGUFQuantizationConfig,
-            HunyuanVideo15Transformer3DModel,
+        from accelerate import init_empty_weights
+        from diffusers import GGUFQuantizationConfig, HunyuanVideo15Transformer3DModel
+        from diffusers.models.model_loading_utils import (
+            load_gguf_checkpoint,
+            load_model_dict_into_meta,
         )
-        from diffusers.loaders.single_file_model import SINGLE_FILE_LOADABLE_CLASSES
-
-        # HunyuanVideo15Transformer3DModel is not registered in SINGLE_FILE_LOADABLE_CLASSES
-        # in diffusers 0.37.1, so we register it with a passthrough conversion function.
-        if "HunyuanVideo15Transformer3DModel" not in SINGLE_FILE_LOADABLE_CLASSES:
-            SINGLE_FILE_LOADABLE_CLASSES["HunyuanVideo15Transformer3DModel"] = {
-                "checkpoint_mapping_fn": lambda checkpoint, **kwargs: checkpoint,
-                "default_subfolder": "transformer",
-            }
+        from diffusers.quantizers import DiffusersAutoQuantizer
+        from huggingface_hub import hf_hub_download
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         gguf_file = _GGUF_FILES[self._variant]
-        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+        gguf_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
 
-        self._transformer = HunyuanVideo15Transformer3DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-            low_cpu_mem_usage=False,
+        # Load GGUF checkpoint and convert keys to diffusers format.
+        checkpoint = load_gguf_checkpoint(gguf_path)
+        diffusers_checkpoint = _convert_hunyuan_video15_i2v_gguf_to_diffusers(
+            checkpoint
         )
 
+        # Create the model with its default I2V architecture config on meta device.
+        with init_empty_weights():
+            model = HunyuanVideo15Transformer3DModel()
+
+        # Set up GGUF quantizer and replace nn.Linear layers with GGUFLinear.
+        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+        hf_quantizer = DiffusersAutoQuantizer.from_config(quantization_config)
+        hf_quantizer.validate_environment()
+        hf_quantizer.preprocess_model(
+            model=model,
+            device_map=None,
+            state_dict=diffusers_checkpoint,
+            keep_in_fp32_modules=[],
+        )
+
+        # Populate meta tensors from the GGUF checkpoint.
+        load_model_dict_into_meta(
+            model,
+            diffusers_checkpoint,
+            dtype=compute_dtype,
+            device_map={"": torch.device("cpu")},
+            hf_quantizer=hf_quantizer,
+            keep_in_fp32_modules=[],
+            unexpected_keys=[],
+        )
+
+        hf_quantizer.postprocess_model(model)
+        model.hf_quantizer = hf_quantizer
+        model.eval()
+
+        self._transformer = model
         return self._transformer
 
     def load_inputs(self, **kwargs) -> Any:
