@@ -6,7 +6,7 @@ DeepSeek Coder model loader implementation for causal language modeling.
 """
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 from unittest.mock import patch
 import os
@@ -138,9 +138,15 @@ class ModelLoader(ForgeModel):
         if self._is_gguf_variant():
             model_kwargs["gguf_file"] = self._gguf_file
 
-        # AWQ variants require explicit CPU device mapping
+        # AWQ variants: strip quantization config and load as plain bfloat16
         if self._variant == ModelVariant.DEEPSEEK_6_7B_INSTRUCT_AWQ:
             model_kwargs["device_map"] = "cpu"
+            config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, trust_remote_code=True
+            )
+            if hasattr(config, "quantization_config"):
+                delattr(config, "quantization_config")
+            model_kwargs["config"] = config
 
         model_kwargs |= kwargs
 
