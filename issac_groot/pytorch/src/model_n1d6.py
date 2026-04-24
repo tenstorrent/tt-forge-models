@@ -162,7 +162,10 @@ class Gr00tN1d6ActionHead(nn.Module):
         )
 
         self.state_additive_noise_scale = config.state_additive_noise_scale
-        self.beta_dist = Beta(config.noise_beta_alpha, config.noise_beta_beta)
+        # validate_args=False: avoids .item() on meta tensors during from_pretrained init
+        self.beta_dist = Beta(
+            config.noise_beta_alpha, config.noise_beta_beta, validate_args=False
+        )
         self.num_timestep_buckets = config.num_timestep_buckets
 
     def process_backbone_output(self, backbone_output: BatchFeature) -> BatchFeature:
