@@ -100,9 +100,12 @@ class ModelLoader(ForgeModel):
             add_time_ids,
         ) = stable_diffusion_preprocessing_xl(self.pipeline, self.prompt)
 
+        # UNet expects a per-sample timestep; use the first step repeated for batch
+        t = timesteps[0:1].expand(latent_model_input.shape[0])
+
         if dtype_override:
             latent_model_input = latent_model_input.to(dtype_override)
-            timesteps = timesteps.to(dtype_override)
+            t = t.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
 
-        return [latent_model_input, timesteps, prompt_embeds, added_cond_kwargs]
+        return [latent_model_input, t, prompt_embeds, added_cond_kwargs]
