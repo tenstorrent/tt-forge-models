@@ -5,7 +5,7 @@
 """
 AnimateDiff Motion LoRA Zoom Out model loader implementation.
 
-Loads the AnimateDiff pipeline with the Stable Diffusion v1.5 base model,
+Loads the AnimateDiff pipeline with the epiCRealism base model,
 applies the motion adapter (guoyww/animatediff-motion-adapter-v1-5-2),
 and loads the zoom-out motion LoRA weights from
 guoyww/animatediff-motion-lora-zoom-out for text-to-video generation
@@ -15,20 +15,19 @@ with zoom-out camera motion.
 from typing import Any, Optional
 
 import torch
-from diffusers import AnimateDiffPipeline, MotionAdapter  # type: ignore[import]
+from diffusers import AnimateDiffPipeline, DDIMScheduler, MotionAdapter  # type: ignore[import]
 
 from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 
-BASE_MODEL = "runwayml/stable-diffusion-v1-5"
 MOTION_ADAPTER = "guoyww/animatediff-motion-adapter-v1-5-2"
 LORA_REPO = "guoyww/animatediff-motion-lora-zoom-out"
 
@@ -42,9 +41,11 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """AnimateDiff Motion LoRA Zoom Out model loader."""
 
+    BASE_MODEL = "emilianJR/epiCRealism"
+
     _VARIANTS = {
         ModelVariant.ZOOM_OUT: ModelConfig(
-            pretrained_model_name=BASE_MODEL,
+            pretrained_model_name=MOTION_ADAPTER,
         ),
     }
     DEFAULT_VARIANT = ModelVariant.ZOOM_OUT
@@ -72,40 +73,72 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the AnimateDiff pipeline with motion adapter and zoom-out LoRA.
+        """Load the AnimateDiff UNet with motion adapter and zoom-out LoRA.
 
         Returns:
-            AnimateDiffPipeline with motion adapter and LoRA weights applied.
+            UNetMotionModel with LoRA weights applied.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
 
         adapter = MotionAdapter.from_pretrained(
-            MOTION_ADAPTER,
+            self._variant_config.pretrained_model_name,
             torch_dtype=dtype,
         )
 
         self.pipeline = AnimateDiffPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name,
+            self.BASE_MODEL,
             motion_adapter=adapter,
             torch_dtype=dtype,
+        )
+        self.pipeline.scheduler = DDIMScheduler.from_pretrained(
+            self.BASE_MODEL,
+            subfolder="scheduler",
+            clip_sample=False,
+            timestep_spacing="linspace",
+            beta_schedule="linear",
+            steps_offset=1,
         )
 
         self.pipeline.load_lora_weights(LORA_REPO)
 
-        return self.pipeline
+        return self.pipeline.unet
 
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for text-to-video generation with zoom-out motion.
+    def load_inputs(
+        self, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
+        """Prepare tensor inputs for the UNet forward pass.
 
         Returns:
-            dict with prompt key.
+            dict with sample, timestep, and encoder_hidden_states tensors.
         """
-        if prompt is None:
-            prompt = (
-                "A serene forest clearing with sunlight filtering through trees, "
-                "cinematic zoom out, smooth camera motion"
-            )
+        dtype = dtype_override if dtype_override is not None else torch.float32
+
+        batch_size = 1
+        num_frames = 16
+        height = 64
+        width = 64
+        in_channels = 4
+        cross_attention_dim = 768
+
+        sample = torch.randn(
+            (batch_size, in_channels, num_frames, height // 8, width // 8),
+            dtype=dtype,
+        )
+        timestep = torch.randint(0, 1000, (1,))
+        encoder_hidden_states = torch.randn(
+            (batch_size, 77, cross_attention_dim),
+            dtype=dtype,
+        )
 
         return {
-            "prompt": prompt,
+            "sample": sample,
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states,
         }
+
+    def unpack_forward_output(self, output: Any) -> torch.Tensor:
+        if hasattr(output, "sample"):
+            return output.sample
+        elif isinstance(output, tuple):
+            return output[0]
+        return output
