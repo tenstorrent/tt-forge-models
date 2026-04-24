@@ -5,7 +5,7 @@
 Mistral-Small-4-119B-2603 MLX 9-bit model loader for causal language modeling.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoConfig, AutoTokenizer, Mistral4ForCausalLM
 from typing import Optional
 
 from ....base import ForgeModel
@@ -83,27 +83,18 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+        # The HF repo config is mistral3 (multimodal). Extract the text_config
+        # (mistral4/MoE) and build from random weights — the model uses MLX-specific
+        # 9-bit affine quantization that PyTorch cannot load from pretrained.
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        text_config = config.text_config
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            if hasattr(config, "text_config"):
-                config.text_config.num_hidden_layers = self.num_layers
-                if hasattr(config.text_config, "layer_types"):
-                    config.text_config.layer_types = config.text_config.layer_types[
-                        : self.num_layers
-                    ]
-            else:
-                config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+            text_config.num_hidden_layers = self.num_layers
 
-        model_kwargs |= kwargs
-
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        model = Mistral4ForCausalLM(text_config).eval()
+        if dtype_override is not None:
+            model = model.to(dtype_override)
 
         self.config = model.config
         self.model = model
@@ -144,19 +135,23 @@ class ModelLoader(ForgeModel):
     def load_shard_spec(self, model):
         shard_specs = {}
         for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+            mlp = layer.mlp
+            # Fused experts tensor: [num_experts, intermediate, hidden]
+            shard_specs[mlp.experts.gate_up_proj] = (None, "model", "batch")
+            shard_specs[mlp.experts.down_proj] = (None, "batch", "model")
+            # Shared expert uses standard MLP layout
+            shard_specs[mlp.shared_experts.gate_proj.weight] = ("model", "batch")
+            shard_specs[mlp.shared_experts.up_proj.weight] = ("model", "batch")
+            shard_specs[mlp.shared_experts.down_proj.weight] = ("batch", "model")
 
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            # Mistral4 uses low-rank (LoRA-style) QKV projections; shard B matrices
+            shard_specs[layer.self_attn.q_b_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.kv_b_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
         shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+        config = AutoConfig.from_pretrained(self._variant_config.pretrained_model_name)
+        self.config = config.text_config
         return self.config
