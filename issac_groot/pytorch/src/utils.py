@@ -103,6 +103,39 @@ import torch
 import torch.nn as nn
 
 
+def _patch_0len_attention(model):
+    """Patch Qwen2/Qwen3 attention instances for 0-length sequence safety.
+
+    Transformers 5.x attention uses .view(*, -1, head_dim) which is ambiguous
+    for 0-length sequences. The GR00T model legitimately produces these during
+    vision-only tasks (input_ids=[1,0]). This patches only the attention
+    instances inside the given model, not the global class.
+    """
+    from transformers.models.qwen2.modeling_qwen2 import Qwen2Attention
+    from transformers.models.qwen3.modeling_qwen3 import Qwen3Attention
+
+    for module in model.modules():
+        if isinstance(module, (Qwen2Attention, Qwen3Attention)):
+            orig_forward = (
+                module.forward.__func__
+                if hasattr(module.forward, "__func__")
+                else module.forward
+            )
+
+            def _make_safe(orig, mod):
+                def _safe_forward(self, hidden_states, *args, **kwargs):
+                    if hidden_states.shape[-2] == 0:
+                        out = hidden_states.new_zeros(
+                            *hidden_states.shape[:-1], self.config.hidden_size
+                        )
+                        return out, None
+                    return orig(self, hidden_states, *args, **kwargs)
+
+                return _safe_forward.__get__(mod, type(mod))
+
+            module.forward = _make_safe(orig_forward, module)
+
+
 from typing import Optional
 
 import torch
@@ -3919,7 +3952,9 @@ class FlowmatchingActionHead(nn.Module):
             )
             nn.init.normal_(self.position_embedding.weight, mean=0.0, std=0.02)
 
-        self.beta_dist = Beta(config.noise_beta_alpha, config.noise_beta_beta)
+        self.beta_dist = Beta(
+            config.noise_beta_alpha, config.noise_beta_beta, validate_args=False
+        )
         self.num_timestep_buckets = config.num_timestep_buckets
         self.config = config
         self.set_trainable_parameters(

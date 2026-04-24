@@ -18,6 +18,8 @@ def override_gpt_oss_modules(model):
             _deinterleave_expert_weights(module)
         if isinstance(module, gpt_oss_mod.GptOssTopKRouter):
             module.forward = _expert_router_forward.__get__(module, type(module))
+        if isinstance(module, gpt_oss_mod.GptOssMLP):
+            module.forward = _mlp_forward.__get__(module, type(module))
 
 
 def build_deinterleaved_shard_specs(model):
@@ -129,3 +131,11 @@ def _expert_router_forward(self, hidden_states):
     )
 
     return router_scores.to(hidden_states.dtype), router_indices
+
+
+def _mlp_forward(self, hidden_states):
+    router_scores, router_indices = self.router(hidden_states)
+    routed_out = self.experts(
+        hidden_states, router_indices=router_indices, routing_weights=router_scores
+    )
+    return routed_out, router_scores

@@ -139,7 +139,7 @@ def calculate_age(birth_year):
             input_prompt,
             return_tensors="pt",
             max_length=self._variant_config.max_length,
-            padding="max_length",
+            padding=True,
             truncation=True,
         )
 
