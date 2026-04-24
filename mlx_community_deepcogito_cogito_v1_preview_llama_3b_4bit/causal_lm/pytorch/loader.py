@@ -82,9 +82,10 @@ class ModelLoader(ForgeModel):
             self._load_tokenizer(dtype_override=dtype_override)
 
         config = AutoConfig.from_pretrained(pretrained_model_name)
-        # Strip MLX 4-bit quantization_config — it lacks quant_method and is
-        # not supported by transformers on CPU; load weights as plain BF16.
-        config.quantization_config = None
+        # Delete MLX 4-bit quantization_config — it lacks quant_method and
+        # transformers checks via hasattr(), so setting None is insufficient.
+        if hasattr(config, "quantization_config"):
+            del config.quantization_config
 
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
