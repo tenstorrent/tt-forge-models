@@ -83,9 +83,16 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded processor instance
         """
-        self.processor = CLIPProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+        try:
+            self.processor = CLIPProcessor.from_pretrained(
+                self._variant_config.pretrained_model_name
+            )
+        except OSError:
+            # InvokeAI/clip-vit-large-patch14 lacks preprocessor_config.json;
+            # fall back to the upstream model it mirrors.
+            self.processor = CLIPProcessor.from_pretrained(
+                "openai/clip-vit-large-patch14"
+            )
 
         return self.processor
 
