@@ -7,19 +7,57 @@ Helper functions for loading GGUF-quantized Stable Diffusion XL finetune models.
 
 from typing import Optional, Tuple
 
+import gguf
 import torch
-from diffusers import (
-    GGUFQuantizationConfig,
-    StableDiffusionXLPipeline,
-    UNet2DConditionModel,
-)
+from diffusers import StableDiffusionXLPipeline
+from diffusers.loaders.single_file_utils import convert_ldm_unet_checkpoint
+from diffusers.models.model_loading_utils import load_gguf_checkpoint
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
     retrieve_timesteps,
 )
+from diffusers.quantizers.gguf.utils import GGUFParameter
 from huggingface_hub import hf_hub_download
 
-
 SDXL_BASE_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
+
+# SDXL UNet config values needed for key-name conversion
+_SDXL_UNET_CONFIG = {
+    "layers_per_block": 2,
+    "addition_embed_type": "text_time",
+    "class_embed_type": None,
+    "num_class_embeds": None,
+}
+
+
+def _load_and_convert_gguf_unet(gguf_path: str) -> dict:
+    """Load a ComfyUI-format GGUF UNet checkpoint and convert to diffusers state dict.
+
+    ComfyUI GGUFs use bare LDM key names (e.g. 'input_blocks.0.0.bias') while
+    diffusers expects the 'model.diffusion_model.' prefix for its conversion
+    utilities.  Quantized tensors are dequantized to float32 here so they can
+    be loaded into a standard (non-GGUF-quantized) UNet.
+    """
+    raw_checkpoint = load_gguf_checkpoint(gguf_path)
+
+    # Add the prefix that convert_ldm_unet_checkpoint requires
+    prefixed = {"model.diffusion_model." + k: v for k, v in raw_checkpoint.items()}
+
+    diffusers_checkpoint = convert_ldm_unet_checkpoint(
+        config=_SDXL_UNET_CONFIG, checkpoint=prefixed
+    )
+
+    # Dequantize GGUFParameter tensors (Q4_K, Q5_K, etc.) to float32
+    result = {}
+    for key, val in diffusers_checkpoint.items():
+        if isinstance(val, GGUFParameter):
+            raw_bytes = val.detach().cpu().numpy()
+            dequantized = gguf.dequantize(raw_bytes, val.quant_type)
+            result[key] = torch.from_numpy(dequantized).float()
+        elif val.dtype == torch.float16:
+            result[key] = val.float()
+        else:
+            result[key] = val
+    return result
 
 
 def load_gguf_pipe(repo_id: str, gguf_filename: str, subfolder: Optional[str] = None):
@@ -37,19 +75,13 @@ def load_gguf_pipe(repo_id: str, gguf_filename: str, subfolder: Optional[str] = 
         repo_id=repo_id, filename=gguf_filename, subfolder=subfolder
     )
 
-    quantization_config = GGUFQuantizationConfig(compute_dtype=torch.float32)
-
-    unet = UNet2DConditionModel.from_single_file(
-        model_path,
-        quantization_config=quantization_config,
-        torch_dtype=torch.float32,
-    )
-
     pipe = StableDiffusionXLPipeline.from_pretrained(
         SDXL_BASE_MODEL,
-        unet=unet,
         torch_dtype=torch.float32,
     )
+
+    unet_state_dict = _load_and_convert_gguf_unet(model_path)
+    pipe.unet.load_state_dict(unet_state_dict, strict=True)
 
     pipe.to("cpu")
 
