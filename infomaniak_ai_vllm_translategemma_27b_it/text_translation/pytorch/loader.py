@@ -39,16 +39,10 @@ class ModelLoader(ForgeModel):
 
     # The modified chat template encodes source/target language codes directly in
     # the content string using delimiters: <<<source>>>{src}<<<target>>>{tgt}<<<text>>>{text}
-    # Content must be a list of dicts for transformers 5.x apply_chat_template compatibility.
     sample_messages = [
         {
             "role": "user",
-            "content": [
-                {
-                    "type": "text",
-                    "text": "<<<source>>>cs<<<target>>>de-DE<<<text>>>V nejhorším případě i k prasknutí čočky.",
-                }
-            ],
+            "content": "<<<source>>>cs<<<target>>>de-DE<<<text>>>V nejhorším případě i k prasknutí čočky.",
         }
     ]
 
@@ -99,7 +93,10 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
-        inputs = self.processor.apply_chat_template(
+        # Use tokenizer.apply_chat_template directly: the model's custom Jinja template
+        # expects string content and the processor's apply_chat_template in transformers 5.x
+        # iterates over content as a list of dicts (for multimodal), breaking this text-only model.
+        inputs = self.processor.tokenizer.apply_chat_template(
             self.sample_messages,
             tokenize=True,
             add_generation_prompt=True,
