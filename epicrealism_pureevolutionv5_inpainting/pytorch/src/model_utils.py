@@ -132,7 +132,8 @@ def inpainting_preprocessing(
     image = pipe.image_processor.preprocess(image, height=height, width=width)
     mask = pipe.mask_processor.preprocess(mask_image, height=height, width=width)
 
-    masked_image = image * (mask < 0.5)
+    vae_dtype = next(pipe.vae.parameters()).dtype
+    masked_image = (image * (mask < 0.5)).to(dtype=vae_dtype)
     masked_image_latents = (
         pipe.vae.encode(masked_image).latent_dist.mode()
         * pipe.vae.config.scaling_factor
