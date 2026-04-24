@@ -107,6 +107,42 @@ class ModelLoader(ForgeModel):
         self.model = model
         return model
 
+    def get_mesh_config(self, num_devices: int):
+        return (1, num_devices), ("batch", "model")
+
+    def load_shard_spec(self, model):
+        shard_specs = {}
+        for layer in model.model.layers:
+            attn = layer.self_attn
+            mlp = layer.mlp
+            for proj, col_parallel in [
+                (attn.q_proj, True),
+                (attn.k_proj, True),
+                (attn.v_proj, True),
+                (attn.o_proj, False),
+                (mlp.gate_proj, True),
+                (mlp.up_proj, True),
+                (mlp.down_proj, False),
+            ]:
+                if hasattr(proj, "qweight"):
+                    # GPTQ: qweight is [in//pack, out], scales/qzeros are [groups, out]
+                    # column-parallel shards along out (dim 1); row-parallel shards along in (dim 0)
+                    qw_spec = ("batch", "model") if col_parallel else ("model", "batch")
+                    scale_spec = ("batch", "model") if col_parallel else (None, None)
+                    shard_specs[proj.qweight] = qw_spec
+                    if hasattr(proj, "scales") and proj.scales is not None:
+                        shard_specs[proj.scales] = scale_spec
+                    if hasattr(proj, "qzeros") and proj.qzeros is not None:
+                        shard_specs[proj.qzeros] = scale_spec
+                elif hasattr(proj, "weight") and isinstance(proj.weight, torch.Tensor):
+                    col_spec = ("model", "batch")
+                    row_spec = ("batch", "model")
+                    shard_specs[proj.weight] = col_spec if col_parallel else row_spec
+        if hasattr(model, "lm_head") and hasattr(model.lm_head, "weight"):
+            if isinstance(model.lm_head.weight, torch.Tensor):
+                shard_specs[model.lm_head.weight] = ("model", "batch")
+        return shard_specs
+
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
