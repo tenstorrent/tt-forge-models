@@ -33,7 +33,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.FUNCTIONGEMMA_270M_IT: LLMModelConfig(
-            pretrained_model_name="google/functiongemma-270m-it",
+            pretrained_model_name="unsloth/functiongemma-270m-it",
             max_length=256,
         ),
         ModelVariant.FUNCTIONGEMMA_270M_IT_MLX_BF16: LLMModelConfig(
