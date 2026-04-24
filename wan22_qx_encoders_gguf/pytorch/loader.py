@@ -13,6 +13,7 @@ Available variants:
 - Q3_K_S, Q3_K_M, Q4_K_S, Q4_K_M, Q5_K_S, Q5_K_M, Q6_K, Q8_0
 """
 
+import os
 from typing import Any, Optional
 
 import torch
@@ -101,9 +102,11 @@ class ModelLoader(ForgeModel):
         dtype = dtype_override if dtype_override is not None else torch.float32
         if self._encoder is None:
             gguf_path = hf_hub_download(REPO_ID, _GGUF_FILES[self._variant])
+            gguf_dir = os.path.dirname(gguf_path)
+            gguf_filename = os.path.basename(gguf_path)
             self._encoder = UMT5EncoderModel.from_pretrained(
-                UMT5_CONFIG,
-                gguf_file=gguf_path,
+                gguf_dir,
+                gguf_file=gguf_filename,
                 torch_dtype=dtype,
             )
             self._encoder.eval()
