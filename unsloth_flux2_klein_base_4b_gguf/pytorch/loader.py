@@ -18,7 +18,9 @@ from diffusers import GGUFQuantizationConfig
 from diffusers.models import Flux2Transformer2DModel
 from huggingface_hub import hf_hub_download
 
-_MODEL_CONFIG_DIR = os.path.join(os.path.dirname(__file__), "model_config")
+_MODEL_CONFIG_DIR = os.path.join(
+    os.path.dirname(__file__), "model_config", "transformer"
+)
 
 from ...base import ForgeModel
 from ...config import (
