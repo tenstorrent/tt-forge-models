@@ -4,9 +4,66 @@
 """
 Llama-3 SQLCoder 8B GGUF model loader implementation for causal language modeling.
 """
+import functools
+import inspect
+import threading
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_base as _tok_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+_gguf_ctx = threading.local()
+
+
+def _patch_gguf_compat():
+    def _wrap_load(fn):
+        try:
+            sig = inspect.signature(fn)
+            if "model_to_load" in sig.parameters and not getattr(
+                fn, "_gguf_compat_load_wrapped", False
+            ):
+                return fn
+        except (ValueError, TypeError):
+            pass
+        if getattr(fn, "_gguf_compat_load_wrapped", False):
+            return fn
+
+        @functools.wraps(fn)
+        def _wrapper(gguf_path, return_tensors=False, model_to_load=None, **kwargs):
+            _gguf_ctx.model = model_to_load
+            try:
+                return fn(gguf_path, return_tensors=return_tensors)
+            finally:
+                _gguf_ctx.model = None
+
+        _wrapper._gguf_compat_load_wrapped = True
+        return _wrapper
+
+    def _wrap_get_map(fn):
+        if getattr(fn, "_gguf_compat_map_wrapped", False):
+            return fn
+
+        @functools.wraps(fn)
+        def _wrapper(hf_model, *args, **kwargs):
+            if hf_model is None:
+                hf_model = getattr(_gguf_ctx, "model", None)
+            return fn(hf_model, *args, **kwargs)
+
+        _wrapper._gguf_compat_map_wrapped = True
+        return _wrapper
+
+    if hasattr(_gguf_utils, "get_gguf_hf_weights_map"):
+        _gguf_utils.get_gguf_hf_weights_map = _wrap_get_map(
+            _gguf_utils.get_gguf_hf_weights_map
+        )
+
+    for _mod in (_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils):
+        if hasattr(_mod, "load_gguf_checkpoint"):
+            _mod.load_gguf_checkpoint = _wrap_load(_mod.load_gguf_checkpoint)
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -94,6 +151,7 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
+        _patch_gguf_compat()
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
@@ -143,6 +201,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        _patch_gguf_compat()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
