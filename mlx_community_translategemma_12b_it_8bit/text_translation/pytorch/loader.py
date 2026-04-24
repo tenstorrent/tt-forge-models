@@ -8,7 +8,7 @@ An 8-bit MLX-quantized variant of google/translategemma-12b-it, a Gemma3
 conditional generation model fine-tuned for multilingual translation.
 """
 import torch
-from transformers import AutoModelForImageTextToText, AutoProcessor
+from transformers import AutoConfig, AutoModelForImageTextToText, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -72,12 +72,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self, dtype_override=None):
-        processor_kwargs = {}
-        if dtype_override is not None:
-            processor_kwargs["torch_dtype"] = dtype_override
-
-        self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, **processor_kwargs
+        self.processor = AutoTokenizer.from_pretrained(
+            self._variant_config.pretrained_model_name
         )
         return self.processor
 
@@ -87,7 +83,12 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
-        model_kwargs = {"return_dict": False, "ignore_mismatched_sizes": True}
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        # MLX quantization format has no quant_method and is incompatible with PyTorch
+        if hasattr(config, "quantization_config"):
+            delattr(config, "quantization_config")
+
+        model_kwargs = {"config": config, "ignore_mismatched_sizes": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
