@@ -5,11 +5,57 @@
 Mradermacher Qwen2.5-VL 3B Instruct GGUF model loader implementation for image to text.
 """
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFQwen2Converter
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_SUPPORTED_ARCHITECTURES,
+    GGUF_TO_TRANSFORMERS_MAPPING,
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+)
+
 from transformers import (
     Qwen2_5_VLForConditionalGeneration,
     AutoProcessor,
 )
 from typing import Optional
+
+_QWEN2VL_CONFIG_MAPPING = {
+    "context_length": "max_position_embeddings",
+    "block_count": "num_hidden_layers",
+    "feed_forward_length": "intermediate_size",
+    "embedding_length": "hidden_size",
+    "rope.dimension_count": None,
+    "rope.freq_base": "rope_theta",
+    "attention.head_count": "num_attention_heads",
+    "attention.head_count_kv": "num_key_value_heads",
+    "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+    "vocab_size": "vocab_size",
+}
+
+
+def _patch_qwen2vl_support():
+    if "qwen2vl" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen2vl")
+    GGUF_TO_TRANSFORMERS_MAPPING["config"].setdefault(
+        "qwen2vl", _QWEN2VL_CONFIG_MAPPING
+    )
+    GGUF_TO_FAST_CONVERTERS.setdefault("qwen2vl", GGUFQwen2Converter)
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    _patch_qwen2vl_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
+    if result.get("config", {}).get("model_type") == "qwen2vl":
+        result["config"]["model_type"] = "qwen2_5_vl"
+    return result
+
+
+_patch_qwen2vl_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 from ....base import ForgeModel
 from ....config import (
