@@ -17,6 +17,7 @@ from transformers.modeling_gguf_pytorch_utils import (
 from transformers import (
     Qwen2_5_VLForConditionalGeneration,
     AutoProcessor,
+    AutoConfig,
 )
 from transformers.models.qwen2_5_vl.configuration_qwen2_5_vl import Qwen2_5_VLConfig
 from typing import Optional
@@ -115,9 +116,25 @@ class ModelLoader(ForgeModel):
         ModelVariant.QWEN2_5_VL_3B_INSTRUCT_Q4_K_M_GGUF: "Qwen2.5-VL-3B-Instruct.Q4_K_M.gguf",
     }
 
-    sample_image = (
-        "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg"
-    )
+    # Load processor and config from the non-GGUF HF repo, which has correct nested
+    # vision/text sub-configs. The GGUF repo only contains the quantized weights.
+    _BASE_MODEL = "Qwen/Qwen2.5-VL-3B-Instruct"
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
+                },
+                {"type": "text", "text": "Describe this image."},
+            ],
+        }
+    ]
+
+    min_pixels = 56 * 56
+    max_pixels = 13 * 28 * 1280
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -149,8 +166,16 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = self._gguf_file
         model_kwargs |= kwargs
 
+        # Load config from the non-GGUF repo so that nested vision/text sub-configs
+        # have the correct architecture values (the GGUF metadata only contains
+        # text-model fields, leaving vision_config at defaults which causes
+        # a hidden-dim mismatch in the vision merger forward pass).
+        model_kwargs["config"] = AutoConfig.from_pretrained(self._BASE_MODEL)
+
         self.processor = AutoProcessor.from_pretrained(
-            "Qwen/Qwen2.5-VL-3B-Instruct",
+            self._BASE_MODEL,
+            min_pixels=self.min_pixels,
+            max_pixels=self.max_pixels,
         )
 
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
@@ -161,24 +186,29 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "image": self.sample_image,
-                    },
-                    {"type": "text", "text": "Describe this image."},
-                ],
-            }
-        ]
+        if self.processor is None:
+            self.processor = AutoProcessor.from_pretrained(
+                self._BASE_MODEL,
+                min_pixels=self.min_pixels,
+                max_pixels=self.max_pixels,
+            )
 
-        inputs = self.processor.apply_chat_template(
-            messages,
-            tokenize=True,
-            add_generation_prompt=True,
-            return_dict=True,
+        from qwen_vl_utils import process_vision_info
+
+        text = self.processor.apply_chat_template(
+            self.messages, tokenize=False, add_generation_prompt=True
+        )
+        image_inputs, video_inputs = process_vision_info(self.messages)
+
+        inputs = self.processor(
+            text=[text],
+            images=image_inputs,
+            videos=video_inputs,
+            padding=True,
             return_tensors="pt",
         )
+
+        if dtype_override is not None:
+            inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
+
         return inputs
