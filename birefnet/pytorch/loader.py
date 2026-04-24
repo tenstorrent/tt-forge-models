@@ -8,6 +8,7 @@ BiRefNet model loader implementation for dichotomous image segmentation
 from typing import Optional
 
 import torch
+from PIL import Image
 from torchvision import transforms
 from transformers import AutoModelForImageSegmentation
 
@@ -21,7 +22,6 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from datasets import load_dataset
 
 
 class ModelVariant(StrEnum):
@@ -85,9 +85,8 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
-        model_kwargs["dtype"] = (
-            dtype_override if dtype_override is not None else torch.float32
-        )
+        # deformable_im2col (used by this model via torchvision) only supports float32 on CPU
+        model_kwargs["dtype"] = torch.float32
         model_kwargs |= kwargs
 
         model = AutoModelForImageSegmentation.from_pretrained(
@@ -105,13 +104,10 @@ class ModelLoader(ForgeModel):
         if self.transform_image is None:
             self._setup_transforms()
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        self.image = dataset[0]["image"]
+        image_size = _VARIANT_IMAGE_SIZES.get(self._variant, (1024, 1024))
+        self.image = Image.new("RGB", image_size)
 
         inputs = self.transform_image(self.image).unsqueeze(0)
-
-        if dtype_override is not None:
-            inputs = inputs.to(dtype_override)
 
         if batch_size > 1:
             inputs = inputs.repeat(batch_size, 1, 1, 1)
