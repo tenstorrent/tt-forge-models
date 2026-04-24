@@ -3,9 +3,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 mradermacher/SEA-LION-VL-IT-Merge-100226-i1-GGUF model loader implementation for image to text.
+
+The GGUF file contains only the Gemma3 text decoder (no vision encoder), so this
+loader falls back to causal-LM inference with text-only inputs.
 """
 
-from transformers import AutoModelForImageTextToText, AutoProcessor
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -40,9 +44,14 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "SEA-LION-VL-IT-Merge-100226.i1-Q4_K_M.gguf"
 
+    # Base model provides the tokenizer (GGUF repo does not ship one)
+    BASE_MODEL = "SEACrowd/SEA-LION-VL-IT-Merge-100226"
+
+    sample_text = "Describe what a vision-language model can do."
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.processor = None
+        self.tokenizer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -55,21 +64,24 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _load_tokenizer(self, dtype_override=None):
+        self.tokenizer = AutoTokenizer.from_pretrained(self.BASE_MODEL)
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+        return self.tokenizer
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {}
+        if self.tokenizer is None:
+            self._load_tokenizer(dtype_override=dtype_override)
+
+        model_kwargs = {"gguf_file": self.GGUF_FILE}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs["gguf_file"] = self.GGUF_FILE
         model_kwargs |= kwargs
 
-        # GGUF repo does not ship a processor; use the base model
-        self.processor = AutoProcessor.from_pretrained(
-            "SEACrowd/SEA-LION-VL-IT-Merge-100226"
-        )
-
-        model = AutoModelForImageTextToText.from_pretrained(
+        model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
         model.eval()
@@ -77,24 +89,17 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "image": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/p-blog/candy.JPG",
-                    },
-                    {"type": "text", "text": "Describe this image."},
-                ],
-            }
-        ]
+        if self.tokenizer is None:
+            self._load_tokenizer(dtype_override=dtype_override)
 
-        inputs = self.processor.apply_chat_template(
-            messages,
-            tokenize=True,
-            add_generation_prompt=True,
-            return_dict=True,
+        max_length = self._variant_config.max_length
+
+        inputs = self.tokenizer(
+            [self.sample_text] * batch_size,
             return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=max_length,
         )
+
         return inputs
