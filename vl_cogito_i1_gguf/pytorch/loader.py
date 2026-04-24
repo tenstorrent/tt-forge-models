@@ -84,7 +84,7 @@ class ModelLoader(ForgeModel):
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        model_kwargs = {"low_cpu_mem_usage": True, "use_cache": False}
+        model_kwargs = {"low_cpu_mem_usage": True}
 
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
