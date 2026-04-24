@@ -135,3 +135,7 @@ results:
   status: "PASS"
   date: "20260424_050317"
   branch: "arch-c-36-tt-xla-dev/nsmith/2026-04-22_16-58/hf-bringup-8"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[weird_compound_v1_7_24b_i1_gguf/causal_lm/pytorch-V1_7_24B_I1_GGUF-single_device-inference]"
+  status: "PASS"
+  date: "20260424_053759"
+  branch: "arch-c-36-tt-xla-dev/nsmith/2026-04-22_16-58/hf-bringup-8"
