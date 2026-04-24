@@ -11,6 +11,19 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+# compressed-tensors FP8 models fail during _init_weights because normal_() is
+# not implemented for Float8_e4m3fn; skip initialization for fp8 tensors.
+_orig_tensor_normal_ = torch.Tensor.normal_
+
+
+def _fp8_safe_normal_(self, *args, **kwargs):
+    if self.dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
+        return self
+    return _orig_tensor_normal_(self, *args, **kwargs)
+
+
+torch.Tensor.normal_ = _fp8_safe_normal_
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
