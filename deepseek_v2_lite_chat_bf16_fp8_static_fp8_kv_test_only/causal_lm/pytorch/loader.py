@@ -124,6 +124,8 @@ class ModelLoader(ForgeModel):
                 pretrained_model_name, **model_kwargs
             ).eval()
 
+        model.config.use_cache = False
+
         self.config = model.config
         self.model = model
         return model
