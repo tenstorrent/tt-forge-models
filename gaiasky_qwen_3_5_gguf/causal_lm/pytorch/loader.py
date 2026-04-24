@@ -8,12 +8,35 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import inspect
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 
-# Capture the real original load_gguf_checkpoint before any other GGUF loaders
-# (imported alphabetically later, e.g. mradermacher_*) install incompatible
-# monkey-patches that drop the model_to_load kwarg.
-_real_load_gguf_checkpoint = _gguf_utils.load_gguf_checkpoint
+
+def _find_real_load_gguf(fn, _depth=0):
+    """Traverse monkey-patch closure chains to find the real transformers function."""
+    if _depth > 20:
+        return fn
+    try:
+        if "modeling_gguf_pytorch_utils" in inspect.getfile(fn):
+            return fn
+    except (TypeError, OSError):
+        pass
+    if fn.__closure__:
+        for cell in fn.__closure__:
+            try:
+                val = cell.cell_contents
+                if callable(val) and hasattr(val, "__module__"):
+                    result = _find_real_load_gguf(val, _depth + 1)
+                    if result is not val:
+                        return result
+            except ValueError:
+                pass
+    return fn
+
+
+# Find the real original load_gguf_checkpoint by traversing any existing patch
+# chains installed by GGUF loaders imported before this one.
+_real_load_gguf_checkpoint = _find_real_load_gguf(_gguf_utils.load_gguf_checkpoint)
 
 
 def _patch_qwen35_support():
