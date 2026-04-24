@@ -42,6 +42,31 @@ def _refresh_gguf_detection():
         import_utils.is_gguf_available.cache_clear()
 
 
+def _patch_gguf_for_lighton_ocr():
+    # LightOnOcrConfig stores num_hidden_layers and model_type in text_config, not
+    # at the top level. Patch get_gguf_hf_weights_map to resolve them from text_config
+    # so GGUF tensor name mapping works correctly for this composite config.
+    from transformers import modeling_gguf_pytorch_utils as gguf_utils
+
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        config = getattr(hf_model, "config", None)
+        if config is not None and type(config).__name__ == "LightOnOcrConfig":
+            if model_type is None:
+                model_type = config.text_config.model_type
+            if num_layers is None:
+                num_layers = config.text_config.num_hidden_layers
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+
+_patch_gguf_for_lighton_ocr()
+
+
 class ModelVariant(StrEnum):
     """Available LightOnOCR GGUF model variants for image-to-text tasks."""
 
