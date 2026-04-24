@@ -139,10 +139,13 @@ class ModelLoader(ForgeModel):
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
+        # low_cpu_mem_usage=False avoids the meta-tensor path that triggers
+        # accelerate's dispatch_model, which cannot move GGUF-quantized params.
         self._transformer = HunyuanVideo15Transformer3DModel.from_single_file(
             f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
+            low_cpu_mem_usage=False,
         )
 
         return self._transformer
