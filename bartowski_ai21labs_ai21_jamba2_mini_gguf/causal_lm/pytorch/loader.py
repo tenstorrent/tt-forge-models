@@ -36,7 +36,6 @@ def _patch_transformers_jamba_gguf():
         GGUF_TO_FAST_CONVERTERS,
         GGUFLlamaConverter,
     )
-    import transformers.modeling_gguf_pytorch_utils as gguf_utils
 
     if "jamba" in GGUF_SUPPORTED_ARCHITECTURES:
         return  # Already patched
@@ -65,21 +64,6 @@ def _patch_transformers_jamba_gguf():
 
     # 2. Register tokenizer converter — jamba GGUF uses llama-style SentencePiece tokenizer
     GGUF_TO_FAST_CONVERTERS["jamba"] = GGUFLlamaConverter
-
-    # 3. Patch load_gguf_checkpoint to collapse the per-layer KV-head array
-    orig_load = gguf_utils.load_gguf_checkpoint
-
-    def patched_load_gguf_checkpoint(*args, **kwargs):
-        result = orig_load(*args, **kwargs)
-        config = result.get("config", {})
-        if config.get("model_type") == "jamba":
-            kv_heads = config.get("num_key_value_heads")
-            if isinstance(kv_heads, list):
-                # Take max of non-zero values (mamba layers have 0 KV heads)
-                config["num_key_value_heads"] = max(kv_heads)
-        return result
-
-    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
@@ -152,12 +136,17 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
+        # Load config explicitly to fix GGUF-specific issues before model init.
+        # GGUF encodes num_key_value_heads as a per-layer array (0 for mamba
+        # layers); JambaConfig expects a scalar, so we take the max non-zero value.
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, gguf_file=self.GGUF_FILE
+        )
+        if isinstance(config.num_key_value_heads, list):
+            config.num_key_value_heads = max(config.num_key_value_heads)
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -191,7 +180,10 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         _patch_transformers_jamba_gguf()
-        self.config = AutoConfig.from_pretrained(
+        config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
+        if isinstance(config.num_key_value_heads, list):
+            config.num_key_value_heads = max(config.num_key_value_heads)
+        self.config = config
         return self.config
