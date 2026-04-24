@@ -6,36 +6,58 @@ solidrust Llama-3.1-8B-Lexi-Uncensored-V2 AWQ model loader implementation for ca
 """
 # gptqmodel 4.x hardcodes `from transformers.modeling_utils import no_init_weights`
 # but that symbol moved to `transformers.initialization` in transformers 5.x.
-# Patch the installed gptqmodel source file before it is imported so the
-# try/except survives module-cache purges and reimports.
+# Patch all affected gptqmodel source files before import so the fix survives
+# module-cache purges and reimports.
 import importlib
 import importlib.util
 import os as _os
+import re as _re
 import sys as _sys
 
-_gptqmodel_spec = importlib.util.find_spec("gptqmodel")
-if _gptqmodel_spec is not None:
-    _gptqmodel_loader_py = _os.path.join(
-        _os.path.dirname(_gptqmodel_spec.origin), "models", "loader.py"
+
+def _patch_gptqmodel_for_transformers5():
+    spec = importlib.util.find_spec("gptqmodel")
+    if spec is None:
+        return
+    gptqmodel_dir = _os.path.dirname(spec.origin)
+    _target = "from transformers.initialization import no_init_weights"
+    _pattern = _re.compile(
+        r"^(\s*)from transformers\.modeling_utils import no_init_weights",
+        _re.MULTILINE,
     )
-    if _os.path.isfile(_gptqmodel_loader_py):
-        with open(_gptqmodel_loader_py) as _f:
-            _src = _f.read()
-        _old_import = "from transformers.modeling_utils import no_init_weights"
-        _new_import = (
-            "try:\n"
-            "    from transformers.modeling_utils import no_init_weights\n"
-            "except ImportError:\n"
-            "    from transformers.initialization import no_init_weights"
-        )
-        if _old_import in _src and _new_import not in _src:
-            with open(_gptqmodel_loader_py, "w") as _f:
-                _f.write(_src.replace(_old_import, _new_import))
-            # Purge any stale gptqmodel modules so the patched source is used
-            for _k in list(_sys.modules.keys()):
-                if _k.split(".")[0] == "gptqmodel":
-                    del _sys.modules[_k]
-            importlib.invalidate_caches()
+    patched_any = False
+    for dirpath, _dirs, files in _os.walk(gptqmodel_dir):
+        for fname in files:
+            if not fname.endswith(".py"):
+                continue
+            fpath = _os.path.join(dirpath, fname)
+            with open(fpath) as _f:
+                src = _f.read()
+            if _target in src or not _pattern.search(src):
+                continue
+
+            def _make_replacement(m):
+                indent = m.group(1)
+                return (
+                    f"{indent}try:\n"
+                    f"{indent}    from transformers.modeling_utils import no_init_weights\n"
+                    f"{indent}except ImportError:\n"
+                    f"{indent}    from transformers.initialization import no_init_weights"
+                )
+
+            new_src = _pattern.sub(_make_replacement, src)
+            if new_src != src:
+                with open(fpath, "w") as _f:
+                    _f.write(new_src)
+                patched_any = True
+    if patched_any:
+        for _k in list(_sys.modules.keys()):
+            if _k.split(".")[0] == "gptqmodel":
+                del _sys.modules[_k]
+        importlib.invalidate_caches()
+
+
+_patch_gptqmodel_for_transformers5()
 
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
