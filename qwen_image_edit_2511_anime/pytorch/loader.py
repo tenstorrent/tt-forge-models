@@ -78,7 +78,7 @@ class ModelLoader(ForgeModel):
             **kwargs,
         )
         pipeline.load_lora_weights(LORA_REPO_ID)
-        self._transformer = pipeline.transformer
+        self._transformer = pipeline.transformer.to(dtype)
         del pipeline
         return self._transformer
 
