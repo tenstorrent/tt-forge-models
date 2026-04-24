@@ -190,14 +190,27 @@ def _patch_transformers_nemotron_h_moe_gguf():
 
     TENSOR_PROCESSORS["nemotron_h"] = NemotronTensorProcessor
 
-    # Preserve the real transformers load_gguf_checkpoint as a private attribute
-    # on the module itself.  Other loaders that run after us overwrite the public
-    # attribute; our stash survives.  Only the first loader to run writes it, so
-    # whichever model is imported first locks in the true original.
-    _STASH_ATTR = "_tt_forge_real_load_gguf_checkpoint"
-    if not hasattr(gguf_utils, _STASH_ATTR):
-        setattr(gguf_utils, _STASH_ATTR, gguf_utils.load_gguf_checkpoint)
-    _real_orig_load = getattr(gguf_utils, _STASH_ATTR)
+    # Find the real transformers load_gguf_checkpoint regardless of import order.
+    # Other loaders may patch the module attribute before or after us; the true
+    # original is identified by its __qualname__ and __module__ via gc scanning.
+    # The real function object stays alive (referenced by other loaders' closures).
+    import gc
+
+    _real_orig_load = None
+    for _obj in gc.get_objects():
+        try:
+            if (
+                callable(_obj)
+                and getattr(_obj, "__qualname__", None) == "load_gguf_checkpoint"
+                and getattr(_obj, "__module__", None)
+                == "transformers.modeling_gguf_pytorch_utils"
+            ):
+                _real_orig_load = _obj
+                break
+        except Exception:
+            pass
+    if _real_orig_load is None:
+        _real_orig_load = gguf_utils.load_gguf_checkpoint
 
     def patched_load_gguf_checkpoint(*args, **kwargs):
         result = _real_orig_load(*args, **kwargs)
