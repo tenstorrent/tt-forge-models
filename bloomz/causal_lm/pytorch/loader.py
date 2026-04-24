@@ -42,7 +42,7 @@ class ModelLoader(ForgeModel):
             max_length=128,
         ),
         ModelVariant.BLOOM_ZH_3B_CHAT_IKALA: LLMModelConfig(
-            pretrained_model_name="ikala/bloom-zh-3b-chat",
+            pretrained_model_name="ckip-joint/bloom-3b-zh",
             max_length=128,
         ),
     }
