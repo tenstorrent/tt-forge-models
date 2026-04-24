@@ -141,6 +141,31 @@ class ModelLoader(ForgeModel):
                 _diffusers_import_utils._gguf_version = _importlib_metadata.version(
                     "gguf"
                 )
+                # gguf_quantizer.py imports _replace_with_gguf_linear and friends
+                # inside `if is_gguf_available()` at module level, so those names
+                # are absent if gguf wasn't present at first import.  Inject them now.
+                import diffusers.quantizers.gguf.gguf_quantizer as _gguf_quantizer
+
+                if not hasattr(_gguf_quantizer, "_replace_with_gguf_linear"):
+                    from diffusers.quantizers.gguf.utils import (
+                        GGML_QUANT_SIZES,
+                        GGUFParameter,
+                        _dequantize_gguf_and_restore_linear,
+                        _quant_shape_from_byte_shape,
+                        _replace_with_gguf_linear,
+                    )
+
+                    _gguf_quantizer.GGML_QUANT_SIZES = GGML_QUANT_SIZES
+                    _gguf_quantizer.GGUFParameter = GGUFParameter
+                    _gguf_quantizer._dequantize_gguf_and_restore_linear = (
+                        _dequantize_gguf_and_restore_linear
+                    )
+                    _gguf_quantizer._quant_shape_from_byte_shape = (
+                        _quant_shape_from_byte_shape
+                    )
+                    _gguf_quantizer._replace_with_gguf_linear = (
+                        _replace_with_gguf_linear
+                    )
             except (ImportError, _importlib_metadata.PackageNotFoundError):
                 pass
 
