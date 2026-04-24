@@ -142,7 +142,7 @@ class ModelLoader(ForgeModel):
         )
         image = Image.open(image_file).convert("RGB")
 
-        image_tensor_list = process_images(
+        image_tensor_list, _ = process_images(
             [image], self.image_processor, self.model.config
         )
         images = image_tensor_list[0]
