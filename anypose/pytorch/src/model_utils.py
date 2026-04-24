@@ -88,3 +88,62 @@ def anypose_preprocessing(pipe, prompt, character_image, pose_image):
         "num_images_per_prompt": 1,
     }
     return inputs
+
+
+def create_transformer_inputs(
+    transformer,
+    image_size=(512, 512),
+    batch_size=1,
+    num_input_images=2,
+    text_seq_len=64,
+):
+    """Create synthetic inputs for QwenImageTransformer2DModel.forward().
+
+    For a 512x512 image with VAE scale factor 8 and patch size 2:
+    - Latent: 64x64 → packed 2x2 patches → 1024 tokens per image
+    - hidden_states shape: (batch, tokens_noise + tokens_img1 + tokens_img2, in_channels)
+
+    Args:
+        transformer: QwenImageTransformer2DModel instance
+        image_size: Input image size as (height, width)
+        batch_size: Batch size
+        num_input_images: Number of conditioning images (AnyPose uses 2)
+        text_seq_len: Text sequence length for synthetic encoder hidden states
+
+    Returns:
+        dict: Inputs matching QwenImageTransformer2DModel.forward() signature
+    """
+    height, width = image_size
+    vae_scale_factor = 8
+    patch_size = transformer.config.patch_size
+    in_channels = transformer.config.in_channels
+    joint_attention_dim = transformer.config.joint_attention_dim
+
+    lat_h = height // vae_scale_factor
+    lat_w = width // vae_scale_factor
+    tokens_per_image = (lat_h // patch_size) * (lat_w // patch_size)
+    total_tokens = tokens_per_image * (1 + num_input_images)
+
+    lat_h_packed = lat_h // patch_size
+    lat_w_packed = lat_w // patch_size
+    img_shapes = [
+        [(1, lat_h_packed, lat_w_packed)] * (1 + num_input_images)
+    ] * batch_size
+
+    hidden_states = torch.randn(
+        batch_size, total_tokens, in_channels, dtype=torch.float32
+    )
+    encoder_hidden_states = torch.randn(
+        batch_size, text_seq_len, joint_attention_dim, dtype=torch.float32
+    )
+    encoder_hidden_states_mask = torch.ones(batch_size, text_seq_len, dtype=torch.bool)
+    timestep = torch.tensor([0.5] * batch_size, dtype=torch.float32)
+
+    return {
+        "hidden_states": hidden_states,
+        "encoder_hidden_states": encoder_hidden_states,
+        "encoder_hidden_states_mask": encoder_hidden_states_mask,
+        "timestep": timestep,
+        "img_shapes": img_shapes,
+        "return_dict": False,
+    }

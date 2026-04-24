@@ -5,7 +5,7 @@
 AnyPose model loader implementation
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 from ...base import ForgeModel
 from ...config import (
@@ -19,8 +19,7 @@ from ...config import (
 )
 from .src.model_utils import (
     load_anypose_pipe,
-    create_dummy_images,
-    anypose_preprocessing,
+    create_transformer_inputs,
 )
 
 
@@ -72,13 +71,13 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the AnyPose pipeline.
+        """Load the AnyPose pipeline and return the transformer sub-module.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            QwenImageEditPlusPipeline: The pipeline instance with LoRA adapters.
+            QwenImageTransformer2DModel: The transformer component of the pipeline.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -87,24 +86,34 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             self.pipeline = self.pipeline.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.transformer
 
     def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the AnyPose model.
+        """Load synthetic inputs for the AnyPose transformer.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
 
         Returns:
-            dict: Input dictionary for the pipeline containing images and prompt.
+            dict: Inputs matching QwenImageTransformer2DModel.forward() signature.
         """
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
 
-        character_image, pose_image = create_dummy_images()
+        inputs = create_transformer_inputs(self.pipeline.transformer)
 
-        inputs = anypose_preprocessing(
-            self.pipeline, self.prompt, character_image, pose_image
-        )
+        if dtype_override is not None:
+            inputs["hidden_states"] = inputs["hidden_states"].to(dtype_override)
+            inputs["encoder_hidden_states"] = inputs["encoder_hidden_states"].to(
+                dtype_override
+            )
+            inputs["timestep"] = inputs["timestep"].to(dtype_override)
 
         return inputs
+
+    def unpack_forward_output(self, fwd_output: Any):
+        if isinstance(fwd_output, tuple):
+            return fwd_output[0]
+        if hasattr(fwd_output, "sample"):
+            return fwd_output.sample
+        return fwd_output
