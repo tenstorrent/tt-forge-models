@@ -58,10 +58,16 @@ def _patch_qwen3vl_gguf_support():
     def _patched_get_weights_map(
         hf_model, processor, model_type=None, num_layers=None, qual_name=""
     ):
+        config = getattr(hf_model, "config", None)
         if model_type is None:
-            model_type = getattr(getattr(hf_model, "config", None), "model_type", None)
+            model_type = getattr(config, "model_type", None)
         if model_type == "qwen3_vl":
             model_type = "qwen3vl"
+            # Qwen3VLConfig nests num_hidden_layers inside text_config
+            if num_layers is None:
+                num_layers = getattr(
+                    getattr(config, "text_config", None), "num_hidden_layers", None
+                )
         return _orig_get_weights_map(
             hf_model,
             processor,
