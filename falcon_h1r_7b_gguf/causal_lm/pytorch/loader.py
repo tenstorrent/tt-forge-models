@@ -58,6 +58,34 @@ def _patched_load_gguf_checkpoint(*args, **kwargs):
 
 _tx_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
+# Patch modules that may have imported load_gguf_checkpoint directly.
+import transformers.models.auto.tokenization_auto as _tok_auto
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_utils as _modeling_utils
+
+for _mod in (_tok_auto, _config_utils, _modeling_utils):
+    if hasattr(_mod, "load_gguf_checkpoint"):
+        _mod.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+# Patch get_gguf_hf_weights_map to translate falcon_h1 -> falcon-h1 for gguf-py
+# MODEL_ARCH_NAMES lookup (which uses hyphens, not underscores).
+_orig_get_gguf_hf_weights_map = _tx_gguf_utils.get_gguf_hf_weights_map
+
+
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
+    if model_type is None:
+        model_type = hf_model.config.model_type
+    if model_type == "falcon_h1":
+        model_type = "falcon-h1"
+    return _orig_get_gguf_hf_weights_map(
+        hf_model, processor, model_type, num_layers, qual_name
+    )
+
+
+_tx_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
