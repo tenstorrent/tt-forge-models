@@ -36,10 +36,10 @@ def _patch_llada_support():
         GGUF_TO_FAST_CONVERTERS.setdefault("llada", GGUF_TO_FAST_CONVERTERS["llama"])
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+def _patched_load_gguf_checkpoint(*args, **kwargs):
     """Wrap load_gguf_checkpoint to add llada support and fix model_type."""
     _patch_llada_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
     if result.get("config", {}).get("model_type") == "llada":
         result["config"]["model_type"] = "llama"
     return result
