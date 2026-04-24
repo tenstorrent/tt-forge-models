@@ -4,9 +4,9 @@
 """
 QIE-2509-Object-Remover-Bbox LoRA image-to-image model loader implementation.
 
-Loads the Qwen-Image-Edit-2509 base diffusion pipeline and applies the
-prithivMLmods/QIE-2509-Object-Remover-Bbox LoRA weights for bounding-box
-guided object removal.
+Loads the Qwen-Image-Edit-2509 base diffusion pipeline, applies the
+prithivMLmods/QIE-2509-Object-Remover-Bbox LoRA weights, fuses them, and
+returns the transformer component for compilation.
 """
 
 import torch
@@ -42,11 +42,10 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.BASE
 
     base_model = "Qwen/Qwen-Image-Edit-2509"
-    prompt = "Remove the red highlighted object from the scene."
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline = None
+        self._transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -62,47 +61,71 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the QIE-2509-Object-Remover-Bbox pipeline.
+        """Load the QIE-2509-Object-Remover-Bbox transformer with fused LoRA weights.
 
-        Loads the base Qwen-Image-Edit-2509 pipeline and applies the
-        Object-Remover-Bbox LoRA adapter weights on top.
+        Loads the base Qwen-Image-Edit-2509 pipeline, applies and fuses the
+        Object-Remover-Bbox LoRA adapter weights, then returns the transformer
+        component as a torch.nn.Module.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            DiffusionPipeline: The pipeline with LoRA weights loaded.
+            QwenImageTransformer2DModel with LoRA weights fused.
         """
         from diffusers import DiffusionPipeline
 
         dtype = dtype_override or torch.bfloat16
-        self.pipeline = DiffusionPipeline.from_pretrained(
-            self.base_model, torch_dtype=dtype, **kwargs
-        )
-        self.pipeline.load_lora_weights(
-            self._variant_config.pretrained_model_name,
-        )
-        return self.pipeline
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the QIE-2509-Object-Remover-Bbox model.
+        if self._transformer is None:
+            pipe = DiffusionPipeline.from_pretrained(
+                self.base_model, torch_dtype=dtype, **kwargs
+            )
+            pipe.load_lora_weights(self._variant_config.pretrained_model_name)
+            pipe.fuse_lora()
+            self._transformer = pipe.transformer
+            self._transformer.eval()
+            del pipe
+        elif dtype_override is not None:
+            self._transformer = self._transformer.to(dtype=dtype_override)
+
+        return self._transformer
+
+    def load_inputs(self, dtype_override=None, batch_size=1, **kwargs):
+        """Load sample inputs for the QIE-2509-Object-Remover-Bbox transformer.
+
+        Returns inputs matching QwenImageTransformer2DModel.forward() signature.
 
         Args:
-            dtype_override: This parameter is ignored for this model.
-            batch_size: Optional batch size for the inputs.
+            dtype_override: Optional torch.dtype for input tensors.
+            batch_size: Number of samples in the batch.
 
         Returns:
-            dict: Dictionary containing prompt and input image.
+            dict: Keyword arguments for QwenImageTransformer2DModel.forward().
         """
-        from PIL import Image
-        import numpy as np
+        dtype = dtype_override or torch.bfloat16
 
-        # Create a sample source image for object removal.
-        image = Image.fromarray(
-            np.random.randint(0, 255, (1024, 1024, 3), dtype=np.uint8)
+        # Transformer config: in_channels=64, joint_attention_dim=3584
+        img_dim = 64
+        text_dim = 3584
+        txt_seq_len = 32
+
+        # img_seq_len must equal frame * height * width for positional encoding
+        frame, height, width = 1, 8, 8
+        img_seq_len = frame * height * width
+
+        hidden_states = torch.randn(batch_size, img_seq_len, img_dim, dtype=dtype)
+        encoder_hidden_states = torch.randn(
+            batch_size, txt_seq_len, text_dim, dtype=dtype
         )
+        encoder_hidden_states_mask = torch.ones(batch_size, txt_seq_len, dtype=dtype)
+        timestep = torch.tensor([500.0] * batch_size, dtype=dtype)
+        img_shapes = [(frame, height, width)] * batch_size
 
         return {
-            "prompt": [self.prompt] * batch_size,
-            "image": image,
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "encoder_hidden_states_mask": encoder_hidden_states_mask,
+            "timestep": timestep,
+            "img_shapes": img_shapes,
         }
