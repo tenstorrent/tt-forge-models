@@ -82,6 +82,7 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
         """Load the GGUF-quantized Lumina2 transformer."""
+        import diffusers.loaders.single_file_utils as sfu
         from diffusers import GGUFQuantizationConfig, Lumina2Transformer2DModel
 
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
@@ -92,11 +93,61 @@ class ModelLoader(ForgeModel):
             filename=gguf_filename,
         )
 
-        self._transformer = Lumina2Transformer2DModel.from_single_file(
-            gguf_path,
-            quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
-            torch_dtype=dtype,
-        )
+        # diffusers 0.37.1 hardcodes q_dim=2304, k_dim=v_dim=768 for standard
+        # Lumina-Image-2.0, but this model uses hidden_size=3840 with equal QKV.
+        # Patch the conversion function to split dynamically based on tensor shape.
+        original_convert = sfu.convert_lumina2_to_diffusers
+
+        def _patched_convert_lumina2(checkpoint, **kwargs):
+            # Determine actual QKV dims from the first qkv weight tensor
+            qkv_key = next((k for k in checkpoint if "qkv" in k), None)
+            if qkv_key is not None:
+                total_dim = checkpoint[qkv_key].shape[0]
+                if total_dim != 3840 and total_dim % 3 == 0:
+                    # Equal q/k/v split for non-standard GQA configs
+                    per_dim = total_dim // 3
+
+                    def _dynamic_convert_attn(tensor, diffusers_key):
+                        to_q, to_k, to_v = torch.split(
+                            tensor, [per_dim, per_dim, per_dim], dim=0
+                        )
+                        return {
+                            diffusers_key.replace("qkv", "to_q"): to_q,
+                            diffusers_key.replace("qkv", "to_k"): to_k,
+                            diffusers_key.replace("qkv", "to_v"): to_v,
+                        }
+
+                    # Run the standard conversion but replace the inner attn splitter
+                    import functools
+
+                    original_split = torch.split
+                    _expected = [2304, 768, 768]
+
+                    @functools.wraps(torch.split)
+                    def _patched_split(tensor, split_size_or_sections, dim=0):
+                        if split_size_or_sections == _expected:
+                            n = tensor.shape[dim] // 3
+                            split_size_or_sections = [n, n, n]
+                        return original_split(tensor, split_size_or_sections, dim)
+
+                    torch.split = _patched_split
+                    try:
+                        return original_convert(checkpoint, **kwargs)
+                    finally:
+                        torch.split = original_split
+
+            return original_convert(checkpoint, **kwargs)
+
+        sfu.convert_lumina2_to_diffusers = _patched_convert_lumina2
+        try:
+            self._transformer = Lumina2Transformer2DModel.from_single_file(
+                gguf_path,
+                quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
+                torch_dtype=dtype,
+            )
+        finally:
+            sfu.convert_lumina2_to_diffusers = original_convert
+
         self._transformer.eval()
         return self._transformer
 
