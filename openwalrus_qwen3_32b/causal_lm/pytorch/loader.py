@@ -112,15 +112,21 @@ class ModelLoader(ForgeModel):
             )
         except (ValueError, AttributeError):
             text = self.sample_text
-        prompts = [text]
 
         inputs = self.tokenizer(
-            prompts,
+            [text],
             return_tensors="pt",
             padding=True,
             truncation=True,
             max_length=max_length,
         )
+
+        if inputs["input_ids"].shape[1] == 0:
+            seq_len = min(16, max_length)
+            inputs = {
+                "input_ids": torch.zeros((1, seq_len), dtype=torch.long),
+                "attention_mask": torch.ones((1, seq_len), dtype=torch.long),
+            }
 
         for key in inputs:
             if torch.is_tensor(inputs[key]):
