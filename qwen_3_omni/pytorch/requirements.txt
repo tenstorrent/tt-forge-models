@@ -1,1 +1,2 @@
 qwen-omni-utils[decord]
+compressed-tensors
