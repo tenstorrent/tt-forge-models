@@ -17,6 +17,7 @@ from transformers.modeling_gguf_pytorch_utils import (
 )
 
 from transformers import (
+    AutoConfig,
     AutoProcessor,
     Qwen3VLForConditionalGeneration,
 )
@@ -150,8 +151,13 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = self.gguf_file
         model_kwargs |= kwargs
 
-        # GGUF repos do not ship a processor; use the official base model
+        # GGUF repos do not ship a processor or vision config; use the official base model
         self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-8B-Instruct")
+
+        # Load the full config from official base model so vision_config.out_hidden_size
+        # matches the text model's hidden_size (GGUF parsing only sets text model params)
+        config = AutoConfig.from_pretrained("Qwen/Qwen3-VL-8B-Instruct")
+        model_kwargs["config"] = config
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
