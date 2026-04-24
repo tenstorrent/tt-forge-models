@@ -10,6 +10,7 @@ from typing import Optional
 from PIL import Image
 from loguru import logger
 from transformers import SamModel, SamProcessor
+from .src.utils import patch_transformers_output_capturing
 
 from ...config import (
     ModelConfig,
@@ -95,6 +96,7 @@ class ModelLoader(ForgeModel):
         """
         # Get the pretrained model name from the instance's variant config
         model_name = self._variant_config.pretrained_model_name
+        patch_transformers_output_capturing()
 
         # Load SAM model from transformers
         framework_model = SamModel.from_pretrained(model_name, **kwargs).to("cpu")
