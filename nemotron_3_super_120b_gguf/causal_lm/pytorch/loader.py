@@ -101,13 +101,14 @@ def _patched_load_gguf_checkpoint(
     gguf_path, return_tensors=False, model_to_load=None, torch_dtype=None
 ):
     """Wrap load_gguf_checkpoint to add nemotron_h_moe support."""
+    import inspect
+
     _patch_nemotron_h_moe_support()
-    result = _orig_load_gguf_checkpoint(
-        gguf_path,
-        return_tensors=return_tensors,
-        model_to_load=model_to_load,
-        torch_dtype=torch_dtype,
-    )
+    kwargs = {"return_tensors": return_tensors, "model_to_load": model_to_load}
+    sig = inspect.signature(_orig_load_gguf_checkpoint)
+    if "torch_dtype" in sig.parameters:
+        kwargs["torch_dtype"] = torch_dtype
+    result = _orig_load_gguf_checkpoint(gguf_path, **kwargs)
 
     if result.get("config", {}).get("model_type") == "nemotron_h_moe":
         result["config"]["model_type"] = "nemotron_h"
