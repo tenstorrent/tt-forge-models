@@ -23,11 +23,11 @@ from ....config import (
 )
 
 
-def _patch_transformers_qwen2vl_gguf():
-    """Monkey-patch transformers to add qwen2vl GGUF architecture support.
+def _register_qwen2vl_gguf_architecture():
+    """Register qwen2vl in transformers GGUF config mapping if not already present.
 
-    Transformers knows how to load Qwen2VL models but lacks the GGUF config
-    mapping and architecture registration needed to load qwen2vl GGUF files.
+    Transformers knows how to load Qwen2VL models but the GGUF loader lacks
+    the architecture registration needed to recognize qwen2vl GGUF files.
     """
     from transformers.integrations.ggml import (
         GGUF_CONFIG_MAPPING,
@@ -37,50 +37,56 @@ def _patch_transformers_qwen2vl_gguf():
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
     )
-    import transformers.modeling_gguf_pytorch_utils as gguf_utils
 
-    if "qwen2vl" in GGUF_SUPPORTED_ARCHITECTURES:
-        return  # Already patched
+    if "qwen2vl" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen2vl")
 
-    GGUF_SUPPORTED_ARCHITECTURES.append("qwen2vl")
-
-    GGUF_CONFIG_MAPPING["qwen2vl"] = {
-        "context_length": "max_position_embeddings",
-        "block_count": "num_hidden_layers",
-        "feed_forward_length": "intermediate_size",
-        "embedding_length": "hidden_size",
-        "rope.dimension_count": None,
-        "rope.freq_base": "rope_theta",
-        "attention.head_count": "num_attention_heads",
-        "attention.head_count_kv": "num_key_value_heads",
-        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
-        "vocab_size": "vocab_size",
-    }
+    if "qwen2vl" not in GGUF_CONFIG_MAPPING:
+        GGUF_CONFIG_MAPPING["qwen2vl"] = {
+            "context_length": "max_position_embeddings",
+            "block_count": "num_hidden_layers",
+            "feed_forward_length": "intermediate_size",
+            "embedding_length": "hidden_size",
+            "rope.dimension_count": None,
+            "rope.freq_base": "rope_theta",
+            "attention.head_count": "num_attention_heads",
+            "attention.head_count_kv": "num_key_value_heads",
+            "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+            "vocab_size": "vocab_size",
+        }
 
     if "qwen2vl" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["qwen2vl"] = GGUFQwen2Converter
 
-    orig_load = gguf_utils.load_gguf_checkpoint
 
-    def patched_load_gguf_checkpoint(*args, **kwargs):
-        result = orig_load(*args, **kwargs)
+_register_qwen2vl_gguf_architecture()
+
+
+def _apply_qwen2vl_load_patch():
+    """Wrap load_gguf_checkpoint so qwen2vl model_type is remapped to qwen2_vl.
+
+    Must be called immediately before from_pretrained so our wrapper is the
+    outermost one visible to transformers' modeling_utils and configuration_utils,
+    regardless of which other GGUF loaders have already patched that function.
+    """
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    orig = gguf_utils.load_gguf_checkpoint
+
+    def _qwen2vl_patched(*args, **kwargs):
+        result = orig(*args, **kwargs)
         config = result.get("config", {})
         if config.get("model_type") == "qwen2vl":
             config["model_type"] = "qwen2_vl"
         return result
 
-    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
-
-    import transformers.models.auto.tokenization_auto as tok_auto
-    import transformers.configuration_utils as config_utils
-    import transformers.modeling_utils as modeling_utils
-
+    gguf_utils.load_gguf_checkpoint = _qwen2vl_patched
     for mod in (tok_auto, config_utils, modeling_utils):
         if hasattr(mod, "load_gguf_checkpoint"):
-            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
-
-
-_patch_transformers_qwen2vl_gguf()
+            mod.load_gguf_checkpoint = _qwen2vl_patched
 
 
 class ModelVariant(StrEnum):
@@ -133,6 +139,10 @@ class ModelLoader(ForgeModel):
         self.processor = AutoProcessor.from_pretrained(
             "AudioVisual-Caption/ASID-Captioner-3B"
         )
+
+        # Re-apply patch right before from_pretrained so our wrapper is
+        # outermost, even if other loaders have since replaced ours.
+        _apply_qwen2vl_load_patch()
 
         model = Qwen2VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
