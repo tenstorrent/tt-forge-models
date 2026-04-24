@@ -6,6 +6,7 @@ cyankiwi Llama 3.3 Nemotron Super 49B v1.5 AWQ 4bit model loader implementation 
 """
 import torch
 import transformers.generation.utils as _gen_utils
+import transformers.modeling_utils as _modeling_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -13,6 +14,21 @@ from typing import Optional
 # which was removed in transformers>=5.0. Add an empty dict stub so the import succeeds.
 if not hasattr(_gen_utils, "NEED_SETUP_CACHE_CLASSES_MAPPING"):
     _gen_utils.NEED_SETUP_CACHE_CLASSES_MAPPING = {}
+
+# modeling_decilm._init_weights calls module.weight.data.normal_() on all nn.Linear
+# modules, but AWQ/compressed-tensors quantized layers have no .weight attribute.
+# Wrap _initialize_weights to swallow AttributeError on quantized layers.
+_orig_initialize_weights_inner = _modeling_utils.PreTrainedModel._initialize_weights
+
+
+def _guarded_initialize_weights(self, module):
+    try:
+        _orig_initialize_weights_inner(self, module)
+    except AttributeError:
+        pass  # quantized Linear layers (AWQ/compressed-tensors) lack .weight
+
+
+_modeling_utils.PreTrainedModel._initialize_weights = _guarded_initialize_weights
 
 from ....base import ForgeModel
 from ....config import (
