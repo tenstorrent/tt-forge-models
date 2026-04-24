@@ -8,6 +8,9 @@ from typing import Optional
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+GGUF_TO_FAST_CONVERTERS.setdefault("deepseek_v2", GGUF_TO_FAST_CONVERTERS["qwen2_moe"])
 
 from ....base import ForgeModel
 from ....config import (
