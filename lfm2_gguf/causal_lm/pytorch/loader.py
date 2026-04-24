@@ -97,9 +97,9 @@ LFM2_MOE_LAYER_TYPES = [
 ]
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+def _patched_load_gguf_checkpoint(*args, **kwargs):
     _patch_lfm2moe_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
     if result.get("config", {}).get("model_type") == "lfm2moe":
         result["config"]["model_type"] = "lfm2_moe"
     if result.get("config", {}).get("model_type") in ("lfm2_moe", "lfm2moe"):
