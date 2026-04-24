@@ -91,7 +91,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         """Load and return the Moirai forecasting model.
 
         Returns:
@@ -115,20 +115,18 @@ class ModelLoader(ForgeModel):
             num_samples=cfg.num_samples,
         )
 
-        if dtype_override is not None:
-            model = model.to(dtype_override)
-
+        model = model.to(torch.float32)
         model.eval()
         return model
 
-    def load_inputs(self, dtype_override=None):
+    def load_inputs(self):
         """Load sample time series inputs for the Moirai model.
 
         Returns:
             dict: Input tensors matching MoiraiForecast.forward signature.
         """
         cfg = self._variant_config
-        dtype = dtype_override or torch.float32
+        dtype = torch.float32
 
         torch.manual_seed(42)
 
