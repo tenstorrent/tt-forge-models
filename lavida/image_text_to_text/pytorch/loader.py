@@ -83,6 +83,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, trust_remote_code=True
         )
         config.delay_load = True
+        # Clear mm_tunable_parts so the vision tower is not eagerly loaded during
+        # __init__ via the mm_vision_tower branch in SigLipVisionTower.
+        config.mm_tunable_parts = ""
+        config.unfreeze_mm_vision_tower = False
 
         model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
