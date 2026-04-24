@@ -61,8 +61,13 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     result = _orig_load_gguf_checkpoint(
         gguf_path, return_tensors=return_tensors, **kwargs
     )
-    if result.get("config", {}).get("model_type") in ("nemotron", "nemotron_h_moe"):
-        result["config"]["model_type"] = "nemotron_h"
+    cfg = result.get("config", {})
+    if cfg.get("model_type") in ("nemotron", "nemotron_h_moe"):
+        cfg["model_type"] = "nemotron_h"
+    # GGUF encodes num_key_value_heads per-layer (list); NemotronHConfig expects int
+    if isinstance(cfg.get("num_key_value_heads"), list):
+        nonzero = [v for v in cfg["num_key_value_heads"] if v > 0]
+        cfg["num_key_value_heads"] = max(nonzero) if nonzero else 2
     return result
 
 
