@@ -52,6 +52,12 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import os
+
+        # surya's settings.py calls torch_xla.devices() at import time which aborts the
+        # process with SIGABRT in compile-only environments. Force CPU to skip that path.
+        os.environ.setdefault("TORCH_DEVICE", "cpu")
+
         from surya.foundation import FoundationPredictor
         from surya.recognition import RecognitionPredictor
 
