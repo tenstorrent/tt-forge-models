@@ -28,7 +28,14 @@ def _patch_transformers_falcon_h1_gguf():
     but lacks GGUF loading support for the 'falcon-h1' architecture key. We
     bridge the gap by registering the config mapping, remapping model_type, and
     registering a tokenizer converter for the 'falcon_h1' model type.
+
+    Other loaders in this repo patch load_gguf_checkpoint with restricted
+    signatures that lack the model_to_load parameter. We bypass that broken
+    chain by finding and using the real function directly for tensor loads.
     """
+    import inspect
+    import sys
+
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
         GGUF_TO_TRANSFORMERS_MAPPING,
@@ -71,10 +78,29 @@ def _patch_transformers_falcon_h1_gguf():
     if "falcon_h1" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["falcon_h1"] = GGUFGPTConverter
 
+    # Find the real load_gguf_checkpoint that accepts model_to_load. Other loaders
+    # save their _orig_load_gguf_checkpoint before patching; we search for the one
+    # with the full signature to bypass the broken patch chain for tensor loads.
+    real_load = gguf_utils.load_gguf_checkpoint
+    if "model_to_load" not in inspect.signature(real_load).parameters:
+        for mod in list(sys.modules.values()):
+            candidate = getattr(mod, "_orig_load_gguf_checkpoint", None)
+            if candidate is None:
+                continue
+            try:
+                if "model_to_load" in inspect.signature(candidate).parameters:
+                    real_load = candidate
+                    break
+            except Exception:
+                pass
+
     orig_load = gguf_utils.load_gguf_checkpoint
 
     def patched_load_gguf_checkpoint(*args, **kwargs):
-        result = orig_load(*args, **kwargs)
+        # Use the real function when model_to_load is requested to bypass other
+        # loaders' patches that have restricted signatures lacking that parameter.
+        loader = real_load if "model_to_load" in kwargs else orig_load
+        result = loader(*args, **kwargs)
         config = result.get("config", {})
         if config.get("model_type") == "falcon-h1":
             config["model_type"] = "falcon_h1"
