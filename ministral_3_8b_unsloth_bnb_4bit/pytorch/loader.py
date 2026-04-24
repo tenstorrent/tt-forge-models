@@ -85,13 +85,17 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        # Strip BNB quantization config so weights load as plain bf16 tensors;
+        # BNB 4-bit inference requires CUDA which is not available on TT hardware.
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        if hasattr(config, "quantization_config"):
+            delattr(config, "quantization_config")
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model = Mistral3ForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
