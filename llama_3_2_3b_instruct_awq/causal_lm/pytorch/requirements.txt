@@ -1,2 +1,1 @@
-gptqmodel
-numpy>=2.0
+gptqmodel>=4.2.5,<5.0.0
