@@ -3,19 +3,18 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Wan 2.2 TI2V 5B native-format model loader implementation.
+Wan 2.2 TI2V 5B model loader implementation.
 
-Loads the hybrid text-and-image-to-video transformer from the native
-Wan-AI/Wan2.2-TI2V-5B repository (sharded diffusion_pytorch_model safetensors)
-and builds a WanPipeline using the Diffusers companion repo for the scheduler,
-tokenizer, text encoder, and VAE.
+Loads the WanTransformer3DModel from the Wan-AI/Wan2.2-TI2V-5B-Diffusers
+companion repository (which provides the model in diffusers format), combined
+with scheduler, tokenizer, text encoder, and VAE for the full pipeline.
 
 Wan 2.2 TI2V 5B is a 5B-parameter unified text-to-video (T2V) and
 image-to-video (I2V) diffusion transformer that supports 720P@24fps on a
 single consumer GPU.
 
 Available variants:
-- WAN22_TI2V_5B: Wan 2.2 Text/Image-to-Video 5B (native format)
+- WAN22_TI2V_5B: Wan 2.2 Text/Image-to-Video 5B
 """
 
 from typing import Any, Optional
@@ -33,22 +32,28 @@ from ...config import (
     StrEnum,
 )
 
-NATIVE_REPO = "Wan-AI/Wan2.2-TI2V-5B"
 BASE_PIPELINE = "Wan-AI/Wan2.2-TI2V-5B-Diffusers"
+
+# Small test dimensions for transformer inputs
+# Must be divisible by patch_size (1, 2, 2)
+TRANSFORMER_NUM_FRAMES = 2
+TRANSFORMER_HEIGHT = 4
+TRANSFORMER_WIDTH = 4
+TRANSFORMER_TEXT_SEQ_LEN = 8
 
 
 class ModelVariant(StrEnum):
-    """Available Wan 2.2 TI2V 5B native-format variants."""
+    """Available Wan 2.2 TI2V 5B variants."""
 
     WAN22_TI2V_5B = "2.2_TI2V_5B"
 
 
 class ModelLoader(ForgeModel):
-    """Wan 2.2 TI2V 5B native-format model loader."""
+    """Wan 2.2 TI2V 5B model loader."""
 
     _VARIANTS = {
         ModelVariant.WAN22_TI2V_5B: ModelConfig(
-            pretrained_model_name=NATIVE_REPO,
+            pretrained_model_name=BASE_PIPELINE,
         ),
     }
     DEFAULT_VARIANT = ModelVariant.WAN22_TI2V_5B
@@ -76,12 +81,11 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the native-format Wan 2.2 TI2V 5B transformer and build the pipeline.
+        """Load the Wan 2.2 TI2V 5B transformer.
 
-        Loads the sharded diffusion_pytorch_model safetensors from the native
-        Wan-AI/Wan2.2-TI2V-5B repo and combines with the Diffusers companion
-        repo's scheduler, tokenizer, text encoder, and VAE (VAE kept in float32
-        for numerical stability).
+        Loads the transformer from the Wan-AI/Wan2.2-TI2V-5B-Diffusers
+        companion repository, which stores the model in diffusers format
+        with the correct architecture config for the TI2V 5B variant.
         """
         from diffusers import (
             AutoencoderKLWan,
@@ -91,39 +95,48 @@ class ModelLoader(ForgeModel):
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        transformer = WanTransformer3DModel.from_pretrained(
-            NATIVE_REPO,
-            torch_dtype=compute_dtype,
-        )
-
-        vae = AutoencoderKLWan.from_pretrained(
-            BASE_PIPELINE,
-            subfolder="vae",
-            torch_dtype=torch.float32,
-        )
-
-        self.pipeline = WanPipeline.from_pretrained(
-            BASE_PIPELINE,
-            transformer=transformer,
-            vae=vae,
-            torch_dtype=compute_dtype,
-        )
-
-        return self.pipeline
-
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for text-to-video generation."""
-        if prompt is None:
-            prompt = (
-                "Astronaut in a jungle, cold color palette, muted colors, "
-                "detailed, 8k"
+        if self.pipeline is None:
+            transformer = WanTransformer3DModel.from_pretrained(
+                BASE_PIPELINE,
+                subfolder="transformer",
+                torch_dtype=compute_dtype,
             )
 
+            vae = AutoencoderKLWan.from_pretrained(
+                BASE_PIPELINE,
+                subfolder="vae",
+                torch_dtype=torch.float32,
+            )
+
+            self.pipeline = WanPipeline.from_pretrained(
+                BASE_PIPELINE,
+                transformer=transformer,
+                vae=vae,
+                torch_dtype=compute_dtype,
+            )
+
+        return self.pipeline.transformer
+
+    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
+        """Prepare tensor inputs for the Wan 2.2 TI2V 5B transformer forward pass."""
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
+        config = self.pipeline.transformer.config
+
         return {
-            "prompt": prompt,
-            "height": 480,
-            "width": 832,
-            "num_frames": 9,
-            "num_inference_steps": 2,
-            "guidance_scale": 5.0,
+            "hidden_states": torch.randn(
+                1,
+                config.in_channels,
+                TRANSFORMER_NUM_FRAMES,
+                TRANSFORMER_HEIGHT,
+                TRANSFORMER_WIDTH,
+                dtype=dtype,
+            ),
+            "encoder_hidden_states": torch.randn(
+                1,
+                TRANSFORMER_TEXT_SEQ_LEN,
+                config.text_dim,
+                dtype=dtype,
+            ),
+            "timestep": torch.tensor([500], dtype=torch.long),
+            "return_dict": False,
         }
