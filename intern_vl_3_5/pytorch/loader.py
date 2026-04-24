@@ -15,7 +15,6 @@ from transformers import (
     AutoProcessor,
     AutoTokenizer,
 )
-from transformers.modeling_utils import PreTrainedModel
 from typing import Optional
 
 from ...tools.utils import get_file
@@ -234,26 +233,22 @@ class ModelLoader(ForgeModel):
                 pretrained_model_name, **model_kwargs
             )
         else:
-            # The custom InternVL code calls .item() in __init__ which fails when
-            # transformers uses torch.device("meta") during model construction.
-            # Temporarily patch get_init_context to exclude the meta device context.
-            _orig_get_init_ctx = PreTrainedModel.get_init_context.__func__
+            # The custom InternVL code calls .item() in __init__ on tensors that
+            # transformers creates on the meta device during model construction.
+            # Patch Tensor.item to return 0.0 for meta tensors; the values are
+            # drop-path rates used only for model structure, so placeholders are fine.
+            _orig_item = torch.Tensor.item
 
-            @classmethod
-            def _cpu_init_ctx(cls, dtype, is_quantized, _is_ds_init_called):
-                return [
-                    c
-                    for c in _orig_get_init_ctx(
-                        cls, dtype, is_quantized, _is_ds_init_called
-                    )
-                    if not isinstance(c, torch.device)
-                ]
+            def _meta_safe_item(self):
+                if self.device.type == "meta":
+                    return 0.0
+                return _orig_item(self)
 
-            PreTrainedModel.get_init_context = _cpu_init_ctx
+            torch.Tensor.item = _meta_safe_item
             try:
                 model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
             finally:
-                PreTrainedModel.get_init_context = classmethod(_orig_get_init_ctx)
+                torch.Tensor.item = _orig_item
 
         model.eval()
         self.model = model
