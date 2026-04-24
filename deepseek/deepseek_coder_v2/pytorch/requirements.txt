@@ -1,3 +1,8 @@
 PyPcre>=0.2.14
 Defuser>=0.0.20
 LogBar>=0.4.3
+Device-SMI>=0.5.2
+torchao>=0.17.0
+tomlkit>=0.14.0
+TokeNicer>=0.0.12
+kernels>=0.13.0
