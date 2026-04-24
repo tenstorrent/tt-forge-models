@@ -312,7 +312,7 @@ class DPTHead(nn.Module):
         pos_embed = create_uv_grid(
             patch_w, patch_h, aspect_ratio=W / H, dtype=x.dtype, device=x.device
         )
-        pos_embed = position_grid_to_embed(pos_embed, x.shape[1])
+        pos_embed = position_grid_to_embed(pos_embed, x.shape[1]).to(dtype=x.dtype)
         pos_embed = pos_embed * ratio
         pos_embed = pos_embed.permute(2, 0, 1)[None].expand(x.shape[0], -1, -1, -1)
         return x + pos_embed
