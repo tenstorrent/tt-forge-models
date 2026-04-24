@@ -99,9 +99,29 @@ class ModelLoader(ForgeModel):
         except ImportError:
             pass
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        # TorchFusedQuantLinear's _weight_int4pack_mm_for_cpu only supports
+        # group_size in {32,64,128,256}, but this model uses group_size=-1
+        # (no grouping, becomes in_features=8192 at runtime).  Temporarily
+        # remove -1 from SUPPORTS_GROUP_SIZE so auto-selection skips it and
+        # falls back to TorchQuantLinear which supports all group sizes.
+        _fused_orig_gs = None
+        try:
+            from gptqmodel.nn_modules.qlinear.torch_fused import TorchFusedQuantLinear
+
+            _fused_orig_gs = TorchFusedQuantLinear.SUPPORTS_GROUP_SIZE
+            TorchFusedQuantLinear.SUPPORTS_GROUP_SIZE = [
+                g for g in _fused_orig_gs if g != -1
+            ]
+        except ImportError:
+            pass
+
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            if _fused_orig_gs is not None:
+                TorchFusedQuantLinear.SUPPORTS_GROUP_SIZE = _fused_orig_gs
 
         self.config = model.config
         self.model = model
