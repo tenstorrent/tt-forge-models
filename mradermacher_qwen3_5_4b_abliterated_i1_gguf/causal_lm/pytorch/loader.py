@@ -173,8 +173,11 @@ class ModelLoader(ForgeModel):
                 config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
+        # Qwen3.5 4B uses a hybrid attention architecture where local layers have
+        # 8 Q heads / 2 KV heads and global layers have 32 Q / 4 KV. The GGUF
+        # config only stores local head counts, so global layers mismatch on load.
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
