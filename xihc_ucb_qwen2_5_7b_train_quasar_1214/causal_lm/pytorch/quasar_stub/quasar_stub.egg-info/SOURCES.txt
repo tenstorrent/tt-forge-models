@@ -1,0 +1,12 @@
+setup.py
+quasar/__init__.py
+quasar/module.py
+quasar/kernel/__init__.py
+quasar/kernel/configs.py
+quasar/kernel/quant/__init__.py
+quasar/kernel/quant/dequantize_pb2hp.py
+quasar/kernel/quant/quantize_hp2pb.py
+quasar_stub.egg-info/PKG-INFO
+quasar_stub.egg-info/SOURCES.txt
+quasar_stub.egg-info/dependency_links.txt
+quasar_stub.egg-info/top_level.txt
