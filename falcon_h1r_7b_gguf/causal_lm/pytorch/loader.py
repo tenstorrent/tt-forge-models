@@ -45,10 +45,10 @@ def _patch_falcon_h1_support():
     GGUF_TO_FAST_CONVERTERS.setdefault("falcon_h1", GGUFGPTConverter)
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     _patch_falcon_h1_support()
     result = _orig_load_gguf_checkpoint(
-        gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
+        gguf_path, return_tensors=return_tensors, **kwargs
     )
     if result.get("config", {}).get("model_type") == "falcon-h1":
         result["config"]["model_type"] = "falcon_h1"
