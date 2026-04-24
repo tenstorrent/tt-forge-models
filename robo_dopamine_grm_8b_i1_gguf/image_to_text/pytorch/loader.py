@@ -7,7 +7,7 @@ Robo-Dopamine GRM 8B i1 GGUF model loader implementation for image to text.
 Note: The qwen2vl GGUF architecture is not yet supported by the transformers
 GGUF loader, so we load from the HF-native checkpoint instead.
 """
-from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
+from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
 from typing import Optional
 
 from ....base import ForgeModel
@@ -75,8 +75,8 @@ class ModelLoader(ForgeModel):
 
         self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
 
-        model = Qwen2VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
+        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+            pretrained_model_name, **model_kwargs
         )
         model.eval()
 
