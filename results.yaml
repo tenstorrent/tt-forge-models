@@ -155,3 +155,7 @@ results:
   status: "MODEL_TOO_LARGE"
   date: "20260424_124927"
   branch: "arch-c-36-tt-xla-dev/nsmith/2026-04-22_16-58/hf-bringup-8"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[llama_3_70b_instruct_abliterated_v3_gguf/causal_lm/pytorch-70B_Instruct_Abliterated_v3_GGUF-single_device-inference]"
+  status: "PASS"
+  date: "20260424_135704"
+  branch: "arch-c-36-tt-xla-dev/nsmith/2026-04-22_16-58/hf-bringup-8"
