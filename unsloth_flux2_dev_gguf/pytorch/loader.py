@@ -9,11 +9,15 @@ unsloth/FLUX.2-dev-GGUF. The GGUF transformer is loaded via diffusers'
 Flux2Transformer2DModel.from_single_file.
 """
 
+import json
+import os
+import tempfile
 from typing import Optional
 
 import torch
 from diffusers import GGUFQuantizationConfig
 from diffusers.models import Flux2Transformer2DModel
+from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -80,6 +84,26 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    # FLUX.2-dev transformer architecture config (derived from GGUF tensor shapes).
+    # Bypasses the gated black-forest-labs/FLUX.2-dev HF repo for config loading.
+    _FLUX2_DEV_CONFIG = {
+        "_class_name": "Flux2Transformer2DModel",
+        "attention_head_dim": 128,
+        "axes_dims_rope": [32, 32, 32, 32],
+        "eps": 1e-6,
+        "guidance_embeds": True,
+        "in_channels": 128,
+        "joint_attention_dim": 15360,
+        "mlp_ratio": 3.0,
+        "num_attention_heads": 48,
+        "num_layers": 8,
+        "num_single_layers": 48,
+        "out_channels": None,
+        "patch_size": 1,
+        "rope_theta": 2000,
+        "timestep_guidance_channels": 256,
+    }
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the GGUF-quantized FLUX.2-dev transformer.
 
@@ -90,11 +114,19 @@ class ModelLoader(ForgeModel):
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
-        self.transformer = Flux2Transformer2DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
+        local_gguf = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
+
+        with tempfile.TemporaryDirectory() as config_dir:
+            config_path = os.path.join(config_dir, "config.json")
+            with open(config_path, "w") as f:
+                json.dump(self._FLUX2_DEV_CONFIG, f)
+
+            self.transformer = Flux2Transformer2DModel.from_single_file(
+                local_gguf,
+                config=config_dir,
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
+            )
 
         return self.transformer
 
