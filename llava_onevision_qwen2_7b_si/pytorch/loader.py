@@ -14,7 +14,7 @@ variant ``llava-hf/llava-onevision-qwen2-7b-si-hf`` served by the
 from typing import Optional
 
 from PIL import Image
-from transformers import AutoProcessor, LlavaOnevisionForConditionalGeneration
+from transformers import LlavaOnevisionForConditionalGeneration, LlavaOnevisionProcessor
 
 from ...base import ForgeModel
 from ...config import (
@@ -67,7 +67,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
-        self.processor = AutoProcessor.from_pretrained(
+        # AutoProcessor resolves to LlavaProcessor for this checkpoint; use explicitly.
+        self.processor = LlavaOnevisionProcessor.from_pretrained(
             self._variant_config.pretrained_model_name
         )
         return self.processor
