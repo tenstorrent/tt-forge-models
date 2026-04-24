@@ -6,8 +6,20 @@ Bolmo-7B causal LM model loader implementation.
 """
 
 import torch
+import transformers.utils.generic as _transformers_generic
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
+
+# check_model_inputs was added after transformers 5.2.0; provide a no-op stub
+if not hasattr(_transformers_generic, "check_model_inputs"):
+
+    def _check_model_inputs(*args, **kwargs):
+        def decorator(func):
+            return func
+
+        return decorator
+
+    _transformers_generic.check_model_inputs = _check_model_inputs
 
 from ....base import ForgeModel
 from ....config import (
