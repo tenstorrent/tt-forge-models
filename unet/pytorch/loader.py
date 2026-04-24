@@ -369,7 +369,7 @@ class ModelLoader(ForgeModel):
             if output_tensor is None:
                 return None
 
-            output_np = output_tensor.detach().cpu().numpy()
+            output_np = output_tensor.detach().float().cpu().numpy()
             binary_mask = (output_np > threshold).astype(np.float32)
 
             lcc_actually_applied = False
@@ -443,7 +443,7 @@ class ModelLoader(ForgeModel):
 
             return {
                 "output": output_tensor,
-                "output_numpy": output_tensor.detach().cpu().numpy(),
+                "output_numpy": output_tensor.detach().float().cpu().numpy(),
                 "output_shape": list(output_tensor.shape),
                 "output_dtype": str(output_tensor.dtype),
             }
