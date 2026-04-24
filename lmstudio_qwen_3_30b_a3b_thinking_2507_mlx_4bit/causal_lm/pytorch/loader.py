@@ -83,8 +83,13 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        if self.num_layers is not None:
+        if "config" not in model_kwargs:
             config = AutoConfig.from_pretrained(pretrained_model_name)
+            model_kwargs["config"] = config
+
+        config = model_kwargs["config"]
+
+        if self.num_layers is not None:
             if hasattr(config, "text_config"):
                 config.text_config.num_hidden_layers = self.num_layers
                 if hasattr(config.text_config, "layer_types"):
@@ -93,11 +98,25 @@ class ModelLoader(ForgeModel):
                     ]
             else:
                 config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        quant_cfg = getattr(config, "quantization_config", None)
+        mlx_quant = isinstance(quant_cfg, dict) and "quant_method" not in quant_cfg
+        if mlx_quant:
+            # MLX weights are stored in a group-quantized format incompatible with
+            # PyTorch. Strip the quant config and build the architecture with random
+            # weights so the model graph can be traced for compile-only testing.
+            if hasattr(config, "quantization_config"):
+                delattr(config, "quantization_config")
+            if hasattr(config, "quantization"):
+                delattr(config, "quantization")
+            model = AutoModelForCausalLM.from_config(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+        model = model.eval()
 
         self.config = model.config
         self.model = model
