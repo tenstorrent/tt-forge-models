@@ -154,10 +154,7 @@ class ModelLoader(ForgeModel):
         _, _, H, W = rgb.unsqueeze(0).shape
 
         ratio_bounds = self._shape_constraints["ratio_bounds"]
-        pixels_bounds = [
-            self._shape_constraints["pixels_min"],
-            self._shape_constraints["pixels_max"],
-        ]
+        pixels_bounds = self._shape_constraints["pixels_bounds"]
 
         paddings, (padded_H, padded_W) = get_paddings((H, W), ratio_bounds)
         pad_left, pad_right, pad_top, pad_bottom = paddings
