@@ -74,7 +74,6 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {
             "trust_remote_code": True,
-            "low_cpu_mem_usage": False,
         }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
@@ -84,10 +83,18 @@ class ModelLoader(ForgeModel):
         # Custom model code uses config.rope_theta but newer transformers dropped this attribute
         if not hasattr(config, "rope_theta"):
             config.rope_theta = 1000000.0
+        # Defer vision tower loading to avoid .item() on meta tensors during meta-device init
+        config.delay_load = True
 
         model = AutoModel.from_pretrained(
             str(model_name), config=config, **model_kwargs
         )
+
+        # Explicitly load the vision tower now that we have real tensors
+        vision_tower = model.model.get_vision_tower()
+        if vision_tower is not None and not vision_tower.is_loaded:
+            vision_tower.load_model()
+
         model.eval()
 
         if self.tokenizer is None:
