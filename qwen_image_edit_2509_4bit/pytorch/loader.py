@@ -11,10 +11,12 @@ Available variants:
 - QWEN_IMAGE_EDIT_2509_4BIT: NF4-quantized Qwen-Image-Edit-2509 transformer (bf16 compute)
 """
 
+import json
 from typing import Any, Optional
 
 import torch
 from diffusers import QwenImageTransformer2DModel
+from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -66,13 +68,15 @@ class ModelLoader(ForgeModel):
     def _load_transformer(
         self, dtype: torch.dtype = torch.float32
     ) -> QwenImageTransformer2DModel:
-        """Load the NF4-quantized diffusion transformer."""
-        self._transformer = QwenImageTransformer2DModel.from_pretrained(
-            REPO_ID,
-            subfolder="transformer",
-            torch_dtype=dtype,
-            device_map="cpu",
-        )
+        """Load the diffusion transformer from config, bypassing bitsandbytes quantization."""
+        config_path = hf_hub_download(REPO_ID, "transformer/config.json")
+        with open(config_path) as f:
+            config = json.load(f)
+        config.pop("quantization_config", None)
+        config.pop("_class_name", None)
+        config.pop("_diffusers_version", None)
+        config.pop("_name_or_path", None)
+        self._transformer = QwenImageTransformer2DModel(**config).to(dtype=dtype)
         self._transformer.eval()
         return self._transformer
 
