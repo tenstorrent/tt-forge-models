@@ -45,8 +45,7 @@ def _dequantize_non_linear_gguf_params(model, dtype):
     model and eagerly dequantize those leftover params.
     """
     try:
-        from diffusers.quantizers.gguf.linear import GGUFLinear
-        from diffusers.quantizers.gguf.utils import dequantize_gguf_tensor
+        from diffusers.quantizers.gguf.utils import GGUFLinear, dequantize_gguf_tensor
     except ImportError:
         return
 
