@@ -37,11 +37,32 @@ def _patch_transformers_deepseek_v2_gguf():
         GGUFQwen2Converter,
     )
 
-    # Register deepseek_v2 tokenizer class (used by mradermacher GLM-4.7 GGUFs)
+    # Always register deepseek_v2 tokenizer class (mradermacher GLM-4.7 GGUFs use it)
     GGUF_TO_FAST_CONVERTERS.setdefault("deepseek_v2", GGUFQwen2Converter)
 
+    # Patch get_gguf_hf_weights_map to map deepseek_v2 -> deepseek2.
+    # gguf-py MODEL_ARCH_NAMES has 'deepseek2' but not 'deepseek_v2', while
+    # transformers config uses 'deepseek_v2'. Must be applied unconditionally
+    # because other loaders may have already added 'deepseek2' arch support.
+    orig_weights_map = gguf_utils.get_gguf_hf_weights_map
+    if not getattr(orig_weights_map, "_deepseek_v2_patched", False):
+
+        def patched_get_gguf_hf_weights_map(
+            hf_model, processor, model_type=None, **kwargs
+        ):
+            if model_type is None and hasattr(hf_model, "config"):
+                model_type = hf_model.config.model_type
+            if model_type == "deepseek_v2":
+                model_type = "deepseek2"
+            return orig_weights_map(
+                hf_model, processor, model_type=model_type, **kwargs
+            )
+
+        patched_get_gguf_hf_weights_map._deepseek_v2_patched = True
+        gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
     if "deepseek2" in GGUF_SUPPORTED_ARCHITECTURES:
-        return  # Model arch already patched
+        return  # Model arch and load_gguf_checkpoint already patched by another loader
 
     GGUF_SUPPORTED_ARCHITECTURES.append("deepseek2")
 
@@ -93,24 +114,6 @@ def _patch_transformers_deepseek_v2_gguf():
     for mod in (tok_auto, config_utils, modeling_utils):
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
-
-    # Patch get_gguf_hf_weights_map to map deepseek_v2 -> deepseek2 for tensor loading.
-    # gguf-py MODEL_ARCH_NAMES has 'deepseek2' but not 'deepseek_v2', while transformers
-    # uses 'deepseek_v2' as the config model_type.
-    orig_weights_map = gguf_utils.get_gguf_hf_weights_map
-
-    def patched_get_gguf_hf_weights_map(hf_model, processor, model_type=None, **kwargs):
-        if model_type is None and hasattr(hf_model, "config"):
-            model_type = hf_model.config.model_type
-        if model_type == "deepseek_v2":
-            model_type = "deepseek2"
-        return orig_weights_map(hf_model, processor, model_type=model_type, **kwargs)
-
-    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
-    import transformers.modeling_utils as _modeling_utils
-
-    if hasattr(_modeling_utils, "get_gguf_hf_weights_map"):
-        _modeling_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
 
 
 _patch_transformers_deepseek_v2_gguf()
