@@ -253,12 +253,39 @@ class ModelLoader(ForgeModel):
 
             transformers.modeling_utils._init_weights = _InitWeightsProxy()
 
-        model = transformers.AutoModel.from_pretrained(
-            pretrained_model_name,
-            config=config,
-            trust_remote_code=True,
-            **model_kwargs,
-        )
+        # transformers>=5.x added recompute_mapping=False to tie_weights(); the
+        # custom hausa-ultravox model overrides tie_weights() without **kwargs.
+        # Patch init_weights to fall back gracefully for incompatible subclasses.
+        _orig_init_weights = transformers.PreTrainedModel.init_weights
+
+        def _patched_init_weights(self_model):
+            import torch
+            from transformers.modeling_utils import (
+                get_torch_context_manager_or_global_device,
+            )
+
+            if get_torch_context_manager_or_global_device() != torch.device("meta"):
+                self_model.initialize_weights()
+            try:
+                self_model.tie_weights(recompute_mapping=False)
+            except TypeError as e:
+                if "recompute_mapping" in str(e):
+                    self_model.tie_weights()
+                else:
+                    raise
+
+        transformers.PreTrainedModel.init_weights = _patched_init_weights
+
+        try:
+            model = transformers.AutoModel.from_pretrained(
+                pretrained_model_name,
+                config=config,
+                trust_remote_code=True,
+                **model_kwargs,
+            )
+        finally:
+            transformers.PreTrainedModel.init_weights = _orig_init_weights
+
         model.eval()
 
         return model
