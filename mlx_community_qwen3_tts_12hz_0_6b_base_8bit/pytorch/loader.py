@@ -78,26 +78,17 @@ class ModelLoader(ForgeModel):
             Qwen3TTSConfig,
             Qwen3TTSForConditionalGeneration,
         )
-        from transformers import AutoConfig, AutoModel
 
-        AutoConfig.register("qwen3_tts", Qwen3TTSConfig)
-        AutoModel.register(Qwen3TTSConfig, Qwen3TTSForConditionalGeneration)
-
-        config = AutoConfig.from_pretrained(
+        # The mlx-community checkpoint uses MLX 8-bit affine quantization (uint32-packed
+        # weights) which is incompatible with the standard transformers>=5.x loading
+        # pipeline. Since we only need the architecture for compilation, we initialize
+        # the talker from config with random weights instead of loading the checkpoint.
+        config = Qwen3TTSConfig.from_pretrained(
             self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
         )
-        # MLX quantization format lacks quant_method, which transformers>=5.x requires.
-        # Strip it so the model loads as unquantized weights.
-        if hasattr(config, "quantization_config"):
-            config.quantization_config = None
-
-        full_model = AutoModel.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            config=config,
-            trust_remote_code=True,
-            torch_dtype=dtype_override or torch.float32,
-        )
+        full_model = Qwen3TTSForConditionalGeneration(config)
+        dtype = dtype_override or torch.float32
+        full_model = full_model.to(dtype)
         model = Qwen3TTSTalkerWrapper(full_model.talker)
         model.eval()
         return model
