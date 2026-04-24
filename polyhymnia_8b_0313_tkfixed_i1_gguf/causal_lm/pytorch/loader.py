@@ -81,10 +81,17 @@ class ModelLoader(ForgeModel):
         # transformers caches packages_distributions() at import time; refresh so
         # dynamically-installed gguf is found and is_gguf_available() returns a
         # valid version string instead of 'N/A'.
+        import importlib
         import importlib.metadata
         import transformers.utils.import_utils as _tui
 
         _tui.PACKAGE_DISTRIBUTION_MAPPING = importlib.metadata.packages_distributions()
+
+        # model_to_load kwarg added in newer transformers; reload to restore
+        # the original signature before calling from_pretrained.
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+        importlib.reload(_gguf_utils)
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
