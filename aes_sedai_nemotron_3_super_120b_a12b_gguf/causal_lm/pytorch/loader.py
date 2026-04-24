@@ -124,15 +124,30 @@ def _patch_transformers_nemotron_h_moe_gguf():
     if "nemotron_h_moe" in GGUF_SUPPORTED_ARCHITECTURES:
         return
 
-    # Register NemotronHConfig so AutoConfig can resolve model_type='nemotron_h'.
-    # The GGUF repo lacks auto_map so trust_remote_code alone is insufficient;
-    # we load the config class from the BF16 base repo (cached locally) explicitly.
+    # Register NemotronHConfig and NemotronHForCausalLM so that AutoConfig and
+    # AutoModelForCausalLM can resolve model_type='nemotron_h'.  The GGUF repo
+    # lacks auto_map so trust_remote_code alone is insufficient; we load the
+    # classes from the BF16 base repo (cached locally) explicitly.
+    from transformers import AutoModelForCausalLM
+
     try:
         _nemotron_h_config_cls = get_class_from_dynamic_module(
             "configuration_nemotron_h.NemotronHConfig",
             "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16",
         )
         AutoConfig.register("nemotron_h", _nemotron_h_config_cls, exist_ok=True)
+    except Exception:
+        _nemotron_h_config_cls = None
+
+    try:
+        _nemotron_h_model_cls = get_class_from_dynamic_module(
+            "modeling_nemotron_h.NemotronHForCausalLM",
+            "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16",
+        )
+        if _nemotron_h_config_cls is not None:
+            AutoModelForCausalLM.register(
+                _nemotron_h_config_cls, _nemotron_h_model_cls, exist_ok=True
+            )
     except Exception:
         pass
 
