@@ -35,11 +35,18 @@ def _make_model_to_load_compat(fn):
     return _wrapper
 
 
-_gguf_utils.load_gguf_checkpoint = _make_model_to_load_compat(
-    _gguf_utils.load_gguf_checkpoint
-)
-for _mod in (_config_utils, _auto_tok, _tok_utils):
-    _mod.load_gguf_checkpoint = _gguf_utils.load_gguf_checkpoint
+def _apply_model_to_load_compat():
+    """Re-apply the model_to_load compatibility wrapper before each GGUF load.
+
+    Other loaders may overwrite load_gguf_checkpoint after this module is
+    imported, so we re-check and re-wrap inside load_model rather than at
+    module level.
+    """
+    wrapped = _make_model_to_load_compat(_gguf_utils.load_gguf_checkpoint)
+    _gguf_utils.load_gguf_checkpoint = wrapped
+    for _mod in (_config_utils, _auto_tok, _tok_utils):
+        _mod.load_gguf_checkpoint = wrapped
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -136,6 +143,11 @@ class ModelLoader(ForgeModel):
             self._HF_PROCESSORS[self._variant],
             trust_remote_code=True,
         )
+
+        # Ensure model_to_load kwarg compatibility before calling from_pretrained
+        # with a gguf_file; other loaders may have patched load_gguf_checkpoint
+        # without this kwarg after our module was imported.
+        _apply_model_to_load_compat()
 
         # GGUF files only contain the quantized text backbone (Qwen3).
         # Load the full InternVL config from HF, initialize the model (vision
