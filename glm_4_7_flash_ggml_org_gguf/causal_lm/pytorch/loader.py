@@ -73,6 +73,9 @@ def _patch_transformers_deepseek2_gguf():
 
     if "deepseek2" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["deepseek2"] = GGUFQwen2Converter
+    # load_gguf_checkpoint renames model_type deepseek2 -> deepseek_v2, so register both
+    if "deepseek_v2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["deepseek_v2"] = GGUFQwen2Converter
 
     orig_load = gguf_utils.load_gguf_checkpoint
 
