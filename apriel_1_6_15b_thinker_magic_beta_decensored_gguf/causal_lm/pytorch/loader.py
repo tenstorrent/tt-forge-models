@@ -98,8 +98,26 @@ class ModelLoader(ForgeModel):
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
-        ).eval()
+        )
 
+        # transformers 5.x changed LlamaDecoderLayer.forward to unpack self_attn as
+        # (attn_output, attn_weights) but the GGUF attention path returns a 3-tuple.
+        # Patch the decoder layer forward to index attn_out[0] defensively.
+        import transformers.models.llama.modeling_llama as llama_mod
+
+        def _patched_decoder_fwd(self_layer, hidden_states, **kwargs):
+            residual = hidden_states
+            hidden_states = self_layer.input_layernorm(hidden_states)
+            attn_out = self_layer.self_attn(hidden_states=hidden_states, **kwargs)
+            hidden_states = residual + attn_out[0]
+            residual = hidden_states
+            hidden_states = self_layer.post_attention_layernorm(hidden_states)
+            hidden_states = residual + self_layer.mlp(hidden_states)
+            return hidden_states
+
+        llama_mod.LlamaDecoderLayer.forward = _patched_decoder_fwd
+
+        model.eval()
         self.config = model.config
         self.model = model
         return model
