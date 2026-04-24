@@ -1,1 +1,2 @@
 xlstm==2.0.4
+transformers>=5.4.0
