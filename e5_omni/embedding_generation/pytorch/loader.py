@@ -13,7 +13,7 @@ from typing import Optional
 
 import torch
 import torch.nn.functional as F
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoConfig, AutoModel, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
@@ -76,6 +76,23 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from transformers.models.qwen2_5_omni.configuration_qwen2_5_omni import (
+            Qwen2_5OmniThinkerConfig,
+        )
+        from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import (
+            Qwen2_5OmniThinkerForConditionalGeneration,
+        )
+
+        # qwen2_5_omni_thinker is in transformers 5.2.0 but not registered in auto mappings
+        AutoConfig.register(
+            "qwen2_5_omni_thinker", Qwen2_5OmniThinkerConfig, exist_ok=True
+        )
+        AutoModel.register(
+            Qwen2_5OmniThinkerConfig,
+            Qwen2_5OmniThinkerForConditionalGeneration,
+            exist_ok=True,
+        )
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {"trust_remote_code": True}
