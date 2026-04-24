@@ -20,7 +20,6 @@ from ...config import (
 from .src.model_utils import (
     create_bi_lstm_crf_model,
     create_sample_input,
-    get_vocab_mappings,
 )
 
 
@@ -97,7 +96,13 @@ class ModelLoader(ForgeModel):
         model.eval()
         return model
 
-    def load_inputs(self, dtype_override=None, test_sentence=None):
+    def load_inputs(
+        self,
+        dtype_override=None,
+        batch_size: int = 1,
+        device: str = "cpu",
+        test_sentence=None,
+    ):
         """Load and return sample inputs for the BiLSTM-CRF model with this instance's variant settings.
 
         Args:
@@ -108,14 +113,16 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.Tensor: Input tensor that can be fed to the model.
         """
-        # Use provided sentence or default
-        sentence = test_sentence if test_sentence is not None else self.test_sentence
+        sentence = test_sentence or self.test_sentence
+        inputs = create_sample_input(sentence)
+        if batch_size > 1:
+            inputs = inputs.repeat(batch_size, 1)
+        inputs = inputs.to(device)
+        # Inputs are word indices (long); dtype_override applies to model, not indices
+        return inputs
 
-        # Create input tensor
-        test_input = create_sample_input(sentence)
-
-        # Apply dtype conversion if specified
-        if dtype_override is not None:
-            test_input = test_input.to(dtype_override)
-
-        return test_input
+    def unpack_forward_output(self, fwd_output: Any) -> torch.Tensor:
+        """Extract best_score [B] for comparison. Model returns (best_score, best_paths)."""
+        if isinstance(fwd_output, tuple):
+            return fwd_output[0]
+        return fwd_output

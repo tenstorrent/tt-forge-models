@@ -6,7 +6,8 @@ Helper functions for BiLSTM-CRF model loading and processing.
 """
 
 import torch
-from bi_lstm_crf import BiRnnCrf
+
+from .model import BiRnnCrf
 
 
 def get_vocab_mappings():
