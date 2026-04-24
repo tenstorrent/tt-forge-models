@@ -110,6 +110,11 @@ def _patched_load_gguf_checkpoint(
     result = _orig_load_gguf_checkpoint(gguf_path, **kwargs)
 
     if result.get("config", {}).get("model_type") == "nemotron_h":
+        # intermediate_size is stored as a per-layer list; extract the MLP block size
+        if isinstance(result["config"].get("intermediate_size"), list):
+            nonzero = [s for s in result["config"]["intermediate_size"] if s > 0]
+            result["config"]["intermediate_size"] = max(nonzero) if nonzero else 0
+
         layers_block_type, kv_dim = _derive_nemotron_h_layer_info(gguf_path)
         result["config"]["layers_block_type"] = layers_block_type
         if kv_dim is not None:
