@@ -71,7 +71,8 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from transformers import AutoConfig, AutoModel
+        from transformers import AutoConfig
+        from transformers.dynamic_module_utils import get_class_from_dynamic_module
 
         config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name,
@@ -86,15 +87,17 @@ class ModelLoader(ForgeModel):
                 config.pad_token_id = config.pad_token[0]
             else:
                 config.pad_token_id = getattr(config, "bos_token_id", None)
-        # transformers>=5 expects _tied_weights_keys as a dict; the custom model code uses
-        # the old list format, causing AttributeError in get_expanded_tied_weights_keys.
-        # Disable tie_word_embeddings to skip that code path since we only use language_model.
-        config.tie_word_embeddings = False
 
-        full_model = AutoModel.from_pretrained(
+        # AutoModel maps to MossTTSDForCausalLM which has a tie_weights() incompatible
+        # with transformers>=5 (missing recompute_mapping kwarg). Load MossTTSDModel
+        # directly instead — it has .language_model and uses the base tie_weights().
+        MossTTSDModelClass = get_class_from_dynamic_module(
+            "modeling_moss_ttsd.MossTTSDModel",
+            self._variant_config.pretrained_model_name,
+        )
+        full_model = MossTTSDModelClass.from_pretrained(
             self._variant_config.pretrained_model_name,
             config=config,
-            trust_remote_code=True,
             torch_dtype=dtype_override or torch.float32,
         )
         model = MossTTSDLanguageWrapper(full_model.language_model)
