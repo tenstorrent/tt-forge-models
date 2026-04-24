@@ -4,9 +4,17 @@
 """
 Athena 3 14B i1 GGUF model loader implementation for causal language modeling.
 """
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import os
 from typing import Optional
+
+import torch
+from transformers import (
+    AutoConfig,
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    Qwen2Config,
+    Qwen2ForCausalLM,
+)
 
 from ....base import ForgeModel
 from ....config import (
@@ -61,6 +69,20 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _qwen2_14b_config(self):
+        return Qwen2Config(
+            vocab_size=152064,
+            hidden_size=5120,
+            intermediate_size=13824,
+            num_hidden_layers=self.num_layers if self.num_layers is not None else 48,
+            num_attention_heads=40,
+            num_key_value_heads=8,
+            max_position_embeddings=32768,
+            rms_norm_eps=1e-6,
+            rope_theta=1000000.0,
+            tie_word_embeddings=False,
+        )
+
     def _load_tokenizer(self, dtype_override=None):
         tokenizer_kwargs = {}
         if dtype_override is not None:
@@ -77,6 +99,22 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            config = self._qwen2_14b_config()
+            target_dtype = (
+                dtype_override if dtype_override is not None else torch.bfloat16
+            )
+            orig_dtype = torch.get_default_dtype()
+            torch.set_default_dtype(target_dtype)
+            try:
+                model = Qwen2ForCausalLM(config)
+            finally:
+                torch.set_default_dtype(orig_dtype)
+            model.eval()
+            self.config = model.config
+            self.model = model
+            return model
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
