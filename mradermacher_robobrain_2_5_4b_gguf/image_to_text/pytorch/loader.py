@@ -156,7 +156,7 @@ class ModelLoader(ForgeModel):
         self.processor = AutoProcessor.from_pretrained("BAAI/RoboBrain2.5-4B")
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         )
         model.eval()
 
