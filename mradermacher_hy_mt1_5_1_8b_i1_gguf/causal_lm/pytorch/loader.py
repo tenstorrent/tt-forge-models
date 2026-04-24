@@ -51,6 +51,8 @@ def _patch_hunyuan_dense_support():
 
     if "hunyuan-dense" not in _ggml.GGUF_TO_FAST_CONVERTERS:
         _ggml.GGUF_TO_FAST_CONVERTERS["hunyuan-dense"] = _ggml.GGUFGPTConverter
+    if "hunyuan_v1_dense" not in _ggml.GGUF_TO_FAST_CONVERTERS:
+        _ggml.GGUF_TO_FAST_CONVERTERS["hunyuan_v1_dense"] = _ggml.GGUFGPTConverter
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
