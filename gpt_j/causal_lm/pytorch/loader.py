@@ -139,7 +139,7 @@ class ModelLoader(ForgeModel):
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
 
         Returns:
-            list: Input tensors that can be fed to the model [input_ids, attention_mask].
+            dict: Keyword inputs for the model with input_ids and attention_mask.
         """
         # Ensure tokenizer is initialized
         if self.tokenizer is None:
@@ -154,5 +154,7 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
-        # Return as list of tensors for the wrapper
-        return [input_tokens["input_ids"], input_tokens["attention_mask"]]
+        return {
+            "input_ids": input_tokens["input_ids"],
+            "attention_mask": input_tokens["attention_mask"],
+        }
