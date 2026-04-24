@@ -3,6 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Orvion VL 3B i1 GGUF model loader implementation for image to text.
+
+Note: The qwen2vl GGUF architecture is not supported by the transformers GGUF
+loader, so we load from the base safetensors checkpoint instead.
 """
 
 from transformers import (
@@ -30,18 +33,20 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """Orvion VL 3B i1 GGUF model loader implementation for image to text tasks."""
+    """Orvion VL 3B i1 GGUF model loader implementation for image to text tasks.
+
+    Note: Uses the base model (safetensors) instead of GGUF because the
+    qwen2vl GGUF architecture is not yet supported by transformers.
+    """
 
     _VARIANTS = {
         ModelVariant.ORVION_VL_3B_I1_GGUF: LLMModelConfig(
-            pretrained_model_name="mradermacher/Orvion-vl-3b-i1-GGUF",
+            pretrained_model_name="sanaX3065/Orvion-vl-3b",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.ORVION_VL_3B_I1_GGUF
-
-    GGUF_FILE = "Orvion-vl-3b.i1-Q4_K_M.gguf"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -66,10 +71,8 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs["gguf_file"] = self.GGUF_FILE
         model_kwargs |= kwargs
 
-        # GGUF repos do not ship a processor; use the base model
         self.processor = AutoProcessor.from_pretrained("Qwen/Qwen2.5-VL-3B-Instruct")
 
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
