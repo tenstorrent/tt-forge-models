@@ -88,6 +88,26 @@ class ModelLoader(ForgeModel):
         vision_tower = model.get_vision_tower()
         if vision_tower is not None and not vision_tower.is_loaded:
             vision_tower.load_model()
+
+        # FerretLlamaForCausalLM uses trust_remote_code, and transformers 5.x changes
+        # LlamaDecoderLayer to expect self_attn to return (attn_output, attn_weights).
+        # However something in the Ferret custom model path causes self_attn to return a
+        # 3-tuple, breaking the `hidden_states, _ = self.self_attn(...)` unpack.
+        # Patch the decoder layer forward to index attn_out[0] defensively.
+        import transformers.models.llama.modeling_llama as llama_mod
+
+        def _patched_decoder_fwd(self_layer, hidden_states, **kwargs):
+            residual = hidden_states
+            hidden_states = self_layer.input_layernorm(hidden_states)
+            attn_out = self_layer.self_attn(hidden_states=hidden_states, **kwargs)
+            hidden_states = residual + attn_out[0]
+            residual = hidden_states
+            hidden_states = self_layer.post_attention_layernorm(hidden_states)
+            hidden_states = residual + self_layer.mlp(hidden_states)
+            return hidden_states
+
+        llama_mod.LlamaDecoderLayer.forward = _patched_decoder_fwd
+
         model.eval()
         self.model = model
         return model
