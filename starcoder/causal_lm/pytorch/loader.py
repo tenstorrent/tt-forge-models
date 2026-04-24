@@ -38,7 +38,7 @@ class ModelLoader(ForgeModel):
             max_length=256,
         ),
         ModelVariant.STARCODERBASE_3B: LLMModelConfig(
-            pretrained_model_name="bigcode/starcoderbase-3b",
+            pretrained_model_name="bigcode/starcoder2-3b",
             max_length=256,
         ),
     }
