@@ -1,0 +1,2 @@
+triton
+flash-linear-attention @ git+https://github.com/sustcsonglin/flash-linear-attention
