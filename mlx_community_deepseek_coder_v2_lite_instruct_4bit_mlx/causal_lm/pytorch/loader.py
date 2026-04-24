@@ -97,6 +97,19 @@ class ModelLoader(ForgeModel):
 
         model_kwargs |= kwargs
 
+        # MLX-quantized models store a quantization_config without `quant_method`,
+        # which transformers 5.x rejects via hasattr() check. Delete the attribute
+        # entirely (setting to None still triggers the check) so we load as standard.
+        if "config" not in model_kwargs:
+            cfg = AutoConfig.from_pretrained(
+                pretrained_model_name, trust_remote_code=True
+            )
+            if hasattr(cfg, "quantization_config") and not hasattr(
+                cfg.quantization_config, "quant_method"
+            ):
+                delattr(cfg, "quantization_config")
+            model_kwargs["config"] = cfg
+
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
