@@ -42,6 +42,10 @@ def _patch_qwen3next_support():
         GGUF_TO_FAST_CONVERTERS.setdefault(
             "qwen3next", GGUF_TO_FAST_CONVERTERS["qwen3"]
         )
+        # The GGUF file stores the tokenizer class as 'qwen3_next' (with underscore)
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "qwen3_next", GGUF_TO_FAST_CONVERTERS["qwen3"]
+        )
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
