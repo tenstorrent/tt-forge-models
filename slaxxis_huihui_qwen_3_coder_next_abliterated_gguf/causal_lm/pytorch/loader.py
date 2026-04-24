@@ -14,6 +14,7 @@ import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    get_gguf_hf_weights_map as _orig_get_gguf_hf_weights_map,
     GGUF_SUPPORTED_ARCHITECTURES,
     Qwen2MoeTensorProcessor,
     TENSOR_PROCESSORS,
@@ -59,11 +60,25 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     return result
 
 
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
+    """Normalize qwen3_next -> qwen3next for gguf-py weight name mapping."""
+    if model_type is None:
+        model_type = hf_model.config.model_type
+    if model_type == "qwen3_next":
+        model_type = "qwen3next"
+    return _orig_get_gguf_hf_weights_map(
+        hf_model, processor, model_type, num_layers, qual_name
+    )
+
+
 _patch_qwen3next_support()
 _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 from ....base import ForgeModel
 from ....config import (
