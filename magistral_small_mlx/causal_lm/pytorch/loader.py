@@ -6,6 +6,10 @@ Magistral Small MLX model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.models.mistral3.configuration_mistral3 import Mistral3Config
+from transformers.models.mistral3.modeling_mistral3 import (
+    Mistral3ForConditionalGeneration,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -18,6 +22,12 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+# Mistral3Config is not registered with AutoModelForCausalLM (it's VLM, registered for
+# image-text-to-text), but Magistral Small is a text-only reasoning model using the same
+# architecture. Register it so from_pretrained resolves correctly.
+if Mistral3Config not in AutoModelForCausalLM._model_mapping._extra_content:
+    AutoModelForCausalLM.register(Mistral3Config, Mistral3ForConditionalGeneration)
 
 
 class ModelVariant(StrEnum):
@@ -60,12 +70,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -82,16 +88,42 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
+        # transformers 5.x rejects MLX quantization configs (no quant_method); strip it.
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        if hasattr(config, "quantization_config") and not hasattr(
+            config.quantization_config, "quant_method"
+        ):
+            del config.quantization_config
+        model_kwargs["config"] = config
+        # MLX quantized weights have different shapes (packed uint32 vs float); reinit mismatches.
+        model_kwargs["ignore_mismatched_sizes"] = True
+
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+            if hasattr(config, "text_config"):
+                config.text_config.num_hidden_layers = self.num_layers
+            else:
+                config.num_hidden_layers = self.num_layers
 
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
+
+        # Initialize any meta tensors left by missing vision tower weights.
+        target_dtype = dtype_override or torch.bfloat16
+        for name, param in model.named_parameters():
+            if param.is_meta:
+                new_param = torch.nn.Parameter(
+                    torch.empty(param.shape, dtype=target_dtype, device="cpu").normal_(
+                        std=0.02
+                    )
+                )
+                parts = name.split(".")
+                mod = model
+                for part in parts[:-1]:
+                    mod = getattr(mod, part)
+                setattr(mod, parts[-1], new_param)
 
         self.config = model.config
         self.model = model
