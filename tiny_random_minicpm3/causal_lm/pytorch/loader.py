@@ -99,6 +99,8 @@ class ModelLoader(ForgeModel):
         # transformers>=5.0 expects _tied_weights_keys as dict; this model uses list format
         # (transformers 4.x). Disabling tie_word_embeddings skips the incompatible code path.
         config.tie_word_embeddings = False
+        # DynamicCache.get_usable_length was removed in transformers>=5.0; disable cache.
+        config.use_cache = False
         model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
