@@ -77,7 +77,7 @@ class ModelLoader(ForgeModel):
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"return_dict": False}
+        model_kwargs = {}
 
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
@@ -120,9 +120,11 @@ class ModelLoader(ForgeModel):
         """Post-process model outputs.
 
         Args:
-            outputs: Raw model output (text_embeds, last_hidden_state)
+            outputs: Raw model output (CLIPTextModelOutput or tuple)
         """
-        text_embeds = outputs[0]
+        text_embeds = (
+            outputs.text_embeds if hasattr(outputs, "text_embeds") else outputs[0]
+        )
         print(f"Embedding shape: {text_embeds.shape}")
         print(f"Embedding (first 5 dims): {text_embeds[0, :5]}")
 
@@ -130,11 +132,13 @@ class ModelLoader(ForgeModel):
         """Unpack forward pass output to extract a differentiable tensor.
 
         Args:
-            fwd_output: Output from the model's forward pass (tuple)
+            fwd_output: Output from the model's forward pass (ModelOutput or tuple)
 
         Returns:
             torch.Tensor: Concatenated flattened outputs for backward pass
         """
+        if hasattr(fwd_output, "to_tuple"):
+            fwd_output = fwd_output.to_tuple()
         if isinstance(fwd_output, tuple):
             tensors = []
             for item in fwd_output:
