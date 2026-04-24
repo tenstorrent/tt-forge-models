@@ -59,6 +59,9 @@ def _patch_gguf_hunyuan_dense():
 
     gguf_utils_mod.load_gguf_checkpoint = _patched_load_gguf_checkpoint
     config_utils_mod.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    import transformers.models.auto.tokenization_auto as tokenization_auto_mod
+
+    tokenization_auto_mod.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
