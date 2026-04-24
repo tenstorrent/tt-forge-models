@@ -71,17 +71,15 @@ class ModelLoader(ForgeModel):
         )
 
     def _qwen3vl_config(self):
-        from transformers import Qwen3VLTextConfig
-
-        text_config = Qwen3VLTextConfig(
-            hidden_size=4096,
-            intermediate_size=22016,
-            num_hidden_layers=32,
-            num_attention_heads=32,
-            num_key_value_heads=8,
-            head_dim=128,
-            vocab_size=151936,
-        )
+        text_config = {
+            "hidden_size": 4096,
+            "intermediate_size": 22016,
+            "num_hidden_layers": 32,
+            "num_attention_heads": 32,
+            "num_key_value_heads": 8,
+            "head_dim": 128,
+            "vocab_size": 151936,
+        }
         return Qwen3VLConfig(text_config=text_config)
 
     def load_model(self, *, dtype_override=None, **kwargs):
