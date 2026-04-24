@@ -18,13 +18,13 @@ from ....config import (
     Framework,
     StrEnum,
 )
-from ....base import ForgeModel
+from ....base import ForgeModel, ForgeFocusModel
 from ....tools.utils import (
     pad_inputs,
     cast_input_to_type,
     get_static_cache_decode_inputs,
 )
-from .prefill_inputs import get_prefill_texts_for_batch, PREFILL_TEXTS
+from ....prefill_inputs import get_prefill_texts_for_batch, PREFILL_TEXTS
 
 
 class ModelVariant(StrEnum):
@@ -331,46 +331,6 @@ class ModelLoader(ForgeModel):
             dtype=dtype_override,
         )
 
-    def load_inputs_prefill(self, dtype_override=None, batch_size=1, seq_len=128):
-        """Load prefill-step inputs with texts sized appropriately for the target sequence length.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-            batch_size: Batch size for the inputs.
-            seq_len: Target sequence length. Texts are chosen to minimize padding.
-
-        Returns:
-            dict: Input tensors (input_ids, attention_mask) padded to seq_len.
-        """
-        # Ensure tokenizer is initialized
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
-
-        # Get appropriate texts for this seq_len and batch_size
-        if seq_len not in PREFILL_TEXTS:
-            available = sorted(PREFILL_TEXTS.keys())
-            raise ValueError(
-                f"seq_len={seq_len} is not supported. Available sequence lengths: {available}"
-            )
-        texts = get_prefill_texts_for_batch(seq_len, batch_size)
-
-        # Tokenize all texts in the batch with padding to exact seq_len
-        inputs = self.tokenizer(
-            texts,
-            return_tensors="pt",
-            padding="max_length",
-            truncation=True,
-            max_length=seq_len,
-        )
-
-        # Only convert dtype if explicitly requested
-        if dtype_override is not None:
-            for key in inputs:
-                inputs[key] = cast_input_to_type(inputs[key], dtype_override)
-
-        self.seq_len = seq_len
-        return inputs
-
     def decode_output(self, max_new_tokens, model, inputs, tokenizer):
         """Generates text .
         Args:
@@ -420,21 +380,11 @@ class ModelLoader(ForgeModel):
 
         return mesh_shape, ("batch", "model")
 
-    def load_shard_spec(self, model, strategy="fsdp", batch_axis="batch"):
-        """Load weight shard specifications for tensor parallelism.
+    def load_shard_spec(self, model):
+        """Default shard spec on a ("batch", "model") mesh.
 
-        Args:
-            model: The model whose weights are to be sharded.
-            strategy: Sharding strategy — "fsdp" shards across both axes,
-                      "megatron" shards on "model" axis only (other axis is None).
-            batch_axis: Name of the non-model mesh axis for "fsdp" specs (ignored
-                        by "megatron"). Defaults to "batch" for a ("batch", "model")
-                        mesh; pass "data" when input sharding is enabled, because
-                        load_shard_spec_data_parallel hardcodes "data" as the input
-                        sharding axis, forcing the mesh to ("data", "model").
-
-        Returns:
-            dict mapping weight tensors to shard spec tuples, or None for small models.
+        Used by non-prefill TP paths; see :class:`ModelLoaderFocus` for the
+        strategy-parameterized version.
         """
         if self._variant in [
             ModelVariant.LLAMA_3_2_1B,
@@ -447,9 +397,86 @@ class ModelLoader(ForgeModel):
             return None
 
         shard_specs = {}
+        shard_specs[model.model.embed_tokens.weight] = (None, "batch")
+        shard_specs[model.lm_head.weight] = ("model", "batch")
+        shard_specs[model.model.norm.weight] = ("batch",)
+        for layer in model.model.layers:
+            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+
+            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+            shard_specs[layer.input_layernorm.weight] = ("batch",)
+            shard_specs[layer.post_attention_layernorm.weight] = ("batch",)
+
+        return shard_specs
+
+    def load_config(self):
+        """Load and return the configuration for the Llama model variant.
+
+        Returns:
+            The configuration object for the Llama model.
+        """
+        self.config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name
+        )
+
+        return self.config
+
+
+class ModelLoaderFocus(ModelLoader, ForgeFocusModel):
+    """Focus model loader for Llama variants on which we test prefill
+    extensively with various meshes, strategies, batches and sequence lengths.
+    """
+
+    _VARIANTS = {
+        ModelVariant.LLAMA_3_2_1B: ModelLoader._VARIANTS[ModelVariant.LLAMA_3_2_1B],
+        ModelVariant.LLAMA_3_1_8B_INSTRUCT: ModelLoader._VARIANTS[
+            ModelVariant.LLAMA_3_1_8B_INSTRUCT
+        ],
+    }
+    DEFAULT_VARIANT = ModelVariant.LLAMA_3_2_1B
+
+    def load_inputs_prefill(self, dtype_override=None, batch_size=1, seq_len=128):
+        """Prefill inputs (input_ids, attention_mask) padded to ``seq_len``."""
+        if self.tokenizer is None:
+            self._load_tokenizer(dtype_override=dtype_override)
+
+        if seq_len not in PREFILL_TEXTS:
+            available = sorted(PREFILL_TEXTS.keys())
+            raise ValueError(
+                f"seq_len={seq_len} is not supported. Available sequence lengths: {available}"
+            )
+        texts = get_prefill_texts_for_batch(seq_len, batch_size)
+
+        inputs = self.tokenizer(
+            texts,
+            return_tensors="pt",
+            padding="max_length",
+            truncation=True,
+            max_length=seq_len,
+        )
+
+        if dtype_override is not None:
+            for key in inputs:
+                inputs[key] = cast_input_to_type(inputs[key], dtype_override)
+
+        self.seq_len = seq_len
+        return inputs
+
+    def load_shard_spec(self, model, strategy="fsdp", batch_axis="batch"):
+        """Weight shard spec parameterized by ``strategy`` and ``batch_axis``
+        (use "data" when inputs are also sharded).
+        """
+        if self._variant == ModelVariant.LLAMA_3_2_1B:
+            return None
+
+        shard_specs = {}
 
         if strategy == "fsdp":
-            # FSDP: weights sharded across both batch_axis and "model" mesh axes.
             shard_specs[model.model.embed_tokens.weight] = (None, batch_axis)
             shard_specs[model.lm_head.weight] = ("model", batch_axis)
             shard_specs[model.model.norm.weight] = (batch_axis,)
@@ -466,7 +493,6 @@ class ModelLoader(ForgeModel):
                 shard_specs[layer.post_attention_layernorm.weight] = (batch_axis,)
 
         elif strategy == "megatron":
-            # Megatron: weights sharded on "model" axis, replicated (None) on the other.
             shard_specs[model.model.embed_tokens.weight] = (None, None)
             shard_specs[model.lm_head.weight] = ("model", None)
             shard_specs[model.model.norm.weight] = (None,)
@@ -486,15 +512,3 @@ class ModelLoader(ForgeModel):
             raise ValueError(f"Unknown sharding strategy: {strategy!r}")
 
         return shard_specs
-
-    def load_config(self):
-        """Load and return the configuration for the Llama model variant.
-
-        Returns:
-            The configuration object for the Llama model.
-        """
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
-
-        return self.config
