@@ -1,1 +1,3 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+torchaudio==2.9.1+cpu
 qwen_tts>=0.1.1
