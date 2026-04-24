@@ -266,7 +266,7 @@ class ModelLoader(ForgeModel):
 
         _UltravoxModel = get_class_from_dynamic_module(
             "ultravox_model.UltravoxModel",
-            patched_dir,
+            pretrained_model_name,
             local_files_only=True,
         )
         _orig_tie_weights = _UltravoxModel.tie_weights
