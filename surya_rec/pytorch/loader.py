@@ -59,11 +59,9 @@ class ModelLoader(ForgeModel):
         os.environ.setdefault("TORCH_DEVICE", "cpu")
 
         from surya.foundation import FoundationPredictor
-        from surya.recognition import RecognitionPredictor
 
         foundation_predictor = FoundationPredictor(device="cpu")
-        rec_predictor = RecognitionPredictor(foundation_predictor)
-        model = rec_predictor.model
+        model = foundation_predictor.model
         model.eval()
 
         if dtype_override is not None:
