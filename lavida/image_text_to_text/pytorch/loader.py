@@ -79,6 +79,20 @@ def _patch_lavida_cached_module():
         if hasattr(mod, "LLaDAModelLM"):
             _orig_tw = mod.LLaDAModelLM.tie_weights
             mod.LLaDAModelLM.tie_weights = lambda self, **kw: _orig_tw(self)
+
+            # Patch LLaDAModelLM.forward to ignore kwargs not in its signature.
+            # LlavaLladaForMaskedDiffusion.forward calls super().forward() with
+            # position_ids, prompt_len, num_items_in_batch which LLaDAModelLM doesn't accept.
+            import inspect
+
+            _orig_forward = mod.LLaDAModelLM.forward
+            _forward_params = set(inspect.signature(_orig_forward).parameters)
+
+            def _llada_forward_compat(self, *args, **kwargs):
+                kwargs = {k: v for k, v in kwargs.items() if k in _forward_params}
+                return _orig_forward(self, *args, **kwargs)
+
+            mod.LLaDAModelLM.forward = _llada_forward_compat
         return
 
 
