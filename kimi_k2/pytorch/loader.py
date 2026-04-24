@@ -10,7 +10,12 @@ model is too large to load directly.
 
 from typing import Optional
 
+import transformers.models.gpt2.tokenization_gpt2 as _gpt2_tok
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.convert_slow_tokenizer import bytes_to_unicode as _bytes_to_unicode
+
+if not hasattr(_gpt2_tok, "bytes_to_unicode"):
+    _gpt2_tok.bytes_to_unicode = _bytes_to_unicode
 
 from ...base import ForgeModel
 from ...config import (
