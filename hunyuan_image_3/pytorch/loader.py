@@ -120,6 +120,10 @@ class ModelLoader(ForgeModel):
                 pretrained_model_name, **model_kwargs
             ).eval()
 
+        # post_token_len is not initialized in __init__ but is accessed in forward
+        if not hasattr(model, "post_token_len"):
+            model.post_token_len = None
+
         self.config = model.config
         self.model = model
         return model
