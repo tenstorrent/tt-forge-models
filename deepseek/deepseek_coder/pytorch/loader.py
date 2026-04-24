@@ -36,6 +36,8 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """DeepSeek Coder model loader implementation for causal language modeling tasks."""
 
+    _GGUF_FILES = {}
+
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
         ModelVariant.DEEPSEEK_1_3B_BASE: LLMModelConfig(
