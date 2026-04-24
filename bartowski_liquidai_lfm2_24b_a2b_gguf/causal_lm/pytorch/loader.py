@@ -207,8 +207,14 @@ class ModelLoader(ForgeModel):
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
-        ).eval()
+        )
 
+        # Tokenizer may have more vocab entries than the GGUF config reports
+        # (GGUFGPTConverter adds special tokens). Resize embeddings to match.
+        if self.tokenizer is not None and len(self.tokenizer) > model.config.vocab_size:
+            model.resize_token_embeddings(len(self.tokenizer))
+
+        model.eval()
         self.config = model.config
         self.model = model
         return model
