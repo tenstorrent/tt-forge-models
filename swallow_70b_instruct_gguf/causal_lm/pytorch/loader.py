@@ -12,8 +12,15 @@ import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
-from ....config import (Framework, LLMModelConfig, ModelGroup, ModelInfo,
-                        ModelSource, ModelTask, StrEnum)
+from ....config import (
+    Framework,
+    LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
+    StrEnum,
+)
 
 
 class ModelVariant(StrEnum):
