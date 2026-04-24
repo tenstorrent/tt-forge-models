@@ -198,8 +198,13 @@ def _patch_transformers_nemotron_h_moe_gguf():
         if result.get("config", {}).get("model_type") == "nemotron_h_moe":
             cfg = result["config"]
             cfg["model_type"] = "nemotron_h"
-            # GGUF stores 0 for num_key_value_heads on hybrid models; use known value
-            if cfg.get("num_key_value_heads", 0) == 0:
+            # GGUF stores per-layer num_key_value_heads as a list (0 for SSM
+            # layers, 2 for attention layers).  NemotronHConfig expects a scalar.
+            kv = cfg.get("num_key_value_heads", 0)
+            if isinstance(kv, list):
+                non_zero = [v for v in kv if v != 0]
+                cfg["num_key_value_heads"] = max(non_zero) if non_zero else 2
+            elif kv == 0:
                 cfg["num_key_value_heads"] = 2
             # ssm.inner_size = mamba_num_heads * mamba_head_dim (8192 = 128 * 64)
             cfg.setdefault("mamba_num_heads", 128)
