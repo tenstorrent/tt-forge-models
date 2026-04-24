@@ -4,13 +4,10 @@
 """
 Moody Real Mix v4 DPO GGUF model loader implementation for text-to-image generation.
 
-Loads the GGUF-quantized Lumina2Transformer2DModel from
-Gthalmie1/moody-real-mix-v4-dpo-gguf, a DPO-tuned Lumina-Image-2.0 checkpoint.
+Loads the GGUF-quantized SDXL UNet from Gthalmie1/moody-real-mix-v4-dpo-gguf,
+a DPO-tuned Stable Diffusion XL checkpoint in ComfyUI GGUF format.
 """
 
-import torch
-from diffusers import GGUFQuantizationConfig, Lumina2Transformer2DModel
-from huggingface_hub import hf_hub_download
 from typing import Optional
 
 from ...base import ForgeModel
@@ -23,12 +20,12 @@ from ...config import (
     Framework,
     StrEnum,
 )
+from ...sdxl_finetune_gguf_files.pytorch.src.model_utils import (
+    load_gguf_pipe,
+    stable_diffusion_preprocessing_xl,
+)
 
 REPO_ID = "Gthalmie1/moody-real-mix-v4-dpo-gguf"
-
-# Lumina-Image-2.0 architecture constants
-IN_CHANNELS = 16
-CAP_FEAT_DIM = 2304  # Gemma-2-2b hidden size
 
 
 class ModelVariant(StrEnum):
@@ -53,9 +50,11 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.Q4_K_M
 
+    prompt = "A photorealistic portrait of a woman in soft natural lighting"
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.transformer = None
+        self.pipeline = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -66,57 +65,37 @@ class ModelLoader(ForgeModel):
             model="Moody Real Mix v4 DPO GGUF",
             variant=variant,
             group=ModelGroup.VULCAN,
-            task=ModelTask.MM_IMAGE_TTT,
+            task=ModelTask.CONDITIONAL_GENERATION,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+        if self.pipeline is None:
+            gguf_filename = _GGUF_FILES[self._variant]
+            self.pipeline = load_gguf_pipe(REPO_ID, gguf_filename)
 
-        repo_id = self._variant_config.pretrained_model_name
-        gguf_filename = _GGUF_FILES[self._variant]
-        model_path = hf_hub_download(repo_id=repo_id, filename=gguf_filename)
+        if dtype_override is not None:
+            self.pipeline = self.pipeline.to(dtype_override)
 
-        self.transformer = Lumina2Transformer2DModel.from_single_file(
-            model_path,
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
-        self.transformer.eval()
-        return self.transformer
+        return self.pipeline
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        if self.transformer is None:
+        if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
 
-        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        (
+            latent_model_input,
+            timesteps,
+            prompt_embeds,
+            timestep_cond,
+            added_cond_kwargs,
+            add_time_ids,
+        ) = stable_diffusion_preprocessing_xl(self.pipeline, self.prompt)
 
-        # Latent image: (B, in_channels, H, W)
-        height = 128
-        width = 128
-        hidden_states = torch.randn(batch_size, IN_CHANNELS, height, width, dtype=dtype)
+        if dtype_override:
+            latent_model_input = latent_model_input.to(dtype_override)
+            timesteps = timesteps.to(dtype_override)
+            prompt_embeds = prompt_embeds.to(dtype_override)
 
-        # Timestep: (B,)
-        timestep = torch.tensor([1.0 / 1000], dtype=dtype).expand(batch_size)
-
-        # Text encoder hidden states from Gemma-2-2b: (B, seq_len, cap_feat_dim)
-        max_sequence_length = 128
-        encoder_hidden_states = torch.randn(
-            batch_size, max_sequence_length, CAP_FEAT_DIM, dtype=dtype
-        )
-
-        # Encoder attention mask: (B, seq_len)
-        encoder_attention_mask = torch.ones(
-            batch_size, max_sequence_length, dtype=torch.bool
-        )
-
-        inputs = {
-            "hidden_states": hidden_states,
-            "timestep": timestep,
-            "encoder_hidden_states": encoder_hidden_states,
-            "encoder_attention_mask": encoder_attention_mask,
-        }
-
-        return inputs
+        return [latent_model_input, timesteps, prompt_embeds, added_cond_kwargs]
