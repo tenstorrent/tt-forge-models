@@ -5,7 +5,9 @@
 mradermacher Gemma 3 12B IT VL GLM Polaris V2c NM SuperBrain7x HERETIC Uncensored GGUF
 model loader implementation for causal language modeling.
 """
+import inspect
 import torch
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -19,6 +21,45 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _is_real_load_gguf(fn):
+    """Return True if fn is the real transformers load_gguf_checkpoint."""
+    try:
+        return "modeling_gguf_pytorch_utils" in inspect.getfile(fn)
+    except (TypeError, OSError):
+        return False
+
+
+def _find_real_load_gguf(fn, _seen=None):
+    """Traverse monkey-patch chains (closures and globals) to find the real transformers function."""
+    if _seen is None:
+        _seen = set()
+    fn_id = id(fn)
+    if fn_id in _seen:
+        return fn
+    _seen.add(fn_id)
+    if _is_real_load_gguf(fn):
+        return fn
+    if fn.__closure__:
+        for cell in fn.__closure__:
+            try:
+                val = cell.cell_contents
+                if callable(val) and hasattr(val, "__module__"):
+                    result = _find_real_load_gguf(val, _seen)
+                    if _is_real_load_gguf(result):
+                        return result
+            except ValueError:
+                pass
+    orig = getattr(fn, "__globals__", {}).get("_orig_load_gguf_checkpoint")
+    if orig is not None and callable(orig) and id(orig) not in _seen:
+        result = _find_real_load_gguf(orig, _seen)
+        if _is_real_load_gguf(result):
+            return result
+    return fn
+
+
+_real_load_gguf_checkpoint = _find_real_load_gguf(_gguf_utils.load_gguf_checkpoint)
 
 
 class ModelVariant(StrEnum):
@@ -82,6 +123,15 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _chain_head = _gguf_utils.load_gguf_checkpoint
+
+        def _gemma_load_gguf(gguf_path, return_tensors=False, **kw):
+            return _real_load_gguf_checkpoint(
+                gguf_path, return_tensors=return_tensors, **kw
+            )
+
+        _gguf_utils.load_gguf_checkpoint = _gemma_load_gguf
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -100,9 +150,12 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _gguf_utils.load_gguf_checkpoint = _chain_head
 
         self.config = model.config
         self.model = model
