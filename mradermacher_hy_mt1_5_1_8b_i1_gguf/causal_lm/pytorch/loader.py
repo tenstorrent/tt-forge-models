@@ -9,10 +9,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
-import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
-import transformers.models.auto.tokenization_auto as _auto_tokenizer
-import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
 
 from ....base import ForgeModel
@@ -28,8 +25,12 @@ from ....config import (
 
 
 def _patch_hunyuan_dense_support():
-    """Register hunyuan-dense as an alias for hunyuan_v1_dense in GGUF loaders."""
+    """Register hunyuan-dense arch in GGUF loaders and AutoConfig mapping."""
     import transformers.integrations.ggml as _ggml
+    from transformers.models.auto.configuration_auto import CONFIG_MAPPING
+    from transformers.models.hunyuan_v1_dense.configuration_hunyuan_v1_dense import (
+        HunYuanDenseV1Config,
+    )
 
     if "hunyuan-dense" not in GGUF_SUPPORTED_ARCHITECTURES:
         _ggml.GGUF_CONFIG_MAPPING["hunyuan-dense"] = {
@@ -48,41 +49,44 @@ def _patch_hunyuan_dense_support():
 
     if "hunyuan-dense" not in _ggml.GGUF_TO_FAST_CONVERTERS:
         _ggml.GGUF_TO_FAST_CONVERTERS["hunyuan-dense"] = _ggml.GGUFGPTConverter
-    if "hunyuan_v1_dense" not in _ggml.GGUF_TO_FAST_CONVERTERS:
-        _ggml.GGUF_TO_FAST_CONVERTERS["hunyuan_v1_dense"] = _ggml.GGUFGPTConverter
+
+    try:
+        CONFIG_MAPPING.register("hunyuan-dense", HunYuanDenseV1Config, exist_ok=True)
+    except Exception:
+        pass
 
 
-def _make_hunyuan_patch(base_fn):
-    """Return a wrapper around base_fn that adds hunyuan-dense model_type fix."""
+def _apply_gguf_compat_patches():
+    """Patch load_gguf_checkpoint and get_gguf_hf_weights_map to accept/handle
+    newer transformers kwargs (e.g. model_to_load) that older monkey-patches
+    in the test session drop silently, breaking the call chain."""
+    import inspect
+    import transformers.modeling_gguf_pytorch_utils as _gguf_mod
 
-    def _patched(gguf_path, return_tensors=False, **kw):
-        _patch_hunyuan_dense_support()
-        result = base_fn(gguf_path, return_tensors=return_tensors, **kw)
-        if result.get("config", {}).get("model_type") == "hunyuan-dense":
-            result["config"]["model_type"] = "hunyuan_v1_dense"
-        return result
+    chain_top = _gguf_mod.load_gguf_checkpoint
+    try:
+        needs_compat = "model_to_load" not in inspect.signature(chain_top).parameters
+    except Exception:
+        needs_compat = False
 
-    return _patched
+    if not needs_compat:
+        return
 
+    def _compat_load_gguf(gguf_path, return_tensors=False, **kw):
+        kw.pop("model_to_load", None)
+        return chain_top(gguf_path, return_tensors=return_tensors, **kw)
 
-def _apply_hunyuan_patches():
-    """Install hunyuan-dense patch as top-of-chain across all GGUF loader sites."""
-    _patch_hunyuan_dense_support()
-    current = _gguf_utils.load_gguf_checkpoint
-    patched = _make_hunyuan_patch(current)
-    _gguf_utils.load_gguf_checkpoint = patched
-    _config_utils.load_gguf_checkpoint = patched
-    _auto_tokenizer.load_gguf_checkpoint = patched
-    _tok_utils.load_gguf_checkpoint = patched
-    return current, patched
+    orig_get_map = _gguf_mod.get_gguf_hf_weights_map
 
+    def _compat_get_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if hf_model is None:
+            return {}
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
 
-def _restore_hunyuan_patches(original):
-    """Restore the pre-patch load_gguf_checkpoint across all loader sites."""
-    _gguf_utils.load_gguf_checkpoint = original
-    _config_utils.load_gguf_checkpoint = original
-    _auto_tokenizer.load_gguf_checkpoint = original
-    _tok_utils.load_gguf_checkpoint = original
+    _gguf_mod.load_gguf_checkpoint = _compat_load_gguf
+    _gguf_mod.get_gguf_hf_weights_map = _compat_get_map
 
 
 class ModelVariant(StrEnum):
@@ -148,19 +152,16 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _patch_hunyuan_dense_support()
+
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
         tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
-        original, _ = _apply_hunyuan_patches()
-        try:
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                self._variant_config.pretrained_model_name, **tokenizer_kwargs
-            )
-        finally:
-            _restore_hunyuan_patches(original)
-
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+        )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -168,6 +169,9 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         self._fix_gguf_version_detection()
+        _patch_hunyuan_dense_support()
+        _apply_gguf_compat_patches()
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -186,13 +190,9 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        original, _ = _apply_hunyuan_patches()
-        try:
-            model = AutoModelForCausalLM.from_pretrained(
-                pretrained_model_name, **model_kwargs
-            ).eval()
-        finally:
-            _restore_hunyuan_patches(original)
+        model = AutoModelForCausalLM.from_pretrained(
+            pretrained_model_name, **model_kwargs
+        ).eval()
 
         self.config = model.config
         self.model = model
@@ -232,11 +232,8 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        original, _ = _apply_hunyuan_patches()
-        try:
-            self.config = AutoConfig.from_pretrained(
-                self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
-        finally:
-            _restore_hunyuan_patches(original)
+        _patch_hunyuan_dense_support()
+        self.config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+        )
         return self.config
