@@ -85,10 +85,13 @@ class ModelLoader(ForgeModel):
         model_kwargs["ignore_mismatched_sizes"] = True
         model_kwargs |= kwargs
 
+        # MLX quantization config lacks `quant_method` required by transformers;
+        # clear it so the model loads in the specified dtype instead.
+        config = AutoConfig.from_pretrained(pretrained_model_name)
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        config.quantization_config = None
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
