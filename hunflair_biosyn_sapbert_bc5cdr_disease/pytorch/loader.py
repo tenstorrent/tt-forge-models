@@ -58,40 +58,37 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from flair.models import EntityMentionLinker
+        from transformers import AutoModel
 
-        linker = EntityMentionLinker.load(self.model_name)
-        self.model = linker
+        model = AutoModel.from_pretrained(self.model_name)
 
         if dtype_override is not None:
-            linker = linker.to(dtype_override)
+            model = model.to(dtype_override)
 
-        linker.eval()
-        return linker
+        model.eval()
+        return model
 
     def load_inputs(self, dtype_override=None):
-        from flair.data import Sentence
+        import torch
+        from transformers import AutoTokenizer
 
-        sentence = Sentence(self.sample_text)
-        return [sentence]
+        tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        inputs = tokenizer(
+            self.sample_text,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=512,
+        )
+        if dtype_override is not None:
+            inputs = {
+                k: v.to(dtype_override) if torch.is_floating_point(v) else v
+                for k, v in inputs.items()
+            }
+        return inputs
 
-    def decode_output(self, co_out):
-        from flair.data import Sentence
-
-        sentence = Sentence(self.sample_text)
-        self.model.predict(sentence)
-
-        links = []
-        for span in sentence.get_spans():
-            for label in span.get_labels(self.model.label_type):
-                links.append(
-                    {
-                        "text": span.text,
-                        "link": label.value,
-                        "score": label.score,
-                    }
-                )
-
+    def decode_output(self, outputs):
+        embeddings = outputs.last_hidden_state[:, 0, :]
         print(f"Context: {self.sample_text}")
-        print(f"Entity links: {links}")
-        return links
+        print(f"Embedding shape: {embeddings.shape}")
+        return embeddings
