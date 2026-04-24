@@ -5,7 +5,7 @@
 GLM-4.6V-FP8 model loader implementation for multimodal conditional generation.
 """
 import torch
-from transformers import AutoProcessor, Glm4vMoeForConditionalGeneration
+from transformers import AutoConfig, AutoProcessor, Glm4vMoeForConditionalGeneration
 from typing import Optional
 
 from ....base import ForgeModel
@@ -79,8 +79,14 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        # Load config and strip quantization_config so FP8 weights are cast to
+        # bfloat16 directly. Without this, compressed-tensors keeps weights as
+        # FP8 and uses torch._grouped_mm with FP8 input, which is unsupported.
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        config.quantization_config = None
+
         model = Glm4vMoeForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, config=config, **model_kwargs
         )
         model.eval()
         self.model = model
