@@ -7,7 +7,7 @@ Ferret-UI-Llama8b model loader implementation for image-text-to-text tasks.
 
 import torch
 from PIL import Image
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, CLIPImageProcessor
 from typing import Optional
 
 from ....base import ForgeModel
@@ -117,9 +117,12 @@ class ModelLoader(ForgeModel):
         image = Image.open(image_file).convert("RGB")
 
         vision_tower = self.model.get_vision_tower()
-        if not vision_tower.is_loaded:
-            vision_tower.load_model()
-        pixel_values = vision_tower.image_processor(images=image, return_tensors="pt")[
+        # CLIPImageProcessor_Ferret.resize() is broken with newer transformers (expects
+        # size["height"] but gets size["shortest_edge"]); use the base CLIPImageProcessor.
+        image_processor = CLIPImageProcessor.from_pretrained(
+            vision_tower.vision_tower_name
+        )
+        pixel_values = image_processor(images=image, return_tensors="pt")[
             "pixel_values"
         ]
 
