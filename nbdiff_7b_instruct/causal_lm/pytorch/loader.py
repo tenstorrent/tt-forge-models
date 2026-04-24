@@ -6,7 +6,48 @@ NBDiff-7B-Instruct model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
-from typing import Optional
+from typing import Optional, TypedDict
+
+import transformers.utils as _transformers_utils
+from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS as _ROPE_INIT_FUNCTIONS
+
+# LossKwargs was removed in transformers 5.x; inject a stub so the model's
+# trust_remote_code file can import it without error.
+if not hasattr(_transformers_utils, "LossKwargs"):
+
+    class _LossKwargs(TypedDict, total=False):
+        labels: torch.LongTensor
+        num_logits_to_keep: int
+
+    _transformers_utils.LossKwargs = _LossKwargs
+
+
+# 'default' rope type was removed from ROPE_INIT_FUNCTIONS in transformers 5.x;
+# add a simple unscaled RoPE implementation as a fallback.
+def _compute_default_rope_parameters(
+    config=None, device=None, seq_len=None, layer_type=None
+):
+    base = getattr(config, "rope_theta", 10000.0)
+    partial_rotary_factor = getattr(config, "partial_rotary_factor", 1.0)
+    head_dim = (
+        getattr(config, "head_dim", None)
+        or config.hidden_size // config.num_attention_heads
+    )
+    dim = int(head_dim * partial_rotary_factor)
+    inv_freq = 1.0 / (
+        base
+        ** (
+            torch.arange(0, dim, 2, dtype=torch.int64).to(
+                device=device, dtype=torch.float
+            )
+            / dim
+        )
+    )
+    return inv_freq, 1.0
+
+
+if "default" not in _ROPE_INIT_FUNCTIONS:
+    _ROPE_INIT_FUNCTIONS["default"] = _compute_default_rope_parameters
 
 from ....base import ForgeModel
 from ....config import (
