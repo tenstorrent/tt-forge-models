@@ -21,7 +21,9 @@ class _PatchedPhi3Converter(_OrigPhi3Converter):
         vocab_scores = self.vocab(proto)
         bpe_vocab = {word: i for i, (word, _) in enumerate(vocab_scores)}
         proto.merges = [
-            (a, b) for a, b in proto.merges if a in bpe_vocab and b in bpe_vocab
+            (a, b)
+            for a, b in proto.merges
+            if a in bpe_vocab and b in bpe_vocab and (a + b) in bpe_vocab
         ]
         return super().tokenizer(proto)
 
