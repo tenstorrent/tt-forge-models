@@ -237,6 +237,8 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        # Disable meta device so nested from_pretrained calls inside __init__ work.
+        model_kwargs["low_cpu_mem_usage"] = False
         model_kwargs |= kwargs
 
         model = transformers.AutoModel.from_pretrained(
