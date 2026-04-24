@@ -51,6 +51,21 @@ def _patch_gemma3n_support():
         )
 
 
+_orig_get_gguf_hf_weights_map = _gguf_utils.get_gguf_hf_weights_map
+
+
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
+    if model_type is None and hasattr(hf_model, "config"):
+        model_type = getattr(hf_model.config, "model_type", None)
+    if model_type == "gemma3n_text":
+        model_type = "gemma3n"
+    return _orig_get_gguf_hf_weights_map(
+        hf_model, processor, model_type, num_layers, qual_name
+    )
+
+
 def _patched_load_gguf_checkpoint(
     gguf_path, return_tensors=False, model_to_load=None, **kwargs
 ):
@@ -65,6 +80,7 @@ def _patched_load_gguf_checkpoint(
 
 
 _patch_gemma3n_support()
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
