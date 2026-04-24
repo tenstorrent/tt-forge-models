@@ -6,6 +6,7 @@ Jina Reranker v1 tiny English model loader implementation for passage ranking.
 """
 import torch
 from transformers import AutoConfig, AutoModelForSequenceClassification, AutoTokenizer
+from transformers.dynamic_module_utils import get_class_in_module
 from typing import Optional
 
 from ....base import ForgeModel
@@ -90,6 +91,57 @@ class ModelLoader(ForgeModel):
             if not hasattr(config, attr):
                 object.__setattr__(config, attr, default)
 
+        # transformers>=5 get_init_context() unconditionally wraps model __init__
+        # in torch.device("meta").  JinaBert has several custom operations that
+        # run during __init__ and require real CPU tensors:
+        #   - JinaBertEncoder.rebuild_alibi_tensor uses torch.arange (meta
+        #     context makes it return a meta tensor) and torch.Tensor(list) (CPU)
+        #     causing a device mismatch on multiply.
+        #   - JinaBertEmbeddings registers position_ids / token_type_ids with
+        #     persistent=False, so they are never restored from checkpoint and
+        #     remain as meta tensors that break inference.
+        #
+        # Fix: override get_init_context on JinaBertForSequenceClassification
+        # to strip the torch.device("meta") context.  This makes all __init__
+        # tensors materialise on CPU instead, at the cost of slightly higher peak
+        # memory during loading (acceptable for this tiny model).
+        #
+        # get_class_in_module() re-executes the module file if
+        # __transformers_module_hash__ is not set, overwriting any patch applied
+        # via importlib.import_module.  We call get_class_in_module ourselves
+        # first (which sets __transformers_module_hash__), then apply the patch.
+        # Subsequent calls by from_pretrained find the hash cached and skip
+        # re-execution, so the patch survives into model construction.
+        _config_mod_name = type(config).__module__
+        if _config_mod_name and "configuration_bert" in _config_mod_name:
+            _modeling_rel_path = (
+                _config_mod_name.replace("configuration_bert", "modeling_bert").replace(
+                    ".", "/"
+                )
+                + ".py"
+            )
+            _jina_cls = get_class_in_module(
+                "JinaBertForSequenceClassification", _modeling_rel_path
+            )
+            if isinstance(_jina_cls, type) and not getattr(
+                _jina_cls, "_no_meta_init_patched", False
+            ):
+
+                @classmethod  # type: ignore[misc]
+                def _patched_get_init_ctx(cls, dtype, is_quantized, _is_ds_init_called):
+                    # JinaBert uses torch.arange/torch.zeros in __init__ to create
+                    # CPU integer buffers (position_ids, token_type_ids, alibi).
+                    # transformers>=5 init contexts include:
+                    #   1. torch.device("meta") — makes tensors meta, breaking alibi
+                    #   2. local_torch_dtype(dtype) — sets default dtype to bfloat16,
+                    #      which corrupts integer buffer initialization under the TT
+                    #      TorchFunctionMode override.
+                    # Return empty list so __init__ runs with plain CPU defaults.
+                    return []
+
+                _jina_cls.get_init_context = _patched_get_init_ctx
+                _jina_cls._no_meta_init_patched = True
+
         model_kwargs = {
             "config": config,
             "trust_remote_code": True,
@@ -103,6 +155,30 @@ class ModelLoader(ForgeModel):
         model = AutoModelForSequenceClassification.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        # transformers>=5 replaces all non-persistent buffers with torch.empty_like
+        # after loading the checkpoint (modeling_utils.py _finalize_model_loading).
+        # This leaves position_ids, token_type_ids, and alibi with garbage values.
+        # Re-register them with the correct initialisation.
+        max_pos = model.config.max_position_embeddings
+        emb = model.bert.embeddings
+        emb.register_buffer(
+            "position_ids",
+            torch.arange(max_pos).expand((1, -1)),
+            persistent=False,
+        )
+        emb.register_buffer(
+            "token_type_ids",
+            torch.zeros((1, max_pos), dtype=torch.long),
+            persistent=False,
+        )
+        enc = model.bert.encoder
+        enc.register_buffer(
+            "alibi",
+            enc.rebuild_alibi_tensor(size=max_pos),
+            persistent=False,
+        )
+
         if dtype_override is not None:
             model = model.to(dtype_override)
         model.eval()
