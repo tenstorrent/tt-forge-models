@@ -234,18 +234,28 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         # transformers>=5.x removed modeling_utils._init_weights; patch it back
-        # for custom model code (e.g. hausa-ultravox) that still references it.
+        # with a proxy that mirrors the old semantics: True when NOT in a meta
+        # device context (real weight loading), False when inside one (empty init).
+        # The custom hausa-ultravox code uses this flag to choose between
+        # from_pretrained (real weights) and from_config (meta/empty init).
         if not hasattr(transformers.modeling_utils, "_init_weights"):
-            transformers.modeling_utils._init_weights = True
 
-        # low_cpu_mem_usage=False avoids the meta-device context that transformers
-        # uses when torch_dtype is set; nested from_pretrained calls (e.g. the
-        # audio tower) fail inside that context.
+            class _InitWeightsProxy:
+                def __bool__(self):
+                    from transformers.modeling_utils import (
+                        get_torch_context_manager_or_global_device,
+                    )
+
+                    return get_torch_context_manager_or_global_device() != torch.device(
+                        "meta"
+                    )
+
+            transformers.modeling_utils._init_weights = _InitWeightsProxy()
+
         model = transformers.AutoModel.from_pretrained(
             pretrained_model_name,
             config=config,
             trust_remote_code=True,
-            low_cpu_mem_usage=False,
             **model_kwargs,
         )
         model.eval()
