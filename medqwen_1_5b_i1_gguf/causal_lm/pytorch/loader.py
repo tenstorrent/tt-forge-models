@@ -9,6 +9,10 @@ import importlib.metadata
 from typing import Optional
 
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
@@ -21,6 +25,49 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _find_real_load_gguf_checkpoint(fn):
+    """Traverse a patch chain to find the real load_gguf_checkpoint from transformers.
+
+    Other GGUF loaders wrap load_gguf_checkpoint without forwarding all kwargs.
+    This traverses globals and closure vars to reach the real function.
+    """
+    seen = set()
+    while id(fn) not in seen:
+        seen.add(id(fn))
+        if fn.__name__ == "load_gguf_checkpoint" and getattr(
+            fn, "__module__", ""
+        ).endswith("modeling_gguf_pytorch_utils"):
+            return fn
+        next_fn = None
+        globals_dict = getattr(fn, "__globals__", {})
+        for var_name in (
+            "_orig_load_gguf_checkpoint",
+            "orig_load",
+            "_inner",
+            "_current",
+            "_orig",
+        ):
+            candidate = globals_dict.get(var_name)
+            if callable(candidate) and candidate is not fn:
+                next_fn = candidate
+                break
+        if next_fn is None:
+            closure = getattr(fn, "__closure__", None) or ()
+            freevars = getattr(getattr(fn, "__code__", None), "co_freevars", ())
+            for name, cell in zip(freevars, closure):
+                try:
+                    val = cell.cell_contents
+                    if callable(val) and val is not fn:
+                        next_fn = val
+                        break
+                except ValueError:
+                    pass
+        if next_fn is None:
+            break
+        fn = next_fn
+    return fn
 
 
 def _fix_gguf_version_detection():
@@ -116,9 +163,25 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        # Other GGUF loaders patch load_gguf_checkpoint without forwarding model_to_load,
+        # which was added in newer transformers. Temporarily install our wrapper as the
+        # outermost patch so model_to_load reaches the real function via chain traversal.
+        _mods = (_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils)
+        _prev = {mod: mod.load_gguf_checkpoint for mod in _mods}
+        _real_fn = _find_real_load_gguf_checkpoint(_prev[_gguf_utils])
+
+        def _wrapper(gguf_path, return_tensors=False, **patch_kwargs):
+            return _real_fn(gguf_path, return_tensors=return_tensors, **patch_kwargs)
+
+        for mod in _mods:
+            mod.load_gguf_checkpoint = _wrapper
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            for mod, fn in _prev.items():
+                mod.load_gguf_checkpoint = fn
 
         self.config = model.config
         self.model = model
