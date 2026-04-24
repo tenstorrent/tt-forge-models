@@ -58,9 +58,9 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from transformers import AutoModel
+        from transformers import BertModel
 
-        model = AutoModel.from_pretrained(self.model_name)
+        model = BertModel.from_pretrained(self.model_name)
 
         if dtype_override is not None:
             model = model.to(dtype_override)
@@ -70,9 +70,9 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None):
         import torch
-        from transformers import AutoTokenizer
+        from transformers import BertTokenizer
 
-        tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        tokenizer = BertTokenizer.from_pretrained(self.model_name)
         inputs = tokenizer(
             self.sample_text,
             return_tensors="pt",
