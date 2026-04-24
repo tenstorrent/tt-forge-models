@@ -48,10 +48,10 @@ def _patch_qwen3vlmoe_support():
         )
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+def _patched_load_gguf_checkpoint(*args, **kwargs):
     """Wrap load_gguf_checkpoint to add qwen3vlmoe → qwen3_vl_moe support."""
     _patch_qwen3vlmoe_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
     if result.get("config", {}).get("model_type") == "qwen3vlmoe":
         result["config"]["model_type"] = "qwen3_vl_moe"
     return result
