@@ -22,6 +22,13 @@ from transformers.modeling_gguf_pytorch_utils import (
 )
 from typing import Optional
 
+# Stores model_to_load passed by transformers during tensor loading; used to
+# restore it for get_gguf_hf_weights_map when old-style loaders in the patch
+# chain discard the model_to_load kwarg.
+_current_model_to_load = None
+
+_orig_get_gguf_hf_weights_map = _gguf_utils.get_gguf_hf_weights_map
+
 
 def _refresh_gguf_detection():
     """Refresh transformers' gguf package detection if the package was installed after import."""
@@ -53,12 +60,40 @@ def _patch_qwen3vl_support():
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
-    """Wrap load_gguf_checkpoint to add qwen3vl support and fix model_type."""
+    """Wrap load_gguf_checkpoint to add qwen3vl support and fix model_type.
+
+    Stores model_to_load so that _patched_get_gguf_hf_weights_map can recover
+    it even if older loaders in the patch chain discard the kwarg.
+    """
+    global _current_model_to_load
     _patch_qwen3vl_support()
+    if model_to_load is not None:
+        _current_model_to_load = model_to_load
     result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
-    if result.get("config", {}).get("model_type") == "qwen3vl":
-        result["config"]["model_type"] = "qwen3_vl"
+    if not return_tensors:
+        if result.get("config", {}).get("model_type") == "qwen3vl":
+            result["config"]["model_type"] = "qwen3_vl"
     return result
+
+
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
+    """Wrap get_gguf_hf_weights_map to handle qwen3_vl architecture.
+
+    If hf_model is None (model_to_load was discarded in the patch chain),
+    restore it from _current_model_to_load. Also maps the HF model_type
+    'qwen3_vl' to the gguf-py arch name 'qwen3vl' for the tensor name lookup.
+    """
+    if hf_model is None:
+        hf_model = _current_model_to_load
+    if model_type is None and hf_model is not None:
+        model_type = hf_model.config.model_type
+    if model_type == "qwen3_vl":
+        model_type = "qwen3vl"
+    return _orig_get_gguf_hf_weights_map(
+        hf_model, processor, model_type, num_layers, qual_name
+    )
 
 
 def _apply_patches():
@@ -69,6 +104,7 @@ def _apply_patches():
     _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
     _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
     _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 
 _apply_patches()
