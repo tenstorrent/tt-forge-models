@@ -3,6 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Bartowski xlangai Jedi-3B-1080p GGUF model loader implementation for image to text.
+
+Note: The qwen2vl GGUF architecture is not yet supported by the transformers
+GGUF loader, so we load from the HF-native checkpoint instead.
 """
 
 from transformers import (
@@ -30,18 +33,20 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """Bartowski xlangai Jedi-3B-1080p GGUF model loader implementation for image to text tasks."""
+    """Bartowski xlangai Jedi-3B-1080p GGUF model loader implementation for image to text tasks.
+
+    Note: Uses the base model (safetensors) instead of GGUF because the
+    qwen2vl GGUF architecture is not yet supported by transformers.
+    """
 
     _VARIANTS = {
         ModelVariant.XLANGAI_JEDI_3B_1080P_GGUF: LLMModelConfig(
-            pretrained_model_name="bartowski/xlangai_Jedi-3B-1080p-GGUF",
+            pretrained_model_name="xlangai/Jedi-3B-1080p",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.XLANGAI_JEDI_3B_1080P_GGUF
-
-    GGUF_FILE = "xlangai_Jedi-3B-1080p-Q4_K_M.gguf"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -66,10 +71,8 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs["gguf_file"] = self.GGUF_FILE
         model_kwargs |= kwargs
 
-        # GGUF repos do not ship a processor; use the base model
         self.processor = AutoProcessor.from_pretrained("Qwen/Qwen2.5-VL-3B-Instruct")
 
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
