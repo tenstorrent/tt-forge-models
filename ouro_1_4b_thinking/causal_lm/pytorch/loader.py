@@ -5,10 +5,12 @@
 Ouro-1.4B-Thinking model loader implementation for causal language modeling.
 """
 
+from pathlib import Path
 from typing import Optional
 
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.dynamic_module_utils import get_cached_module_file
 
 from ....base import ForgeModel
 from ....config import (
@@ -20,6 +22,28 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
+
+_ROPE_BUG = "rope_init_fn: Callable = compute_default_rope_parameters"
+_ROPE_FIX = (
+    "rope_init_fn: Callable = OuroRotaryEmbedding.compute_default_rope_parameters"
+)
+
+
+def _patch_cached_modeling(pretrained_model_name: str) -> None:
+    """Fix bare-name reference to compute_default_rope_parameters in cached custom code."""
+    try:
+        cached = Path(
+            get_cached_module_file(
+                pretrained_model_name, "modeling_ouro.py", trust_remote_code=True
+            )
+        )
+        text = cached.read_text()
+        if _ROPE_BUG in text:
+            cached.write_text(text.replace(_ROPE_BUG, _ROPE_FIX))
+            for pyc in cached.parent.glob("__pycache__/modeling_ouro.*.pyc"):
+                pyc.unlink(missing_ok=True)
+    except Exception:
+        pass
 
 
 class ModelVariant(StrEnum):
@@ -88,6 +112,8 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        _patch_cached_modeling(pretrained_model_name)
 
         config = AutoConfig.from_pretrained(
             pretrained_model_name, trust_remote_code=True
