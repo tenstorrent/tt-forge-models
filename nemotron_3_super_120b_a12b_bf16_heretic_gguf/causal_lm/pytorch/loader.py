@@ -6,9 +6,8 @@ NVIDIA Nemotron 3 Super 120B A12B BF16 Heretic GGUF model loader implementation 
 """
 from typing import Optional
 
-import os
-
 import torch
+from huggingface_hub import constants as hf_constants
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
@@ -65,7 +64,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        os.environ["HF_HUB_DISABLE_XET"] = "1"
+        hf_constants.HF_HUB_DISABLE_XET = True
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -80,7 +79,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        os.environ["HF_HUB_DISABLE_XET"] = "1"
+        hf_constants.HF_HUB_DISABLE_XET = True
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
