@@ -42,25 +42,13 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.TINY_STABLE_DIFFUSION_WITH_TEXTUAL_INVERSION
 
     def __init__(self, variant: Optional[ModelVariant] = None):
-        """Initialize ModelLoader with specified variant.
-
-        Args:
-            variant: Optional ModelVariant specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-        """
+        """Initialize ModelLoader with specified variant."""
         super().__init__(variant)
+        self._pipeline = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
-        """Get model information for dashboard and metrics reporting.
-
-        Args:
-            variant: Optional ModelVariant specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-
-        Returns:
-            ModelInfo: Information about the model and variant
-        """
+        """Get model information for dashboard and metrics reporting."""
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
@@ -72,33 +60,65 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the tiny Stable Diffusion pipeline from Hugging Face.
+    def _load_pipeline(self):
+        self._pipeline = StableDiffusionPipeline.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            torch_dtype=torch.float32,
+            safety_checker=None,
+        )
+        self._pipeline.to("cpu")
+        return self._pipeline
 
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-                           If not provided, the model will use torch.bfloat16.
+    def load_model(self, *, dtype_override=None, **kwargs):
+        """Load and return the UNet from the tiny Stable Diffusion pipeline.
 
         Returns:
-            StableDiffusionPipeline: The pre-trained Stable Diffusion pipeline object.
+            torch.nn.Module: The UNet model extracted from the pipeline.
         """
-        dtype = dtype_override or torch.bfloat16
-        pipe = StableDiffusionPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name, torch_dtype=dtype, **kwargs
-        )
-        return pipe
+        if self._pipeline is None:
+            self._load_pipeline()
+
+        unet = self._pipeline.unet
+        unet.eval()
+
+        if dtype_override is not None:
+            unet = unet.to(dtype_override)
+
+        return unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the tiny Stable Diffusion model.
-
-        Args:
-            dtype_override: This parameter is ignored for this model.
-            batch_size: Optional batch size for the prompts.
+        """Load and return sample inputs for the UNet model.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: Inputs dict with sample, timestep, and encoder_hidden_states.
         """
-        prompt = [
-            "a photo of an astronaut riding a horse on mars",
-        ] * batch_size
-        return prompt
+        if self._pipeline is None:
+            self._load_pipeline()
+
+        dtype = dtype_override or torch.float32
+        pipe = self._pipeline
+        unet = pipe.unet
+
+        prompt = ["a photo of an astronaut riding a horse on mars"] * batch_size
+        text_inputs = pipe.tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=pipe.tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        encoder_hidden_states = pipe.text_encoder(text_inputs.input_ids)[0]
+
+        in_channels = unet.config.in_channels
+        sample_size = unet.config.sample_size
+        sample = torch.randn(
+            (batch_size, in_channels, sample_size, sample_size),
+            dtype=dtype,
+        )
+        timestep = torch.tensor([1], dtype=torch.long)
+
+        return {
+            "sample": sample,
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states.to(dtype),
+        }
