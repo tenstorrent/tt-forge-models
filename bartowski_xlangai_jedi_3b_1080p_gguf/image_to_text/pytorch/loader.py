@@ -5,9 +5,8 @@
 Bartowski xlangai Jedi-3B-1080p GGUF model loader implementation for image to text.
 """
 
-import types
+import os
 
-import torch
 from transformers import (
     Qwen2_5_VLForConditionalGeneration,
     AutoProcessor,
@@ -75,67 +74,14 @@ class ModelLoader(ForgeModel):
         # GGUF repos do not ship a processor; use the base model
         self.processor = AutoProcessor.from_pretrained("Qwen/Qwen2.5-VL-3B-Instruct")
 
+        # Disable transformers runtime checks that use boolean-indexed tensor numel(),
+        # which evaluates to 0 under XLA tracing and causes a false mismatch error.
+        os.environ["TRANSFORMERS_DISABLE_TORCH_CHECK"] = "1"
+
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
         model.eval()
-
-        # Patch get_placeholder_mask to avoid boolean-indexed tensor size computation,
-        # which evaluates to 0 under XLA tracing and causes a false mismatch error.
-        def _patched_get_placeholder_mask(
-            self, input_ids, inputs_embeds, image_features=None, video_features=None
-        ):
-            if input_ids is None:
-                special_image_mask = inputs_embeds == self.get_input_embeddings()(
-                    torch.tensor(
-                        self.config.image_token_id,
-                        dtype=torch.long,
-                        device=inputs_embeds.device,
-                    )
-                )
-                special_image_mask = special_image_mask.all(-1)
-                special_video_mask = inputs_embeds == self.get_input_embeddings()(
-                    torch.tensor(
-                        self.config.video_token_id,
-                        dtype=torch.long,
-                        device=inputs_embeds.device,
-                    )
-                )
-                special_video_mask = special_video_mask.all(-1)
-            else:
-                special_image_mask = input_ids == self.config.image_token_id
-                special_video_mask = input_ids == self.config.video_token_id
-
-            n_image_tokens = special_image_mask.sum()
-            special_image_mask = (
-                special_image_mask.unsqueeze(-1)
-                .expand_as(inputs_embeds)
-                .to(inputs_embeds.device)
-            )
-            if image_features is not None:
-                hidden_size = inputs_embeds.shape[-1]
-                if int(n_image_tokens) * hidden_size != image_features.numel():
-                    raise ValueError(
-                        f"Image features and image tokens do not match, tokens: {n_image_tokens}, features: {image_features.shape[0]}"
-                    )
-
-            n_video_tokens = special_video_mask.sum()
-            special_video_mask = (
-                special_video_mask.unsqueeze(-1)
-                .expand_as(inputs_embeds)
-                .to(inputs_embeds.device)
-            )
-            if video_features is not None:
-                hidden_size = inputs_embeds.shape[-1]
-                if int(n_video_tokens) * hidden_size != video_features.numel():
-                    raise ValueError(
-                        f"Video features and video tokens do not match, tokens: {n_video_tokens}, features: {video_features.shape[0]}"
-                    )
-            return special_image_mask, special_video_mask
-
-        model.model.get_placeholder_mask = types.MethodType(
-            _patched_get_placeholder_mask, model.model
-        )
 
         return model
 
