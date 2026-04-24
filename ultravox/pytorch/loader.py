@@ -255,7 +255,7 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
         patched_dir = self._get_patched_model_dir()
 
-        # Patch cached ultravox_model.py for transformers 5.x: tie_weights must accept **kwargs
+        # Patch cached ultravox_model.py for transformers 5.x compatibility
         try:
             import transformers.dynamic_module_utils as _dmu
 
@@ -265,16 +265,35 @@ class ModelLoader(ForgeModel):
             cached_module = os.path.join(_dmu.HF_MODULES_CACHE, cached_rel)
             with open(cached_module) as f:
                 code = f.read()
-            patched = code.replace(
+
+            # tie_weights must accept **kwargs (recompute_mapping added in transformers 5.x)
+            code = code.replace(
                 "def tie_weights(self):\n        return self.language_model.tie_weights()",
                 "def tie_weights(self, **kwargs):\n        return self.language_model.tie_weights(**kwargs)",
             )
-            if patched != code:
-                with open(cached_module, "w") as f:
-                    f.write(patched)
-                for key in list(sys.modules.keys()):
-                    if "ultravox_model" in key:
-                        del sys.modules[key]
+
+            # WhisperEncoderLayer.forward() no longer accepts layer_head_mask in transformers 5.x
+            code = code.replace(
+                "                    layer_outputs = encoder_layer(\n"
+                "                        hidden_states,\n"
+                "                        attention_mask,\n"
+                "                        layer_head_mask=(\n"
+                "                            head_mask[idx] if head_mask is not None else None\n"
+                "                        ),\n"
+                "                        output_attentions=output_attentions,\n"
+                "                    )",
+                "                    layer_outputs = encoder_layer(\n"
+                "                        hidden_states,\n"
+                "                        attention_mask,\n"
+                "                        output_attentions=output_attentions,\n"
+                "                    )",
+            )
+
+            with open(cached_module, "w") as f:
+                f.write(code)
+            for key in list(sys.modules.keys()):
+                if "ultravox_model" in key:
+                    del sys.modules[key]
         except Exception:
             pass
 
