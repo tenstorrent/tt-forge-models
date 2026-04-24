@@ -86,7 +86,7 @@ class ModelLoader(ForgeModel):
         gguf_file = _GGUF_FILES[self._variant]
 
         self.transformer = WanTransformer3DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/resolve/main/{gguf_file}",
+            f"https://huggingface.co/{GGUF_REPO}/{gguf_file}",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
