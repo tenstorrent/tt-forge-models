@@ -9,6 +9,7 @@ unsloth/FLUX.2-klein-base-4B-GGUF. The GGUF transformer is loaded via diffusers'
 Flux2Transformer2DModel.from_single_file.
 """
 
+import os
 from typing import Optional
 
 import torch
@@ -93,8 +94,10 @@ class ModelLoader(ForgeModel):
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         gguf_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
+        config_dir = os.path.dirname(os.path.abspath(__file__))
         self.transformer = Flux2Transformer2DModel.from_single_file(
             gguf_path,
+            config=config_dir,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
