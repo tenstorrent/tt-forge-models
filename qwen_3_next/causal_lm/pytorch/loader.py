@@ -45,6 +45,9 @@ class ModelLoader(ForgeModel):
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.QWEN_3_NEXT_80B_A3B_INSTRUCT
 
+    # No GGUF variants for this model
+    _GGUF_FILES = {}
+
     # Variants with NVFP4 quantized weights require ignore_mismatched_sizes
     # because the packed FP4 weight shapes differ from the model definition.
     _NVFP4_VARIANTS = {ModelVariant.QWEN_3_NEXT_80B_A3B_INSTRUCT_NVFP4_NM_TESTING}
@@ -141,8 +144,6 @@ class ModelLoader(ForgeModel):
             "tokenize": False,
             "add_generation_prompt": True,
         }
-        if self._variant == ModelVariant.QWEN_3_NEXT_80B_A3B_THINKING:
-            chat_kwargs["enable_thinking"] = True
         text = self.tokenizer.apply_chat_template(
             messages,
             **chat_kwargs,
