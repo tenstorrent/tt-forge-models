@@ -69,11 +69,13 @@ class ModelLoader(ForgeModel):
 
         # In transformers 5.x, models are always initialized on meta device. The custom
         # NGramEmbeds.ref_table is not a registered buffer so it stays as a meta tensor
-        # and cannot be copied in forward(). Re-initialize it with real data after loading.
+        # and cannot be copied in forward(). Re-initialize it with real data after loading,
+        # casting to match the model's parameter dtype.
         try:
             ngram_embeds = model.deberta.NGram_embeddings
-            ngram_embeds.ref_table = ngram_embeds.prepare_vocab_table()
-        except AttributeError:
+            param_dtype = next(model.parameters()).dtype
+            ngram_embeds.ref_table = ngram_embeds.prepare_vocab_table().to(param_dtype)
+        except (AttributeError, StopIteration):
             pass
 
         model.eval()
