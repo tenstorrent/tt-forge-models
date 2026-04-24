@@ -4,9 +4,49 @@
 """
 mradermacher Blossom-V6-7B i1 GGUF model loader implementation for causal language modeling.
 """
+import inspect
+
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+
+def _find_original_gguf_loader(fn):
+    """Walk the patch closure chain to find the actual transformers load_gguf_checkpoint."""
+    visited = set()
+    candidates = [fn]
+    while candidates:
+        current = candidates.pop(0)
+        if id(current) in visited:
+            continue
+        visited.add(id(current))
+        try:
+            sig = inspect.signature(current)
+            if "model_to_load" in sig.parameters:
+                return current
+        except Exception:
+            pass
+        if hasattr(current, "__closure__") and current.__closure__:
+            for cell in current.__closure__:
+                try:
+                    content = cell.cell_contents
+                    if callable(content):
+                        candidates.append(content)
+                except ValueError:
+                    pass
+    return None
+
+
+_orig_gguf_loader = _find_original_gguf_loader(_gguf_utils.load_gguf_checkpoint)
+if _orig_gguf_loader is not None:
+    _gguf_utils.load_gguf_checkpoint = _orig_gguf_loader
+    _config_utils.load_gguf_checkpoint = _orig_gguf_loader
+    _auto_tokenizer.load_gguf_checkpoint = _orig_gguf_loader
+    _tok_utils.load_gguf_checkpoint = _orig_gguf_loader
 
 from ....base import ForgeModel
 from ....config import (
