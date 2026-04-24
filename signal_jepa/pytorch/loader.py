@@ -50,7 +50,7 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.PRETRAINED: SignalJEPAConfig(
             pretrained_model_name="braindecode/SignalJEPA-pretrained",
-            n_chans=20,
+            n_chans=19,
             n_times=256,
             model_class="SignalJEPA",
         ),
