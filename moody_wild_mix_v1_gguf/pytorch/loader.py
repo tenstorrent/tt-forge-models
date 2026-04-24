@@ -31,9 +31,18 @@ from ...config import (
 
 REPO_ID = "Gthalmie1/moody-wild-mix-v1-gguf"
 
-# Lumina-Image-2.0 architecture constants
+# This GGUF variant uses a larger Lumina2 architecture than the standard diffusers config:
+#   hidden_size=3840, head_dim=128, num_heads=30, no GQA, cap_feat_dim=2560
+# The timestep embedder also compresses back to FREQ_EMBED_SIZE=256 (unlike standard
+# which keeps min(hidden_size, 1024)=1024), so all adaLN conditioning uses 256 dims.
+HIDDEN_SIZE = 3840
+NUM_HEADS = 30
+NUM_LAYERS = 30
+CAP_FEAT_DIM = 2560
+FREQ_EMBED_SIZE = 256  # t_embedder output dim (compressed back from 1024 intermediate)
 IN_CHANNELS = 16
-CAP_FEAT_DIM = 2304  # Gemma-2-2b hidden size
+AXES_DIM_ROPE = (32, 64, 32)  # sums to head_dim=128
+FFN_DIM_MULTIPLIER = 2 / 3  # SwiGLU: inner_dim = int(4 * hidden_size * 2/3) = 10240
 
 
 class ModelVariant(StrEnum):
@@ -81,20 +90,26 @@ class ModelLoader(ForgeModel):
         )
 
     @staticmethod
-    def _patch_lumina2_conversion():
-        """Patch diffusers to handle Lumina2 GGUF models with non-standard attention dims.
+    def _patch_lumina2_for_gguf():
+        """Patch diffusers to load this non-standard Lumina2 GGUF correctly.
 
-        diffusers hardcodes q_dim=2304, k_dim=v_dim=768 (for 24q/8kv heads, head_dim=96),
-        but this model uses hidden_size=3840, head_dim=128, 30 heads, no GQA — so the
-        qkv tensor is 11520 = 3*3840 requiring an equal split.
+        This GGUF differs from the standard Alpha-VLLM/Lumina-Image-2.0 in:
+        1. hidden_size=3840, num_heads=30, head_dim=128, no GQA → qkv tensors
+           have dim 11520=3*3840 requiring equal [3840,3840,3840] split, not [2304,768,768].
+        2. adaLN weights stored as adaLN_modulation.0 (Linear at index 0, not index 1).
+        3. timestep_embedder compresses back to 256 dims (out_dim=256), so all adaLN
+           conditioning uses 256 dims instead of min(hidden_size,1024)=1024.
         """
+        import torch.nn as nn
+        import diffusers.loaders.single_file_model as sfm
         import diffusers.loaders.single_file_utils as sfu
+        import diffusers.models.normalization as norm_mod
+        import diffusers.models.transformers.transformer_lumina2 as lumina2_mod
+        from diffusers.models.normalization import RMSNorm
+        from diffusers.models.embeddings import TimestepEmbedding, Timesteps
 
-        original_fn = sfu.convert_lumina2_to_diffusers
-
-        def patched_fn(checkpoint, **kwargs):
-            import torch
-
+        # ── Patch 1: checkpoint conversion ───────────────────────────────────
+        def patched_convert_fn(checkpoint, **kwargs):
             converted_state_dict = {}
             checkpoint.pop("norm_final.weight", None)
             keys = list(checkpoint.keys())
@@ -115,6 +130,8 @@ class ModelLoader(ForgeModel):
                 "w1": "linear_1",
                 "w2": "linear_2",
                 "w3": "linear_3",
+                # adaLN_modulation.0 = Linear at index 0 (SiLU inlined, not in Sequential)
+                "adaLN_modulation.0": "norm1.linear",
                 "adaLN_modulation.1": "norm1.linear",
             }
             ATTENTION_NORM_MAP = {
@@ -134,11 +151,11 @@ class ModelLoader(ForgeModel):
 
             def convert_lumina_attn_to_diffusers(tensor, diffusers_key):
                 total = tensor.shape[0]
-                # Standard Lumina2: q=2304 (24 heads×96), k=v=768 (8 heads×96)
+                # Standard Lumina2: q=2304 (24q×96), k=v=768 (8kv×96)
                 if total == 2304 + 768 + 768:
                     q_dim, k_dim, v_dim = 2304, 768, 768
                 elif total % 3 == 0:
-                    # Equal split for models without GQA (e.g. 30 heads×128 head_dim)
+                    # Equal split: no GQA, all heads same dim (e.g. 30×128=3840 each)
                     q_dim = k_dim = v_dim = total // 3
                 else:
                     raise ValueError(
@@ -173,13 +190,84 @@ class ModelLoader(ForgeModel):
 
             return converted_state_dict
 
-        sfu.convert_lumina2_to_diffusers = patched_fn
+        sfu.convert_lumina2_to_diffusers = patched_convert_fn
+        sfm.SINGLE_FILE_LOADABLE_CLASSES["Lumina2Transformer2DModel"][
+            "checkpoint_mapping_fn"
+        ] = patched_convert_fn
+
+        # ── Patch 2: LuminaRMSNormZero conditioning dim 1024→256 ─────────────
+        def patched_rms_init(self, embedding_dim, norm_eps, norm_elementwise_affine):
+            nn.Module.__init__(self)
+            self.silu = nn.SiLU()
+            self.linear = nn.Linear(FREQ_EMBED_SIZE, 4 * embedding_dim, bias=True)
+            self.norm = RMSNorm(embedding_dim, eps=norm_eps)
+
+        norm_mod.LuminaRMSNormZero.__init__ = patched_rms_init
+
+        # ── Patch 3: timestep_embedder output dim 1024→256 ───────────────────
+        def patched_temb_init(
+            self,
+            hidden_size=4096,
+            cap_feat_dim=2048,
+            frequency_embedding_size=256,
+            norm_eps=1e-5,
+        ):
+            nn.Module.__init__(self)
+            self.time_proj = Timesteps(
+                num_channels=frequency_embedding_size,
+                flip_sin_to_cos=True,
+                downscale_freq_shift=0.0,
+            )
+            self.timestep_embedder = TimestepEmbedding(
+                in_channels=frequency_embedding_size,
+                time_embed_dim=min(hidden_size, 1024),
+                out_dim=frequency_embedding_size,
+            )
+            self.caption_embedder = nn.Sequential(
+                RMSNorm(cap_feat_dim, eps=norm_eps),
+                nn.Linear(cap_feat_dim, hidden_size, bias=True),
+            )
+
+        lumina2_mod.Lumina2CombinedTimestepCaptionEmbedding.__init__ = patched_temb_init
+
+        # ── Patch 4: norm_out (LuminaLayerNormContinuous) conditioning dim ────
+        original_llnc_init = norm_mod.LuminaLayerNormContinuous.__init__
+
+        def patched_llnc_init(
+            self,
+            embedding_dim,
+            conditioning_embedding_dim,
+            elementwise_affine=True,
+            eps=1e-5,
+            bias=True,
+            norm_type="layer_norm",
+            out_dim=None,
+        ):
+            from diffusers.models.normalization import LayerNorm
+
+            nn.Module.__init__(self)
+            self.silu = nn.SiLU()
+            # Use FREQ_EMBED_SIZE=256 regardless of passed conditioning_embedding_dim
+            self.linear_1 = nn.Linear(FREQ_EMBED_SIZE, embedding_dim, bias=bias)
+            if norm_type == "layer_norm":
+                self.norm = LayerNorm(embedding_dim, eps, elementwise_affine, bias)
+            elif norm_type == "rms_norm":
+                self.norm = RMSNorm(
+                    embedding_dim, eps=eps, elementwise_affine=elementwise_affine
+                )
+            else:
+                raise ValueError(f"unknown norm_type {norm_type}")
+            self.linear_2 = None
+            if out_dim is not None:
+                self.linear_2 = nn.Linear(embedding_dim, out_dim, bias=bias)
+
+        norm_mod.LuminaLayerNormContinuous.__init__ = patched_llnc_init
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
         """Load the GGUF-quantized Lumina2 transformer."""
         from diffusers import GGUFQuantizationConfig, Lumina2Transformer2DModel
 
-        self._patch_lumina2_conversion()
+        self._patch_lumina2_for_gguf()
 
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
@@ -193,6 +281,13 @@ class ModelLoader(ForgeModel):
             gguf_path,
             quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
             torch_dtype=dtype,
+            hidden_size=HIDDEN_SIZE,
+            num_attention_heads=NUM_HEADS,
+            num_kv_heads=NUM_HEADS,
+            num_layers=NUM_LAYERS,
+            cap_feat_dim=CAP_FEAT_DIM,
+            axes_dim_rope=AXES_DIM_ROPE,
+            ffn_dim_multiplier=FFN_DIM_MULTIPLIER,
         )
         self._transformer.eval()
         return self._transformer
@@ -212,7 +307,7 @@ class ModelLoader(ForgeModel):
         # Timestep: (B,)
         timestep = torch.tensor([1.0 / 1000], dtype=dtype).expand(batch_size)
 
-        # Text encoder hidden states from Gemma-2-2b: (B, seq_len, cap_feat_dim)
+        # Text encoder hidden states from text encoder: (B, seq_len, cap_feat_dim)
         max_sequence_length = 128
         encoder_hidden_states = torch.randn(
             batch_size, max_sequence_length, CAP_FEAT_DIM, dtype=dtype
