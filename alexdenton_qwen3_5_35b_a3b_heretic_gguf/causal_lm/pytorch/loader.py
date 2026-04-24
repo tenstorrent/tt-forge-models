@@ -44,24 +44,32 @@ def _get_gguf_arch_and_interval(gguf_path):
         return "", 4
 
 
-_MOE_EXPS_WITH_WEIGHT = re.compile(r"(blk\.\d+\.ffn_(?:gate|up|down)_exps)\.weight$")
-_COMBINED_EXPS_WITH_WEIGHT = re.compile(r"blk\.(\d+)\.ffn_gate_up_exps\.weight$")
+# Match combined gate_up entry (with or without .weight suffix)
+_COMBINED_EXPS = re.compile(r"blk\.(\d+)\.ffn_gate_up_exps(?:\.weight)?$")
+# Match individual exp entries that have .weight (need bare-key alias)
+_EXPS_WITH_WEIGHT = re.compile(r"(blk\.\d+\.ffn_(?:gate|up|down)_exps)\.weight$")
 
 
 def _augment_qwen35moe_weights_map(result):
-    """Add bare-key (no .weight) entries and split gate_up entries for qwen35moe."""
+    """Add separate gate/up entries and bare-key (no .weight) aliases for qwen35moe.
+
+    When the HF model uses gate_up_proj (combined) but the GGUF file has separate
+    ffn_gate_exps / ffn_up_exps tensors, Qwen2MoeTensorProcessor.process() needs
+    blk.N.ffn_gate_exps and blk.N.ffn_up_exps in the map pointing to the combined
+    HF parameter. Also handles .weight suffix mismatch between map keys and lookup.
+    """
     extra = {}
     for key, val in result.items():
-        m = _MOE_EXPS_WITH_WEIGHT.match(key)
+        # When map has combined gate_up (with or without .weight), add separate entries
+        m = _COMBINED_EXPS.match(key)
         if m:
-            bare = m.group(1)
-            if bare not in result and bare not in extra:
-                extra[bare] = val
-        m2 = _COMBINED_EXPS_WITH_WEIGHT.match(key)
+            bid = m.group(1)
+            extra.setdefault(f"blk.{bid}.ffn_gate_exps", val)
+            extra.setdefault(f"blk.{bid}.ffn_up_exps", val)
+        # When map has .weight-suffixed keys, add bare-key aliases for process() lookup
+        m2 = _EXPS_WITH_WEIGHT.match(key)
         if m2:
-            bid = m2.group(1)
-            extra[f"blk.{bid}.ffn_gate_exps"] = val
-            extra[f"blk.{bid}.ffn_up_exps"] = val
+            extra.setdefault(m2.group(1), val)
     result.update(extra)
     return result
 
