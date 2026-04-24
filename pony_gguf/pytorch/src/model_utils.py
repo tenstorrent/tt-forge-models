@@ -6,14 +6,14 @@ Helper functions for loading GGUF-quantized SDXL-based pony models.
 """
 
 import torch
-from diffusers import (
-    GGUFQuantizationConfig,
-    StableDiffusionXLPipeline,
-    UNet2DConditionModel,
-)
+from diffusers import StableDiffusionXLPipeline, UNet2DConditionModel
+from diffusers.loaders.single_file_utils import convert_ldm_unet_checkpoint
+from diffusers.models.model_loading_utils import load_gguf_checkpoint
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
     retrieve_timesteps,
 )
+from diffusers.quantizers.gguf.utils import dequantize_gguf_tensor
+from huggingface_hub import hf_hub_download
 from typing import Optional, Tuple
 
 BASE_SDXL_REPO = "stabilityai/stable-diffusion-xl-base-1.0"
@@ -22,8 +22,10 @@ BASE_SDXL_REPO = "stabilityai/stable-diffusion-xl-base-1.0"
 def load_pony_gguf_pipe(repo_id: str, gguf_filename: str):
     """Load an SDXL-based pipeline from a GGUF checkpoint.
 
-    The GGUF file contains only the UNet weights; text encoders, VAE, and
-    scheduler are loaded from the base SDXL model.
+    The pony GGUF file uses ComfyUI-style key names (no model.diffusion_model.
+    prefix) so we manually remap and dequantize the weights before loading into
+    UNet2DConditionModel. Text encoders, VAE, and scheduler come from the base
+    SDXL model.
 
     Args:
         repo_id: HuggingFace repository ID containing the GGUF file.
@@ -32,13 +34,26 @@ def load_pony_gguf_pipe(repo_id: str, gguf_filename: str):
     Returns:
         StableDiffusionXLPipeline: Loaded pipeline with components set to eval mode.
     """
-    quantization_config = GGUFQuantizationConfig(compute_dtype=torch.float32)
+    model_path = hf_hub_download(repo_id=repo_id, filename=gguf_filename)
 
-    unet = UNet2DConditionModel.from_single_file(
-        f"https://huggingface.co/{repo_id}/blob/main/{gguf_filename}",
-        quantization_config=quantization_config,
-        torch_dtype=torch.float32,
+    # Load GGUF tensors; keys use ComfyUI format (e.g. "input_blocks.0.0.weight")
+    gguf_checkpoint = load_gguf_checkpoint(model_path)
+
+    # convert_ldm_unet_checkpoint expects "model.diffusion_model.*" prefix, so add it
+    # and dequantize to plain float32 tensors
+    prefixed_checkpoint = {
+        f"model.diffusion_model.{k}": dequantize_gguf_tensor(v).to(torch.float32)
+        for k, v in gguf_checkpoint.items()
+    }
+
+    # Load UNet config from base SDXL repo, then convert and inject GGUF weights
+    unet_config = UNet2DConditionModel.load_config(BASE_SDXL_REPO, subfolder="unet")
+    diffusers_state_dict = convert_ldm_unet_checkpoint(
+        config=unet_config, checkpoint=prefixed_checkpoint
     )
+    unet = UNet2DConditionModel.from_config(unet_config)
+    unet.load_state_dict(diffusers_state_dict, strict=False)
+    unet = unet.to(torch.float32)
 
     pipe = StableDiffusionXLPipeline.from_pretrained(
         BASE_SDXL_REPO,
