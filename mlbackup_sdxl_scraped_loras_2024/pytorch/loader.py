@@ -15,7 +15,6 @@ Available variants:
 from typing import Optional
 
 import torch
-from diffusers import StableDiffusionXLPipeline
 
 from ...base import ForgeModel
 from ...config import (
@@ -27,6 +26,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
+from .src.model_utils import load_pipe, stable_diffusion_preprocessing_xl
 
 
 BASE_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
@@ -43,6 +43,10 @@ _LORA_WEIGHT_NAMES = {
     ModelVariant.DUSK_XL_TAROTCARD: "DUSK_XL_TAROTCARD_dadapt_cos_5e4.safetensors",
 }
 
+_PROMPTS = {
+    ModelVariant.DUSK_XL_TAROTCARD: "an ornate tarot card illustration of a cloaked traveler under a crescent moon, mystical symbols",
+}
+
 
 class ModelLoader(ForgeModel):
     """MLbackup/SDXL_Scraped_Loras_2024 LoRA model loader implementation."""
@@ -56,7 +60,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline: Optional[StableDiffusionXLPipeline] = None
+        self.pipeline = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -72,31 +76,51 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load the SDXL base pipeline with the archived LoRA weights applied.
+        """Load the SDXL base pipeline with LoRA weights fused and return the UNet.
 
         Returns:
-            StableDiffusionXLPipeline with LoRA weights loaded.
+            torch.nn.Module: The UNet model used for denoising.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
-
-        self.pipeline = StableDiffusionXLPipeline.from_pretrained(
+        self.pipeline = load_pipe(
             self._variant_config.pretrained_model_name,
-            torch_dtype=dtype,
-            **kwargs,
-        )
-        self.pipeline.load_lora_weights(
             LORA_REPO,
-            weight_name=_LORA_WEIGHT_NAMES[self._variant],
+            _LORA_WEIGHT_NAMES[self._variant],
         )
 
-        return self.pipeline
+        if dtype_override is not None:
+            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
+
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the model.
+        """Load and return sample inputs for the UNet model.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: Keyword arguments for the UNet forward method.
         """
-        return [
-            "an ornate tarot card illustration of a cloaked traveler under a crescent moon, mystical symbols"
-        ] * batch_size
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
+
+        prompt = _PROMPTS[self._variant]
+        (
+            latent_model_input,
+            timesteps,
+            prompt_embeds,
+            timestep_cond,
+            added_cond_kwargs,
+            add_time_ids,
+        ) = stable_diffusion_preprocessing_xl(self.pipeline, prompt)
+
+        timestep = timesteps[0]
+
+        if dtype_override:
+            latent_model_input = latent_model_input.to(dtype_override)
+            timestep = timestep.to(dtype_override)
+            prompt_embeds = prompt_embeds.to(dtype_override)
+
+        return {
+            "sample": latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "added_cond_kwargs": added_cond_kwargs,
+        }
