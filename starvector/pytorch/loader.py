@@ -121,6 +121,39 @@ def _patch_starcoder_init():
     PreTrainedModel._adjust_tied_keys_with_tied_pointers = _patched_adjust
 
 
+def _patch_image_encoder_init():
+    """Patch ImageEncoder to exit the meta device context when loading siglip from_pretrained.
+
+    transformers 5.x sets torch.default_device('meta') during AutoModelForCausalLM.from_pretrained
+    for memory efficiency.  ImageEncoder's siglip branch calls AutoModel.from_pretrained inside
+    that context, which raises RuntimeError.  We temporarily reset to CPU, download the visual
+    encoder, then restore the original device.
+    """
+    import starvector.model.image_encoder.image_encoder as ie_module
+
+    original_ie_init = ie_module.ImageEncoder.__init__
+
+    def _patched_ie_init(self, config, **kwargs):
+        import torch
+
+        if "siglip" not in config.image_encoder_type:
+            original_ie_init(self, config, **kwargs)
+            return
+
+        # Exit meta device context so from_pretrained can allocate real tensors
+        _orig_device = torch.get_default_device()
+        if _orig_device.type == "meta":
+            torch.set_default_device("cpu")
+            try:
+                original_ie_init(self, config, **kwargs)
+            finally:
+                torch.set_default_device("meta")
+        else:
+            original_ie_init(self, config, **kwargs)
+
+    ie_module.ImageEncoder.__init__ = _patched_ie_init
+
+
 def _patch_starcoder2_init():
     """Patch starvector v2 internals to avoid downloading bigcode/starcoder2-7b with flash attention.
 
@@ -252,6 +285,7 @@ class ModelLoader(ForgeModel):
 
         _patch_starcoder_init()
         _patch_starcoder2_init()
+        _patch_image_encoder_init()
 
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
