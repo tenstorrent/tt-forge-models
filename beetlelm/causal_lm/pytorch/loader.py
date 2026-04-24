@@ -118,6 +118,8 @@ class ModelLoader(ForgeModel):
         if self.num_layers is not None:
             config.n_layers = self.num_layers
 
+        # from_config with trust_remote_code needs _name_or_path to locate the custom module
+        config._name_or_path = pretrained_model_name
         model = AutoModelForCausalLM.from_config(config, trust_remote_code=True)
         if dtype_override is not None:
             model = model.to(dtype_override)
