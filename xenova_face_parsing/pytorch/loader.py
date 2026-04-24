@@ -4,9 +4,10 @@
 """
 Xenova Face Parsing model loader implementation.
 
-Xenova/face-parsing is an ONNX-exported version of jonathandinu/face-parsing,
-a Segformer-based semantic segmentation model fine-tuned on CelebAMask-HQ for
-facial region parsing (skin, eyes, nose, lips, hair, etc.).
+Uses jonathandinu/face-parsing, a Segformer-based semantic segmentation model
+fine-tuned on CelebAMask-HQ for facial region parsing (skin, eyes, nose, lips,
+hair, etc.). The Xenova/face-parsing repo is ONNX-only and cannot be loaded as
+a PyTorch model.
 """
 
 import torch
@@ -37,7 +38,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.FACE_PARSING: ModelConfig(
-            pretrained_model_name="Xenova/face-parsing",
+            pretrained_model_name="jonathandinu/face-parsing",
         ),
     }
 
