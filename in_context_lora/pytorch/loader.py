@@ -21,7 +21,7 @@ Available variants:
 - VISUAL_IDENTITY_DESIGN: Visual identity design LoRA
 """
 
-from typing import Any, Optional
+from typing import Optional
 
 import torch
 from diffusers import FluxPipeline
@@ -37,7 +37,7 @@ from ...config import (
     StrEnum,
 )
 
-BASE_MODEL = "black-forest-labs/FLUX.1-dev"
+BASE_MODEL = "camenduru/FLUX.1-dev-diffusers"
 LORA_REPO = "ali-vilab/In-Context-LoRA"
 
 
@@ -121,14 +121,19 @@ class ModelLoader(ForgeModel):
             weight_name=lora_file,
         )
 
-        return self.pipeline
+        return self.pipeline.transformer
 
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for text-to-image generation.
+    def load_inputs(
+        self,
+        prompt: Optional[str] = None,
+        dtype_override: Optional[torch.dtype] = None,
+        batch_size: int = 1,
+        **kwargs,
+    ) -> dict:
+        """Prepare tensor inputs for the FLUX transformer forward pass."""
+        if self.pipeline is None:
+            raise RuntimeError("load_model() must be called before load_inputs()")
 
-        Returns:
-            dict with prompt key.
-        """
         if prompt is None:
             prompt = (
                 "This two-part image portrays a couple of cartoon cats in detective "
@@ -137,6 +142,79 @@ class ModelLoader(ForgeModel):
                 "with a bow tie and matching hat raises an eyebrow in curiosity."
             )
 
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        pipe = self.pipeline
+        max_sequence_length = 256
+        num_images_per_prompt = 1
+        height, width = 128, 128
+        num_channels_latents = pipe.transformer.config.in_channels // 4
+
+        text_inputs_clip = pipe.tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=pipe.tokenizer_max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        pooled_prompt_embeds = pipe.text_encoder(
+            text_inputs_clip.input_ids, output_hidden_states=False
+        ).pooler_output.to(dtype=dtype)
+        pooled_prompt_embeds = pooled_prompt_embeds.repeat(
+            batch_size * num_images_per_prompt, 1
+        )
+
+        text_inputs_t5 = pipe.tokenizer_2(
+            prompt,
+            padding="max_length",
+            max_length=max_sequence_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        prompt_embeds = pipe.text_encoder_2(
+            text_inputs_t5.input_ids, output_hidden_states=False
+        )[0].to(dtype=dtype)
+        seq_len = prompt_embeds.shape[1]
+        prompt_embeds = prompt_embeds.repeat(batch_size * num_images_per_prompt, 1, 1)
+
+        text_ids = torch.zeros(seq_len, 3, dtype=dtype)
+
+        vae_scale_factor = pipe.vae_scale_factor
+        h_lat = 2 * (int(height) // (vae_scale_factor * 2))
+        w_lat = 2 * (int(width) // (vae_scale_factor * 2))
+
+        latents = torch.randn(
+            batch_size * num_images_per_prompt,
+            num_channels_latents,
+            h_lat,
+            w_lat,
+            dtype=dtype,
+        )
+        latents = latents.view(
+            batch_size * num_images_per_prompt,
+            num_channels_latents,
+            h_lat // 2,
+            2,
+            w_lat // 2,
+            2,
+        )
+        latents = latents.permute(0, 2, 4, 1, 3, 5).reshape(
+            batch_size * num_images_per_prompt,
+            (h_lat // 2) * (w_lat // 2),
+            num_channels_latents * 4,
+        )
+
+        latent_image_ids = torch.zeros(h_lat // 2, w_lat // 2, 3)
+        latent_image_ids[..., 1] += torch.arange(h_lat // 2)[:, None]
+        latent_image_ids[..., 2] += torch.arange(w_lat // 2)[None, :]
+        latent_image_ids = latent_image_ids.reshape(-1, 3).to(dtype=dtype)
+
         return {
-            "prompt": prompt,
+            "hidden_states": latents,
+            "timestep": torch.tensor([1.0], dtype=dtype),
+            "guidance": torch.full([batch_size], 3.5, dtype=dtype),
+            "pooled_projections": pooled_prompt_embeds,
+            "encoder_hidden_states": prompt_embeds,
+            "txt_ids": text_ids,
+            "img_ids": latent_image_ids,
+            "joint_attention_kwargs": {},
         }
