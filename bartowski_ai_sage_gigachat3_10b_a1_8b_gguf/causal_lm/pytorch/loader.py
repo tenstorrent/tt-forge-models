@@ -27,6 +27,10 @@ def _patch_deepseek_v2_gguf_support():
     GGUF metadata. Transformers 5.x has DeepseekV2ForCausalLM but lacks GGUF
     loading support for the deepseek_v2 architecture. DeepSeek V2 uses a
     SentencePiece BPE tokenizer compatible with GGUFLlamaConverter.
+
+    gguf-py knows this architecture as 'deepseek2', so we also patch
+    get_gguf_hf_weights_map to remap deepseek_v2 -> deepseek2 for tensor
+    name lookups.
     """
     if "deepseek_v2" not in GGUF_SUPPORTED_ARCHITECTURES:
         GGUF_SUPPORTED_ARCHITECTURES.append("deepseek_v2")
@@ -48,6 +52,19 @@ def _patch_deepseek_v2_gguf_support():
     )
 
     GGUF_TO_FAST_CONVERTERS.setdefault("deepseek_v2", GGUFLlamaConverter)
+
+    _prev_get_map = _gguf_utils.get_gguf_hf_weights_map
+
+    def _patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type == "deepseek_v2":
+            model_type = "deepseek2"
+        return _prev_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 
 _patch_deepseek_v2_gguf_support()
