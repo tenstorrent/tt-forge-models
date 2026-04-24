@@ -8,15 +8,24 @@ Helper functions for loading GGUF-quantized Stable Diffusion XL finetune models.
 from typing import Optional, Tuple
 
 import torch
-from diffusers import GGUFQuantizationConfig, StableDiffusionXLPipeline
+from diffusers import (
+    GGUFQuantizationConfig,
+    StableDiffusionXLPipeline,
+    UNet2DConditionModel,
+)
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
     retrieve_timesteps,
 )
 from huggingface_hub import hf_hub_download
 
+SDXL_BASE_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
+
 
 def load_gguf_pipe(repo_id: str, gguf_filename: str, subfolder: Optional[str] = None):
-    """Load a Stable Diffusion XL pipeline from a GGUF checkpoint.
+    """Load a Stable Diffusion XL pipeline from a GGUF UNet checkpoint.
+
+    The GGUF file contains only UNet weights; the rest of the pipeline is loaded
+    from the base SDXL model.
 
     Args:
         repo_id: HuggingFace repository ID.
@@ -24,7 +33,7 @@ def load_gguf_pipe(repo_id: str, gguf_filename: str, subfolder: Optional[str] = 
         subfolder: Optional subfolder within the repo containing the checkpoint.
 
     Returns:
-        DiffusionPipeline: Loaded pipeline with components set to eval mode.
+        StableDiffusionXLPipeline: Loaded pipeline with components set to eval mode.
     """
     model_path = hf_hub_download(
         repo_id=repo_id, filename=gguf_filename, subfolder=subfolder
@@ -32,9 +41,15 @@ def load_gguf_pipe(repo_id: str, gguf_filename: str, subfolder: Optional[str] = 
 
     quantization_config = GGUFQuantizationConfig(compute_dtype=torch.float32)
 
-    pipe = StableDiffusionXLPipeline.from_single_file(
+    unet = UNet2DConditionModel.from_single_file(
         model_path,
         quantization_config=quantization_config,
+        torch_dtype=torch.float32,
+    )
+
+    pipe = StableDiffusionXLPipeline.from_pretrained(
+        SDXL_BASE_MODEL,
+        unet=unet,
         torch_dtype=torch.float32,
     )
 
