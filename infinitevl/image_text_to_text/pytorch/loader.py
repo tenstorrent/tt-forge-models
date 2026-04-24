@@ -111,6 +111,42 @@ class ModelLoader(ForgeModel):
                     model_cls._tied_weights_keys = {
                         "lm_head.weight": "model.language_model.embed_tokens.weight"
                     }
+                # transformers 5.x _init_weights calls compute_default_rope_parameters
+                # on any RotaryEmbedding with rope_type=="default"; patch the class
+                import sys
+
+                model_module = sys.modules.get(model_cls.__module__)
+                if model_module is not None:
+                    rotary_cls = getattr(
+                        model_module, "InfiniteVLRotaryEmbedding", None
+                    )
+                    if rotary_cls is not None and not hasattr(
+                        rotary_cls, "compute_default_rope_parameters"
+                    ):
+
+                        def _compute_default_rope_parameters(self, config=None):
+                            cfg = config or self.config
+                            head_dim = getattr(
+                                cfg,
+                                "head_dim",
+                                cfg.hidden_size // cfg.num_attention_heads,
+                            )
+                            partial_rotary_factor = getattr(
+                                cfg, "partial_rotary_factor", 1.0
+                            )
+                            dim = int(head_dim * partial_rotary_factor)
+                            inv_freq = 1.0 / (
+                                cfg.rope_theta
+                                ** (
+                                    torch.arange(0, dim, 2, dtype=torch.int64).float()
+                                    / dim
+                                )
+                            )
+                            return inv_freq, 1.0
+
+                        rotary_cls.compute_default_rope_parameters = (
+                            _compute_default_rope_parameters
+                        )
             except Exception:
                 pass
 
