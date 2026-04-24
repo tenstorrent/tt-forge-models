@@ -5,6 +5,8 @@
 Ministral 14B Instruct BnB 4-bit model loader implementation for multimodal vision-language modeling.
 """
 
+import torch
+import torch.nn as nn
 from typing import Optional
 
 from ....config import (
@@ -74,6 +76,35 @@ class ModelLoader(ForgeModel):
 
         return self.processor
 
+    @staticmethod
+    def _dequantize_bnb_4bit(model, dtype=torch.bfloat16):
+        """Recursively replace Linear4bit layers with regular nn.Linear for CPU inference."""
+        try:
+            import bitsandbytes.nn as bnb_nn
+            import bitsandbytes.functional as bnb_func
+        except ImportError:
+            return
+
+        for name, child in list(model.named_children()):
+            if isinstance(child, bnb_nn.Linear4bit):
+                if child.weight.quant_state is not None:
+                    dq_weight = bnb_func.dequantize_4bit(
+                        child.weight.data, child.weight.quant_state
+                    ).to(dtype)
+                else:
+                    dq_weight = child.weight.data.to(dtype)
+                new_linear = nn.Linear(
+                    child.in_features,
+                    child.out_features,
+                    bias=child.bias is not None,
+                )
+                new_linear.weight = nn.Parameter(dq_weight)
+                if child.bias is not None:
+                    new_linear.bias = nn.Parameter(child.bias.to(dtype))
+                setattr(model, name, new_linear)
+            else:
+                ModelLoader._dequantize_bnb_4bit(child, dtype)
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Ministral 14B Instruct BnB 4-bit model instance.
 
@@ -100,6 +131,10 @@ class ModelLoader(ForgeModel):
         model = Mistral3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        # Dequantize all Linear4bit layers so the model can run on CPU
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        self._dequantize_bnb_4bit(model, dtype=dtype)
 
         model.eval()
         self.model = model
