@@ -5,12 +5,14 @@
 MobileNetV5 model loader implementation for image feature extraction.
 """
 
+from io import BytesIO
 from typing import Optional
 from dataclasses import dataclass
+import requests
 import timm
 from timm.data import resolve_data_config
 from timm.data.transforms_factory import create_transform
-from datasets import load_dataset
+from PIL import Image
 
 from ...config import (
     ModelConfig,
@@ -95,8 +97,8 @@ class ModelLoader(ForgeModel):
                 )
 
         if image is None:
-            dataset = load_dataset("huggingface/cats-image", split="test")
-            image = dataset[0]["image"]
+            url = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/rabbit.png"
+            image = Image.open(BytesIO(requests.get(url, stream=True).content))
 
         image = image.convert("RGB")
 
