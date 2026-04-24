@@ -1,2 +1,8 @@
 gptqmodel>=6.0.0
 pypcre
+defuser
+device-smi
+kernels
+logbar
+tokenicer
+tomlkit
