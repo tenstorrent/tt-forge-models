@@ -1,0 +1,71 @@
+name: Validate tt-xla CI Link
+
+on:
+  pull_request:
+    branches: ["main"]
+    types: [opened, labeled, unlabeled, edited, synchronize]
+
+jobs:
+  validate-ci-link:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip if CI_VERIFIED label not present
+        if: ${{ !contains(github.event.pull_request.labels.*.name, 'CI_VERIFIED') }}
+        run: |
+          echo "CI_VERIFIED label not present, skipping validation"
+
+      - name: Validate tt-xla test run links
+        if: contains(github.event.pull_request.labels.*.name, 'CI_VERIFIED')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # Extract tt-xla-test: lines, supporting optional "@ <sha>" suffix
+          # Formats:
+          #   tt-xla-test: https://github.com/tenstorrent/tt-xla/actions/runs/123456789
+          #   tt-xla-test: https://github.com/tenstorrent/tt-xla/actions/runs/123456789 @ f84ab7741c
+          LINES=$(echo "$PR_BODY" | grep -P 'tt-xla-test:\s*https://github\.com/tenstorrent/tt-xla/actions/runs/\d+' || true)
+
+          if [ -z "$LINES" ]; then
+            echo "::error::No tt-xla-test links found in PR description"
+            exit 1
+          fi
+
+          FAILED=0
+          while IFS= read -r line; do
+            URL=$(echo "$line" | grep -oP 'https://github\.com/tenstorrent/tt-xla/actions/runs/\d+')
+            RUN_ID=$(echo "$URL" | grep -oP '\d+$')
+            CLAIMED_SHA=$(echo "$line" | grep -oP '(?<=@)\s*\S+' | tr -d ' ' || true)
+
+            echo "Checking run $RUN_ID ($URL)..."
+
+            # Fetch run details from public tt-xla repo (authenticated for rate limits)
+            RUN_DATA=$(gh api repos/tenstorrent/tt-xla/actions/runs/$RUN_ID)
+
+            CONCLUSION=$(echo "$RUN_DATA" | jq -r '.conclusion // "null"')
+
+            if [ "$CONCLUSION" != "success" ]; then
+              echo "::error::Linked run $URL did not succeed (conclusion: $CONCLUSION)"
+              FAILED=1
+              continue
+            fi
+
+            # SHA matching only if a SHA was provided in the marker
+            if [ -n "$CLAIMED_SHA" ]; then
+              if [ "$CLAIMED_SHA" != "$PR_HEAD_SHA" ]; then
+                echo "::error::Linked run $URL was tested against SHA $CLAIMED_SHA, PR HEAD is now $PR_HEAD_SHA — please re-test"
+                FAILED=1
+                continue
+              fi
+              echo "Run $RUN_ID passed (SHA $CLAIMED_SHA matches PR HEAD)"
+            else
+              echo "Run $RUN_ID passed (no SHA provided, skipping SHA check)"
+            fi
+          done <<< "$LINES"
+
+          if [ "$FAILED" -ne 0 ]; then
+            exit 1
+          fi
+
+          echo "All tt-xla test runs passed"
