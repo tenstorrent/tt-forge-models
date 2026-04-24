@@ -4,8 +4,6 @@
 """
 MoringLabs Nemotron 3 Super 120B A12B MLX 3.6-bit model loader implementation for causal language modeling.
 """
-import os
-
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -88,8 +86,6 @@ class ModelLoader(ForgeModel):
         return config
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
@@ -98,18 +94,12 @@ class ModelLoader(ForgeModel):
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
 
-        if os.environ.get("TT_RANDOM_WEIGHTS"):
-            model = AutoModelForCausalLM.from_config(config, trust_remote_code=True)
-            if dtype_override is not None:
-                model = model.to(dtype_override)
-        else:
-            model_kwargs = {"config": config, "ignore_mismatched_sizes": True}
-            if dtype_override is not None:
-                model_kwargs["torch_dtype"] = dtype_override
-            model_kwargs |= kwargs
-            model = AutoModelForCausalLM.from_pretrained(
-                pretrained_model_name, trust_remote_code=True, **model_kwargs
-            )
+        # MLX-quantized weights are incompatible with standard transformers loading
+        # (packed bit-width tensors with wrong shapes). Always use from_config to
+        # avoid a 50 GB weight download that would yield random weights anyway.
+        model = AutoModelForCausalLM.from_config(config, trust_remote_code=True)
+        if dtype_override is not None:
+            model = model.to(dtype_override)
 
         model.eval()
         self.config = model.config
