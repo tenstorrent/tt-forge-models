@@ -132,6 +132,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["ignore_mismatched_sizes"] = True
         model_kwargs["low_cpu_mem_usage"] = True
         model_kwargs |= kwargs
 
