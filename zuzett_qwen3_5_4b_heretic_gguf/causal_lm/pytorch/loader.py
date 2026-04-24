@@ -6,9 +6,15 @@ ZuzeTt Qwen3.5 4B Heretic GGUF model loader implementation for causal language m
 """
 import importlib.metadata
 import importlib.util
+import inspect
 
+import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 import transformers.utils.import_utils as _import_utils
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
 
 # transformers caches PACKAGE_DISTRIBUTION_MAPPING at import time; if gguf is
 # installed afterwards (by RequirementsManager), the stale cache causes
@@ -27,6 +33,80 @@ def _live_is_gguf_available(min_version: str = "0.10.0") -> bool:
 
 _import_utils.is_gguf_available = _live_is_gguf_available
 _gguf_utils.is_gguf_available = _live_is_gguf_available
+
+
+def _patch_qwen35_support():
+    """Register qwen35 architecture and qwen3_5_text tokenizer as aliases for qwen3.
+
+    Qwen 3.5 uses the same model architecture as Qwen 3 but the GGUF file
+    declares architecture as 'qwen35' and tokenizer class as 'qwen3_5_text',
+    which transformers 5.x does not yet recognise.
+    """
+    if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "qwen35",
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
+            )
+    if "qwen3" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "qwen3_5_text", GGUF_TO_FAST_CONVERTERS["qwen3"]
+        )
+
+
+def _find_real_load_gguf_checkpoint():
+    """Traverse the patch chain to find the real transformers load_gguf_checkpoint.
+
+    Other GGUF model loaders patch _gguf_utils.load_gguf_checkpoint but don't
+    accept the model_to_load kwarg that newer transformers passes.  Walk the
+    chain via each patch's _orig_load_gguf_checkpoint global until we reach the
+    real function (identifiable by model_to_load in its signature).
+    """
+    fn = _gguf_utils.load_gguf_checkpoint
+    seen = set()
+    while fn is not None and id(fn) not in seen:
+        seen.add(id(fn))
+        try:
+            if "model_to_load" in inspect.signature(fn).parameters:
+                return fn
+        except (ValueError, TypeError):
+            pass
+        next_fn = fn.__globals__.get("_orig_load_gguf_checkpoint")
+        if next_fn is None or next_fn is fn or not callable(next_fn):
+            break
+        fn = next_fn
+    return fn
+
+
+_real_load_gguf_checkpoint = _find_real_load_gguf_checkpoint()
+
+
+def _patched_load_gguf_checkpoint(
+    gguf_checkpoint_path, return_tensors=False, model_to_load=None, **kwargs
+):
+    """Wrap load_gguf_checkpoint to add qwen35 support and accept model_to_load."""
+    _patch_qwen35_support()
+    result = _real_load_gguf_checkpoint(
+        gguf_checkpoint_path,
+        return_tensors=return_tensors,
+        model_to_load=model_to_load,
+    )
+    if (
+        isinstance(result, dict)
+        and result.get("config", {}).get("model_type") == "qwen35"
+    ):
+        result["config"]["model_type"] = "qwen3"
+    return result
+
+
+_patch_qwen35_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
