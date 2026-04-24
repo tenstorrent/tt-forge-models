@@ -113,7 +113,13 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             pixel_values = pixel_values.to(dtype_override)
 
-        return pixel_values
+        bos_token_id = self._processor.tokenizer.bos_token_id or 0
+        decoder_input_ids = torch.full((1, 1), bos_token_id, dtype=torch.long)
+
+        return {
+            "pixel_values": pixel_values,
+            "decoder_input_ids": decoder_input_ids,
+        }
 
     def decode_output(self, co_out):
         """Decode model outputs into human-readable text.
