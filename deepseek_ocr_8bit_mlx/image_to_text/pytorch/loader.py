@@ -94,6 +94,16 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model = model.to(dtype_override)
 
+        # The expand()-based position_ids buffer gets corrupted during model.to() due to
+        # non-contiguous strides; reset it to the correct values after loading.
+        try:
+            import torch as _torch
+
+            vm_emb = model.model.vision_model.embeddings
+            vm_emb.position_ids = _torch.arange(vm_emb.num_positions).unsqueeze(0)
+        except Exception:
+            pass
+
         model.eval()
         return model
 
