@@ -5,6 +5,7 @@
 NVIDIA Nemotron Nano 12B v2 VL NVFP4-QAD model loader implementation for image to text.
 """
 
+import sys
 import torch
 import torch.distributed
 from transformers import AutoConfig, AutoModel, AutoProcessor
@@ -129,6 +130,16 @@ class ModelLoader(ForgeModel):
             config, trust_remote_code=True, attn_implementation="eager"
         ).to(dtype)
         model.eval()
+
+        # NemotronHCausalLMOutput (from the inner NemotronH LM) uses cache_params
+        # instead of past_key_values. The VL model's forward() accesses
+        # outputs.past_key_values unconditionally, causing AttributeError.
+        # Patch the class to return None for that attribute.
+        for mod in sys.modules.values():
+            cls = getattr(mod, "NemotronHCausalLMOutput", None)
+            if cls is not None and not hasattr(cls, "past_key_values"):
+                cls.past_key_values = None
+                break
 
         return model
 
