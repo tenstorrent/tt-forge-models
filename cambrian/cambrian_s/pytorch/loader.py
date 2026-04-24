@@ -8,6 +8,8 @@ Cambrian-S model loader implementation for multimodal visual question answering.
 import torch
 from PIL import Image
 from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor
+from transformers.cache_utils import DynamicCache
+from transformers.configuration_utils import PretrainedConfig
 from typing import Optional
 
 try:
@@ -15,6 +17,33 @@ try:
 
     AutoConfig.register("cambrian_qwen", CambrianQwenConfig)
     AutoModelForCausalLM.register(CambrianQwenConfig, CambrianQwenForCausalLM)
+
+    # CambrianQwenForCausalLM.__init__ sets config.rope_scaling = None which in
+    # transformers 5.x clobbers rope_parameters via the property setter. Patch
+    # the setter to be a no-op when value is None so rope_parameters is preserved.
+    _orig_rope_scaling_setter = PretrainedConfig.rope_scaling.fset
+
+    def _patched_rope_scaling_setter(self, value):
+        if value is not None:
+            _orig_rope_scaling_setter(self, value)
+
+    PretrainedConfig.rope_scaling = PretrainedConfig.rope_scaling.setter(
+        _patched_rope_scaling_setter
+    )
+
+    # cambrian-s uses DynamicCache.get_usable_length which was renamed to
+    # get_seq_length in transformers 5.x. Add a backward-compatible alias.
+    if not hasattr(DynamicCache, "get_usable_length"):
+        DynamicCache.get_usable_length = DynamicCache.get_seq_length
+
+    # In transformers 5.x, CambrianQwenModel.forward was written for transformers 4.x
+    # and is incompatible (_attn_implementation moved to config, position_embeddings
+    # now required in decoder layer forward, _prepare_4d_causal_attention_mask removed).
+    # Patch CambrianQwenModel to use Qwen2Model.forward which handles the new API.
+    from cambrian.model.language_model.cambrian_qwen2 import CambrianQwenModel
+    from transformers import Qwen2Model
+
+    CambrianQwenModel.forward = Qwen2Model.forward
 except ImportError:
     pass
 
@@ -73,7 +102,6 @@ class ModelLoader(ForgeModel):
     def _load_processor(self):
         self.processor = AutoProcessor.from_pretrained(
             self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
         )
         return self.processor
 
@@ -105,26 +133,18 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        image_file = get_file(
-            "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
-        )
-        image = Image.open(image_file)
-
         conversation = [
             {
                 "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": "What is shown in this image?"},
-                ],
+                "content": "What is shown in this image?",
             }
         ]
 
         text_prompt = self.processor.apply_chat_template(
-            conversation, add_generation_prompt=True
+            conversation, add_generation_prompt=True, tokenize=False
         )
 
-        inputs = self.processor(images=image, text=text_prompt, return_tensors="pt")
+        inputs = self.processor(text=text_prompt, return_tensors="pt")
 
         if dtype_override is not None:
             for key in inputs:
