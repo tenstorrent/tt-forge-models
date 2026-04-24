@@ -21,9 +21,9 @@ from ....config import (
     StrEnum,
 )
 
-# Tokenizer repo that has config.json + tokenizer files (same vocab as the GGUF).
-# Used for TT_RANDOM_WEIGHTS mode to avoid the full 25 GB GGUF download.
-_TOKENIZER_FALLBACK = "Qwen/Qwen3-72B"
+# Tokenizer repo with same vocab as the GGUF (all Qwen3 models share one tokenizer).
+# Use the 0.6B model for a fast download; avoids the full 25 GB GGUF.
+_TOKENIZER_FALLBACK = "Qwen/Qwen3-0.6B"
 
 # Architecture extracted from GGUF metadata (qwen3.* keys).
 # The "Embiggened" variant has a wider hidden_size (8192) than stock Qwen3-72B (7168).
