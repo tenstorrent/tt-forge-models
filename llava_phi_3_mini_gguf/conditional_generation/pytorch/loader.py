@@ -87,8 +87,10 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.gguf_file
 
-        # The GGUF repo lacks config.json; load architecture config from the HF version
+        # The GGUF repo lacks config.json; load architecture config from the HF version.
+        # Expose num_hidden_layers at top level so the GGUF weight mapper can find it.
         config = AutoConfig.from_pretrained(self._PROCESSOR_NAME)
+        config.num_hidden_layers = config.text_config.num_hidden_layers
         model = LlavaForConditionalGeneration.from_pretrained(
             pretrained_model_name,
             config=config,
