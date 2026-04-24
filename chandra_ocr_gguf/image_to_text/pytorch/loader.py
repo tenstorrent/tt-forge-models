@@ -118,6 +118,19 @@ def _patch_transformers_qwen3vl_gguf():
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
 
+    # Patch modules that imported load_gguf_checkpoint via from-import
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
+# Apply the monkey-patch at import time
+_patch_transformers_qwen3vl_gguf()
+
 
 class ModelVariant(StrEnum):
     """Available Chandra OCR GGUF model variants for image to text."""
@@ -166,8 +179,6 @@ class ModelLoader(ForgeModel):
         return self._GGUF_FILES.get(self._variant)
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        _patch_transformers_qwen3vl_gguf()
-
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
