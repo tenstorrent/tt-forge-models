@@ -5,7 +5,13 @@
 MedGemma GGUF model loader implementation for multimodal conditional generation.
 """
 import torch
-from transformers import AutoProcessor, AutoModelForImageTextToText, AutoConfig
+from transformers import (
+    AutoConfig,
+    AutoModelForImageTextToText,
+    Gemma3Processor,
+    GemmaTokenizer,
+    SiglipImageProcessor,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -43,9 +49,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.MEDGEMMA_1_5_4B_IT_Q4_K_M: "medgemma-1.5-4b-it-Q4_K_M.gguf",
     }
 
-    # medgemma-1.5-4b-it is gated; gemma-3-4b-it is the publicly accessible
-    # base model with a compatible processor architecture.
-    _PROCESSOR_NAME = "google/gemma-3-4b-it"
+    # medgemma-1.5-4b-it is gated; use publicly accessible SigLIP-224 image
+    # processor + tokenizer from the GGUF to build a Gemma3Processor.
+    _SIGLIP_MODEL = "google/siglip-so400m-patch14-224"
 
     sample_text = "Describe any abnormalities in this medical image."
     sample_image_url = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/p-blog/candy.JPG"
@@ -74,10 +80,15 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self, dtype_override=None):
-        kwargs = {}
-        if dtype_override is not None:
-            kwargs["torch_dtype"] = dtype_override
-        self.processor = AutoProcessor.from_pretrained(self._PROCESSOR_NAME, **kwargs)
+        tokenizer = GemmaTokenizer.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            gguf_file=self.gguf_file,
+        )
+        image_processor = SiglipImageProcessor.from_pretrained(self._SIGLIP_MODEL)
+        self.processor = Gemma3Processor(
+            image_processor=image_processor,
+            tokenizer=tokenizer,
+        )
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
