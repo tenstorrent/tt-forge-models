@@ -6,6 +6,7 @@ Xenova DistilBERT base cased distilled SQuAD model loader implementation for
 question answering.
 """
 
+import os
 from typing import Optional
 
 from ....base import ForgeModel
@@ -109,21 +110,34 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The DistilBERT model instance.
         """
-        from transformers import DistilBertForQuestionAnswering
+        from transformers import AutoConfig, DistilBertForQuestionAnswering
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
-        model = DistilBertForQuestionAnswering.from_pretrained(
-            pretrained_model_name, **model_kwargs
+        # Xenova publishes ONNX-only exports with no PyTorch weights.
+        # Use random weights when TT_RANDOM_WEIGHTS is set or when running in
+        # compile-only mode (TT_COMPILE_ONLY_SYSTEM_DESC), since no real weights exist.
+        use_random_weights = os.environ.get("TT_RANDOM_WEIGHTS") or os.environ.get(
+            "TT_COMPILE_ONLY_SYSTEM_DESC"
         )
+
+        if use_random_weights:
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            model = DistilBertForQuestionAnswering(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+            model = DistilBertForQuestionAnswering.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+
         model.eval()
 
         return model
