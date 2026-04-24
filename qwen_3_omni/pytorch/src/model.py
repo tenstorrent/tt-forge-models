@@ -21,5 +21,5 @@ class Wrapper(torch.nn.Module):
             "pixel_values": pixel_values,
             "image_grid_thw": image_grid_thw,
         }
-        outputs = self.model(**inputs)
+        outputs = self.model.thinker(**inputs)
         return outputs.logits
