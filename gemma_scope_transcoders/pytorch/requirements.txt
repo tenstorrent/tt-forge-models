@@ -1,0 +1,2 @@
+nnsight>=0.6.0
+transformer-lens>=2.16.0

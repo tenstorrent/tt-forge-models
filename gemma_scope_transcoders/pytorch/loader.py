@@ -8,6 +8,9 @@ for causal language modeling.
 Reference: https://huggingface.co/mntss/gemma-scope-transcoders
 """
 
+import os
+
+import torch
 from transformers import AutoTokenizer
 from typing import Optional
 
@@ -44,6 +47,9 @@ class ModelLoader(ForgeModel):
 
     BASE_MODEL = "google/gemma-2-2b"
 
+    # transformer_lens model name for the built-in config (no HF download needed)
+    _TL_MODEL_NAME = "gemma-2-2b"
+
     sample_text = "What is your favorite city?"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
@@ -64,6 +70,13 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _should_use_random_weights(self) -> bool:
+        # Use random weights when explicitly requested or in compile-only mode,
+        # since google/gemma-2-2b is a gated model requiring license acceptance.
+        return os.environ.get("TT_RANDOM_WEIGHTS") == "1" or bool(
+            os.environ.get("TT_COMPILE_ONLY_SYSTEM_DESC")
+        )
+
     def _load_tokenizer(self, dtype_override=None):
         """Load tokenizer from the base Gemma model.
 
@@ -73,6 +86,9 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
+        hf_token = os.environ.get("HF_TOKEN")
+        if hf_token:
+            tokenizer_kwargs["token"] = hf_token
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.BASE_MODEL, **tokenizer_kwargs
         )
@@ -87,11 +103,44 @@ class ModelLoader(ForgeModel):
             The ReplacementModel wrapping the base Gemma-2-2B model with
             per-layer transcoder features from gemma-scope-transcoders.
         """
+        pretrained_model_name = self._variant_config.pretrained_model_name
+
+        if self._should_use_random_weights():
+            # Use built-in transformer_lens config (no HF download needed) and
+            # load transcoders from mntss/gemma-scope-transcoders (not gated).
+            from circuit_tracer.replacement_model.replacement_model_transformerlens import (
+                TransformerLensReplacementModel,
+            )
+            from circuit_tracer.utils.hf_utils import load_transcoder_from_hub
+            from transformer_lens.loading_from_pretrained import (
+                get_pretrained_model_config,
+            )
+
+            cfg = get_pretrained_model_config(
+                self._TL_MODEL_NAME,
+                fold_ln=False,
+                center_writing_weights=False,
+                center_unembed=False,
+            )
+            # Skip tokenizer loading — the base model is gated, and inputs
+            # are provided as pre-tokenized tensors in random-weights mode.
+            cfg.tokenizer_name = None
+
+            transcoders, _ = load_transcoder_from_hub(pretrained_model_name)
+            model = TransformerLensReplacementModel.from_config(
+                cfg, transcoders, **kwargs
+            )
+            self.model = model
+            return model
+
         from circuit_tracer import ReplacementModel
 
-        pretrained_model_name = self._variant_config.pretrained_model_name
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
+
+        hf_token = os.environ.get("HF_TOKEN")
+        if hf_token:
+            kwargs.setdefault("token", hf_token)
 
         model = ReplacementModel.from_pretrained(
             self.BASE_MODEL, pretrained_model_name, **kwargs
@@ -112,6 +161,11 @@ class ModelLoader(ForgeModel):
             dict: Input tensors that can be fed to the model.
         """
         max_length = self._variant_config.max_length
+
+        if self._should_use_random_weights():
+            # Return dummy token IDs without downloading the gated tokenizer.
+            return {"input_ids": torch.zeros(batch_size, max_length, dtype=torch.long)}
+
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
