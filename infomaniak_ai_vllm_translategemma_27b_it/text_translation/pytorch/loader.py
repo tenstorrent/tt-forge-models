@@ -39,10 +39,16 @@ class ModelLoader(ForgeModel):
 
     # The modified chat template encodes source/target language codes directly in
     # the content string using delimiters: <<<source>>>{src}<<<target>>>{tgt}<<<text>>>{text}
+    # Content must be a list of dicts for transformers 5.x apply_chat_template compatibility.
     sample_messages = [
         {
             "role": "user",
-            "content": "<<<source>>>cs<<<target>>>de-DE<<<text>>>V nejhorším případě i k prasknutí čočky.",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "<<<source>>>cs<<<target>>>de-DE<<<text>>>V nejhorším případě i k prasknutí čočky.",
+                }
+            ],
         }
     ]
 
