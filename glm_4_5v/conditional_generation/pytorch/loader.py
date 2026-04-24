@@ -4,8 +4,10 @@
 """
 GLM-4.5V model loader implementation for multimodal conditional generation.
 """
+import os
+
 import torch
-from transformers import AutoProcessor, Glm4vMoeForConditionalGeneration
+from transformers import AutoConfig, AutoProcessor, Glm4vMoeForConditionalGeneration
 from typing import Optional
 
 from ....base import ForgeModel
@@ -58,12 +60,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self, dtype_override=None):
-        kwargs = {}
-        if dtype_override is not None:
-            kwargs["torch_dtype"] = dtype_override
-
         self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, **kwargs
+            self._variant_config.pretrained_model_name,
         )
 
         return self.processor
@@ -74,14 +72,21 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            model = Glm4vMoeForConditionalGeneration(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["dtype"] = dtype_override
+            model_kwargs |= kwargs
 
-        model = Glm4vMoeForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+            model = Glm4vMoeForConditionalGeneration.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+
         model.eval()
         self.model = model
         self.config = model.config
