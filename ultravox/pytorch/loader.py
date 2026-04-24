@@ -257,10 +257,16 @@ class ModelLoader(ForgeModel):
         # tie_weights(); the custom hausa-ultravox model overrides tie_weights()
         # without **kwargs. AutoConfig loading above imports the custom module
         # into sys.modules — find UltravoxModel there and wrap tie_weights.
+        import inspect
         import sys
 
-        for _mod in sys.modules.values():
-            if hasattr(_mod, "UltravoxModel"):
+        for _mod_name, _mod in sys.modules.items():
+            if (
+                "transformers_modules" in _mod_name
+                and "ultravox" in _mod_name
+                and hasattr(_mod, "UltravoxModel")
+                and inspect.isclass(_mod.UltravoxModel)
+            ):
                 _UltravoxModel = _mod.UltravoxModel
                 _orig_tie_weights = _UltravoxModel.tie_weights
 
