@@ -14,11 +14,11 @@ from typing import Optional
 
 
 def _patch_transformers_qwen35_gguf():
+    from gguf import GGUFReader
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
         GGUF_TO_TRANSFORMERS_MAPPING,
         TENSOR_PROCESSORS,
-        GGUFReader,
         GGUFTensor,
         TensorProcessor,
     )
