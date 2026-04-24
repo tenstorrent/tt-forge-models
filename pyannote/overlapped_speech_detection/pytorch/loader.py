@@ -68,12 +68,54 @@ class ModelLoader(ForgeModel):
         Requires a HuggingFace token with access to the gated model.
         Set the HF_TOKEN environment variable or pass token as a kwarg.
         """
+        import torchaudio
+
+        # pyannote.audio 3.x uses torchaudio APIs removed in torchaudio 2.9+;
+        # patch them back in before importing so the import succeeds
+        if not hasattr(torchaudio, "AudioMetaData"):
+            from typing import NamedTuple
+
+            class AudioMetaData(NamedTuple):
+                sample_rate: int
+                num_frames: int
+                num_channels: int
+                bits_per_sample: int
+                encoding: str
+
+            torchaudio.AudioMetaData = AudioMetaData
+
+        if not hasattr(torchaudio, "list_audio_backends"):
+            torchaudio.list_audio_backends = lambda: ["soundfile"]
+
+        if not hasattr(torchaudio, "info"):
+            torchaudio.info = lambda path, backend=None: torchaudio.AudioMetaData(
+                sample_rate=16000,
+                num_frames=160000,
+                num_channels=1,
+                bits_per_sample=16,
+                encoding="PCM_S",
+            )
+
+        # pyannote.audio 3.x passes use_auth_token to hf_hub_download which
+        # was removed in huggingface_hub 1.x; patch to convert it to token
+        import huggingface_hub as _hf_hub
+
+        _orig_hf_hub_download = _hf_hub.hf_hub_download
+
+        def _patched_hf_hub_download(*args, use_auth_token=None, token=None, **kwargs):
+            if use_auth_token is not None and token is None:
+                token = use_auth_token
+            return _orig_hf_hub_download(*args, token=token, **kwargs)
+
+        _hf_hub.hf_hub_download = _patched_hf_hub_download
+
         from pyannote.audio import Pipeline
 
         pipeline_kwargs = {}
         token = kwargs.pop("token", None) or os.environ.get("HF_TOKEN")
         if token:
-            pipeline_kwargs["token"] = token
+            # pyannote.audio 3.x uses use_auth_token instead of token
+            pipeline_kwargs["use_auth_token"] = token
 
         pipeline = Pipeline.from_pretrained(
             self._variant_config.pretrained_model_name, **pipeline_kwargs
