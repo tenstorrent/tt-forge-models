@@ -223,6 +223,8 @@ class ModelLoader(ForgeModel):
             "trust_remote_code": True,
             "attn_implementation": "eager",
         }
+        if not self._is_hf_native:
+            model_kwargs["device_map"] = "cpu"
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
