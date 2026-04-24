@@ -5,7 +5,7 @@
 Jina CLIP v2 model loader implementation for image-text similarity.
 """
 import torch
-from transformers import AutoModel, AutoProcessor
+from transformers import AutoModel, AutoProcessor, PreTrainedModel
 from typing import Optional
 
 from ...base import ForgeModel
@@ -73,17 +73,33 @@ class ModelLoader(ForgeModel):
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {
-            "trust_remote_code": True,
-            "return_dict": False,
-            "low_cpu_mem_usage": False,
-        }
+        model_kwargs = {"trust_remote_code": True, "return_dict": False}
 
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        # transformers 5.x always initializes models on meta device via get_init_context,
+        # but EVAVisionTransformer calls .item() during __init__ which fails on meta tensors.
+        # Temporarily patch to exclude meta device during loading.
+        _orig_get_init_context = PreTrainedModel.__dict__["get_init_context"]
+
+        @classmethod  # type: ignore[misc]
+        def _get_init_context_no_meta(cls, dtype, is_quantized, _is_ds_init_called):
+            contexts = _orig_get_init_context.__func__(
+                cls, dtype, is_quantized, _is_ds_init_called
+            )
+            return [
+                c
+                for c in contexts
+                if not (isinstance(c, torch.device) and c.type == "meta")
+            ]
+
+        PreTrainedModel.get_init_context = _get_init_context_no_meta
+        try:
+            model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        finally:
+            PreTrainedModel.get_init_context = _orig_get_init_context
         model.eval()
 
         return model
