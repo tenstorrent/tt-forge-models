@@ -4,20 +4,16 @@
 """
 TheBloke Swallow 70B Instruct GGUF model loader implementation for causal language modeling.
 """
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+
+import os
 from typing import Optional
 
+import torch
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+
 from ....base import ForgeModel
-from ....config import (
-    LLMModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
-    Framework,
-    StrEnum,
-)
+from ....config import (Framework, LLMModelConfig, ModelGroup, ModelInfo,
+                        ModelSource, ModelTask, StrEnum)
 
 
 class ModelVariant(StrEnum):
@@ -65,7 +61,8 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        if os.environ.get("TT_RANDOM_WEIGHTS") != "1":
+            tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -85,14 +82,21 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        if os.environ.get("TT_RANDOM_WEIGHTS") == "1":
+            # Pre-load config from config.json to avoid triggering the ~40GB GGUF download.
+            if "config" not in model_kwargs:
+                model_kwargs["config"] = AutoConfig.from_pretrained(
+                    pretrained_model_name
+                )
+        else:
+            model_kwargs["gguf_file"] = self.GGUF_FILE
+            if self.num_layers is not None:
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name, gguf_file=self.GGUF_FILE
+                )
+                config.num_hidden_layers = self.num_layers
+                model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -143,7 +147,12 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        if os.environ.get("TT_RANDOM_WEIGHTS") == "1":
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name
+            )
+        else:
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
         return self.config
