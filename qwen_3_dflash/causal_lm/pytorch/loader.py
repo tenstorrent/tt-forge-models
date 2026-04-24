@@ -5,7 +5,7 @@
 Qwen 3 DFlash model loader implementation for causal language modeling.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModel, AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -48,6 +48,9 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.tokenizer = None
+        self._is_dflash_draft = False
+        self._hidden_size = None
+        self._num_target_layers = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -70,26 +73,55 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        self._ensure_tokenizer()
-
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        # Check if this is a DFlash draft model (uses AutoModel, not AutoModelForCausalLM)
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        architectures = getattr(config, "architectures", [])
+        self._is_dflash_draft = "DFlashDraftModel" in architectures
+
+        if self._is_dflash_draft:
+            model = AutoModel.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+            self._hidden_size = config.hidden_size
+            dflash_cfg = getattr(config, "dflash_config", {})
+            target_layer_ids = dflash_cfg.get("target_layer_ids", [])
+            self._num_target_layers = len(target_layer_ids)
+        else:
+            self._ensure_tokenizer()
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        self._ensure_tokenizer()
-
         max_length = self._variant_config.max_length
+
+        if self._is_dflash_draft:
+            position_ids = torch.arange(max_length).unsqueeze(0).expand(batch_size, -1)
+            noise_embedding = torch.zeros(batch_size, max_length, self._hidden_size)
+            target_hidden = torch.zeros(
+                batch_size,
+                max_length,
+                self._num_target_layers * self._hidden_size,
+            )
+            return {
+                "position_ids": position_ids,
+                "noise_embedding": noise_embedding,
+                "target_hidden": target_hidden,
+            }
+
+        self._ensure_tokenizer()
 
         inputs = self.tokenizer(
             [self.sample_text],
