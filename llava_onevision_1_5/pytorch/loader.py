@@ -5,6 +5,11 @@
 LLaVA-OneVision-1.5 model loader implementation for multimodal conditional generation.
 """
 
+import transformers.cache_utils
+
+if not hasattr(transformers.cache_utils, "SlidingWindowCache"):
+    transformers.cache_utils.SlidingWindowCache = transformers.cache_utils.StaticCache
+
 from transformers import AutoModelForCausalLM, AutoProcessor
 from typing import Optional
 
