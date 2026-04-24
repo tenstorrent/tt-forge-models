@@ -38,10 +38,10 @@ def _patch_gemma3n_support():
     )
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+def _patched_load_gguf_checkpoint(*args, **kwargs):
     """Wrap load_gguf_checkpoint to add gemma3n architecture support."""
     _patch_gemma3n_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
     if result.get("config", {}).get("model_type") == "gemma3n":
         result["config"]["model_type"] = "gemma3n_text"
     return result
