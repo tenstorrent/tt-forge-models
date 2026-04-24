@@ -82,6 +82,11 @@ def _patch_transformers_qwen2vl_gguf():
         )
         if effective_type == "qwen2_5_vl":
             model_type = "qwen2vl"
+            # Qwen2_5_VLConfig nests num_hidden_layers under text_config
+            if num_layers is None and hf_model is not None:
+                text_cfg = getattr(hf_model.config, "text_config", None)
+                if text_cfg is not None:
+                    num_layers = getattr(text_cfg, "num_hidden_layers", None)
         return orig_get_weights_map(
             hf_model,
             processor,
