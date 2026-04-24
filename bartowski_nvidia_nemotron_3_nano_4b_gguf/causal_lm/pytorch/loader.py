@@ -80,11 +80,11 @@ def _patch_transformers_nemotron_h_gguf():
                 # GGUF: [kernel, conv_dim] -> HF: [conv_dim, 1, kernel]
                 weights = np.expand_dims(weights.T, axis=1)
             elif "ssm_a" in name:
-                # GGUF stores raw A values; A_log = log(-A) for Mamba, squeeze [1,H]->[H]
-                weights = np.log(-weights).squeeze(0)
+                # GGUF stores raw negative A; A_log = log(-A), flatten to 1D
+                weights = np.log(-weights).flatten()
             elif "ssm_d" in name:
-                # GGUF: [1, H] -> HF: [H]
-                weights = weights.squeeze(0)
+                # GGUF: possibly [1, H] or [H, 1] -> HF: [H]
+                weights = weights.flatten()
             elif "ssm_norm.weight" in name:
                 # GGUF: [group_size, n_groups] -> HF: [intermediate_size]
                 weights = weights.flatten()
