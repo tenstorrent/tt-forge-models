@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: MIT
+# Adapted from gr00t n1.6-release: removed hardcoded flash_attention_2 to support sdpa fallback.
 # --------------------------------------------------------
 # NVIDIA
 # Copyright (c) 2025 NVIDIA
@@ -106,10 +109,8 @@ class Eagle3_VLForConditionalGeneration(Eagle3_VLPreTrainedModel, GenerationMixi
             if config.vision_config.model_type == "intern_vit_6b":
                 self.vision_model = InternVisionModel(config.vision_config)
             elif config.vision_config.model_type == "siglip_vision_model":
-                config.vision_config._attn_implementation = "flash_attention_2"
                 self.vision_model = SiglipVisionModel(config.vision_config)
             elif config.vision_config.model_type == "siglip2_vision_model":
-                config.vision_config._attn_implementation = "flash_attention_2"
                 self.vision_model = Siglip2VisionModel(config.vision_config)
             elif config.vision_config.model_type == "radio":
                 self.vision_model = RADIOModel(config.vision_config)
@@ -122,14 +123,8 @@ class Eagle3_VLForConditionalGeneration(Eagle3_VLPreTrainedModel, GenerationMixi
             elif config.text_config.architectures[0] == "Phi3ForCausalLM":
                 self.language_model = Phi3ForCausalLM(config.text_config)
             elif config.text_config.architectures[0] == "Qwen2ForCausalLM":
-                assert (
-                    config.text_config._attn_implementation == "flash_attention_2"
-                ), f"Qwen2 must use flash_attention_2 but got {config.text_config._attn_implementation}"
                 self.language_model = Qwen2ForCausalLM(config.text_config)
             elif config.text_config.architectures[0] == "Qwen3ForCausalLM":
-                assert (
-                    config.text_config._attn_implementation == "flash_attention_2"
-                ), f"Qwen3 must use flash_attention_2 but got {config.text_config._attn_implementation}"
                 self.language_model = Qwen3ForCausalLM(config.text_config)
             else:
                 raise NotImplementedError(
