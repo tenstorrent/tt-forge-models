@@ -62,22 +62,22 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Stable Cascade prior pipeline.
+        """Load and return the Stable Cascade prior model.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            StableCascadePriorPipeline: The Stable Cascade prior pipeline instance.
+            torch.nn.Module: The Stable Cascade prior model.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         self.pipeline = load_prior_pipe(pretrained_model_name)
 
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            self.pipeline.prior = self.pipeline.prior.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.prior
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the Stable Cascade prior model.
