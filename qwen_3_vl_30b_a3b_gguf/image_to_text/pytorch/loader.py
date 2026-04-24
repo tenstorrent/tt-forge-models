@@ -121,6 +121,10 @@ def _patch_qwen3vlmoe_gguf_support():
                 else:
                     text_cfg[k] = v
             top_cfg["text_config"] = text_cfg
+            # out_hidden_size must match the text model's hidden_size (default 3584 is wrong for this model)
+            top_cfg["vision_config"] = {
+                "out_hidden_size": text_cfg.get("hidden_size", 3584)
+            }
             result["config"] = top_cfg
         return result
 
