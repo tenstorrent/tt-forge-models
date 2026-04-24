@@ -96,6 +96,21 @@ def _patch_transformers_deepseek2_gguf():
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, *args, **kwargs
+    ):
+        if model_type == "deepseek_v2" or (
+            model_type is None
+            and getattr(getattr(hf_model, "config", None), "model_type", None)
+            == "deepseek_v2"
+        ):
+            model_type = "deepseek2"
+        return orig_get_map(hf_model, processor, model_type, *args, **kwargs)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
 
 _patch_transformers_deepseek2_gguf()
 
