@@ -30,10 +30,10 @@ def _skip_fp8_weight_init():
     """Prevent normal_() from failing on Float8 tensors during weight initialization."""
     original_normal_ = torch.Tensor.normal_
 
-    def patched_normal_(self, mean=0, std=1):
+    def patched_normal_(self, mean=0, std=1, **kwargs):
         if self.dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
             return self
-        return original_normal_(self, mean=mean, std=std)
+        return original_normal_(self, mean=mean, std=std, **kwargs)
 
     torch.Tensor.normal_ = patched_normal_
     try:
