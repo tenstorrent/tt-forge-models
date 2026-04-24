@@ -88,8 +88,9 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         config = AutoConfig.from_pretrained(pretrained_model_name)
-        # MLX quantization configs lack quant_method; strip to load as unquantized
-        config.quantization_config = None
+        # MLX quantization configs lack quant_method; delete attr to load as unquantized
+        if hasattr(config, "quantization_config"):
+            delattr(config, "quantization_config")
 
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
