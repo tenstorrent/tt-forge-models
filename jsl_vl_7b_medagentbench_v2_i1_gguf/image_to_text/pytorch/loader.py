@@ -53,11 +53,14 @@ def _patch_qwen2vl_support():
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
-    """Wrap load_gguf_checkpoint to add qwen2vl support and fix model_type."""
+    """Wrap load_gguf_checkpoint to add qwen2vl support and fix model_type.
+
+    model_to_load is accepted to match the transformers 5.x signature but not
+    forwarded, because other loaders in the patch chain use the old two-arg
+    signature and would raise TypeError if passed an unknown keyword.
+    """
     _patch_qwen2vl_support()
-    result = _orig_load_gguf_checkpoint(
-        gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
-    )
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
     if result.get("config", {}).get("model_type") == "qwen2vl":
         result["config"]["model_type"] = "qwen2_5_vl"
     return result
