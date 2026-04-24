@@ -58,6 +58,8 @@ def _patch_transformers_eurobert_gguf():
 
 _patch_transformers_eurobert_gguf()
 
+from transformers import AutoConfig
+
 from ....base import ForgeModel
 from ....config import (
     ModelConfig,
@@ -90,6 +92,10 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.JINA_EMBEDDINGS_V5_TEXT_NANO_TEXT_MATCHING_GGUF
 
     GGUF_FILE = "v5-nano-text-matching-Q4_K_M.gguf"
+
+    # Base model provides config.json with auto_map for the custom EuroBERT class;
+    # the GGUF repo has no config.json so trust_remote_code alone is not enough.
+    BASE_MODEL = "jinaai/jina-embeddings-v5-text-nano-text-matching"
 
     sample_sentences = [
         "Jina Embeddings v5 is a multilingual text embedding model for text matching"
@@ -128,12 +134,16 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
+        # Load config from base model which has auto_map for the custom EuroBERT class.
+        config = AutoConfig.from_pretrained(self.BASE_MODEL, trust_remote_code=True)
+
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
         model_kwargs["trust_remote_code"] = True
+        model_kwargs["config"] = config
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
