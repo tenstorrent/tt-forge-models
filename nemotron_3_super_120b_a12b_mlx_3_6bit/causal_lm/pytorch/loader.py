@@ -4,6 +4,8 @@
 """
 MoringLabs Nemotron 3 Super 120B A12B MLX 3.6-bit model loader implementation for causal language modeling.
 """
+import os
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -74,28 +76,42 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    def _load_config(self):
+        config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name, trust_remote_code=True
+        )
+        # The MLX quantization_config is a plain dict without a quant_method field,
+        # which transformers' quantizer registry does not recognise. Clear it so that
+        # from_pretrained and random-weight instantiation both proceed without error.
+        if isinstance(getattr(config, "quantization_config", None), dict):
+            config.quantization_config = None
+        return config
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+        config = self._load_config()
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, trust_remote_code=True, **model_kwargs
-        ).eval()
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            model = AutoModelForCausalLM.from_config(config, trust_remote_code=True)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            model_kwargs = {"config": config, "ignore_mismatched_sizes": True}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, trust_remote_code=True, **model_kwargs
+            )
 
+        model.eval()
         self.config = model.config
         self.model = model
         return model
@@ -138,7 +154,5 @@ class ModelLoader(ForgeModel):
         return mesh_shape, ("batch", "model")
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, trust_remote_code=True
-        )
+        self.config = self._load_config()
         return self.config
