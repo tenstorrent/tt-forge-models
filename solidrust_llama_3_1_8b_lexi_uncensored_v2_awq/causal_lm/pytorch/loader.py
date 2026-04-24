@@ -4,16 +4,38 @@
 """
 solidrust Llama-3.1-8B-Lexi-Uncensored-V2 AWQ model loader implementation for causal language modeling.
 """
-# gptqmodel expects no_init_weights in transformers.modeling_utils; it moved to
-# transformers.initialization in transformers 5.x
-import transformers.modeling_utils as _transformers_modeling_utils
+# gptqmodel 4.x hardcodes `from transformers.modeling_utils import no_init_weights`
+# but that symbol moved to `transformers.initialization` in transformers 5.x.
+# Patch the installed gptqmodel source file before it is imported so the
+# try/except survives module-cache purges and reimports.
+import importlib
+import importlib.util
+import os as _os
+import sys as _sys
 
-if not hasattr(_transformers_modeling_utils, "no_init_weights"):
-    from transformers.initialization import (
-        no_init_weights as _no_init_weights,
+_gptqmodel_spec = importlib.util.find_spec("gptqmodel")
+if _gptqmodel_spec is not None:
+    _gptqmodel_loader_py = _os.path.join(
+        _os.path.dirname(_gptqmodel_spec.origin), "models", "loader.py"
     )
-
-    _transformers_modeling_utils.no_init_weights = _no_init_weights
+    if _os.path.isfile(_gptqmodel_loader_py):
+        with open(_gptqmodel_loader_py) as _f:
+            _src = _f.read()
+        _old_import = "from transformers.modeling_utils import no_init_weights"
+        _new_import = (
+            "try:\n"
+            "    from transformers.modeling_utils import no_init_weights\n"
+            "except ImportError:\n"
+            "    from transformers.initialization import no_init_weights"
+        )
+        if _old_import in _src and _new_import not in _src:
+            with open(_gptqmodel_loader_py, "w") as _f:
+                _f.write(_src.replace(_old_import, _new_import))
+            # Purge any stale gptqmodel modules so the patched source is used
+            for _k in list(_sys.modules.keys()):
+                if _k.split(".")[0] == "gptqmodel":
+                    del _sys.modules[_k]
+            importlib.invalidate_caches()
 
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
