@@ -64,10 +64,16 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     cfg = result.get("config", {})
     if cfg.get("model_type") in ("nemotron", "nemotron_h_moe"):
         cfg["model_type"] = "nemotron_h"
-    # GGUF encodes num_key_value_heads per-layer (list); NemotronHConfig expects int
-    if isinstance(cfg.get("num_key_value_heads"), list):
-        nonzero = [v for v in cfg["num_key_value_heads"] if v > 0]
-        cfg["num_key_value_heads"] = max(nonzero) if nonzero else 2
+    # GGUF encodes many fields as per-layer lists for hybrid architectures;
+    # NemotronHConfig expects scalar ints/floats, so collapse numeric lists.
+    for key, value in list(cfg.items()):
+        if (
+            isinstance(value, list)
+            and value
+            and all(isinstance(v, (int, float)) for v in value)
+        ):
+            nonzero = [v for v in value if v != 0]
+            cfg[key] = max(nonzero) if nonzero else 0
     return result
 
 
