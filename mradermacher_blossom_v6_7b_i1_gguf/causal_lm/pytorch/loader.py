@@ -16,7 +16,7 @@ from typing import Optional
 
 
 def _find_original_gguf_loader(fn):
-    """Walk the patch closure chain to find the actual transformers load_gguf_checkpoint."""
+    """Walk the patch chain (closures and module globals) to find the actual transformers load_gguf_checkpoint."""
     visited = set()
     candidates = [fn]
     while candidates:
@@ -30,6 +30,13 @@ def _find_original_gguf_loader(fn):
                 return current
         except Exception:
             pass
+        # Module-level patches store the wrapped function in module globals under _orig_* names
+        if hasattr(current, "__globals__"):
+            for key in ("_orig_load_gguf_checkpoint", "_original_load_gguf_checkpoint"):
+                val = current.__globals__.get(key)
+                if callable(val) and id(val) not in visited:
+                    candidates.append(val)
+        # Closure-based patches
         if hasattr(current, "__closure__") and current.__closure__:
             for cell in current.__closure__:
                 try:
