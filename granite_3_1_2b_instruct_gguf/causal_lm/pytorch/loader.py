@@ -52,7 +52,7 @@ def _patch_granite_gguf_support():
             ] = _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["llama"]
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+def _patched_load_gguf_checkpoint(*args, **kwargs):
     """Wrap load_gguf_checkpoint to add granite support."""
     _patch_granite_gguf_support()
     return _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
