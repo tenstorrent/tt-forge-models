@@ -87,6 +87,8 @@ class ModelLoader(ForgeModel):
         )
         if not hasattr(config, "max_length") and hasattr(config, "seq_length"):
             config.max_length = config.seq_length
+        if not hasattr(config, "use_cache"):
+            config.use_cache = True
 
         # ChatGLM remote code doesn't call post_init(), so all_tied_weights_keys
         # is never initialized (required by transformers 5.2.0).
