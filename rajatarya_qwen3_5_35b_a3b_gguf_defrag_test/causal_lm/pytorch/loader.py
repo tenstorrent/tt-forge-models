@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.RAJATARYA_QWEN3_5_35B_A3B_GGUF_DEFRAG_TEST: LLMModelConfig(
-            pretrained_model_name="rajatarya/Qwen3.5-35B-A3B-GGUF-defrag-test",
+            pretrained_model_name="unsloth/Qwen3.5-35B-A3B-GGUF",
             max_length=128,
         ),
     }
