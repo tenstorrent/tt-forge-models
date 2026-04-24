@@ -5,6 +5,19 @@
 GELab-Zero-4B-preview GGUF model loader implementation for image to text.
 """
 
+import importlib.metadata
+
+import transformers.utils.import_utils as _import_utils
+
+# gguf has no __version__ attribute; transformers captures PACKAGE_DISTRIBUTION_MAPPING
+# at import time (before requirements.txt installs gguf), so version lookup falls through
+# to getattr(gguf, '__version__', 'N/A') which returns 'N/A', then version.parse('N/A')
+# raises InvalidVersion. Refreshing the mapping and clearing the lru_cache fixes this.
+_import_utils.PACKAGE_DISTRIBUTION_MAPPING.update(
+    importlib.metadata.packages_distributions()
+)
+_import_utils.is_gguf_available.cache_clear()
+
 from transformers import (
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
