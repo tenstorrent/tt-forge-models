@@ -12,8 +12,11 @@ Available variants:
 - BASE: nvidia/difix (576x1024 image-to-image enhancement)
 """
 
+import types
+
 import torch
-from diffusers import DiffusionPipeline
+from diffusers import AutoencoderKL, UNet2DConditionModel
+from transformers import CLIPTextModel, CLIPTokenizer
 from typing import Optional
 
 from ...base import ForgeModel
@@ -67,17 +70,34 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_pipeline(self, dtype_override=None):
-        """Load and cache the Difix pipeline."""
-        pipe_kwargs = {
-            "custom_pipeline": self._variant_config.pretrained_model_name,
-            "trust_remote_code": True,
-        }
-        if dtype_override is not None:
-            pipe_kwargs["torch_dtype"] = dtype_override
+        """Load and cache the Difix pipeline components individually.
 
-        self.pipe = DiffusionPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name, **pipe_kwargs
+        DifixPipeline is not part of the standard diffusers library; components
+        are loaded individually to avoid the missing pipeline class issue.
+        """
+        pretrained = self._variant_config.pretrained_model_name
+        kwargs = {}
+        if dtype_override is not None:
+            kwargs["torch_dtype"] = dtype_override
+
+        pipe = types.SimpleNamespace()
+        pipe.unet = UNet2DConditionModel.from_pretrained(
+            pretrained, subfolder="unet", **kwargs
         )
+        pipe.text_encoder = CLIPTextModel.from_pretrained(
+            pretrained, subfolder="text_encoder", **kwargs
+        )
+        pipe.tokenizer = CLIPTokenizer.from_pretrained(
+            pretrained, subfolder="tokenizer"
+        )
+        # Load only the VAE config (the VAE uses a custom subclass with LoRA;
+        # we only need block_out_channels to compute the latent spatial dimensions)
+        vae_config_dict = AutoencoderKL.load_config(pretrained, subfolder="vae")
+        pipe.vae = types.SimpleNamespace(
+            config=types.SimpleNamespace(**vae_config_dict)
+        )
+
+        self.pipe = pipe
         return self.pipe
 
     def load_model(self, *, dtype_override=None, **kwargs):
