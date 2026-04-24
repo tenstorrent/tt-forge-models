@@ -107,3 +107,7 @@ results:
   status: "PASS"
   date: "20260423_223238"
   branch: "arch-c-36-tt-xla-dev/nsmith/2026-04-22_16-58/hf-bringup-8"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[qie_2509_object_remover_bbox_v3/pytorch-Object_Remover_Bbox_v3-single_device-inference]"
+  status: "PASS"
+  date: "20260424_000527"
+  branch: "arch-c-36-tt-xla-dev/nsmith/2026-04-22_16-58/hf-bringup-8"
