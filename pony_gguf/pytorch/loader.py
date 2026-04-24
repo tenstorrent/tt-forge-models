@@ -72,7 +72,7 @@ class ModelLoader(ForgeModel):
         """Load and return the SDXL pipeline from the Pony GGUF checkpoint.
 
         Returns:
-            DiffusionPipeline: The loaded pipeline instance.
+            StableDiffusionXLPipeline: The loaded pipeline instance.
         """
         if self.pipeline is None:
             self.pipeline = load_pony_gguf_pipe(REPO_ID, self.GGUF_FILE)
