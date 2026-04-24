@@ -40,7 +40,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.MIDNIGHT_ROSE_103B_V2_0_3_I1_Q4_K_M_GGUF
 
-    GGUF_FILE = "Midnight-Rose-103B-v2.0.3.i1-Q4_K_M.gguf"
+    GGUF_FILE = "Midnight-Rose-103B-v2.0.3.i1-IQ2_M.gguf"
 
     sample_text = "What is your favorite city?"
 
