@@ -4,7 +4,10 @@
 """
 mozilla-ai/llamafile_0.10.0 model loader implementation for causal language modeling.
 """
+import os
+import zipfile
 import torch
+from huggingface_hub import hf_hub_download
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -64,22 +67,35 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _get_gguf_path(self):
+        """Extract GGUF from llamafile zip and return (local_dir, gguf_filename)."""
+        llamafile_path = hf_hub_download(
+            repo_id=self._variant_config.pretrained_model_name,
+            filename=self.gguf_file,
+        )
+        gguf_name = os.path.splitext(os.path.basename(self.gguf_file))[0] + ".gguf"
+        extract_dir = os.path.dirname(llamafile_path)
+        gguf_path = os.path.join(extract_dir, gguf_name)
+        if not os.path.exists(gguf_path):
+            with zipfile.ZipFile(llamafile_path) as z:
+                z.extract(gguf_name, path=extract_dir)
+        return extract_dir, gguf_name
+
     def _load_tokenizer(self, dtype_override=None):
+        local_dir, gguf_name = self._get_gguf_path()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.gguf_file
+        tokenizer_kwargs["gguf_file"] = gguf_name
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+        self.tokenizer = AutoTokenizer.from_pretrained(local_dir, **tokenizer_kwargs)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        local_dir, gguf_name = self._get_gguf_path()
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
@@ -88,18 +104,14 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.gguf_file
+        model_kwargs["gguf_file"] = gguf_name
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.gguf_file
-            )
+            config = AutoConfig.from_pretrained(local_dir, gguf_file=gguf_name)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        model = AutoModelForCausalLM.from_pretrained(local_dir, **model_kwargs).eval()
 
         self.config = model.config
         self.model = model
@@ -157,7 +169,6 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
-        )
+        local_dir, gguf_name = self._get_gguf_path()
+        self.config = AutoConfig.from_pretrained(local_dir, gguf_file=gguf_name)
         return self.config
