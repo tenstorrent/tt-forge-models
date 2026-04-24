@@ -7,9 +7,6 @@ Ministral 3-8B Unsloth BNB 4-bit model loader implementation for image-text-to-t
 
 from typing import Optional
 
-import torch
-from transformers import AutoConfig, Mistral3ForConditionalGeneration
-
 from ...base import ForgeModel
 from ...config import (
     Framework,
@@ -42,13 +39,13 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.MINISTRAL_3_8B_INSTRUCT_2512_UNSLOTH_BNB_4BIT
 
     sample_text = "What action do you think I should take in this situation? List all the possible actions and explain why you think they are good or bad."
-    sample_image_url = "https://static.wikia.nocookie.net/essentialsdocs/images/7/70/Battle.png/revision/latest?cb=20220523172438"
+    sample_image_url = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/p-blog/candy.JPG"
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
     ):
         super().__init__(variant)
-        self.tokenizer = None
+        self.processor = None
         self.config = None
         self.num_layers = num_layers
 
@@ -63,19 +60,25 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
-        from mistral_common.tokens.tokenizers.mistral import MistralTokenizer
+    def _load_processor(self, dtype_override=None):
+        from transformers import AutoProcessor
 
-        self.tokenizer = MistralTokenizer.from_hf_hub(
-            self._variant_config.pretrained_model_name
+        kwargs = {}
+        if dtype_override is not None:
+            kwargs["torch_dtype"] = dtype_override
+
+        self.processor = AutoProcessor.from_pretrained(
+            self._variant_config.pretrained_model_name, **kwargs
         )
-        return self.tokenizer
+        return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from transformers import AutoConfig, Mistral3ForConditionalGeneration
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+        if self.processor is None:
+            self._load_processor(dtype_override=dtype_override)
 
         model_kwargs = {"device_map": "cpu"}
         if dtype_override is not None:
@@ -95,43 +98,42 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+        from PIL import Image
+        from ...tools.utils import cast_input_to_type, get_file
 
-        from mistral_common.protocol.instruct.request import ChatCompletionRequest
+        if self.processor is None:
+            self._load_processor(dtype_override=dtype_override)
 
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": self.sample_text},
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": self.sample_image_url},
-                    },
-                ],
-            },
-        ]
+        image_file = get_file(self.sample_image_url)
+        image = Image.open(image_file).convert("RGB")
 
-        tokenized = self.tokenizer.encode_chat_completion(
-            ChatCompletionRequest(messages=messages)
+        text_prompt = self.processor.apply_chat_template(
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image"},
+                        {"type": "text", "text": self.sample_text},
+                    ],
+                }
+            ],
+            add_generation_prompt=True,
         )
 
-        input_ids = torch.tensor([tokenized.tokens])
-        attention_mask = torch.ones_like(input_ids)
-        pixel_values = torch.tensor(
-            tokenized.images[0], dtype=torch.bfloat16
-        ).unsqueeze(0)
-        image_sizes = torch.tensor([pixel_values.shape[-2:]])
+        inputs = self.processor(
+            text=text_prompt,
+            images=[image],
+            return_tensors="pt",
+        )
 
-        inputs = {
-            "input_ids": input_ids,
-            "attention_mask": attention_mask,
-            "pixel_values": pixel_values,
-            "image_sizes": image_sizes,
-        }
+        if dtype_override is not None and "pixel_values" in inputs:
+            inputs["pixel_values"] = cast_input_to_type(
+                inputs["pixel_values"], dtype_override
+            )
 
         for key in inputs:
+            import torch
+
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
