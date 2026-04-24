@@ -4,7 +4,7 @@
 """
 CLIP ViT-B/32 Text model loader implementation for text embedding generation.
 
-Uses the text-only encoder from Qdrant/clip-ViT-B-32-text, which produces
+Uses the text encoder from openai/clip-vit-base-patch32, which produces
 512-dimensional text embeddings.
 """
 import torch
@@ -34,7 +34,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.BASE: ModelConfig(
-            pretrained_model_name="Qdrant/clip-ViT-B-32-text",
+            pretrained_model_name="openai/clip-vit-base-patch32",
         ),
     }
 
