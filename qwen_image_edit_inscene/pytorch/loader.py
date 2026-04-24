@@ -35,7 +35,7 @@ BASE_MODEL = "Qwen/Qwen-Image-Edit"
 LORA_REPO = "peteromallet/Qwen-Image-Edit-InScene"
 
 LORA_WEIGHT_INSCENE = "InScene-0.7.safetensors"
-LORA_WEIGHT_INSCENE_ANNOTATE = "InScene-Annotate-0.7.safetensors"
+LORA_WEIGHT_INSCENE_ANNOTATE = "InScene-Annotate-0.4.safetensors"
 
 
 class ModelVariant(StrEnum):
