@@ -29,6 +29,8 @@ def load_lumina2_transformer() -> Lumina2Transformer2DModel:
     Returns:
         Lumina2Transformer2DModel: Model with synthetic weights set to eval mode.
     """
+    # head_dim = hidden_size / num_heads = 3840 / 30 = 128
+    # axes_dim_rope must sum to head_dim (default (32,32,32)=96 is for head_dim=96)
     transformer = Lumina2Transformer2DModel(
         hidden_size=_LUMINA2_HIDDEN_SIZE,
         num_layers=_LUMINA2_NUM_LAYERS,
@@ -36,6 +38,7 @@ def load_lumina2_transformer() -> Lumina2Transformer2DModel:
         num_kv_heads=_LUMINA2_NUM_KV_HEADS,
         cap_feat_dim=_LUMINA2_CAP_FEAT_DIM,
         ffn_dim_multiplier=_LUMINA2_FFN_DIM_MULTIPLIER,
+        axes_dim_rope=(32, 48, 48),
     )
 
     transformer.to(dtype=torch.bfloat16)
