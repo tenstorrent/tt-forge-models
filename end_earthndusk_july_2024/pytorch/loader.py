@@ -66,10 +66,10 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the SD1.5 pipeline from a single-file checkpoint.
+        """Load the SD1.5 pipeline from a single-file checkpoint and return the UNet.
 
         Returns:
-            StableDiffusionPipeline: The pipeline instance.
+            UNet2DConditionModel: The UNet component of the pipeline.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
         ckpt_path = hf_hub_download(
@@ -81,14 +81,27 @@ class ModelLoader(ForgeModel):
             torch_dtype=dtype,
             **kwargs,
         )
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the model.
+        """Load sample UNet inputs with random tensors.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: UNet inputs with sample latents, timestep, and encoder hidden states.
         """
-        return [
-            "A cinematic shot of a baby raccoon wearing an intricate italian priest robe."
-        ] * batch_size
+        dtype = dtype_override if dtype_override is not None else torch.float32
+
+        unet = self.pipeline.unet
+        in_channels = unet.config.in_channels
+        cross_attention_dim = unet.config.cross_attention_dim
+
+        latents = torch.randn(batch_size, in_channels, 64, 64, dtype=dtype)
+        encoder_hidden_states = torch.randn(
+            batch_size, 77, cross_attention_dim, dtype=dtype
+        )
+
+        return {
+            "sample": latents,
+            "timestep": 0,
+            "encoder_hidden_states": encoder_hidden_states,
+        }
