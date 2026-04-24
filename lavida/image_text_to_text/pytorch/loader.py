@@ -5,6 +5,7 @@
 LaViDa-LLaDA model loader implementation for image-text-to-text tasks.
 """
 
+import sys
 import torch
 from PIL import Image
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
@@ -87,6 +88,21 @@ class ModelLoader(ForgeModel):
         # __init__ via the mm_vision_tower branch in SigLipVisionTower.
         config.mm_tunable_parts = ""
         config.unfreeze_mm_vision_tower = False
+
+        # Patch LLaDAModelLM.tie_weights to accept **kwargs so it is compatible
+        # with transformers 5.x which calls tie_weights(recompute_mapping=False).
+        for mod_name, mod in sys.modules.items():
+            if "modeling_lavida" in mod_name and hasattr(mod, "LLaDAModelLM"):
+                cls = mod.LLaDAModelLM
+                _orig_tie = cls.tie_weights
+                if not getattr(_orig_tie, "_patched_kwargs", False):
+
+                    def _tie_weights_compat(self, **kwargs):
+                        return _orig_tie(self)
+
+                    _tie_weights_compat._patched_kwargs = True
+                    cls.tie_weights = _tie_weights_compat
+                break
 
         model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
