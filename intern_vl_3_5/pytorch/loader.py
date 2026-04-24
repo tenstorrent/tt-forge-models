@@ -233,7 +233,11 @@ class ModelLoader(ForgeModel):
                 pretrained_model_name, **model_kwargs
             )
         else:
-            model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+            # low_cpu_mem_usage=False avoids meta tensors during init; the custom
+            # InternVL model calls .item() in __init__ which fails on meta tensors.
+            model = AutoModel.from_pretrained(
+                pretrained_model_name, low_cpu_mem_usage=False, **model_kwargs
+            )
 
         model.eval()
         self.model = model
