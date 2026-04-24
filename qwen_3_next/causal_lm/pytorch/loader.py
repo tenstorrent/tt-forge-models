@@ -49,6 +49,9 @@ class ModelLoader(ForgeModel):
     # because the packed FP4 weight shapes differ from the model definition.
     _NVFP4_VARIANTS = {ModelVariant.QWEN_3_NEXT_80B_A3B_INSTRUCT_NVFP4_NM_TESTING}
 
+    # No GGUF variants for this model; defined to satisfy base class interface.
+    _GGUF_FILES = {}
+
     # Shared configuration parameters
     sample_text = "Give me a short introduction to large language model."
 
@@ -141,8 +144,6 @@ class ModelLoader(ForgeModel):
             "tokenize": False,
             "add_generation_prompt": True,
         }
-        if self._variant == ModelVariant.QWEN_3_NEXT_80B_A3B_THINKING:
-            chat_kwargs["enable_thinking"] = True
         text = self.tokenizer.apply_chat_template(
             messages,
             **chat_kwargs,
