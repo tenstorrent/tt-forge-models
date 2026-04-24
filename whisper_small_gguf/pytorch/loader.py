@@ -7,25 +7,24 @@ Whisper Small GGUF model loader implementation for automatic speech recognition.
 Repository:
 - https://huggingface.co/FL33TW00D-HF/whisper-small
 """
-import importlib
-
+import numpy as np
 import torch
-import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+from huggingface_hub import hf_hub_download
 from transformers import (
+    WhisperConfig,
     WhisperForConditionalGeneration,
     WhisperProcessor,
-    WhisperConfig,
 )
 from typing import Optional
 
 from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 
@@ -75,43 +74,31 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _patch_gguf_utils(self):
-        try:
-            import gguf as _gguf_mod
-
-            if not hasattr(_gguf_mod, "__version__"):
-                import importlib.metadata
-
-                _gguf_mod.__version__ = importlib.metadata.version("gguf")
-        except Exception:
-            pass
-
-        importlib.reload(_gguf_utils)
-
     def load_model(self, *, dtype_override=None, **kwargs):
-        self._patch_gguf_utils()
+        from gguf import GGUFReader, dequantize
+
         pretrained_model_name = self._variant_config.pretrained_model_name
         gguf_file = self._GGUF_FILES[self._variant]
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = gguf_file
-
-        # Pre-load config from the base Whisper model so that random-weights
-        # mode does not need to download/parse the GGUF file just for config.
         config = WhisperConfig.from_pretrained("openai/whisper-small")
-        model_kwargs["config"] = config
-
+        config.use_cache = False
         self.processor = WhisperProcessor.from_pretrained("openai/whisper-small")
 
-        model = WhisperForConditionalGeneration.from_pretrained(
-            pretrained_model_name, use_cache=False, **model_kwargs
-        ).eval()
+        # This GGUF file stores tensors with HF-format names directly and
+        # lacks the standard general.architecture metadata that transformers
+        # 5.x expects, so we bypass from_pretrained and load weights manually.
+        gguf_path = hf_hub_download(repo_id=pretrained_model_name, filename=gguf_file)
+        reader = GGUFReader(gguf_path)
+        state_dict = {}
+        for tensor in reader.tensors:
+            data = dequantize(tensor.data, tensor.tensor_type)
+            state_dict[tensor.name] = torch.from_numpy(np.array(data))
 
-        if dtype_override is not None:
-            model = model.to(dtype_override)
+        model = WhisperForConditionalGeneration(config)
+        model.load_state_dict(state_dict, strict=False)
+
+        target_dtype = dtype_override or torch.bfloat16
+        model = model.to(target_dtype).eval()
 
         self.model = model
         return model
