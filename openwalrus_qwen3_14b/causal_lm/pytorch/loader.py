@@ -38,6 +38,8 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.OPENWALRUS_QWEN3_14B
 
+    GGUF_FILE = "Qwen3-14B-Q4_K_M.gguf"
+
     sample_text = "Give me a short introduction to large language model."
 
     def __init__(
@@ -60,13 +62,15 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
+        tokenizer_kwargs = {"gguf_file": self.GGUF_FILE}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
 
         return self.tokenizer
 
@@ -76,13 +80,15 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
+        model_kwargs = {"gguf_file": self.GGUF_FILE}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
@@ -125,7 +131,7 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
 
         return self.config
