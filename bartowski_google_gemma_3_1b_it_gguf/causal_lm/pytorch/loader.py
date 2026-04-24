@@ -88,6 +88,10 @@ class ModelLoader(ForgeModel):
         Other GGUF loaders in this repo monkey-patch load_gguf_checkpoint without
         the model_to_load parameter added in transformers 5.x, causing TypeError
         when AutoModelForCausalLM.from_pretrained passes it.
+
+        Also wraps get_gguf_hf_weights_map to handle hf_model=None gracefully
+        (returns empty mapping, acceptable in compile-only mode where weights
+        are not used for accuracy comparison).
         """
         import inspect
         import transformers.modeling_gguf_pytorch_utils as _gguf_utils
@@ -102,6 +106,18 @@ class ModelLoader(ForgeModel):
                 return orig_fn(gguf_checkpoint_path, return_tensors=return_tensors)
 
             _gguf_utils.load_gguf_checkpoint = _wrapped
+
+        current_map_fn = _gguf_utils.get_gguf_hf_weights_map
+        if not getattr(current_map_fn, "_handles_none_model", False):
+            orig_map_fn = current_map_fn
+
+            def _wrapped_map(hf_model, *args, **kwargs):
+                if hf_model is None:
+                    return {}
+                return orig_map_fn(hf_model, *args, **kwargs)
+
+            _wrapped_map._handles_none_model = True
+            _gguf_utils.get_gguf_hf_weights_map = _wrapped_map
 
     def _load_tokenizer(self, dtype_override=None):
         self._fix_gguf_version_detection()
