@@ -16,7 +16,6 @@ from typing import Any, Optional
 
 import torch
 from diffusers import QwenImageEditPlusPipeline  # type: ignore[import]
-from PIL import Image  # type: ignore[import]
 
 from ...base import ForgeModel
 from ...config import (
@@ -75,7 +74,7 @@ class ModelLoader(ForgeModel):
         """Load the Qwen-Image-Edit-2509 pipeline with Extract-Texture LoRA.
 
         Returns:
-            QwenImageEditPlusPipeline with LoRA weights loaded.
+            QwenImageTransformer2DModel (transformer sub-module).
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
 
@@ -86,22 +85,62 @@ class ModelLoader(ForgeModel):
 
         self.pipeline.load_lora_weights(LORA_REPO)
 
-        return self.pipeline
+        return self.pipeline.transformer
 
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for texture extraction image editing.
+    def load_inputs(
+        self, *, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
+        """Prepare synthetic tensor inputs for the diffusion transformer.
 
-        Returns:
-            dict with prompt and image keys.
+        Returns a dict matching QwenImageTransformer2DModel.forward() for
+        image editing (output latents + one input image latents concatenated).
         """
-        if prompt is None:
-            prompt = (
-                "Extract stone texture from the wall. Extract into a texture image."
-            )
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
 
-        image = Image.new("RGB", (512, 512), color=(128, 128, 200))
+        dtype = dtype_override if dtype_override is not None else torch.float32
+        transformer = self.pipeline.transformer
+        batch_size = kwargs.get("batch_size", 1)
+
+        in_channels = transformer.config.in_channels  # 64
+        joint_attention_dim = transformer.config.joint_attention_dim  # 3584
+        patch_size = transformer.config.patch_size  # 2
+
+        vae_scale_factor = 8
+        # Synthetic 512x512 image through VAE then patch embedding
+        image_size = 512
+        lat = image_size // vae_scale_factor  # 64
+        lat_packed = lat // patch_size  # 32
+        tokens_per_image = lat_packed * lat_packed  # 1024
+        # image editing: output latents + 1 input image latents
+        num_input_images = 1
+        total_tokens = tokens_per_image * (1 + num_input_images)
+
+        txt_seq_len = 32
+
+        hidden_states = torch.randn(batch_size, total_tokens, in_channels, dtype=dtype)
+        encoder_hidden_states = torch.randn(
+            batch_size, txt_seq_len, joint_attention_dim, dtype=dtype
+        )
+        encoder_hidden_states_mask = torch.ones(batch_size, txt_seq_len, dtype=dtype)
+        timestep = torch.tensor([0.5] * batch_size, dtype=dtype)
+        img_shapes = [
+            [(1, lat_packed, lat_packed)] * (1 + num_input_images)
+        ] * batch_size
 
         return {
-            "prompt": prompt,
-            "image": image,
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "encoder_hidden_states_mask": encoder_hidden_states_mask,
+            "timestep": timestep,
+            "img_shapes": img_shapes,
+            "return_dict": False,
         }
+
+    def unpack_forward_output(self, fwd_output: Any) -> torch.Tensor:
+        """Unpack transformer output tuple to the sample tensor."""
+        if isinstance(fwd_output, tuple):
+            return fwd_output[0]
+        if hasattr(fwd_output, "sample"):
+            return fwd_output.sample
+        return fwd_output
