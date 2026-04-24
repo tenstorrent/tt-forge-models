@@ -83,10 +83,9 @@ class ModelLoader(ForgeModel):
         "wavtokenizer_smalldata_frame75_3s_nq1_code4096_dim512_kmeans200_attn.yaml"
     )
 
-    _GGUF_FILES = {
-        ModelVariant.LARGE_75_F16: "WavTokenizer-Large-75-F16.gguf",
-        ModelVariant.LARGE_75_Q5_1: "WavTokenizer-Large-75-Q5_1.gguf",
-    }
+    # PyTorch Lightning checkpoint from the large-speech-75token repo
+    _CHECKPOINT_REPO = "novateur/WavTokenizer-large-speech-75token"
+    _CHECKPOINT_FILENAME = "wavtokenizer_large_speech_320_v2.ckpt"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -117,8 +116,8 @@ class ModelLoader(ForgeModel):
         )
 
         model_path = hf_hub_download(
-            repo_id=self._variant_config.pretrained_model_name,
-            filename=self._GGUF_FILES[self._variant],
+            repo_id=self._CHECKPOINT_REPO,
+            filename=self._CHECKPOINT_FILENAME,
         )
 
         model = WavTokenizer.from_pretrained0802(config_path, model_path)
@@ -145,4 +144,4 @@ class ModelLoader(ForgeModel):
 
         bandwidth_id = torch.tensor([0])
 
-        return {"wav": wav, "bandwidth_id": bandwidth_id}
+        return {"audio_input": wav, "bandwidth_id": bandwidth_id}
