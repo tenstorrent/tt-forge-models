@@ -15,7 +15,8 @@ components.
 """
 from typing import Optional
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
+from transformers import AutoModelForCausalLM
 
 from ...base import ForgeModel
 from ...config import (
@@ -47,13 +48,9 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.GLM_TTS
 
     _LLM_SUBFOLDER = "llm"
-    _TOKENIZER_SUBFOLDER = "vq32k-phoneme-tokenizer"
-
-    sample_text = "Hello, how are you today?"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.tokenizer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -65,17 +62,6 @@ class ModelLoader(ForgeModel):
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
-
-    def _load_tokenizer(self):
-        if self.tokenizer is None:
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                self._variant_config.pretrained_model_name,
-                subfolder=self._TOKENIZER_SUBFOLDER,
-                trust_remote_code=True,
-            )
-            if self.tokenizer.pad_token is None:
-                self.tokenizer.pad_token = self.tokenizer.eos_token
-        return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
         model_kwargs = {"subfolder": self._LLM_SUBFOLDER}
@@ -90,6 +76,7 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None):
-        tokenizer = self._load_tokenizer()
-        inputs = tokenizer(self.sample_text, return_tensors="pt")
-        return inputs
+        # zai-org/GLM-TTS tokenizer references tokenization_chatglm.py which
+        # does not exist in the repo. Use dummy token IDs for the LlamaForCausalLM
+        # backbone (vocab_size=98304).
+        return {"input_ids": torch.zeros((1, 10), dtype=torch.long)}
