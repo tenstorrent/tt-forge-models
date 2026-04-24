@@ -69,18 +69,18 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the SDXL pipeline from the Pony GGUF checkpoint.
+        """Load and return the UNet from the Pony GGUF checkpoint.
 
         Returns:
-            StableDiffusionXLPipeline: The loaded pipeline instance.
+            torch.nn.Module: The UNet model instance.
         """
         if self.pipeline is None:
             self.pipeline = load_pony_gguf_pipe(REPO_ID, self.GGUF_FILE)
 
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the model.
