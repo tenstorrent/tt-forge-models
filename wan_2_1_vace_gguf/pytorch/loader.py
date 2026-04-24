@@ -23,7 +23,7 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from PIL import Image
+from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -87,6 +87,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.pipeline = None
+        self.transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -107,62 +108,55 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the GGUF-quantized Wan 2.1 VACE transformer and build the pipeline.
+        """Load the GGUF-quantized Wan 2.1 VACE transformer.
 
-        Uses diffusers GGUFQuantizationConfig to load the quantized transformer,
-        then constructs the full WanVACEPipeline with the base model's VAE in
-        float32 for numerical stability.
+        Uses diffusers GGUFQuantizationConfig to load the quantized transformer
+        from the GGUF file. Returns the transformer directly as a torch.nn.Module.
         """
-        from diffusers import (
-            AutoencoderKLWan,
-            GGUFQuantizationConfig,
-            WanTransformer3DModel,
-            WanVACEPipeline,
-        )
+        from diffusers import GGUFQuantizationConfig, WanTransformer3DModel
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         gguf_file = _GGUF_FILES[self._variant]
         gguf_repo = _GGUF_REPOS[self._variant]
-        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+        gguf_path = hf_hub_download(repo_id=gguf_repo, filename=gguf_file)
 
-        transformer = WanTransformer3DModel.from_single_file(
-            f"https://huggingface.co/{gguf_repo}/{gguf_file}",
+        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+        self.transformer = WanTransformer3DModel.from_single_file(
+            gguf_path,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
 
-        vae = AutoencoderKLWan.from_pretrained(
-            BASE_PIPELINE,
-            subfolder="vae",
-            torch_dtype=torch.float32,
-        )
-
-        self.pipeline = WanVACEPipeline.from_pretrained(
-            BASE_PIPELINE,
-            transformer=transformer,
-            vae=vae,
-            torch_dtype=compute_dtype,
-        )
-
-        return self.pipeline
+        return self.transformer
 
     def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for VACE reference-to-video generation."""
-        if prompt is None:
-            prompt = (
-                "A character walking gracefully across a sunlit garden, "
-                "smooth animation, detailed motion, cinematic lighting"
-            )
+        """Prepare synthetic tensor inputs for the WanTransformer3DModel."""
+        if self.transformer is None:
+            self.load_model()
 
-        ref_image = Image.new("RGB", (832, 480), color=(128, 128, 200))
+        config = self.transformer.config
+        batch_size = 1
+        num_frames = 1
+        height = 64
+        width = 64
+
+        hidden_states = torch.randn(
+            batch_size,
+            config.in_channels,
+            num_frames,
+            height,
+            width,
+            dtype=torch.bfloat16,
+        )
+        timestep = torch.randint(0, 1000, (batch_size,))
+        encoder_hidden_states = torch.randn(
+            batch_size, 77, config.text_dim, dtype=torch.bfloat16
+        )
 
         return {
-            "prompt": prompt,
-            "reference_images": [ref_image],
-            "height": 480,
-            "width": 832,
-            "num_frames": 9,
-            "num_inference_steps": 2,
-            "guidance_scale": 5.0,
+            "hidden_states": hidden_states,
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states,
+            "return_dict": False,
         }
