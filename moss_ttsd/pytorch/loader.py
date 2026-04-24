@@ -86,6 +86,10 @@ class ModelLoader(ForgeModel):
                 config.pad_token_id = config.pad_token[0]
             else:
                 config.pad_token_id = getattr(config, "bos_token_id", None)
+        # transformers>=5 expects _tied_weights_keys as a dict; the custom model code uses
+        # the old list format, causing AttributeError in get_expanded_tied_weights_keys.
+        # Disable tie_word_embeddings to skip that code path since we only use language_model.
+        config.tie_word_embeddings = False
 
         full_model = AutoModel.from_pretrained(
             self._variant_config.pretrained_model_name,
