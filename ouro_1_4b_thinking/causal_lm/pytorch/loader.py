@@ -110,7 +110,7 @@ class ModelLoader(ForgeModel):
             )
         except Exception:
             pass
-        for _mod in sys.modules.values():
+        for _mod in list(sys.modules.values()):
             if hasattr(_mod, "OuroRotaryEmbedding") and not hasattr(
                 _mod, "compute_default_rope_parameters"
             ):
