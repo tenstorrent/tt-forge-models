@@ -13,7 +13,6 @@ import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers.modeling_gguf_pytorch_utils import (
-    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
     GGUF_SUPPORTED_ARCHITECTURES,
 )
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
@@ -36,18 +35,36 @@ def _patch_qwen35_support():
         )
 
 
-def _geollm_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
-    """Wrap load_gguf_checkpoint to support qwen35 arch and forward all kwargs (including model_to_load)."""
-    _patch_qwen35_support()
-    result = _orig_load_gguf_checkpoint(
-        gguf_path, return_tensors=return_tensors, **kwargs
-    )
-    if (
-        isinstance(result, dict)
-        and result.get("config", {}).get("model_type") == "qwen35"
-    ):
-        result["config"]["model_type"] = "qwen3"
-    return result
+def _find_real_load_gguf_checkpoint(fn):
+    """Traverse a patch chain to find the real load_gguf_checkpoint from transformers.
+
+    Other GGUF loaders wrap load_gguf_checkpoint without forwarding all kwargs.
+    This traverses the chain via each wrapper's module globals to reach the real function.
+    """
+    seen = set()
+    while id(fn) not in seen:
+        seen.add(id(fn))
+        if fn.__name__ == "load_gguf_checkpoint" and getattr(
+            fn, "__module__", ""
+        ).endswith("modeling_gguf_pytorch_utils"):
+            return fn
+        globals_dict = getattr(fn, "__globals__", {})
+        next_fn = None
+        for var_name in (
+            "_orig_load_gguf_checkpoint",
+            "orig_load",
+            "_inner",
+            "_current",
+            "_orig",
+        ):
+            candidate = globals_dict.get(var_name)
+            if callable(candidate) and candidate is not fn:
+                next_fn = candidate
+                break
+        if next_fn is None:
+            break
+        fn = next_fn
+    return fn
 
 
 _patch_qwen35_support()
@@ -140,13 +157,23 @@ class ModelLoader(ForgeModel):
 
         # Other GGUF loaders patch load_gguf_checkpoint without forwarding model_to_load,
         # which was added in newer transformers. Temporarily install our wrapper as the
-        # outermost patch so model_to_load reaches the real function.
-        _prev = {
-            mod: mod.load_gguf_checkpoint
-            for mod in (_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils)
-        }
-        for mod in (_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils):
-            mod.load_gguf_checkpoint = _geollm_load_gguf_checkpoint
+        # outermost patch so model_to_load reaches the real function via chain traversal.
+        _mods = (_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils)
+        _prev = {mod: mod.load_gguf_checkpoint for mod in _mods}
+        _real_fn = _find_real_load_gguf_checkpoint(_prev[_gguf_utils])
+
+        def _wrapper(gguf_path, return_tensors=False, **patch_kwargs):
+            _patch_qwen35_support()
+            result = _real_fn(gguf_path, return_tensors=return_tensors, **patch_kwargs)
+            if (
+                isinstance(result, dict)
+                and result.get("config", {}).get("model_type") == "qwen35"
+            ):
+                result["config"]["model_type"] = "qwen3"
+            return result
+
+        for mod in _mods:
+            mod.load_gguf_checkpoint = _wrapper
         try:
             model = AutoModelForCausalLM.from_pretrained(
                 pretrained_model_name, **model_kwargs
