@@ -162,12 +162,14 @@ class ModelLoader(ForgeModel):
         )
         return self.tokenizer
 
-    def _patch_intern_vision_encoder(self, pretrained_model_name):
-        """Patch InternVisionEncoder to work in transformers' meta device init context.
+    def _patch_internvl_models(self, pretrained_model_name):
+        """Patch InternVL model classes for transformers 5.x compatibility.
 
-        Transformers always initializes models under torch.device("meta"), but
-        InternVisionEncoder.__init__ calls torch.linspace(...).item() which raises
-        RuntimeError on meta tensors. We force that computation onto CPU instead.
+        Two fixes are applied:
+        1. InternVisionEncoder.__init__ calls torch.linspace(...).item() which fails
+           under transformers' mandatory torch.device("meta") init context. Force CPU.
+        2. InternVLChatModel.__init__ does not call post_init(), which is required by
+           transformers 5.x to populate all_tied_weights_keys and related attributes.
         """
         config = AutoConfig.from_pretrained(
             pretrained_model_name, trust_remote_code=True
@@ -182,30 +184,47 @@ class ModelLoader(ForgeModel):
             )
 
         for mod_name, mod in list(sys.modules.items()):
-            if "modeling_intern_vit" not in mod_name:
-                continue
-            encoder_cls = getattr(mod, "InternVisionEncoder", None)
-            if encoder_cls is None or getattr(encoder_cls, "_tt_patched", False):
-                continue
-            layer_cls = mod.InternVisionEncoderLayer
+            if "modeling_intern_vit" in mod_name:
+                encoder_cls = getattr(mod, "InternVisionEncoder", None)
+                if encoder_cls is not None and not getattr(
+                    encoder_cls, "_tt_patched", False
+                ):
+                    layer_cls = mod.InternVisionEncoderLayer
 
-            def _patched_init(self, config, _layer_cls=layer_cls):
-                nn.Module.__init__(self)
-                self.config = config
-                dpr = torch.linspace(
-                    0, config.drop_path_rate, config.num_hidden_layers, device="cpu"
-                ).tolist()
-                self.layers = nn.ModuleList(
-                    [
-                        _layer_cls(config, dpr[idx])
-                        for idx in range(config.num_hidden_layers)
-                    ]
-                )
-                self.gradient_checkpointing = True
+                    def _patched_encoder_init(self, config, _layer_cls=layer_cls):
+                        nn.Module.__init__(self)
+                        self.config = config
+                        dpr = torch.linspace(
+                            0,
+                            config.drop_path_rate,
+                            config.num_hidden_layers,
+                            device="cpu",
+                        ).tolist()
+                        self.layers = nn.ModuleList(
+                            [
+                                _layer_cls(config, dpr[idx])
+                                for idx in range(config.num_hidden_layers)
+                            ]
+                        )
+                        self.gradient_checkpointing = True
 
-            encoder_cls.__init__ = _patched_init
-            encoder_cls._tt_patched = True
-            break
+                    encoder_cls.__init__ = _patched_encoder_init
+                    encoder_cls._tt_patched = True
+
+            if "modeling_internvl_chat" in mod_name:
+                chat_cls = getattr(mod, "InternVLChatModel", None)
+                if chat_cls is not None and not getattr(chat_cls, "_tt_patched", False):
+                    original_chat_init = chat_cls.__init__
+
+                    def _patched_chat_init(
+                        self, *args, _orig=original_chat_init, **kwargs
+                    ):
+                        _orig(self, *args, **kwargs)
+                        if not hasattr(self, "all_tied_weights_keys"):
+                            self.post_init()
+
+                    chat_cls.__init__ = _patched_chat_init
+                    chat_cls._tt_patched = True
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -213,7 +232,7 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        self._patch_intern_vision_encoder(pretrained_model_name)
+        self._patch_internvl_models(pretrained_model_name)
 
         model_kwargs = {
             "trust_remote_code": True,
