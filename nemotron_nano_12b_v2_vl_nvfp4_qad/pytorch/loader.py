@@ -155,6 +155,12 @@ class ModelLoader(ForgeModel):
             -1
         )
 
+        if dtype_override is not None:
+            inputs = {
+                k: v.to(dtype_override) if v.is_floating_point() else v
+                for k, v in inputs.items()
+            }
+
         if batch_size > 1:
             for key, value in inputs.items():
                 if hasattr(value, "repeat_interleave"):
