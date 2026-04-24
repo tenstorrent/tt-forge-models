@@ -129,6 +129,10 @@ class ModelVariant(StrEnum):
     INTERN_VL3_5_8B_FP8_DYNAMIC = "8B_FP8_Dynamic"
 
 
+# Variants that use the HF-native format (AutoProcessor + AutoModelForImageTextToText)
+_HF_NATIVE_VARIANTS = {ModelVariant.INTERN_VL3_5_1B_HF}
+
+
 class ModelLoader(ForgeModel):
     """InternVL3.5 model loader implementation for multimodal visual question answering tasks."""
 
@@ -166,7 +170,7 @@ class ModelLoader(ForgeModel):
 
     @property
     def _is_hf_native(self):
-        return self._variant in self._HF_NATIVE_VARIANTS
+        return self._variant in _HF_NATIVE_VARIANTS
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
