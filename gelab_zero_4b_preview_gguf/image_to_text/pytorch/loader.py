@@ -30,6 +30,7 @@ def _robust_is_gguf_available(min_version=None):
 _gguf_pytorch_utils.is_gguf_available = _robust_is_gguf_available
 
 from transformers import (
+    Qwen3VLConfig,
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
 )
@@ -96,8 +97,15 @@ class ModelLoader(ForgeModel):
         # GGUF repos do not ship a processor; use the base model
         self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-4B-Instruct")
 
+        # Load config from the base model so visual encoder dimensions are correct.
+        # The GGUF file only contains text weights; visual parts are reinitialized.
+        config = Qwen3VLConfig.from_pretrained("Qwen/Qwen3-VL-4B-Instruct")
+
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name,
+            config=config,
+            ignore_mismatched_sizes=True,
+            **model_kwargs,
         )
         model.eval()
 
