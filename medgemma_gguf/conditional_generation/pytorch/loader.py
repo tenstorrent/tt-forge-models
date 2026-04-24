@@ -43,7 +43,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.MEDGEMMA_1_5_4B_IT_Q4_K_M: "medgemma-1.5-4b-it-Q4_K_M.gguf",
     }
 
-    _PROCESSOR_NAME = "google/medgemma-1.5-4b-it"
+    _PROCESSOR_NAME = "google/gemma-3-4b-it"
 
     sample_text = "Describe any abnormalities in this medical image."
     sample_image_url = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/p-blog/candy.JPG"
