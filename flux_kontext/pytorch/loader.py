@@ -32,7 +32,7 @@ class ModelLoader(ForgeModel):
     # Dictionary of available model variants
     _VARIANTS = {
         ModelVariant.NUNCHAKU_DEV: ModelConfig(
-            pretrained_model_name="black-forest-labs/FLUX.1-Kontext-dev",
+            pretrained_model_name="fuliucansheng/FLUX.1-Kontext-dev-diffusers",
         ),
     }
 
