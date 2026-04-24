@@ -6,6 +6,7 @@ Jina Embeddings v5 Text Nano Text Matching GGUF model loader implementation for 
 """
 import torch
 import torch.nn.functional as F
+from huggingface_hub import hf_hub_download
 from transformers import AutoModel, AutoTokenizer
 from typing import Optional
 
@@ -57,8 +58,6 @@ def _patch_transformers_eurobert_gguf():
 
 
 _patch_transformers_eurobert_gguf()
-
-from transformers import AutoConfig
 
 from ....base import ForgeModel
 from ....config import (
@@ -120,32 +119,39 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        gguf_local_path = hf_hub_download(
+            repo_id=self._variant_config.pretrained_model_name,
+            filename=self.GGUF_FILE,
+        )
+
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        tokenizer_kwargs["gguf_file"] = gguf_local_path
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self.BASE_MODEL, **tokenizer_kwargs
         )
 
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
-        # Load config from base model which has auto_map for the custom EuroBERT class.
-        config = AutoConfig.from_pretrained(self.BASE_MODEL, trust_remote_code=True)
+        # Download GGUF file to local cache; pass the local path so that
+        # from_pretrained can load model code from BASE_MODEL (which has
+        # modeling_eurobert.py) while using GGUF weights from the GGUF repo.
+        gguf_local_path = hf_hub_download(
+            repo_id=self._variant_config.pretrained_model_name,
+            filename=self.GGUF_FILE,
+        )
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["gguf_file"] = gguf_local_path
         model_kwargs["trust_remote_code"] = True
-        model_kwargs["config"] = config
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        model = AutoModel.from_pretrained(self.BASE_MODEL, **model_kwargs)
         model.eval()
 
         return model
