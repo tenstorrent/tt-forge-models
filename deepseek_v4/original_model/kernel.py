@@ -368,7 +368,7 @@ def sparse_attn(
     return o
 
 
-@tilelang.jit(pass_configs=pass_configs)
+@tilelang.jit(pass_configs=pass_configs, target="llvm")
 def hc_split_sinkhorn_kernel(hc: int, sinkhorn_iters: int, eps: float):
     n = T.symbolic("n")
     mix_hc = (2 + hc) * hc

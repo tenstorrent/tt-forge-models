@@ -167,9 +167,7 @@ class RMSNorm(nn.Module):
 
 @lru_cache(2)
 def precompute_freqs_cis(dim, seqlen, original_seq_len, base, factor, beta_fast, beta_slow) -> torch.Tensor:
-    """Precomputes complex exponentials for rotary embeddings with YaRN scaling.
-    When original_seq_len > 0, applies frequency interpolation with a smooth
-    linear ramp between beta_fast and beta_slow correction ranges."""
+    """Precomputes rotary frequencies in real cos/sin form for TT-friendly RoPE."""
 
     def find_correction_dim(num_rotations, dim, base, max_seq_len):
         return dim * math.log(max_seq_len / (num_rotations * 2 * math.pi)) / (2 * math.log(base))
@@ -194,46 +192,70 @@ def precompute_freqs_cis(dim, seqlen, original_seq_len, base, factor, beta_fast,
 
     t = torch.arange(seqlen)
     freqs = torch.outer(t, freqs)
-    freqs_cis = torch.polar(torch.ones_like(freqs), freqs)
-    return freqs_cis
+    return torch.stack((torch.cos(freqs), torch.sin(freqs)), dim=-1)
 
 
 def apply_rotary_emb(x: torch.Tensor, freqs_cis: torch.Tensor, inverse: bool = False) -> torch.Tensor:
-    """Applies rotary positional embeddings in-place. Uses conjugate for inverse (de-rotation)."""
+    """Applies rotary positional embeddings in-place using real arithmetic."""
     y = x
-    x = torch.view_as_complex(x.float().unflatten(-1, (-1, 2)))
-    if inverse:
-        freqs_cis = freqs_cis.conj()
-    if x.ndim == 3:
-        freqs_cis = freqs_cis.view(1, x.size(1), x.size(-1))
+    x = x.float().unflatten(-1, (-1, 2))
+    x_real = x[..., 0]
+    x_imag = x[..., 1]
+
+    if freqs_cis.dtype.is_complex:
+        freqs_cis = torch.view_as_real(freqs_cis)
+
+    if x_real.ndim == 3:
+        freqs_cis = freqs_cis.view(1, x_real.size(1), x_real.size(-1), 2)
     else:
-        freqs_cis = freqs_cis.view(1, x.size(1), 1, x.size(-1))
-    x = torch.view_as_real(x * freqs_cis).flatten(-2)
-    y.copy_(x)
+        freqs_cis = freqs_cis.view(1, x_real.size(1), 1, x_real.size(-1), 2)
+
+    cos = freqs_cis[..., 0]
+    sin = freqs_cis[..., 1]
+    if inverse:
+        sin = -sin
+
+    rotated = torch.stack(
+        (x_real * cos - x_imag * sin, x_real * sin + x_imag * cos),
+        dim=-1,
+    ).flatten(-2)
+    y.copy_(rotated)
     return y
 
 
 @lru_cache(1)
-def get_window_topk_idxs(window_size: int, bsz: int, seqlen: int, start_pos: int):
+def get_window_topk_idxs(window_size: int, bsz: int, seqlen: int, start_pos: int, device=None):
     if start_pos >= window_size - 1:
         start_pos %= window_size
-        matrix = torch.cat([torch.arange(start_pos + 1, window_size),  torch.arange(0, start_pos + 1)], dim=0)
+        matrix = torch.cat(
+            (
+                torch.arange(start_pos + 1, window_size, device=device),
+                torch.arange(0, start_pos + 1, device=device),
+            ),
+            dim=0,
+        )
     elif start_pos > 0:
-        matrix = F.pad(torch.arange(start_pos + 1), (0, window_size - start_pos - 1), value=-1)
+        matrix = F.pad(
+            torch.arange(start_pos + 1, device=device),
+            (0, window_size - start_pos - 1),
+            value=-1,
+        )
     else:
-        base = torch.arange(seqlen).unsqueeze(1)
-        matrix = (base - window_size + 1).clamp(0) + torch.arange(min(seqlen, window_size))
+        base = torch.arange(seqlen, device=device).unsqueeze(1)
+        matrix = (base - window_size + 1).clamp(0) + torch.arange(
+            min(seqlen, window_size), device=device
+        )
         matrix = torch.where(matrix > base, -1, matrix)
     return matrix.unsqueeze(0).expand(bsz, -1, -1)
 
 
 @lru_cache(2)
-def get_compress_topk_idxs(ratio: int, bsz: int, seqlen: int, start_pos: int, offset: int):
+def get_compress_topk_idxs(ratio: int, bsz: int, seqlen: int, start_pos: int, offset: int, device=None):
     if start_pos > 0:
-        matrix = torch.arange(0, (start_pos + 1) // ratio) + offset
+        matrix = torch.arange(0, (start_pos + 1) // ratio, device=device) + offset
     else:
-        matrix = torch.arange(seqlen // ratio).repeat(seqlen, 1)
-        mask = matrix >= torch.arange(1, seqlen + 1).unsqueeze(1) // ratio
+        matrix = torch.arange(seqlen // ratio, device=device).repeat(seqlen, 1)
+        mask = matrix >= torch.arange(1, seqlen + 1, device=device).unsqueeze(1) // ratio
         matrix = torch.where(mask, -1, matrix + offset)
     return matrix.unsqueeze(0).expand(bsz, -1, -1)
 
@@ -368,12 +390,17 @@ class Indexer(torch.nn.Module):
         if world_size > 1:
             dist.all_reduce(index_score)
         if start_pos == 0:
-            mask = torch.arange(seqlen // ratio).repeat(seqlen, 1) >= torch.arange(1, seqlen + 1).unsqueeze(1) // ratio
-            index_score += torch.where(mask, float("-inf"), 0)
+            device = index_score.device
+            mask = torch.arange(seqlen // ratio, device=device).repeat(seqlen, 1) >= (
+                torch.arange(1, seqlen + 1, device=device).unsqueeze(1) // ratio
+            )
+            index_score = index_score.masked_fill(mask.unsqueeze(0), float("-inf"))
         topk_idxs = index_score.topk(min(self.index_topk, end_pos // ratio), dim=-1)[1]
         if start_pos == 0:
-            mask = topk_idxs >= torch.arange(1, seqlen + 1).unsqueeze(1) // ratio
-            topk_idxs = torch.where(mask, -1, topk_idxs + offset)
+            mask = topk_idxs >= (
+                torch.arange(1, seqlen + 1, device=topk_idxs.device).unsqueeze(1) // ratio
+            )
+            topk_idxs = torch.where(mask, torch.full_like(topk_idxs, -1), topk_idxs + offset)
         else:
             topk_idxs += offset
         return topk_idxs
@@ -446,13 +473,15 @@ class Attention(nn.Module):
         kv = self.wkv(x)
         kv = self.kv_norm(kv)
         apply_rotary_emb(kv[..., -rd:], freqs_cis)
-        topk_idxs = get_window_topk_idxs(win, bsz, seqlen, start_pos)
+        topk_idxs = get_window_topk_idxs(win, bsz, seqlen, start_pos, x.device)
         if self.compress_ratio:
             offset = kv.size(1) if start_pos == 0 else win
             if self.indexer is not None:
                 compress_topk_idxs = self.indexer(x, qr, start_pos, offset)
             else:
-                compress_topk_idxs = get_compress_topk_idxs(ratio, bsz, seqlen, start_pos, offset)
+                compress_topk_idxs = get_compress_topk_idxs(
+                    ratio, bsz, seqlen, start_pos, offset, x.device
+                )
             topk_idxs = torch.cat([topk_idxs, compress_topk_idxs], dim=-1)
         topk_idxs = topk_idxs.int()
 
