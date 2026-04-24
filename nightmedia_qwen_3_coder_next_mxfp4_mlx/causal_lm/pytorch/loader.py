@@ -89,7 +89,7 @@ class ModelLoader(ForgeModel):
         # doesn't reject the load (mxfp4-mlx quant format has no quant_method attribute).
         config = AutoConfig.from_pretrained(pretrained_model_name)
         if hasattr(config, "quantization_config"):
-            config.quantization_config = None
+            delattr(config, "quantization_config")
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
         model_kwargs["config"] = config
