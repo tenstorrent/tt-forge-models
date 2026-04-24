@@ -96,6 +96,9 @@ class ModelLoader(ForgeModel):
             "attention_mask": processed["attention_mask"],
             "position_ids": processed["position_ids"],
             "grid_thw": processed["grid_thw"],
+            # get_logits asserts hidden_states.shape[1] == 1; logits_to_keep=1
+            # slices to the last token before that assertion runs.
+            "logits_to_keep": 1,
         }
 
         if dtype_override is not None:
