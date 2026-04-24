@@ -157,14 +157,16 @@ class ModelLoader(ForgeModel):
                         if param is not None and param.is_meta:
                             module._parameters[pname] = torch.nn.Parameter(
                                 torch.empty(
-                                    param.shape, dtype=param.dtype, device=device
+                                    param.shape,
+                                    dtype=compute_dtype,
+                                    device=device,
                                 ),
                                 requires_grad=param.requires_grad,
                             )
                     for bname, buf in list(module._buffers.items()):
                         if buf is not None and buf.is_meta:
                             module._buffers[bname] = torch.empty(
-                                buf.shape, dtype=buf.dtype, device=device
+                                buf.shape, dtype=compute_dtype, device=device
                             )
             return _orig_dispatch(model, device_map=device_map, **kwargs)
 
