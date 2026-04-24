@@ -7,7 +7,49 @@ VideoLLaMA2 model loader implementation for multimodal video understanding.
 
 from typing import Optional
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+import transformers
+
+# videollama2 package references the removed transformers.TRANSFORMERS_CACHE constant
+if not hasattr(transformers, "TRANSFORMERS_CACHE"):
+    from huggingface_hub.constants import HF_HUB_CACHE
+
+    transformers.TRANSFORMERS_CACHE = HF_HUB_CACHE
+
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from videollama2.model.videollama2_qwen2 import (
+    Videollama2Qwen2Config,
+    Videollama2Qwen2ForCausalLM,
+)
+
+AutoConfig.register("videollama2_qwen2", Videollama2Qwen2Config)
+AutoModelForCausalLM.register(Videollama2Qwen2Config, Videollama2Qwen2ForCausalLM)
+
+# encoder.py hardcodes flash_attention_2 for CLIP/SigLIP vision towers; patch to eager
+import videollama2.model.encoder as _vl2_encoder
+from transformers import (
+    CLIPVisionConfig,
+    CLIPVisionModel,
+    SiglipImageProcessor,
+    SiglipVisionConfig,
+    SiglipVisionModel,
+)
+
+
+def _patched_siglip_init(self, vision_tower, args, load_pretrained=False):
+    super(_vl2_encoder.SiglipVisionTower, self).__init__()
+    self.vision_tower_name = vision_tower
+    self.select_layer = args.mm_vision_select_layer
+    self.select_feature = getattr(args, "mm_vision_select_feature", "patch")
+    self.image_processor = SiglipImageProcessor.from_pretrained(self.vision_tower_name)
+    config = SiglipVisionConfig.from_pretrained(self.vision_tower_name)
+    config._attn_implementation = "eager"
+    if not load_pretrained:
+        self.vision_tower = SiglipVisionModel(config=config)
+    else:
+        self.vision_tower = SiglipVisionModel.from_pretrained(self.vision_tower_name)
+
+
+_vl2_encoder.SiglipVisionTower.__init__ = _patched_siglip_init
 
 from ...base import ForgeModel
 from ...config import (
@@ -68,6 +110,7 @@ class ModelLoader(ForgeModel):
         """Load and return the VideoLLaMA2 model instance."""
         model_name = self._variant_config.pretrained_model_name
         kwargs.setdefault("trust_remote_code", True)
+        kwargs.setdefault("attn_implementation", "eager")
         model = AutoModelForCausalLM.from_pretrained(str(model_name), **kwargs)
         model.eval()
 
