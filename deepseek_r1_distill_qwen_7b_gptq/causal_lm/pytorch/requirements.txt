@@ -1,2 +1,2 @@
-optimum
-gptqmodel<5.0.0
+optimum==2.0.0
+gptqmodel
