@@ -213,24 +213,53 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    @staticmethod
+    def _read_gguf_uint32(fields, field_name):
+        if field_name not in fields:
+            return None
+        field = fields[field_name]
+        return struct.unpack("<I", bytes(field.parts[field.data[0]]))[0]
+
+    def _fix_ssm_config(self, config, pretrained_model_name):
+        from gguf import GGUFReader
+        from huggingface_hub import hf_hub_download
+
+        gguf_path = hf_hub_download(pretrained_model_name, self.GGUF_FILE)
+        reader = GGUFReader(gguf_path)
+        fields = {f.name: f for f in reader.fields.values()}
+
+        group_count = self._read_gguf_uint32(fields, "qwen35.ssm.group_count")
+        state_size = self._read_gguf_uint32(fields, "qwen35.ssm.state_size")
+
+        if group_count is not None:
+            config.linear_num_key_heads = group_count
+            config.linear_num_value_heads = group_count
+        if state_size is not None:
+            config.linear_key_head_dim = state_size
+            config.linear_value_head_dim = state_size
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
+        # Load config, then fix SSM dimensions from GGUF metadata before model init.
+        # The qwen35 GGUF architecture maps ssm.group_count/state_size to None (unmapped),
+        # so the default qwen3_5_text config values are wrong for non-default model sizes.
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, gguf_file=self.GGUF_FILE
+        )
+        self._fix_ssm_config(config, pretrained_model_name)
+
+        if self.num_layers is not None:
+            config.num_hidden_layers = self.num_layers
+
+        model_kwargs = {"config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
-
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
