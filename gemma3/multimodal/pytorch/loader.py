@@ -177,24 +177,35 @@ class ModelLoader(ForgeModel):
             # In transformers 5.x Gemma3ForConditionalGeneration wraps its
             # sub-models inside self.model (a Gemma3Model), so the actual
             # named-module paths are "model.vision_tower.*" etc.  The
-            # compressed-tensors ignore list stored in the checkpoint was
-            # generated with the old layout (no "model." prefix), so the
-            # entries no longer match and vision-tower layers (whose fc2
-            # weights have 4304 columns, not divisible by group_size=128)
-            # get incorrectly quantized.  We fix this by rewriting the
-            # ignore list before the model is loaded.
+            # compressed-tensors ignore list was created with old-style
+            # checkpoint paths that transformers maps via
+            # _checkpoint_conversion_mapping.  We apply the same mapping
+            # here so that vision-tower layers (whose fc2 weights have 4304
+            # columns, not divisible by group_size=128) are correctly
+            # excluded from quantization.
+            import re
+
+            # Mirrors Gemma3ForConditionalGeneration._checkpoint_conversion_mapping
+            # (longer/more-specific patterns must come first)
+            _path_remaps = [
+                ("^language_model\\.lm_head", "lm_head"),
+                ("^language_model\\.model", "model.language_model"),
+                ("^vision_tower", "model.vision_tower"),
+                ("^multi_modal_projector", "model.multi_modal_projector"),
+            ]
+
+            def _remap(entry: str) -> str:
+                for pattern, replacement in _path_remaps:
+                    if re.match(pattern, entry):
+                        return re.sub(pattern, replacement, entry, count=1)
+                return entry
+
             cfg = AutoConfig.from_pretrained(pretrained_model_name)
             qcfg = getattr(cfg, "quantization_config", None)
             if isinstance(qcfg, dict) and qcfg.get("ignore"):
-                qcfg["ignore"] = [
-                    f"model.{entry}" if not entry.startswith("model.") else entry
-                    for entry in qcfg["ignore"]
-                ]
+                qcfg["ignore"] = [_remap(e) for e in qcfg["ignore"]]
             elif qcfg is not None and hasattr(qcfg, "ignore") and qcfg.ignore:
-                qcfg.ignore = [
-                    f"model.{entry}" if not entry.startswith("model.") else entry
-                    for entry in qcfg.ignore
-                ]
+                qcfg.ignore = [_remap(e) for e in qcfg.ignore]
             model_kwargs["config"] = cfg
 
         model = Gemma3ForConditionalGeneration.from_pretrained(
