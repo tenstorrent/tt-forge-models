@@ -9,7 +9,14 @@ from typing import Optional
 
 import torch
 from PIL import Image
-from transformers import AutoProcessor, Florence2ForConditionalGeneration
+from transformers import (
+    AutoImageProcessor,
+    AutoTokenizer,
+    BartConfig,
+    Florence2ForConditionalGeneration,
+    Florence2Processor,
+)
+from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 
 from ....base import ForgeModel
 from ....config import (
@@ -22,6 +29,8 @@ from ....config import (
     StrEnum,
 )
 from ....tools.utils import get_file
+
+_IMAGE_TOKEN = "<image>"
 
 
 class ModelVariant(StrEnum):
@@ -46,6 +55,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.processor = None
+        self._tokenizer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -60,15 +70,31 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _setup_image_token(self, tokenizer):
+        """Add image token to tokenizer if missing (older checkpoints lack it)."""
+        if _IMAGE_TOKEN not in tokenizer.get_vocab():
+            tokenizer.add_special_tokens({"additional_special_tokens": [_IMAGE_TOKEN]})
+        tokenizer.image_token = _IMAGE_TOKEN
+        tokenizer.image_token_id = tokenizer.convert_tokens_to_ids(_IMAGE_TOKEN)
+
     def _load_processor(self):
-        self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name,
+        pretrained_model_name = self._variant_config.pretrained_model_name
+        if self._tokenizer is None:
+            self._tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
+            self._setup_image_token(self._tokenizer)
+        image_processor = AutoImageProcessor.from_pretrained(pretrained_model_name)
+        self.processor = Florence2Processor(
+            image_processor=image_processor, tokenizer=self._tokenizer
         )
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Tiny Random Florence-2 model instance."""
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        # florence2_language config type was removed in transformers 5.x; map it to BartConfig
+        if "florence2_language" not in CONFIG_MAPPING:
+            CONFIG_MAPPING._extra_content["florence2_language"] = BartConfig
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -78,8 +104,19 @@ class ModelLoader(ForgeModel):
         model = Florence2ForConditionalGeneration.from_pretrained(
             pretrained_model_name,
             attn_implementation="eager",
+            ignore_mismatched_sizes=True,
             **model_kwargs,
         )
+
+        # Set up image token: older checkpoints lack the image token at id 51289.
+        # Add it to the tokenizer so the vocab size matches and resize embeddings.
+        self._tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
+        self._setup_image_token(self._tokenizer)
+        if len(self._tokenizer) > model.model.language_model.shared.weight.shape[0]:
+            model.resize_token_embeddings(len(self._tokenizer))
+        model.config.image_token_id = self._tokenizer.image_token_id
+        model.model.config.image_token_id = self._tokenizer.image_token_id
+
         model.eval()
         return model
 
