@@ -5,7 +5,12 @@
 Sa2VA-Qwen3-VL model loader implementation for multimodal visual question answering.
 """
 
-from transformers import AutoModel, AutoProcessor
+import json
+
+import safetensors.torch
+from huggingface_hub import hf_hub_download
+from transformers import AutoConfig, AutoProcessor
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
 from typing import Optional
 
 from ...base import ForgeModel
@@ -70,16 +75,42 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        model_kwargs = {
-            "trust_remote_code": True,
-            "attn_implementation": "eager",
-        }
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+        # Sa2VA's SAM2 component calls .item() during __init__, which is
+        # incompatible with transformers 5.x meta-device initialization.
+        # Manually instantiate the wrapper class on CPU, load sharded weights,
+        # then return the inner Qwen3VLForConditionalGeneration model (which has
+        # a standard forward method that matches our input format).
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        model_class = get_class_from_dynamic_module(
+            config.auto_map["AutoModel"],
+            pretrained_model_name,
+            trust_remote_code=True,
+        )
+        wrapper = model_class(config)
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        index_file = hf_hub_download(
+            pretrained_model_name, "model.safetensors.index.json"
+        )
+        with open(index_file) as f:
+            index = json.load(f)
+
+        shard_files = sorted(set(index["weight_map"].values()))
+        state_dict = {}
+        for shard_file in shard_files:
+            shard_path = hf_hub_download(pretrained_model_name, shard_file)
+            state_dict.update(safetensors.torch.load_file(shard_path))
+
+        wrapper.load_state_dict(state_dict, strict=False)
+
+        # The outer Sa2VAChatModelQwen has no standard forward(); use the inner
+        # Qwen3VLForConditionalGeneration whose forward accepts the processor outputs.
+        model = wrapper.model
         model.eval()
+
+        if dtype_override is not None:
+            model = model.to(dtype_override)
 
         return model
 
