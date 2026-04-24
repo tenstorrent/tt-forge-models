@@ -1,1 +1,9 @@
-gptqmodel
+# gptqmodel dependencies - installed before gptqmodel (nodeps) to avoid numpy/transformers downgrades
+logbar
+PyPcre
+defuser
+device-smi
+kernels
+maturin
+tokenicer
+torchao

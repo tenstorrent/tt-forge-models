@@ -74,6 +74,13 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
+        # Pre-import gptqmodel so its module-level tensor ops run before
+        # from_pretrained activates the init_empty_weights meta-device context
+        try:
+            import gptqmodel  # noqa: F401
+        except ImportError:
+            pass
+
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
