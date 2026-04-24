@@ -5,7 +5,7 @@
 Moody Porn Mix v9 GGUF (Gthalmie1/moody-porn-mix-v9-gguf) model loader implementation.
 
 Moody Porn Mix v9 is a text-to-image generation model in GGUF quantized format,
-based on Stable Diffusion XL architecture.
+based on the Lumina2 architecture with a Qwen3 text encoder.
 
 Available variants:
 - MOODY_PORN_MIX_V9_Q4_K_M: Q4_K_M quantized variant
@@ -25,7 +25,10 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from .src.model_utils import load_gguf_pipe, stable_diffusion_preprocessing_xl
+from .src.model_utils import (
+    create_lumina2_inputs,
+    load_lumina2_transformer,
+)
 
 REPO_ID = "Gthalmie1/moody-porn-mix-v9-gguf"
 
@@ -49,11 +52,9 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "moodyPornMix_zitV9_q4_k_m.gguf"
 
-    prompt = "An astronaut riding a green horse"
-
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline = None
+        self.transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -69,40 +70,34 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Moody Porn Mix v9 pipeline from GGUF checkpoint.
+        """Load and return the Lumina2 transformer from GGUF checkpoint.
 
         Returns:
-            DiffusionPipeline: The loaded pipeline instance.
+            Lumina2Transformer2DModel: The loaded transformer instance.
         """
-        if self.pipeline is None:
-            self.pipeline = load_gguf_pipe(REPO_ID, self.GGUF_FILE)
+        if self.transformer is None:
+            self.transformer = load_lumina2_transformer(REPO_ID, self.GGUF_FILE)
 
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            self.transformer = self.transformer.to(dtype_override)
 
-        return self.pipeline
+        return self.transformer
 
     def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the model.
+        """Load and return synthetic inputs for the Lumina2 transformer.
 
         Returns:
-            list: Input tensors for the UNet model.
+            list: [hidden_states, timestep, encoder_hidden_states, encoder_attention_mask]
         """
-        if self.pipeline is None:
-            self.load_model(dtype_override=dtype_override)
-
         (
-            latent_model_input,
-            timesteps,
-            prompt_embeds,
-            timestep_cond,
-            added_cond_kwargs,
-            add_time_ids,
-        ) = stable_diffusion_preprocessing_xl(self.pipeline, self.prompt)
+            hidden_states,
+            timestep,
+            encoder_hidden_states,
+            encoder_attention_mask,
+        ) = create_lumina2_inputs()
 
         if dtype_override:
-            latent_model_input = latent_model_input.to(dtype_override)
-            timesteps = timesteps.to(dtype_override)
-            prompt_embeds = prompt_embeds.to(dtype_override)
+            hidden_states = hidden_states.to(dtype_override)
+            encoder_hidden_states = encoder_hidden_states.to(dtype_override)
 
-        return [latent_model_input, timesteps, prompt_embeds, added_cond_kwargs]
+        return [hidden_states, timestep, encoder_hidden_states, encoder_attention_mask]
