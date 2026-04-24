@@ -5,6 +5,8 @@
 Bartowski xlangai Jedi-3B-1080p GGUF model loader implementation for image to text.
 """
 
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
 from transformers import (
     Qwen2_5_VLForConditionalGeneration,
     AutoProcessor,
@@ -21,6 +23,39 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_gguf_qwen2_5_vl():
+    """Patch GGUF weight-map lookup to support Qwen2.5-VL architecture.
+
+    Qwen2_5_VLConfig stores num_hidden_layers inside text_config rather than
+    at the top level, causing AttributeError in get_gguf_hf_weights_map.
+    Additionally, the HF model_type "qwen2_5_vl" has no direct entry in
+    gguf-py's MODEL_ARCH_NAMES, so we remap it to "qwen2vl".
+    """
+    _orig = _gguf_utils.get_gguf_hf_weights_map
+
+    def _patched(hf_model, processor, model_type=None, num_layers=None, qual_name=""):
+        if num_layers is None and not hasattr(hf_model.config, "num_hidden_layers"):
+            text_cfg = getattr(hf_model.config, "text_config", None)
+            if text_cfg is not None:
+                num_layers = getattr(text_cfg, "num_hidden_layers", None)
+        if model_type is None:
+            model_type = getattr(hf_model.config, "model_type", None)
+        if model_type == "qwen2_5_vl":
+            model_type = "qwen2vl"
+        return _orig(
+            hf_model,
+            processor,
+            model_type=model_type,
+            num_layers=num_layers,
+            qual_name=qual_name,
+        )
+
+    _gguf_utils.get_gguf_hf_weights_map = _patched
+
+
+_patch_gguf_qwen2_5_vl()
 
 
 class ModelVariant(StrEnum):
