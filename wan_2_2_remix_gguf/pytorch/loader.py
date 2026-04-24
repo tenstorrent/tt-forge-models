@@ -124,7 +124,6 @@ class ModelLoader(ForgeModel):
         VAE in float32 for numerical stability.
         """
         from diffusers import (
-            AutoencoderKLWan,
             GGUFQuantizationConfig,
             WanTransformer3DModel,
         )
@@ -181,27 +180,12 @@ class ModelLoader(ForgeModel):
         is_i2v = _IS_I2V[self._variant]
         base_pipeline = I2V_BASE_PIPELINE if is_i2v else T2V_BASE_PIPELINE
 
-        vae = AutoencoderKLWan.from_pretrained(
-            base_pipeline,
-            subfolder="vae",
-            torch_dtype=torch.float32,
-        )
-
         if is_i2v:
             from diffusers import WanImageToVideoPipeline
-            from transformers import CLIPVisionModel
-
-            image_encoder = CLIPVisionModel.from_pretrained(
-                base_pipeline,
-                subfolder="image_encoder",
-                torch_dtype=torch.float32,
-            )
 
             self.pipeline = WanImageToVideoPipeline.from_pretrained(
                 base_pipeline,
                 transformer=transformer,
-                vae=vae,
-                image_encoder=image_encoder,
                 torch_dtype=compute_dtype,
             )
         else:
@@ -210,7 +194,6 @@ class ModelLoader(ForgeModel):
             self.pipeline = WanPipeline.from_pretrained(
                 base_pipeline,
                 transformer=transformer,
-                vae=vae,
                 torch_dtype=compute_dtype,
             )
 
