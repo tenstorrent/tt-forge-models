@@ -29,6 +29,12 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """mlx-community deepcogito-cogito-v1-preview-llama-3B-4bit model loader for causal language modeling."""
 
+    # The MLX model is used for the tokenizer/chat template; weights are loaded
+    # from the base (non-quantized) model since MLX-quantized safetensors use
+    # a compressed layout incompatible with standard transformers.
+    _MLX_MODEL = "mlx-community/deepcogito-cogito-v1-preview-llama-3B-4bit"
+    _BASE_MODEL = "deepcogito/cogito-v1-preview-llama-3B"
+
     _VARIANTS = {
         ModelVariant.COGITO_V1_PREVIEW_LLAMA_3B_4BIT: LLMModelConfig(
             pretrained_model_name="mlx-community/deepcogito-cogito-v1-preview-llama-3B-4bit",
@@ -76,8 +82,6 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
@@ -86,23 +90,13 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        config = AutoConfig.from_pretrained(pretrained_model_name)
         if self.num_layers is not None:
+            config = AutoConfig.from_pretrained(self._BASE_MODEL)
             config.num_hidden_layers = self.num_layers
-
-        # MLX quantized models have a quantization_config without quant_method.
-        # Remove the attribute entirely so transformers treats the model as
-        # non-quantized (setting to None is insufficient because transformers
-        # checks hasattr, not truthiness).
-        if hasattr(config, "quantization_config") and not hasattr(
-            config.quantization_config, "quant_method"
-        ):
-            delattr(config, "quantization_config")
-
-        model_kwargs["config"] = config
+            model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            self._BASE_MODEL, **model_kwargs
         ).eval()
 
         self.config = model.config
@@ -156,7 +150,5 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+        self.config = AutoConfig.from_pretrained(self._BASE_MODEL)
         return self.config
