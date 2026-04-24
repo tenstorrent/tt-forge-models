@@ -115,8 +115,17 @@ class ModelLoader(ForgeModel):
 
         if dtype_override:
             latent_model_input = latent_model_input.to(dtype_override)
-            timesteps = timesteps.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
+            added_cond_kwargs = {
+                k: v.to(dtype_override) if v.dtype.is_floating_point else v
+                for k, v in added_cond_kwargs.items()
+            }
+            down_block_additional_residuals = tuple(
+                r.to(dtype_override) for r in down_block_additional_residuals
+            )
+            mid_block_additional_residual = mid_block_additional_residual.to(
+                dtype_override
+            )
 
         return [
             latent_model_input,

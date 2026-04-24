@@ -158,6 +158,7 @@ def controlnet_tile_sdxl_preprocessing(
         ),
         device=device,
     )
+    latents = latents.to(pipe.unet.dtype)
     latents = latents * pipe.scheduler.init_noise_sigma
 
     # 4. Prepare additional conditioning
