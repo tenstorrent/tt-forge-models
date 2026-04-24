@@ -233,9 +233,12 @@ class ModelLoader(ForgeModel):
 
         # Patch cached ultravox_model.py for transformers 5.x: tie_weights must accept **kwargs
         try:
-            cached_module = get_cached_module_file(
+            import transformers.dynamic_module_utils as _dmu
+
+            cached_rel = get_cached_module_file(
                 pretrained_model_name, "ultravox_model.py"
             )
+            cached_module = os.path.join(_dmu.HF_MODULES_CACHE, cached_rel)
             with open(cached_module) as f:
                 code = f.read()
             patched = code.replace(
