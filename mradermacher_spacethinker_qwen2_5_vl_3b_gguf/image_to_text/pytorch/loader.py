@@ -87,6 +87,24 @@ class ModelLoader(ForgeModel):
         if "qwen2vl" not in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
             _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("qwen2vl")
 
+        # Qwen2_5_VLConfig nests num_hidden_layers under text_config and uses model_type
+        # "qwen2_5_vl" which gguf-py doesn't know; remap both before the tensor weight map
+        # is built so from_pretrained can load weights from the qwen2vl GGUF file.
+        _orig_get_map = _gguf_utils.get_gguf_hf_weights_map
+
+        def _patched_get_gguf_hf_weights_map(
+            hf_model, processor, model_type=None, num_layers=None, qual_name=""
+        ):
+            if model_type is None:
+                model_type = hf_model.config.model_type
+            if model_type == "qwen2_5_vl":
+                model_type = "qwen2vl"
+                if num_layers is None:
+                    num_layers = hf_model.config.text_config.num_hidden_layers
+            return _orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+        _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
