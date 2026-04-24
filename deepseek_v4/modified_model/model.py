@@ -198,7 +198,8 @@ def precompute_freqs_cis(dim, seqlen, original_seq_len, base, factor, beta_fast,
 def apply_rotary_emb(x: torch.Tensor, freqs_cis: torch.Tensor, inverse: bool = False) -> torch.Tensor:
     """Applies rotary positional embeddings in-place using real arithmetic."""
     y = x
-    x = x.float().unflatten(-1, (-1, 2))
+    x = x.float()
+    x = x.reshape(*x.shape[:-1], -1, 2)
     x_real = x[..., 0]
     x_imag = x[..., 1]
 
@@ -310,8 +311,8 @@ class Compressor(nn.Module):
                 kv, self.kv_state[:bsz, offset : offset+remainder] = kv.split([cutoff, remainder], dim=1)
                 self.score_state[:bsz, offset : offset+remainder] = score[:, cutoff:] + self.ape[:remainder]
                 score = score[:, :cutoff]
-            kv = kv.unflatten(1, (-1, ratio))
-            score = score.unflatten(1, (-1, ratio)) + self.ape
+            kv = kv.reshape(kv.shape[0], -1, ratio, *kv.shape[2:])
+            score = score.reshape(score.shape[0], -1, ratio, *score.shape[2:]) + self.ape
             if overlap:
                 kv = self.overlap_transform(kv, 0)
                 score = self.overlap_transform(score, float("-inf"))
@@ -381,7 +382,7 @@ class Indexer(torch.nn.Module):
         rd = self.rope_head_dim
         end_pos = start_pos + seqlen
         q = self.wq_b(qr)
-        q = q.unflatten(-1, (self.n_local_heads, self.head_dim))
+        q = q.reshape(*q.shape[:-1], self.n_local_heads, self.head_dim)
         apply_rotary_emb(q[..., -rd:], freqs_cis)
         self.compressor(x, start_pos)
         weights = self.weights_proj(x) * (self.softmax_scale * self.n_heads ** -0.5)
@@ -465,7 +466,8 @@ class Attention(nn.Module):
         rd = self.rope_head_dim
         # q
         qr = q = self.q_norm(self.wq_a(x))
-        q = self.wq_b(q).unflatten(-1, (self.n_local_heads, self.head_dim))
+        q = self.wq_b(q)
+        q = q.reshape(*q.shape[:-1], self.n_local_heads, self.head_dim)
         q *= torch.rsqrt(q.square().mean(-1, keepdim=True) + self.eps)
         apply_rotary_emb(q[..., -rd:], freqs_cis)
 
