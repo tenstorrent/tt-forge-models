@@ -91,7 +91,7 @@ class ModelLoader(ForgeModel):
         from transformers import PreTrainedModel
 
         _orig_get_init_context = PreTrainedModel.get_init_context.__func__
-        _orig_finalize = PreTrainedModel._finalize_model_loading.__func__
+        _orig_finalize = PreTrainedModel._finalize_model_loading
 
         @classmethod
         def _no_meta_init_context(cls, dtype, is_quantized, _is_ds_init_called):
@@ -104,11 +104,11 @@ class ModelLoader(ForgeModel):
                 if not (isinstance(c, torch.device) and c.type == "meta")
             ]
 
-        @classmethod
-        def _finalize_with_post_init(cls, model, *args, **kwargs):
+        @staticmethod
+        def _finalize_with_post_init(model, *args, **kwargs):
             if not hasattr(model, "all_tied_weights_keys"):
                 model.post_init()
-            return _orig_finalize(cls, model, *args, **kwargs)
+            return _orig_finalize(model, *args, **kwargs)
 
         PreTrainedModel.get_init_context = _no_meta_init_context
         PreTrainedModel._finalize_model_loading = _finalize_with_post_init
@@ -116,7 +116,7 @@ class ModelLoader(ForgeModel):
             model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         finally:
             PreTrainedModel.get_init_context = classmethod(_orig_get_init_context)
-            PreTrainedModel._finalize_model_loading = classmethod(_orig_finalize)
+            PreTrainedModel._finalize_model_loading = staticmethod(_orig_finalize)
         model.eval()
 
         return model
