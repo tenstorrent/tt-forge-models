@@ -132,10 +132,10 @@ def _patch_smollm3_support():
     _ggml.GGUFLlamaConverter.tokenizer = _fixed_llama_converter_tokenizer
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+def _patched_load_gguf_checkpoint(*args, **kwargs):
     """Wrap load_gguf_checkpoint to add smollm3 architecture support."""
     _patch_smollm3_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
     return result
 
 
