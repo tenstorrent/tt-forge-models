@@ -190,37 +190,14 @@ def _patch_transformers_nemotron_h_moe_gguf():
 
     TENSOR_PROCESSORS["nemotron_h"] = NemotronTensorProcessor
 
-    # Find the real transformers load_gguf_checkpoint by walking the closure
-    # chain until we reach a function whose __module__ matches transformers.
-    # Other loaders may have overwritten the module attribute with limited-
-    # signature wrappers (missing model_to_load), so we cannot trust the
-    # module attribute alone.
-    def _find_real_load_gguf_checkpoint():
-        fn = gguf_utils.load_gguf_checkpoint
-        seen = set()
-        while fn is not None and id(fn) not in seen:
-            seen.add(id(fn))
-            if (
-                getattr(fn, "__module__", "")
-                == "transformers.modeling_gguf_pytorch_utils"
-            ):
-                return fn
-            # Look in closure cells for the next function in the chain
-            next_fn = None
-            if hasattr(fn, "__closure__") and fn.__closure__:
-                for cell in fn.__closure__:
-                    try:
-                        val = cell.cell_contents
-                        if callable(val) and id(val) not in seen:
-                            next_fn = val
-                            break
-                    except ValueError:
-                        pass
-            fn = next_fn
-        # Fallback: the current attribute (may be patched but still works)
-        return gguf_utils.load_gguf_checkpoint
-
-    _real_orig_load = _find_real_load_gguf_checkpoint()
+    # Preserve the real transformers load_gguf_checkpoint as a private attribute
+    # on the module itself.  Other loaders that run after us overwrite the public
+    # attribute; our stash survives.  Only the first loader to run writes it, so
+    # whichever model is imported first locks in the true original.
+    _STASH_ATTR = "_tt_forge_real_load_gguf_checkpoint"
+    if not hasattr(gguf_utils, _STASH_ATTR):
+        setattr(gguf_utils, _STASH_ATTR, gguf_utils.load_gguf_checkpoint)
+    _real_orig_load = getattr(gguf_utils, _STASH_ATTR)
 
     def patched_load_gguf_checkpoint(*args, **kwargs):
         result = _real_orig_load(*args, **kwargs)
