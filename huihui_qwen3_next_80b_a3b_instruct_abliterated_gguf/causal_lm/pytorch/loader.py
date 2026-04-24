@@ -14,44 +14,96 @@ import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    get_gguf_hf_weights_map as _orig_get_gguf_hf_weights_map,
     GGUF_SUPPORTED_ARCHITECTURES,
+    Qwen2MoeTensorProcessor,
 )
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
+# Qwen3-Next-80B-A3B is a hybrid SSM+MoE architecture (linear_attention + full_attention
+# layers). The GGUF file declares architecture as 'qwen3next'. Transformers 5.x has
+# Qwen3NextForCausalLM (model_type="qwen3_next") but no GGUF loading support for it.
+#
+# Config field mapping for qwen3next GGUF → Qwen3NextConfig:
+_QWEN3NEXT_CONFIG_MAPPING = {
+    "context_length": "max_position_embeddings",
+    "block_count": "num_hidden_layers",
+    "feed_forward_length": "intermediate_size",
+    "embedding_length": "hidden_size",
+    "rope.dimension_count": None,  # used for partial_rotary_factor=0.25 (64/256)
+    "rope.freq_base": "rope_theta",  # moved into rope_parameters in post-processing
+    "attention.key_length": "head_dim",
+    "attention.head_count": "num_attention_heads",
+    "attention.head_count_kv": "num_key_value_heads",
+    "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+    "vocab_size": "vocab_size",
+    "expert_count": "num_experts",
+    "expert_used_count": "num_experts_per_tok",
+    "expert_feed_forward_length": "moe_intermediate_size",
+    "expert_shared_feed_forward_length": "shared_expert_intermediate_size",
+    "ssm.conv_kernel": "linear_conv_kernel_dim",
+    "ssm.state_size": "linear_key_head_dim",
+    "ssm.group_count": "linear_num_key_heads",
+}
+
 
 def _patch_qwen3next_support():
-    """Register qwen3next architecture as an alias for qwen3_moe.
+    """Register qwen3next GGUF architecture mapped to the qwen3_next transformers model.
 
-    Qwen3-Next uses the same MoE architecture as Qwen3 MoE but the GGUF file
-    declares architecture as 'qwen3next' which transformers does not recognise.
+    gguf-py 0.18+ already knows about qwen3next tensor names. Transformers 5.x has
+    Qwen3NextForCausalLM but lacks GGUF config/tokenizer registration for it.
     """
     if "qwen3next" in GGUF_SUPPORTED_ARCHITECTURES:
         return
     GGUF_SUPPORTED_ARCHITECTURES.append("qwen3next")
-    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
-        if "qwen3_moe" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
-            mapping = dict(
-                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3_moe"]
-            )
-            mapping["expert_feed_forward_length"] = "moe_intermediate_size"
-            mapping["attention.sliding_window"] = "sliding_window"
-            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3next"] = mapping
+
+    _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"][
+        "qwen3next"
+    ] = _QWEN3NEXT_CONFIG_MAPPING
+
     if "qwen3_moe" in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["qwen3next"] = GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
+
     if hasattr(_gguf_utils, "GGUF_CONFIG_DEFAULTS_MAPPING"):
-        if "qwen3_moe" in _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING:
-            _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING[
-                "qwen3next"
-            ] = _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["qwen3_moe"]
+        _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["qwen3next"] = {
+            "norm_topk_prob": True,
+        }
+
+    # Use Qwen2MoeTensorProcessor to merge split gate/up expert weights into
+    # gate_up_proj, matching the Qwen3Next MoE block layout.
+    _gguf_utils.TENSOR_PROCESSORS["qwen3next"] = Qwen2MoeTensorProcessor
 
 
 def _patched_load_gguf_checkpoint(*args, **kwargs):
-    """Wrap load_gguf_checkpoint to add qwen3next support and fix model_type."""
+    """Wrap load_gguf_checkpoint to add qwen3next support and build rope_parameters."""
     _patch_qwen3next_support()
     result = _orig_load_gguf_checkpoint(*args, **kwargs)
-    if result.get("config", {}).get("model_type") == "qwen3next":
-        result["config"]["model_type"] = "qwen3_moe"
+    config = result.get("config", {})
+    if config.get("model_type") == "qwen3next":
+        config["model_type"] = "qwen3_next"
+        # Qwen3NextConfig uses rope_parameters dict instead of a flat rope_theta.
+        # partial_rotary_factor = rope.dimension_count / head_dim = 64 / 256 = 0.25
+        rope_theta = config.pop("rope_theta", 10_000_000.0)
+        config["rope_parameters"] = {
+            "rope_type": "default",
+            "rope_theta": rope_theta,
+            "partial_rotary_factor": 0.25,
+        }
+        # linear_value_head_dim mirrors linear_key_head_dim (both 128 in this model)
+        if "linear_key_head_dim" in config:
+            config.setdefault("linear_value_head_dim", config["linear_key_head_dim"])
     return result
+
+
+def _patched_get_gguf_hf_weights_map(hf_model, processor, model_type=None, **kwargs):
+    """Wrap get_gguf_hf_weights_map to map qwen3_next HF model → qwen3next gguf-py arch."""
+    if model_type is None and hasattr(hf_model, "config"):
+        model_type = hf_model.config.model_type
+    if model_type == "qwen3_next":
+        model_type = "qwen3next"
+    return _orig_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=model_type, **kwargs
+    )
 
 
 _patch_qwen3next_support()
@@ -59,6 +111,7 @@ _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 from ....base import ForgeModel
 from ....config import (
