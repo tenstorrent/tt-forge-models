@@ -4,7 +4,8 @@
 """
 GENERator-eukaryote model loader implementation for causal language modeling.
 """
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedTokenizerBase
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
 from typing import Optional
 
 from ....base import ForgeModel
@@ -61,8 +62,33 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        model_name = self._variant_config.pretrained_model_name
+
+        # DNAKmerTokenizer sets bos_token/eos_token before calling super().__init__(),
+        # causing AttributeError in transformers 5.x because _special_tokens_map is not
+        # yet initialized. Pre-initialize required attributes and pass special tokens as
+        # kwargs so they survive the super().__init__() reset.
+        tok_cls = get_class_from_dynamic_module(
+            "tokenizer.DNAKmerTokenizer", model_name
+        )
+        _orig_init = tok_cls.__init__
+
+        def _patched_init(instance, k, **kwargs):
+            object.__setattr__(
+                instance,
+                "_special_tokens_map",
+                dict.fromkeys(PreTrainedTokenizerBase.SPECIAL_TOKENS_ATTRIBUTES),
+            )
+            object.__setattr__(instance, "_extra_special_tokens", [])
+            object.__setattr__(instance, "_added_tokens_decoder", {})
+            kwargs.setdefault("bos_token", "<s>")
+            kwargs.setdefault("eos_token", "</s>")
+            _orig_init(instance, k, **kwargs)
+
+        tok_cls.__init__ = _patched_init
+
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
+            model_name,
             trust_remote_code=True,
             padding_side="left",
         )
