@@ -221,6 +221,7 @@ class ModelLoader(ForgeModel):
         """
         import transformers
         import transformers.modeling_utils
+        import transformers.initialization as _tf_init
 
         # transformers>=5 removed _init_weights; the custom model code uses it as
         # a boolean gate to decide whether to load pretrained weights vs. empty weights.
@@ -237,16 +238,31 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        # Disable meta device so nested from_pretrained calls inside __init__ work.
-        model_kwargs["low_cpu_mem_usage"] = False
         model_kwargs |= kwargs
 
-        model = transformers.AutoModel.from_pretrained(
-            pretrained_model_name,
-            config=config,
-            trust_remote_code=True,
-            **model_kwargs,
-        )
+        # transformers>=5 unconditionally uses torch.device("meta") in get_init_context,
+        # but the custom UltravoxModel calls from_pretrained inside __init__ for its
+        # audio tower, which fails inside a meta device context.  Temporarily override
+        # get_init_context to skip the meta device so nested from_pretrained works.
+        original_get_init_context = transformers.PreTrainedModel.get_init_context
+
+        @classmethod  # type: ignore[misc]
+        def _no_meta_get_init_context(cls, dtype, is_quantized, _is_ds_init_called):
+            from transformers.modeling_utils import local_torch_dtype
+
+            return [local_torch_dtype(dtype, cls.__name__), _tf_init.no_tie_weights()]
+
+        transformers.PreTrainedModel.get_init_context = _no_meta_get_init_context
+        try:
+            model = transformers.AutoModel.from_pretrained(
+                pretrained_model_name,
+                config=config,
+                trust_remote_code=True,
+                **model_kwargs,
+            )
+        finally:
+            transformers.PreTrainedModel.get_init_context = original_get_init_context
+
         model.eval()
 
         return model
