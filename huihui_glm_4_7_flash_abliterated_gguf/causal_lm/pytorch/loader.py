@@ -61,16 +61,18 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    # The mradermacher GGUF repo contains only GGUF files (no tokenizer.json).
+    # Loading the tokenizer from the GGUF fails because transformers does not
+    # support the deepseek_v2 tokenizer architecture in GGUF_TO_FAST_CONVERTERS.
+    # Use the base model repo which ships a proper tokenizer.json.
+    TOKENIZER_REPO = "huihui-ai/Huihui-GLM-4.7-Flash-abliterated"
+
     def _load_tokenizer(self, dtype_override=None):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        # Omit gguf_file: the GLM-4.7 GGUF uses a deepseek_v2 tokenizer
-        # architecture that is not in GGUF_TO_FAST_CONVERTERS in the
-        # installed transformers version; use the repo's standard HF
-        # tokenizer files instead.
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self.TOKENIZER_REPO, **tokenizer_kwargs
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
