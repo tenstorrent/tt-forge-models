@@ -14,7 +14,7 @@ variant ``llava-hf/llava-onevision-qwen2-7b-si-hf`` served by the
 from typing import Optional
 
 from PIL import Image
-from transformers import LlavaOnevisionForConditionalGeneration, LlavaOnevisionProcessor
+from transformers import AutoProcessor, LlavaOnevisionForConditionalGeneration
 
 from ...base import ForgeModel
 from ...config import (
@@ -67,9 +67,9 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
-        # AutoProcessor resolves to LlavaProcessor for this checkpoint; use explicitly.
-        self.processor = LlavaOnevisionProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name
+        # AutoProcessor resolves to LlavaProcessor; pass patch_size for SiGLIP-patch14 backbone.
+        self.processor = AutoProcessor.from_pretrained(
+            self._variant_config.pretrained_model_name, patch_size=14
         )
         return self.processor
 
