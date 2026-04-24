@@ -51,6 +51,7 @@ class ModelLoader(ForgeModel):
         self._is_dflash_draft = False
         self._hidden_size = None
         self._num_target_layers = None
+        self._model_dtype = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -94,6 +95,7 @@ class ModelLoader(ForgeModel):
             dflash_cfg = getattr(config, "dflash_config", {})
             target_layer_ids = dflash_cfg.get("target_layer_ids", [])
             self._num_target_layers = len(target_layer_ids)
+            self._model_dtype = next(model.parameters()).dtype
         else:
             self._ensure_tokenizer()
             model = AutoModelForCausalLM.from_pretrained(
@@ -109,11 +111,14 @@ class ModelLoader(ForgeModel):
 
         if self._is_dflash_draft:
             position_ids = torch.arange(max_length).unsqueeze(0).expand(batch_size, -1)
-            noise_embedding = torch.zeros(batch_size, max_length, self._hidden_size)
+            noise_embedding = torch.zeros(
+                batch_size, max_length, self._hidden_size, dtype=self._model_dtype
+            )
             target_hidden = torch.zeros(
                 batch_size,
                 max_length,
                 self._num_target_layers * self._hidden_size,
+                dtype=self._model_dtype,
             )
             return {
                 "position_ids": position_ids,
