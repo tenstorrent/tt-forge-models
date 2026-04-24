@@ -88,8 +88,12 @@ class ModelLoader(ForgeModel):
             _gguf_utils.load_gguf_checkpoint = _patched_load
 
             import transformers.configuration_utils as _config_utils
+            import transformers.models.auto.tokenization_auto as _tok_auto
+            import transformers.tokenization_utils_tokenizers as _tok_utils
 
             _config_utils.load_gguf_checkpoint = _patched_load
+            _tok_auto.load_gguf_checkpoint = _patched_load
+            _tok_utils.load_gguf_checkpoint = _patched_load
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
