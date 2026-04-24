@@ -85,6 +85,10 @@ def _patch_transformers_qwen3vl_gguf():
             config["text_config"] = {
                 k: config[k] for k in text_param_keys if k in config
             }
+            # The vision encoder's out_hidden_size must match the text hidden_size.
+            # GGUF doesn't store vision config so we patch the default to match.
+            if "hidden_size" in config and "vision_config" not in config:
+                config["vision_config"] = {"out_hidden_size": config["hidden_size"]}
         return result
 
     gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
