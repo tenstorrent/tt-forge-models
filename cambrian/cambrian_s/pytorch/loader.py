@@ -5,6 +5,7 @@
 Cambrian-S model loader implementation for multimodal visual question answering.
 """
 
+import cambrian  # registers cambrian_qwen model type with transformers
 import torch
 from PIL import Image
 from transformers import AutoModelForCausalLM, AutoProcessor
