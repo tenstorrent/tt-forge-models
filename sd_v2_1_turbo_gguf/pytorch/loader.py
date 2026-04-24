@@ -17,7 +17,7 @@ Available variants:
 - Q8_0: 8-bit quantization (~2.32 GB)
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 import torch
 
@@ -93,22 +93,20 @@ class ModelLoader(ForgeModel):
     ):
         """Load the GGUF-quantized UNet and build the SD-Turbo pipeline.
 
-        Uses diffusers GGUFQuantizationConfig to load the quantized UNet,
-        then constructs the StableDiffusionPipeline with the base model's
-        other components.
+        Returns the UNet (torch.nn.Module) so the test framework can compile it.
+        The full pipeline is kept in self.pipeline for input preprocessing.
         """
         from diffusers import (
             GGUFQuantizationConfig,
             StableDiffusionPipeline,
             UNet2DConditionModel,
         )
+        from huggingface_hub import hf_hub_download
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
-
-        from huggingface_hub import hf_hub_download
 
         gguf_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
         # The GGUF was quantized from the original LDM-format weights which use
@@ -130,15 +128,45 @@ class ModelLoader(ForgeModel):
             torch_dtype=compute_dtype,
         )
 
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for SD-Turbo.
+        """Load preprocessed UNet inputs for SD-Turbo inference.
 
         Returns:
-            list: A list of sample text prompts.
+            list: [latent_sample, timestep, encoder_hidden_states]
         """
-        prompt = [
-            "A cinematic shot of a baby racoon wearing an intricate italian priest robe.",
-        ] * batch_size
-        return prompt
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
+
+        dtype = self.pipeline.unet.dtype
+        prompt = "A cinematic shot of a baby racoon wearing an intricate italian priest robe."
+
+        text_inputs = self.pipeline.tokenizer(
+            [prompt] * batch_size,
+            padding="max_length",
+            max_length=self.pipeline.tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        with torch.no_grad():
+            encoder_hidden_states = self.pipeline.text_encoder(text_inputs.input_ids)[
+                0
+            ].to(dtype)
+
+        in_channels = self.pipeline.unet.config.in_channels
+        sample_size = self.pipeline.unet.config.sample_size
+        latent_sample = torch.randn(
+            batch_size, in_channels, sample_size, sample_size, dtype=dtype
+        )
+        timestep = torch.tensor([1.0], dtype=dtype)
+
+        return [latent_sample, timestep, encoder_hidden_states]
+
+    def unpack_forward_output(self, fwd_output: Any) -> torch.Tensor:
+        """Unpack UNet output to the sample tensor."""
+        if isinstance(fwd_output, tuple):
+            return fwd_output[0]
+        if hasattr(fwd_output, "sample"):
+            return fwd_output.sample
+        return fwd_output
