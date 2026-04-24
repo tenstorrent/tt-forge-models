@@ -85,13 +85,22 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"trust_remote_code": True, "return_dict": False}
 
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
         model.eval()
+
+        # Non-persistent position_ids buffers get garbage values when loading with dtype
+        # (meta device initialization doesn't populate non-persistent buffers).
+        longtext_len = model.config.text_config.longtext_len
+        model.text_model.embeddings.register_buffer(
+            "position_ids",
+            torch.arange(longtext_len, dtype=torch.long).unsqueeze(0),
+            persistent=False,
+        )
 
         return model
 
