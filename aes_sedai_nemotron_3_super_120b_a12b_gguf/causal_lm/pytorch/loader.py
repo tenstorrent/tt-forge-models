@@ -47,6 +47,7 @@ def _patch_nemotron_h_moe_support():
             GGUF_TO_FAST_CONVERTERS["nemotron_h_moe"] = GGUF_TO_FAST_CONVERTERS[
                 "nemotron"
             ]
+            GGUF_TO_FAST_CONVERTERS["nemotron_h"] = GGUF_TO_FAST_CONVERTERS["nemotron"]
     except ImportError:
         pass
     if hasattr(_gguf_utils, "GGUF_CONFIG_DEFAULTS_MAPPING"):
