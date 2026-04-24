@@ -77,26 +77,82 @@ class ModelLoader(ForgeModel):
             self.processor.patch_size = 14
         return self.processor
 
+    @staticmethod
+    def _make_llava_weight_map(hf_model):
+        """Build GGUF→HF weight name mapping for LLaVA models.
+
+        The GGUF file stores only the language-model tensors using llama naming
+        (blk.N.*, token_embd.weight, output.weight, output_norm.weight).
+        The HF LLaVA model wraps the LM under model.language_model.*, so this
+        function strips that prefix for the gguf-py name lookup and maps each
+        GGUF tensor back to the full HF path.
+        """
+        from gguf import MODEL_ARCH, get_tensor_name_map
+
+        n_layers = hf_model.config.text_config.num_hidden_layers
+        name_map = get_tensor_name_map(MODEL_ARCH.LLAMA, n_layers)
+
+        gguf_to_hf = {}
+        LM_PREFIX = "model.language_model."
+        for hf_name in hf_model.state_dict():
+            if hf_name.startswith(LM_PREFIX):
+                # 'model.language_model.layers.0.X' -> 'model.layers.0.X'
+                lookup = "model." + hf_name[len(LM_PREFIX) :]
+            elif hf_name == "lm_head.weight":
+                lookup = hf_name
+            else:
+                continue  # vision tower / projector weights absent from GGUF
+
+            if lookup.endswith(".weight"):
+                base, suffix = lookup[:-7], ".weight"
+            elif lookup.endswith(".bias"):
+                base, suffix = lookup[:-5], ".bias"
+            else:
+                base, suffix = lookup, ""
+
+            gguf_name = name_map.get_name(base)
+            if gguf_name is not None:
+                gguf_to_hf[gguf_name + suffix] = hf_name
+
+        return gguf_to_hf
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the LLaVA-Phi-3-mini GGUF model instance."""
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.gguf_file
+        _saved_map_fn = _gguf_utils.get_gguf_hf_weights_map
 
-        # The GGUF repo lacks config.json; load architecture config from the HF version.
-        # Expose num_hidden_layers at top level so the GGUF weight mapper can find it.
-        config = AutoConfig.from_pretrained(self._PROCESSOR_NAME)
-        config.num_hidden_layers = config.text_config.num_hidden_layers
-        model = LlavaForConditionalGeneration.from_pretrained(
-            pretrained_model_name,
-            config=config,
-            ignore_mismatched_sizes=True,
-            **model_kwargs,
-        ).eval()
+        def _patched_map_fn(hf_model, processor, model_type=None, **kw):
+            mt = model_type or getattr(
+                getattr(hf_model, "config", None), "model_type", None
+            )
+            if mt == "llava":
+                return self._make_llava_weight_map(hf_model)
+            return _saved_map_fn(hf_model, processor, model_type=model_type, **kw)
+
+        _gguf_utils.get_gguf_hf_weights_map = _patched_map_fn
+
+        try:
+            pretrained_model_name = self._variant_config.pretrained_model_name
+
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+            model_kwargs["gguf_file"] = self.gguf_file
+
+            # The GGUF repo lacks config.json; load architecture config from the HF
+            # version so the model is built with the correct Phi-3-mini dimensions.
+            config = AutoConfig.from_pretrained(self._PROCESSOR_NAME)
+            model_kwargs["config"] = config
+
+            model = LlavaForConditionalGeneration.from_pretrained(
+                pretrained_model_name,
+                ignore_mismatched_sizes=True,
+                **model_kwargs,
+            ).eval()
+        finally:
+            _gguf_utils.get_gguf_hf_weights_map = _saved_map_fn
 
         self.config = model.config
 
