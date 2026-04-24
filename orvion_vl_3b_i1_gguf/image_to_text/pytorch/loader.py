@@ -5,10 +5,12 @@
 Orvion VL 3B i1 GGUF model loader implementation for image to text.
 """
 
+import torch
 from transformers import (
     Qwen2_5_VLForConditionalGeneration,
     AutoProcessor,
 )
+from transformers.image_utils import load_image
 from typing import Optional
 
 from ....base import ForgeModel
@@ -22,6 +24,11 @@ from ....config import (
     StrEnum,
 )
 
+# The qwen2vl GGUF architecture is not supported by transformers.
+# Load from the base Qwen2.5-VL-3B-Instruct model so the full multimodal
+# graph is available for compilation.
+BASE_MODEL = "Qwen/Qwen2.5-VL-3B-Instruct"
+
 
 class ModelVariant(StrEnum):
     """Available Orvion VL 3B i1 GGUF model variants for image to text."""
@@ -34,14 +41,12 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.ORVION_VL_3B_I1_GGUF: LLMModelConfig(
-            pretrained_model_name="mradermacher/Orvion-vl-3b-i1-GGUF",
+            pretrained_model_name=BASE_MODEL,
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.ORVION_VL_3B_I1_GGUF
-
-    GGUF_FILE = "Orvion-vl-3b.i1-Q4_K_M.gguf"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -61,33 +66,35 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        else:
+            model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
 
-        # GGUF repos do not ship a processor; use the base model
-        self.processor = AutoProcessor.from_pretrained("Qwen/Qwen2.5-VL-3B-Instruct")
+        self.processor = AutoProcessor.from_pretrained(BASE_MODEL)
 
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            BASE_MODEL, **model_kwargs
         )
         model.eval()
 
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
+        if self.processor is None:
+            self.processor = AutoProcessor.from_pretrained(BASE_MODEL)
+
+        image = load_image(
+            "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/pipeline-cat-chonk.jpeg"
+        )
+
         messages = [
             {
                 "role": "user",
                 "content": [
-                    {
-                        "type": "image",
-                        "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
-                    },
+                    {"type": "image", "image": image},
                     {"type": "text", "text": "Describe this image."},
                 ],
             }
@@ -100,4 +107,9 @@ class ModelLoader(ForgeModel):
             return_dict=True,
             return_tensors="pt",
         )
+
+        for key in inputs:
+            if torch.is_tensor(inputs[key]):
+                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+
         return inputs
