@@ -50,7 +50,12 @@ class ModelLoader(ForgeModel):
     DEFAULT_DENOISING_STEPS = 4
 
     # Per-variant overrides for variants fine-tuned on a non-GR1 embodiment.
-    _VARIANT_DEFAULTS = {}
+    _VARIANT_DEFAULTS = {
+        ModelVariant.GROOT_N1_6_DROID: {
+            "data_config": "oxe_droid",
+            "embodiment_tag": "oxe_droid",
+        }
+    }
 
     def __init__(
         self,
@@ -163,8 +168,9 @@ class ModelLoader(ForgeModel):
         """
         Load and return preprocessed input observations for Isaac GR00T.
 
-        Uses the demo dataset (robot_sim.PickNPlace) and loads the first sample (index 0).
-        Model must be loaded before calling this method.
+        For the DROID variant, synthetic pre-preprocessed inputs are generated directly
+        (bypassing LeRobotSingleDataset which requires unavailable LF cache files).
+        For other variants, a real dataset sample is used.
 
         Args:
             dtype_override: Optional dtype to cast inputs to (not recommended for GR00T)
@@ -172,14 +178,16 @@ class ModelLoader(ForgeModel):
         Returns:
             Dictionary containing preprocessed observation tensors ready for model inference
         """
-        from .src.utils import LeRobotSingleDataset
-
-        # Ensure model is loaded
-        if not hasattr(self, "_model") or self._model is None:
+        if self._model is None:
             raise RuntimeError(
                 "Model must be loaded before loading inputs. "
                 "Call load_model() first."
             )
+
+        if self._variant == ModelVariant.GROOT_N1_6_DROID:
+            return self._load_droid_synthetic_inputs()
+
+        from .src.utils import LeRobotSingleDataset
 
         self._load_data_config()
 
@@ -196,13 +204,46 @@ class ModelLoader(ForgeModel):
         observations = dataset[0]
         if dtype_override:
             print(
-                f"Warning: dtype_override may not work well with mixed-type observations (videos, states, etc.)."
+                "Warning: dtype_override may not work well with mixed-type observations (videos, states, etc.)."
             )
 
         # Apply preprocessing
         observations = self._model.preprocess(observations)
 
         return observations
+
+    def _load_droid_synthetic_inputs(self) -> Dict[str, Any]:
+        """
+        Generate synthetic pre-preprocessed inputs for the DROID variant.
+
+        DROID uses two cameras (exterior_image_1_left, wrist_image_left) and
+        joint_position + gripper_position state/action. The LF cache dataset
+        files are not available, so we construct Eagle-formatted inputs directly.
+        """
+        from .src.utils import EMBODIMENT_TAG_MAPPING
+
+        embodiment_val = EMBODIMENT_TAG_MAPPING.get(self.embodiment_tag, 16)
+        batch_size = 1
+        seq_len = 512
+        num_cameras = 2  # exterior_image_1_left + wrist_image_left
+        image_size = 448
+        max_state_dim = 128
+        action_horizon = 50
+
+        return {
+            "eagle_input_ids": torch.zeros(batch_size, seq_len, dtype=torch.long),
+            "eagle_attention_mask": torch.ones(batch_size, seq_len, dtype=torch.long),
+            "eagle_pixel_values": torch.zeros(
+                num_cameras, 3, image_size, image_size, dtype=torch.float32
+            ),
+            "eagle_image_sizes": torch.zeros(
+                batch_size, num_cameras, 2, dtype=torch.long
+            ),
+            "state": torch.zeros(batch_size, 1, max_state_dim, dtype=torch.float32),
+            "state_mask": torch.zeros(batch_size, 1, max_state_dim, dtype=torch.bool),
+            "embodiment_id": torch.tensor([embodiment_val], dtype=torch.long),
+            "action_horizon": action_horizon,
+        }
 
     def postprocess(self, raw_action_tensor: torch.Tensor) -> Dict[str, np.ndarray]:
         """

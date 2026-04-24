@@ -137,9 +137,11 @@ class EagleBackbone(nn.Module):
 
         # Disable flash attention if not available or not requested
         config._attn_implementation = "eager"
+        if hasattr(config, "text_config"):
+            config.text_config._attn_implementation = "eager"
 
         # Instantiate model directly (no AutoModel)
-        self.eagle_model = Eagle2_5_VLForConditionalGeneration(config)
+        self.model = Eagle2_5_VLForConditionalGeneration(config)
 
         if project_to_dim is not None:
             self.eagle_linear = torch.nn.Linear(2048, project_to_dim)
@@ -147,8 +149,8 @@ class EagleBackbone(nn.Module):
             self.eagle_linear = torch.nn.Identity()
 
         # needed since we don't use these layers. Also saves compute
-        while len(self.eagle_model.language_model.model.layers) > select_layer:
-            self.eagle_model.language_model.model.layers.pop(-1)
+        while len(self.model.language_model.model.layers) > select_layer:
+            self.model.language_model.model.layers.pop(-1)
 
         self.select_layer = select_layer
         self.set_trainable_parameters(tune_llm, tune_visual)
@@ -159,10 +161,10 @@ class EagleBackbone(nn.Module):
         for p in self.parameters():
             p.requires_grad = True
         if not tune_llm:
-            self.eagle_model.language_model.requires_grad_(False)
+            self.model.language_model.requires_grad_(False)
         if not tune_visual:
-            self.eagle_model.vision_model.requires_grad_(False)
-            self.eagle_model.mlp1.requires_grad_(False)
+            self.model.vision_model.requires_grad_(False)
+            self.model.mlp1.requires_grad_(False)
         print(f"Tune backbone llm: {self.tune_llm}")
         print(f"Tune backbone visual: {self.tune_visual}")
         # Check if any parameters are still trainable. If not, print a warning.
@@ -180,10 +182,10 @@ class EagleBackbone(nn.Module):
         need to call model.eval() for the frozen modules.
         """
         if self.training:
-            if self.eagle_model.language_model and not self.tune_llm:
-                self.eagle_model.language_model.eval()
-            if self.eagle_model.vision_model and not self.tune_visual:
-                self.eagle_model.vision_model.eval()
+            if self.model.language_model and not self.tune_llm:
+                self.model.language_model.eval()
+            if self.model.vision_model and not self.tune_visual:
+                self.model.vision_model.eval()
 
     def prepare_input(self, batch: dict) -> BatchFeature:
         return BatchFeature(data=batch)
@@ -197,7 +199,7 @@ class EagleBackbone(nn.Module):
         }
         del eagle_input["image_sizes"]
 
-        eagle_output = self.eagle_model(
+        eagle_output = self.model(
             **eagle_input, output_hidden_states=True, return_dict=True
         )
         eagle_features = eagle_output.hidden_states[self.select_layer]
@@ -219,7 +221,7 @@ class EagleBackbone(nn.Module):
                 dtype=eagle_embeds.dtype,
                 requires_grad=True,
             )
-            for param in self.eagle_model.vision_model.parameters():
+            for param in self.model.vision_model.parameters():
                 if param.requires_grad:
                     dummy_term = dummy_term + 0.0 * param.sum()
             eagle_embeds = eagle_embeds + dummy_term
@@ -257,6 +259,52 @@ class GR00T_N1_5_Config(PretrainedConfig):
         super().__init__(**kwargs)
         for key, value in kwargs.items():
             setattr(self, key, value)
+        # Construct backbone_cfg from flat N1.6 config fields if not provided as a dict
+        if not isinstance(getattr(self, "backbone_cfg", None), dict):
+            self.backbone_cfg = {
+                "tune_llm": getattr(self, "tune_llm", False),
+                "tune_visual": getattr(self, "tune_visual", False),
+                "select_layer": getattr(self, "select_layer", 16),
+                "reproject_vision": getattr(self, "reproject_vision", False),
+                "use_flash_attention": getattr(self, "use_flash_attention", False),
+                "load_bf16": getattr(self, "load_bf16", True),
+                "eagle_path": None,
+                "project_to_dim": None,
+            }
+        # Construct action_head_cfg from flat N1.6 config fields if not provided as a dict
+        if not isinstance(getattr(self, "action_head_cfg", None), dict):
+            self.action_head_cfg = {
+                "add_pos_embed": getattr(self, "add_pos_embed", True),
+                "model_dtype": getattr(self, "model_dtype", "float32"),
+                "diffusion_model_cfg": getattr(self, "diffusion_model_cfg", None),
+                "input_embedding_dim": getattr(self, "input_embedding_dim", 1536),
+                "backbone_embedding_dim": getattr(self, "backbone_embedding_dim", 1536),
+                "hidden_size": getattr(self, "hidden_size", 1024),
+                "max_seq_len": getattr(self, "max_seq_len", 1024),
+                "action_dim": getattr(self, "action_dim", None)
+                or getattr(self, "max_action_dim", 128),
+                "action_horizon": getattr(self, "action_horizon", None),
+                "noise_beta_alpha": getattr(self, "noise_beta_alpha", 1.5),
+                "noise_beta_beta": getattr(self, "noise_beta_beta", 1.0),
+                "noise_s": getattr(self, "noise_s", 0.999),
+                "num_timestep_buckets": getattr(self, "num_timestep_buckets", 1000),
+                "num_inference_timesteps": getattr(
+                    self, "num_inference_timesteps", None
+                ),
+                "max_num_embodiments": getattr(self, "max_num_embodiments", 32),
+                "tune_projector": getattr(self, "tune_projector", True),
+                "tune_diffusion_model": getattr(self, "tune_diffusion_model", True),
+                "use_vlln": getattr(self, "use_vlln", True),
+                "use_alternate_vl_dit": getattr(self, "use_alternate_vl_dit", False),
+                "apply_sincos_state_encoding": getattr(
+                    self, "apply_sincos_state_encoding", True
+                ),
+                "attn_dropout": getattr(self, "attn_dropout", 0.0),
+                "state_dropout_prob": getattr(self, "state_dropout_prob", 0.0),
+            }
+        # Set action_dim from max_action_dim if not set directly
+        if not isinstance(getattr(self, "action_dim", None), int):
+            self.action_dim = getattr(self, "max_action_dim", 128)
 
 
 class GR00T_N1_5(PreTrainedModel):
@@ -717,6 +765,14 @@ class Gr00tPolicy(BasePolicy):
         """Load the transforms for the model."""
         # Load metadata for normalization stats
         metadata_path = exp_cfg_dir / "metadata.json"
+        if not metadata_path.exists():
+            print(
+                f"Warning: metadata.json not found at {metadata_path}, "
+                "skipping metadata loading. Transforms requiring metadata will not normalize."
+            )
+            self.metadata = None
+            return
+
         with open(metadata_path, "r") as f:
             metadatas = json.load(f)
 
