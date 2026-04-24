@@ -85,9 +85,10 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
 
         config = AutoConfig.from_pretrained(pretrained_model_name)
-        # Strip MLX quantization config — transformers cannot apply it and raises ValueError
+        # Strip MLX quantization config — transformers cannot apply it and raises ValueError.
+        # Must delete (not set to None) because pre_quantized uses hasattr().
         if hasattr(config, "quantization_config"):
-            config.quantization_config = None
+            del config.quantization_config
 
         if self.num_layers is not None:
             if hasattr(config, "text_config"):
