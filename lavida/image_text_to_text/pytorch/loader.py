@@ -71,19 +71,40 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the LaViDa-LLaDA model instance."""
+        from transformers import PreTrainedModel
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        model_kwargs = {"trust_remote_code": True, "low_cpu_mem_usage": False}
+        model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        # transformers 5.x always wraps model.__init__ in torch.device("meta") context
+        # (PreTrainedModel.get_init_context). This model's __init__ calls
+        # SigLipVisionModel.from_pretrained for the vision tower, which transformers 5.x
+        # rejects inside that context. Patch out the meta device to allow sub-model loading.
+        _original = PreTrainedModel.get_init_context.__func__
+
+        @classmethod
+        def _no_meta_init_context(cls, dtype, is_quantized, _is_ds_init_called):
+            return [
+                c
+                for c in _original(cls, dtype, is_quantized, _is_ds_init_called)
+                if not (isinstance(c, torch.device) and c.type == "meta")
+            ]
+
+        PreTrainedModel.get_init_context = _no_meta_init_context
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+        finally:
+            PreTrainedModel.get_init_context = classmethod(_original)
+
         model.resize_token_embeddings(len(self.tokenizer))
         model.tie_weights()
         model.eval()
