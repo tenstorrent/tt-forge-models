@@ -26,13 +26,18 @@ def _patch_transformers_falcon_h1_gguf():
     The Falcon H1R model uses the 'falcon-h1' architecture identifier in its
     GGUF metadata. Transformers has FalconH1ForCausalLM (model_type='falcon_h1')
     but lacks GGUF loading support for the 'falcon-h1' architecture key. We
-    bridge the gap by registering the config mapping and remapping model_type.
+    bridge the gap by registering the config mapping, remapping model_type, and
+    registering a tokenizer converter for the 'falcon_h1' model type.
     """
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
         GGUF_TO_TRANSFORMERS_MAPPING,
     )
-    from transformers.integrations.ggml import GGUF_CONFIG_MAPPING
+    from transformers.integrations.ggml import (
+        GGUF_CONFIG_MAPPING,
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFGPTConverter,
+    )
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
 
     if "falcon-h1" in GGUF_SUPPORTED_ARCHITECTURES:
@@ -60,6 +65,11 @@ def _patch_transformers_falcon_h1_gguf():
     GGUF_TO_TRANSFORMERS_MAPPING["config"]["falcon-h1"] = GGUF_CONFIG_MAPPING[
         "falcon-h1"
     ]
+
+    # The tokenizer converter lookup uses model_type as the key after remapping,
+    # so register 'falcon_h1' with the GPT-2 converter (tokenizer.ggml.model=gpt2).
+    if "falcon_h1" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["falcon_h1"] = GGUFGPTConverter
 
     orig_load = gguf_utils.load_gguf_checkpoint
 
