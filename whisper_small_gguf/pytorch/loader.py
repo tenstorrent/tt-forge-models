@@ -86,14 +86,15 @@ class ModelLoader(ForgeModel):
         local_path = hf_hub_download(repo_id=pretrained_model_name, filename=gguf_file)
         reader = GGUFReader(local_path)
 
-        target_dtype = dtype_override if dtype_override is not None else torch.float32
         state_dict = {}
         for tensor in reader.tensors:
             arr = dequantize(tensor.data, tensor.tensor_type)
-            state_dict[tensor.name] = torch.from_numpy(arr).to(target_dtype)
+            state_dict[tensor.name] = torch.from_numpy(arr)
 
         model = WhisperForConditionalGeneration(config)
         model.load_state_dict(state_dict, strict=False)
+        if dtype_override is not None:
+            model = model.to(dtype_override)
         model.eval()
 
         self.model = model
