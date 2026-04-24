@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.DEFAULT: ModelConfig(
-            pretrained_model_name="wikeeyang/Flux1-Dev-DedistilledMixTuned-v4",
+            pretrained_model_name="AlekseyCalvin/Flux_Dedistilled_Mix_byWikeeyang_Diffusers",
         ),
     }
 
