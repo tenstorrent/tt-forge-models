@@ -32,9 +32,9 @@ def _patch_smollm3_support():
         GGUF_TO_FAST_CONVERTERS["smollm3"] = GGUF_TO_FAST_CONVERTERS["llama"]
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+def _patched_load_gguf_checkpoint(*args, **kwargs):
     _patch_smollm3_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
     if result.get("config", {}).get("model_type") == "smollm3":
         result["config"]["model_type"] = "smollm3"
     return result
