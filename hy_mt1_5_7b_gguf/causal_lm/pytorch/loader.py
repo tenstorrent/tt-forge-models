@@ -49,6 +49,8 @@ def _patch_transformers_hunyuan_dense_gguf():
 
     if "hunyuan-dense" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["hunyuan-dense"] = GGUFGPTConverter
+    if "hunyuan_v1_dense" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["hunyuan_v1_dense"] = GGUFGPTConverter
 
     orig_load = gguf_utils.load_gguf_checkpoint
 
