@@ -16,7 +16,7 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from diffusers import QwenImageTransformer2DModel
+from diffusers import GGUFQuantizationConfig, QwenImageTransformer2DModel
 from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
@@ -96,11 +96,13 @@ class ModelLoader(ForgeModel):
             filename=_GGUF_FILES[quant_key],
         )
 
+        quantization_config = GGUFQuantizationConfig(compute_dtype=dtype)
         self._transformer = QwenImageTransformer2DModel.from_single_file(
             model_path,
             config=CONFIG_REPO,
             subfolder="transformer",
             torch_dtype=dtype,
+            quantization_config=quantization_config,
         )
         self._transformer.eval()
         return self._transformer
@@ -114,10 +116,9 @@ class ModelLoader(ForgeModel):
             self._transformer = self._transformer.to(dtype=dtype_override)
         return self._transformer
 
-    def load_inputs(self, **kwargs) -> Any:
+    def load_inputs(self, dtype_override=None, batch_size=1, **kwargs) -> Any:
         """Prepare sample inputs for the diffusion transformer."""
-        dtype = kwargs.get("dtype_override", torch.float32)
-        batch_size = kwargs.get("batch_size", 1)
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         # From model config: in_channels=64 (img_in linear input dimension)
         img_dim = 64
@@ -135,7 +136,8 @@ class ModelLoader(ForgeModel):
         )
         encoder_hidden_states_mask = torch.ones(batch_size, txt_seq_len, dtype=dtype)
         timestep = torch.tensor([500.0] * batch_size, dtype=dtype)
-        img_shapes = [(frame, height, width)] * batch_size
+        # img_shapes: list of per-batch-item lists of (frame, height, width) tuples
+        img_shapes = [[(frame, height, width)]] * batch_size
 
         return {
             "hidden_states": hidden_states,
