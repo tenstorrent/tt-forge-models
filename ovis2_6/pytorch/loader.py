@@ -66,6 +66,30 @@ class ModelLoader(ForgeModel):
         if not hasattr(PreTrainedModel, "is_parallelizable"):
             PreTrainedModel.is_parallelizable = False
 
+        # transformers 5.x passes missing_keys/recompute_mapping to tie_weights(), but the
+        # custom Ovis2.6 model defines tie_weights(self) without **kwargs.
+        if not hasattr(PreTrainedModel, "_tie_weights_kwargs_patched"):
+            _orig_finalize = PreTrainedModel._finalize_model_loading
+
+            @staticmethod
+            def _patched_finalize(model, load_config, loading_info):
+                _orig_tie = model.tie_weights
+
+                def _compat_tie_weights(**kw):
+                    try:
+                        return _orig_tie(**kw)
+                    except TypeError:
+                        return _orig_tie()
+
+                model.tie_weights = _compat_tie_weights
+                try:
+                    return _orig_finalize(model, load_config, loading_info)
+                finally:
+                    model.tie_weights = _orig_tie
+
+            PreTrainedModel._finalize_model_loading = _patched_finalize
+            PreTrainedModel._tie_weights_kwargs_patched = True
+
         model_kwargs = {
             "trust_remote_code": True,
             "attn_implementation": "eager",
