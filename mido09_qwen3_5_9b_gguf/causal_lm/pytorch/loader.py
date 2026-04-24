@@ -4,23 +4,58 @@
 """
 mido09 Qwen3.5 9B GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
 from typing import Optional
 
-import importlib.metadata
-
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
-    LLMModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
+
+
+def _find_real_load_gguf_checkpoint(fn):
+    """Traverse a patch chain to find the real load_gguf_checkpoint from transformers.
+
+    Other GGUF loaders wrap load_gguf_checkpoint without forwarding all kwargs.
+    This traverses the chain via each wrapper's module globals to reach the real function.
+    """
+    seen = set()
+    while id(fn) not in seen:
+        seen.add(id(fn))
+        if fn.__name__ == "load_gguf_checkpoint" and getattr(
+            fn, "__module__", ""
+        ).endswith("modeling_gguf_pytorch_utils"):
+            return fn
+        globals_dict = getattr(fn, "__globals__", {})
+        next_fn = None
+        for var_name in (
+            "_orig_load_gguf_checkpoint",
+            "orig_load",
+            "_inner",
+            "_current",
+            "_orig",
+        ):
+            candidate = globals_dict.get(var_name)
+            if callable(candidate) and candidate is not fn:
+                next_fn = candidate
+                break
+        if next_fn is None:
+            break
+        fn = next_fn
+    return fn
 
 
 class ModelVariant(StrEnum):
@@ -43,6 +78,8 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "Qwen3.5-9B-Q4_K_M.gguf"
 
+    sample_text = "Give me a short introduction to large language model."
+
     @staticmethod
     def _fix_gguf_version_detection():
         """Fix gguf version detection when installed at runtime by RequirementsManager.
@@ -60,8 +97,6 @@ class ModelLoader(ForgeModel):
                 _import_utils.is_gguf_available.cache_clear()
             except importlib.metadata.PackageNotFoundError:
                 pass
-
-    sample_text = "Give me a short introduction to large language model."
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -116,9 +151,25 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        # Other GGUF loaders patch load_gguf_checkpoint without forwarding model_to_load,
+        # which was added in newer transformers. Temporarily install our wrapper as the
+        # outermost patch so model_to_load reaches the real function via chain traversal.
+        _mods = (_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils)
+        _prev = {mod: mod.load_gguf_checkpoint for mod in _mods}
+        _real_fn = _find_real_load_gguf_checkpoint(_prev[_gguf_utils])
+
+        def _wrapper(gguf_path, return_tensors=False, **patch_kwargs):
+            return _real_fn(gguf_path, return_tensors=return_tensors, **patch_kwargs)
+
+        for mod in _mods:
+            mod.load_gguf_checkpoint = _wrapper
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            for mod, fn in _prev.items():
+                mod.load_gguf_checkpoint = fn
 
         self.config = model.config
         self.model = model
