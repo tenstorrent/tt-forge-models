@@ -4,6 +4,30 @@
 """
 Llama 3.1 Nemotron Nano 8B v1 GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
+import importlib.util
+
+import transformers.modeling_gguf_pytorch_utils as _gguf_pytorch_utils
+import transformers.utils.import_utils as _import_utils
+from packaging import version as _packaging_version
+
+
+def _robust_is_gguf_available(min_version=None):
+    """Bypass stale PACKAGE_DISTRIBUTION_MAPPING; gguf has no __version__ attribute."""
+    if min_version is None:
+        min_version = _import_utils.GGUF_MIN_VERSION
+    if importlib.util.find_spec("gguf") is None:
+        return False
+    try:
+        return _packaging_version.parse(
+            importlib.metadata.version("gguf")
+        ) >= _packaging_version.parse(min_version)
+    except Exception:
+        return False
+
+
+_gguf_pytorch_utils.is_gguf_available = _robust_is_gguf_available
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
