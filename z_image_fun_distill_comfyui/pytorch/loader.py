@@ -17,7 +17,7 @@ Available variants:
 from typing import Optional, Dict, Any
 
 import torch
-from diffusers import DiffusionPipeline
+from diffusers import ZImagePipeline
 
 from ...base import ForgeModel
 from ...config import (
@@ -31,7 +31,7 @@ from ...config import (
 )
 
 
-BASE_MODEL_ID = "alibaba-pai/Z-Image"
+BASE_MODEL_ID = "Tongyi-MAI/Z-Image"
 LORA_REPO = "UDCAI/Z-Image-Fun-Distill-ComfyUI"
 
 
@@ -65,7 +65,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline: Optional[DiffusionPipeline] = None
+        self.pipeline: Optional[ZImagePipeline] = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -83,21 +83,14 @@ class ModelLoader(ForgeModel):
     def _load_pipeline(
         self,
         dtype_override: Optional[torch.dtype] = None,
-    ) -> DiffusionPipeline:
-        """Load Z-Image base pipeline and fuse ComfyUI-converted distill LoRA weights.
+    ) -> ZImagePipeline:
+        """Load Z-Image base pipeline and fuse ComfyUI-converted distill LoRA weights."""
+        pipe_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-
-        Returns:
-            DiffusionPipeline: Pipeline with distill LoRA weights fused.
-        """
-        pipe_dtype = dtype_override if dtype_override is not None else torch.float32
-
-        self.pipeline = DiffusionPipeline.from_pretrained(
+        self.pipeline = ZImagePipeline.from_pretrained(
             BASE_MODEL_ID,
             torch_dtype=pipe_dtype,
-            trust_remote_code=True,
+            low_cpu_mem_usage=False,
         )
 
         weight_name = _LORA_FILES[self._variant]
@@ -117,34 +110,53 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load and return the Z-Image pipeline with ComfyUI distill LoRA.
+        """Load and return the Z-Image transformer with ComfyUI distill LoRA fused."""
+        if self.pipeline is None:
+            self._load_pipeline(dtype_override=dtype_override)
+        elif dtype_override is not None:
+            self.pipeline.transformer = self.pipeline.transformer.to(dtype_override)
 
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
+        return self.pipeline.transformer
+
+    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
+        """Load and return tensor inputs for the Z-Image transformer.
 
         Returns:
-            DiffusionPipeline: The Z-Image pipeline with ComfyUI distill LoRA fused.
+            list: [latent_input_list, timestep, prompt_embeds]
         """
         if self.pipeline is None:
-            return self._load_pipeline(dtype_override=dtype_override)
+            self._load_pipeline()
 
-        if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype=dtype_override)
-
-        return self.pipeline
-
-    def load_inputs(self, prompt: Optional[str] = None) -> Dict[str, Any]:
-        """Load and return sample inputs for the Z-Image model.
-
-        Args:
-            prompt: Optional text prompt. Defaults to DEFAULT_PROMPT.
-
-        Returns:
-            dict: Input kwargs for the pipeline.
-        """
+        dtype = self.pipeline.transformer.dtype
+        height = 128
+        width = 128
         prompt_value = prompt if prompt is not None else self.DEFAULT_PROMPT
-        return {
-            "prompt": prompt_value,
-            "guidance_scale": 1.0,
-            "num_inference_steps": 8,
-        }
+
+        prompt_embeds, _ = self.pipeline.encode_prompt(
+            prompt=prompt_value,
+            device="cpu",
+            do_classifier_free_guidance=False,
+        )
+
+        num_channels_latents = self.pipeline.transformer.in_channels
+        vae_scale = self.pipeline.vae_scale_factor * 2
+        latent_h = height // vae_scale
+        latent_w = width // vae_scale
+        latents = torch.randn(
+            1, num_channels_latents, latent_h, latent_w, dtype=torch.float32
+        )
+
+        timestep = torch.tensor([0.5], dtype=dtype)
+
+        latent_input = latents.to(dtype).unsqueeze(2)
+        latent_input_list = list(latent_input.unbind(dim=0))
+
+        return [latent_input_list, timestep, prompt_embeds]
+
+    def unpack_forward_output(self, fwd_output: Any) -> torch.Tensor:
+        """Unpack transformer output to sample tensor."""
+        if isinstance(fwd_output, tuple):
+            return fwd_output[0]
+        if hasattr(fwd_output, "sample"):
+            return fwd_output.sample
+        return fwd_output
