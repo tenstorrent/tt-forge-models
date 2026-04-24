@@ -1,2 +1,3 @@
 gptqmodel
 numpy>=2.3.5
+pytest>=9.0.3
