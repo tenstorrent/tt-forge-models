@@ -50,6 +50,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self._processor = None
+        self._model = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -88,6 +89,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model.to(dtype_override)
 
+        self._model = model
         return model
 
     def load_inputs(self, dtype_override=None):
@@ -112,5 +114,15 @@ class ModelLoader(ForgeModel):
                 k: v.to(dtype_override) if torch.is_floating_point(v) else v
                 for k, v in inputs.items()
             }
+
+        # Moonshine is encoder-decoder: provide the decoder start token
+        decoder_start_token_id = (
+            self._model.config.decoder_start_token_id
+            if self._model is not None
+            else 1  # default BOS token id for all Moonshine variants
+        )
+        inputs["decoder_input_ids"] = torch.tensor(
+            [[decoder_start_token_id]], dtype=torch.long
+        )
 
         return inputs
