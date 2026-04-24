@@ -71,9 +71,20 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the LaViDa-LLaDA model instance."""
-        from transformers import PreTrainedModel
+        from transformers import PreTrainedModel, PretrainedConfig
 
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        # _set_token_in_kwargs was removed in transformers 5.x (use_auth_token migration
+        # complete), but the model's custom SigLipVisionConfig.from_pretrained still calls it.
+        if not hasattr(PretrainedConfig, "_set_token_in_kwargs"):
+
+            @classmethod
+            def _set_token_in_kwargs(cls, kwargs, token=None):
+                if token is not None:
+                    kwargs["token"] = token
+
+            PretrainedConfig._set_token_in_kwargs = _set_token_in_kwargs
 
         if self.tokenizer is None:
             self._load_tokenizer()
