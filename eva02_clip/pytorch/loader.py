@@ -42,7 +42,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="hf-hub:timm/eva02_large_patch14_clip_336.merged2b_s6b_b61k",
         ),
         ModelVariant.EVA02_L_14_336_MERGED2B: ModelConfig(
-            pretrained_model_name="hf-hub:timm/eva02_large_patch14_clip_336.merged2b",
+            pretrained_model_name="hf-hub:timm/eva02_large_patch14_clip_336.merged2b_s6b_b61k",
         ),
     }
 
