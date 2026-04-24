@@ -77,8 +77,13 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             load_kwargs["torch_dtype"] = dtype_override
 
+        # Without an explicit config, from_single_file falls back to inferring the
+        # model type from GGUF keys. Qwen Image keys don't match any known pattern so
+        # it defaults to stable-diffusion-v1-5/stable-diffusion-v1-5, which fails.
         self.transformer = QwenImageTransformer2DModel.from_single_file(
             gguf_url,
+            config="Qwen/Qwen-Image",
+            subfolder="transformer",
             **load_kwargs,
         )
 
