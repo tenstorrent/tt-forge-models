@@ -8,7 +8,7 @@ Helper functions for loading GGUF-quantized Stable Diffusion XL models.
 from typing import Optional, Tuple
 
 import torch
-from diffusers import DiffusionPipeline, GGUFQuantizationConfig
+from diffusers import GGUFQuantizationConfig, StableDiffusionXLPipeline
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
     retrieve_timesteps,
 )
@@ -23,13 +23,13 @@ def load_gguf_pipe(repo_id: str, gguf_filename: str):
         gguf_filename: Filename of the GGUF checkpoint within the repo.
 
     Returns:
-        DiffusionPipeline: Loaded pipeline with components set to eval mode.
+        StableDiffusionXLPipeline: Loaded pipeline with components set to eval mode.
     """
     model_path = hf_hub_download(repo_id=repo_id, filename=gguf_filename)
 
     quantization_config = GGUFQuantizationConfig(compute_dtype=torch.float32)
 
-    pipe = DiffusionPipeline.from_single_file(
+    pipe = StableDiffusionXLPipeline.from_single_file(
         model_path,
         quantization_config=quantization_config,
         torch_dtype=torch.float32,
