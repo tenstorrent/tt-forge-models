@@ -109,6 +109,12 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
+        dtype = dtype_override
+        if dtype is None and self._model is not None:
+            dtype = next(self._model.parameters()).dtype
+        if dtype is not None:
+            inputs["input_features"] = inputs["input_features"].to(dtype)
+
         decoder_start_token_id = self._model.config.decoder_start_token_id
         decoder_input_ids = (
             torch.ones((1, 1), dtype=torch.long) * decoder_start_token_id
