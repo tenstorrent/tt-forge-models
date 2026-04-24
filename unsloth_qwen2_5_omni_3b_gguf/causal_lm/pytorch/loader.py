@@ -8,6 +8,68 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+
+def _patch_qwen2vl_gguf_support():
+    """Register qwen2vl GGUF architecture as a text-only qwen2 model.
+
+    Transformers does not support the qwen2vl GGUF architecture. The text
+    backbone of Qwen2-VL/Qwen2.5-Omni is identical to Qwen2, so we register
+    the config field mappings and remap model_type to 'qwen2' so that
+    AutoModelForCausalLM can load the text decoder from the GGUF file.
+    """
+    if "qwen2vl" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen2vl")
+
+    _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"].setdefault(
+        "qwen2vl",
+        {
+            "context_length": "max_position_embeddings",
+            "block_count": "num_hidden_layers",
+            "feed_forward_length": "intermediate_size",
+            "embedding_length": "hidden_size",
+            "rope.freq_base": "rope_theta",
+            "rope.dimension_count": None,
+            "rope.dimension_sections": None,
+            "attention.head_count": "num_attention_heads",
+            "attention.head_count_kv": "num_key_value_heads",
+            "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+            "vocab_size": "vocab_size",
+        },
+    )
+
+    if "qwen2" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("qwen2vl", GGUF_TO_FAST_CONVERTERS["qwen2"])
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    _patch_qwen2vl_gguf_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
+    config = result.get("config", {})
+    if config.get("model_type") == "qwen2vl":
+        config["model_type"] = "qwen2"
+    return result
+
+
+_patch_qwen2vl_gguf_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
