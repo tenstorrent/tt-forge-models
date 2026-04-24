@@ -169,7 +169,10 @@ class ModelLoader(ForgeModel):
                 )
                 self.image_processor = image_processor
                 self.tokenizer = tokenizer
-                self.const_helper = self.build_const_helper()
+                # const_helper is only used in generation mode ("G"), not
+                # inference/understanding mode ("U"), so skip build_const_helper
+                # to avoid tokenizer API incompatibility with newer transformers.
+                self.const_helper = None
 
         self.processor = _PatchedEmu3Processor(
             self.image_processor, self.image_tokenizer, self.tokenizer
