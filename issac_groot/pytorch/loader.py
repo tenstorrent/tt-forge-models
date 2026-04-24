@@ -181,27 +181,35 @@ class ModelLoader(ForgeModel):
 
     def _load_n1_6_inputs(self) -> Dict[str, Any]:
         """Create synthetic inputs for N1.6 model inference."""
-        from .src.model_n1d6 import Gr00tN1d6
-
         model = self._model
         config = model.config
 
         batch_size = 1
-        # Synthetic sequence length for text + image tokens
-        seq_len = 256
-        # Eagle model hidden size for vocab
-        vocab_size = 151936  # Qwen2 tokenizer vocab size
-        # Image: 2 cameras for DROID, standard Eagle resolution
-        num_images = 2
-        image_h, image_w = 256, 256
+        # Eagle patch_size=14, so images must be multiples of 14; 224=16*14
+        num_cameras = 2
+        image_h, image_w = 224, 224
         num_channels = 3
 
-        # Backbone inputs
-        input_ids = torch.zeros(batch_size, seq_len, dtype=torch.long)
-        attention_mask = torch.ones(batch_size, seq_len, dtype=torch.long)
-        pixel_values = torch.zeros(
-            batch_size, num_images, num_channels, image_h, image_w, dtype=torch.float32
+        # Eagle uses downsample_ratio=0.5 -> pixel_shuffle_back halves spatial dims:
+        # (224/14)^2 * 0.5^2 = 256 * 0.25 = 64 tokens per image
+        tokens_per_image = 64
+        num_image_tokens = tokens_per_image * num_cameras
+        # image_token_index from Eagle-Block2A-2B-v2/config.json (hardcoded for safety)
+        image_token_index = getattr(
+            model.backbone.model.config, "image_token_index", 151669
         )
+
+        # pixel_values must be a list of 4D tensors (batch, C, H, W), one per camera
+        pixel_values = [
+            torch.zeros(batch_size, num_channels, image_h, image_w, dtype=torch.float32)
+            for _ in range(num_cameras)
+        ]
+
+        # input_ids must contain image_token_index values for Eagle's assert to pass
+        seq_len = num_image_tokens + 16  # image tokens + some text tokens
+        input_ids = torch.zeros(batch_size, seq_len, dtype=torch.long)
+        input_ids[0, :num_image_tokens] = image_token_index
+        attention_mask = torch.ones(batch_size, seq_len, dtype=torch.long)
 
         # Action head inputs
         state = torch.zeros(batch_size, 1, config.max_state_dim, dtype=torch.float32)
