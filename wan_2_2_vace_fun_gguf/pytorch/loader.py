@@ -67,6 +67,7 @@ class ModelLoader(ForgeModel):
                 _diffusers_import_utils._gguf_available = True
 
         from diffusers import GGUFQuantizationConfig, WanTransformer3DModel
+        from diffusers.quantizers.gguf.utils import _dequantize_gguf_and_restore_linear
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
@@ -77,6 +78,8 @@ class ModelLoader(ForgeModel):
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
+
+        _dequantize_gguf_and_restore_linear(self.transformer)
 
         return self.transformer
 
