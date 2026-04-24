@@ -123,4 +123,4 @@ class ModelLoader(ForgeModel):
             timesteps = timesteps.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
 
-        return [latent_model_input, timesteps, prompt_embeds, added_cond_kwargs]
+        return [latent_model_input, timesteps[:1], prompt_embeds, added_cond_kwargs]
