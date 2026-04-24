@@ -5,8 +5,12 @@
 FG-CLIP 2 model loader implementation for zero-shot image classification.
 """
 import torch
+import transformers.utils.generic as _transformers_utils_generic
 from transformers import AutoImageProcessor, AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
+
+if not hasattr(_transformers_utils_generic, "check_model_inputs"):
+    _transformers_utils_generic.check_model_inputs = lambda fn: fn
 
 from ...base import ForgeModel
 from ...config import (
