@@ -9,6 +9,16 @@ import torch
 from typing import Optional
 
 from transformers import AutoConfig, AutoModel, AutoTokenizer, PreTrainedModel
+from transformers.cache_utils import Cache
+
+# transformers 5.x removed Cache.get_usable_length; patch it back for the
+# custom modeling code that still calls it.
+if not hasattr(Cache, "get_usable_length"):
+
+    def _get_usable_length(self, new_seq_len: int, layer_idx: int = 0) -> int:
+        return self.get_seq_length(layer_idx)
+
+    Cache.get_usable_length = _get_usable_length  # type: ignore[attr-defined]
 
 from ...base import ForgeModel
 from ...config import (
