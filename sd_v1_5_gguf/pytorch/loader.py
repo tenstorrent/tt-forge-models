@@ -33,6 +33,13 @@ from ...config import (
 GGUF_REPO = "gpustack/stable-diffusion-v1-5-GGUF"
 BASE_PIPELINE = "sd-legacy/stable-diffusion-v1-5"
 
+# SD v1.5 UNet input dimensions
+LATENT_CHANNELS = 4
+LATENT_HEIGHT = 64
+LATENT_WIDTH = 64
+CROSS_ATTENTION_DIM = 768
+MAX_SEQ_LEN = 77
+
 
 class ModelVariant(StrEnum):
     """Available Stable Diffusion v1.5 GGUF variants."""
@@ -73,7 +80,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline = None
+        self._unet = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -94,47 +101,47 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the GGUF-quantized UNet and build the SD v1.5 pipeline.
+        """Load and return the GGUF-quantized SD v1.5 UNet.
 
-        Uses diffusers GGUFQuantizationConfig to load the quantized UNet,
-        then constructs the StableDiffusionPipeline with the base model's
-        other components.
+        Returns:
+            UNet2DConditionModel instance loaded from GGUF checkpoint.
         """
-        from diffusers import (
-            GGUFQuantizationConfig,
-            StableDiffusionPipeline,
-            UNet2DConditionModel,
-        )
+        from diffusers import GGUFQuantizationConfig, UNet2DConditionModel
+        from huggingface_hub import hf_hub_download
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        from huggingface_hub import hf_hub_download
+        if self._unet is None:
+            gguf_file = _GGUF_FILES[self._variant]
+            gguf_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
+            quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+            self._unet = UNet2DConditionModel.from_single_file(
+                gguf_path,
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
+            )
+            self._unet.eval()
+        elif dtype_override is not None:
+            self._unet = self._unet.to(dtype=dtype_override)
 
-        gguf_file = _GGUF_FILES[self._variant]
-        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
-
-        gguf_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
-        unet = UNet2DConditionModel.from_single_file(
-            gguf_path,
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
-
-        self.pipeline = StableDiffusionPipeline.from_pretrained(
-            BASE_PIPELINE,
-            unet=unet,
-            torch_dtype=compute_dtype,
-        )
-
-        return self.pipeline
+        return self._unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for Stable Diffusion v1.5.
+        """Return synthetic UNet inputs for SD v1.5.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: Input tensors matching UNet2DConditionModel.forward():
+                - sample: Noisy latents [batch, 4, 64, 64]
+                - timestep: Diffusion timestep tensor
+                - encoder_hidden_states: CLIP text embeddings [batch, 77, 768]
         """
-        prompt = [
-            "A cinematic shot of a baby racoon wearing an intricate italian priest robe.",
-        ] * batch_size
-        return prompt
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        return {
+            "sample": torch.randn(
+                batch_size, LATENT_CHANNELS, LATENT_HEIGHT, LATENT_WIDTH, dtype=dtype
+            ),
+            "timestep": torch.tensor([1.0], dtype=dtype),
+            "encoder_hidden_states": torch.randn(
+                batch_size, MAX_SEQ_LEN, CROSS_ATTENTION_DIM, dtype=dtype
+            ),
+        }
