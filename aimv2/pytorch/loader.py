@@ -95,17 +95,29 @@ class ModelLoader(ForgeModel):
 
         if source == ModelSource.HUGGING_FACE:
             from transformers import AutoModel
+            from transformers.modeling_utils import PreTrainedModel
 
-            model_kwargs = {
-                "trust_remote_code": True,
-                "revision": _LIT_REVISION,
-                "return_dict": False,
-            }
-            if dtype_override is not None:
-                model_kwargs["torch_dtype"] = dtype_override
-            model_kwargs.update(kwargs)
+            _orig_adjust = PreTrainedModel._adjust_tied_keys_with_tied_pointers
 
-            model = AutoModel.from_pretrained(model_name, **model_kwargs)
+            def _patched_adjust(self, *args, **kwargs):
+                if not hasattr(self, "all_tied_weights_keys"):
+                    self.all_tied_weights_keys = {}
+                return _orig_adjust(self, *args, **kwargs)
+
+            PreTrainedModel._adjust_tied_keys_with_tied_pointers = _patched_adjust
+            try:
+                model_kwargs = {
+                    "trust_remote_code": True,
+                    "revision": _LIT_REVISION,
+                    "return_dict": False,
+                }
+                if dtype_override is not None:
+                    model_kwargs["torch_dtype"] = dtype_override
+                model_kwargs.update(kwargs)
+
+                model = AutoModel.from_pretrained(model_name, **model_kwargs)
+            finally:
+                PreTrainedModel._adjust_tied_keys_with_tied_pointers = _orig_adjust
             model.eval()
 
             self.model = model
