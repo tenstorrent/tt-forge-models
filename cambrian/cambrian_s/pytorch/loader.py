@@ -143,6 +143,9 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Cambrian-S model instance."""
         from cambrian.model.builder import load_pretrained_model
+        from cambrian.model.multimodal_encoder.llava_next_siglip_encoder import (
+            SigLipVisionEmbeddings,
+        )
 
         self._patch_cambrian_init()
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -154,6 +157,18 @@ class ModelLoader(ForgeModel):
             device="cpu",
             device_map={"": "cpu"},
         )
+
+        # When device_map is set, HuggingFace uses accelerate.init_empty_weights()
+        # which creates meta tensors for all operations during model init. Non-persistent
+        # buffers (like position_ids) are not in the state dict and stay as garbage/meta.
+        # Reinitialize them explicitly after loading.
+        for module in model.modules():
+            if isinstance(module, SigLipVisionEmbeddings):
+                module.register_buffer(
+                    "position_ids",
+                    torch.arange(module.num_positions).unsqueeze(0),
+                    persistent=False,
+                )
 
         if dtype_override is not None and dtype_override != torch.float16:
             model = model.to(dtype=dtype_override)
