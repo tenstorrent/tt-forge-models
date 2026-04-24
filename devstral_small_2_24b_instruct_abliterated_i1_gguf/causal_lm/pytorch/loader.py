@@ -43,9 +43,9 @@ def _patch_mistral3_gguf():
         GGUF_TO_FAST_CONVERTERS.setdefault("mistral3", llama_converter)
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+def _patched_load_gguf_checkpoint(*args, **kwargs):
     _patch_mistral3_gguf()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
     if result.get("config", {}).get("model_type") == "mistral3":
         result["config"]["model_type"] = "mistral"
     return result
