@@ -5,11 +5,15 @@
 InternVL3.5 model loader implementation for multimodal visual question answering.
 """
 
+import sys
+
 import torch
+import torch.nn as nn
 import torchvision.transforms as T
 from PIL import Image
 from torchvision.transforms.functional import InterpolationMode
 from transformers import (
+    AutoConfig,
     AutoModel,
     AutoModelForImageTextToText,
     AutoProcessor,
@@ -212,6 +216,38 @@ class ModelLoader(ForgeModel):
         )
         return self.tokenizer
 
+    def _patch_intern_vit_for_meta_device(self, pretrained_model_name):
+        """Pre-import custom model code and patch InternVisionEncoder to work under
+        transformers' meta-device init context, which calls __init__ on meta tensors.
+
+        The upstream code calls torch.linspace(...).item() during __init__, which
+        fails when torch.device('meta') is the active default device.
+        """
+        AutoConfig.from_pretrained(pretrained_model_name, trust_remote_code=True)
+        for mod_name, module in sys.modules.items():
+            if "transformers_modules" in mod_name and "modeling_intern_vit" in mod_name:
+                if not hasattr(module, "InternVisionEncoder"):
+                    continue
+                encoder_cls = module.InternVisionEncoder
+                layer_cls = module.InternVisionEncoderLayer
+
+                def _patched_encoder_init(self, config):
+                    nn.Module.__init__(self)
+                    self.config = config
+                    n = config.num_hidden_layers
+                    # Compute drop-path rates without tensors so meta-device init works
+                    if n <= 1:
+                        dpr = [0.0] * n
+                    else:
+                        dpr = [config.drop_path_rate * i / (n - 1) for i in range(n)]
+                    self.layers = nn.ModuleList(
+                        [layer_cls(config, dpr[idx]) for idx in range(n)]
+                    )
+                    self.gradient_checkpointing = True
+
+                encoder_cls.__init__ = _patched_encoder_init
+                break
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -223,7 +259,6 @@ class ModelLoader(ForgeModel):
         model_kwargs = {
             "trust_remote_code": True,
             "attn_implementation": "eager",
-            "low_cpu_mem_usage": False,
         }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
@@ -234,6 +269,7 @@ class ModelLoader(ForgeModel):
                 pretrained_model_name, **model_kwargs
             )
         else:
+            self._patch_intern_vit_for_meta_device(pretrained_model_name)
             model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
 
         model.eval()
