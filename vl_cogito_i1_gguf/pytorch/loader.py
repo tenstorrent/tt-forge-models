@@ -4,34 +4,9 @@
 """
 mradermacher/VL-Cogito-i1-GGUF model loader for vision-language tasks.
 """
-import importlib.metadata
-import importlib.util
-
 import torch
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
 from typing import Optional
-
-
-def _fix_gguf_version_detection():
-    """Update transformers' cached package map so gguf version resolves correctly.
-
-    transformers.utils.import_utils builds PACKAGE_DISTRIBUTION_MAPPING once at
-    import time.  When gguf is installed later (e.g. by RequirementsManager),
-    the map is stale and version lookup falls back to gguf.__version__, which
-    doesn't exist, returning 'N/A' and crashing version.parse().
-    """
-    if importlib.util.find_spec("gguf") is None:
-        return
-    try:
-        import transformers.utils.import_utils as _iu
-
-        if "gguf" not in _iu.PACKAGE_DISTRIBUTION_MAPPING:
-            _iu.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
-    except Exception:
-        pass
-
-
-_fix_gguf_version_detection()
 
 from ...base import ForgeModel
 from ...config import (
@@ -63,12 +38,9 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.VL_COGITO_I1_GGUF
 
-    GGUF_FILE = "VL-Cogito.i1-Q4_K_M.gguf"
-
-    # Processor is loaded from the base Qwen2.5-VL-7B-Instruct repo since the
-    # GGUF repo only contains quantized model weights without tokenizer/processor
-    # configs. VL-Cogito is fine-tuned from Qwen/Qwen2.5-VL-7B-Instruct.
-    PROCESSOR_MODEL = "Qwen/Qwen2.5-VL-7B-Instruct"
+    # transformers does not support loading qwen2vl GGUF files natively; fall back
+    # to the base fine-tune parent so we can still exercise the architecture.
+    BASE_MODEL = "Qwen/Qwen2.5-VL-7B-Instruct"
 
     messages = [
         {
@@ -107,13 +79,11 @@ class ModelLoader(ForgeModel):
             "max_pixels": self.max_pixels,
         }
         self.processor = AutoProcessor.from_pretrained(
-            self.PROCESSOR_MODEL, **processor_kwargs
+            self.BASE_MODEL, **processor_kwargs
         )
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         model_kwargs = {"low_cpu_mem_usage": True, "use_cache": False}
 
         if dtype_override is not None:
@@ -121,10 +91,9 @@ class ModelLoader(ForgeModel):
         else:
             model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            self.BASE_MODEL, **model_kwargs
         )
         model.eval()
         model = Wrapper(model)
