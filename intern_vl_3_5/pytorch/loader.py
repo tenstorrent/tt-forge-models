@@ -233,22 +233,35 @@ class ModelLoader(ForgeModel):
                 pretrained_model_name, **model_kwargs
             )
         else:
-            # The custom InternVL code calls .item() in __init__ on tensors that
-            # transformers creates on the meta device during model construction.
-            # Patch Tensor.item to return 0.0 for meta tensors; the values are
-            # drop-path rates used only for model structure, so placeholders are fine.
+            # Two issues with loading InternVLChatModel via trust_remote_code:
+            # 1. InternVisionEncoder.__init__ calls .item() on meta tensors that
+            #    transformers creates during model construction; patch to return 0.0.
+            # 2. InternVLChatModel.__init__ omits self.post_init(), so
+            #    all_tied_weights_keys is never set; patch _finalize_model_loading
+            #    to call post_init() when the attribute is missing.
+            from transformers.modeling_utils import PreTrainedModel
+
             _orig_item = torch.Tensor.item
+            _orig_finalize = PreTrainedModel._finalize_model_loading
 
             def _meta_safe_item(self):
                 if self.device.type == "meta":
                     return 0.0
                 return _orig_item(self)
 
+            @classmethod
+            def _patched_finalize(cls, model, load_config, loading_info):
+                if not hasattr(model, "all_tied_weights_keys"):
+                    model.post_init()
+                return _orig_finalize(model, load_config, loading_info)
+
             torch.Tensor.item = _meta_safe_item
+            PreTrainedModel._finalize_model_loading = _patched_finalize
             try:
                 model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
             finally:
                 torch.Tensor.item = _orig_item
+                PreTrainedModel._finalize_model_loading = _orig_finalize
 
         model.eval()
         self.model = model
