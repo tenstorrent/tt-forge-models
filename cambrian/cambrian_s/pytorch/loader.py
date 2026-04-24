@@ -64,15 +64,18 @@ class ModelLoader(ForgeModel):
 
     @staticmethod
     def _patch_cambrian_init():
-        """Patch cambrian classes for transformers 5.x compatibility.
+        """Patch cambrian classes for transformers 5.x and torch_xla compatibility.
 
-        Two issues fixed:
+        Three issues fixed:
         1. In transformers 5.x, config.rope_scaling is a property that delegates to
            config.rope_parameters. The cambrian-s code sets config.rope_scaling = None
            (originally harmless in transformers 4.x), which now clears rope_parameters
            and breaks Qwen2RotaryEmbedding initialization.
         2. SigLipVisionConfig.from_pretrained calls _set_token_in_kwargs which was
            removed from PretrainedConfig in transformers 5.x.
+        3. LlavaNextSigLipVisionTower.device unconditionally returns xm.xla_device()
+           when torch_xla is importable, breaking CPU baseline runs when model weights
+           are on CPU. Override to follow actual parameter device.
         """
         import torch.nn as nn
         from cambrian.model.language_model.cambrian_qwen2 import (
@@ -80,6 +83,7 @@ class ModelLoader(ForgeModel):
             CambrianQwenModel,
         )
         from cambrian.model.multimodal_encoder.llava_next_siglip_encoder import (
+            LlavaNextSigLipVisionTower,
             SigLipVisionConfig,
         )
         from transformers.models.qwen2.modeling_qwen2 import Qwen2ForCausalLM
@@ -105,6 +109,17 @@ class ModelLoader(ForgeModel):
                 kwargs["token"] = token
 
         SigLipVisionConfig._set_token_in_kwargs = _set_token_in_kwargs
+
+        # The upstream device property unconditionally returns xm.xla_device() when
+        # torch_xla is importable, even during CPU baseline runs. That causes XLA C++
+        # assertion failures when model weights are on CPU. Override to follow the
+        # actual parameter device so CPU and XLA runs both work correctly.
+        @property
+        def patched_device(self):
+            for p in self.vision_tower.parameters():
+                return p.device
+
+        LlavaNextSigLipVisionTower.device = patched_device
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Cambrian-S model instance."""
