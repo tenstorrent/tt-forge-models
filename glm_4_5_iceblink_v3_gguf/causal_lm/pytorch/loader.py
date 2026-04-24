@@ -119,12 +119,14 @@ def _patch_transformers_glm4moe_gguf():
     # MODEL_ARCH_NAMES (which has "glm4moe", not "glm4_moe"). Patch to add the remapping.
     orig_get_map = gguf_utils.get_gguf_hf_weights_map
 
-    def patched_get_gguf_hf_weights_map(hf_model, processor, model_type=None, **kw):
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
         if model_type is None and hasattr(hf_model, "config"):
             model_type = hf_model.config.model_type
         if model_type == "glm4_moe":
             model_type = "glm4moe"
-        return orig_get_map(hf_model, processor, model_type=model_type, **kw)
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
 
