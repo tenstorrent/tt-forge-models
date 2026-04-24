@@ -107,4 +107,7 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
-        return [input_tokens["input_ids"], input_tokens["attention_mask"]]
+        return {
+            "input_ids": input_tokens["input_ids"],
+            "attention_mask": input_tokens["attention_mask"],
+        }
