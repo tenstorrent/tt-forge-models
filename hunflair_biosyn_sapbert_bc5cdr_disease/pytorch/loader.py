@@ -28,6 +28,11 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """HunFlair BioSyn SapBERT BC5CDR disease entity mention linker loader."""
 
+    # hunflair/biosyn-sapbert-bc5cdr-disease only ships a flair-format pickle.
+    # The underlying BERT encoder is from dmis-lab/biosyn-sapbert-bc5cdr-disease
+    # which has a standard transformers layout.
+    _UNDERLYING_MODEL = "dmis-lab/biosyn-sapbert-bc5cdr-disease"
+
     _VARIANTS = {
         ModelVariant.BIOSYN_SAPBERT_BC5CDR_DISEASE: ModelConfig(
             pretrained_model_name="hunflair/biosyn-sapbert-bc5cdr-disease",
@@ -58,17 +63,9 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        import torch
         from transformers import BertModel
 
-        # The model's .bin file uses pickle protocol 4 (FRAME opcode) which is
-        # unsupported by PyTorch 2.6+ weights_only=True unpickler.
-        _orig_load = torch.load
-        torch.load = lambda *a, **kw: _orig_load(*a, **{**kw, "weights_only": False})
-        try:
-            model = BertModel.from_pretrained(self.model_name)
-        finally:
-            torch.load = _orig_load
+        model = BertModel.from_pretrained(self._UNDERLYING_MODEL)
 
         if dtype_override is not None:
             model = model.to(dtype_override)
@@ -80,7 +77,7 @@ class ModelLoader(ForgeModel):
         import torch
         from transformers import BertTokenizer
 
-        tokenizer = BertTokenizer.from_pretrained(self.model_name)
+        tokenizer = BertTokenizer.from_pretrained(self._UNDERLYING_MODEL)
         inputs = tokenizer(
             self.sample_text,
             return_tensors="pt",
