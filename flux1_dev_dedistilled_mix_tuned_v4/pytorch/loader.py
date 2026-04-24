@@ -59,6 +59,7 @@ class ModelLoader(ForgeModel):
     def _load_pipeline(self, dtype_override=None):
         pipe_kwargs = {
             "use_safetensors": True,
+            "low_cpu_mem_usage": False,
         }
         if dtype_override is not None:
             pipe_kwargs["torch_dtype"] = dtype_override
