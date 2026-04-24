@@ -82,7 +82,28 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import unidepth.layers.nystrom_attention as _nystrom_mod
         from unidepth.models import UniDepthV2old
+
+        # xformers NystromAttention is unavailable on CPU; patch with standard SDPA.
+        class _NystromFallback:
+            def __init__(self, num_landmarks, num_heads, dropout=0.0):
+                self.scale = None
+
+            def __call__(self, q, k, v, key_padding_mask=None):
+                # q, k, v: (b, n, h, d)
+                b, n, h, d = q.shape
+                scale = d**-0.5
+                q = q.permute(0, 2, 1, 3).reshape(b * h, n, d)
+                k = k.permute(0, 2, 1, 3).reshape(b * h, n, d)
+                v = v.permute(0, 2, 1, 3).reshape(b * h, n, d)
+                attn = torch.softmax(
+                    torch.matmul(q, k.transpose(-2, -1)) * scale, dim=-1
+                )
+                out = torch.matmul(attn, v)
+                return out.reshape(b, h, n, d).permute(0, 2, 1, 3)
+
+        _nystrom_mod.NystromAttention = _NystromFallback
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
