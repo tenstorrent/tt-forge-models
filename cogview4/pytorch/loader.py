@@ -62,30 +62,53 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the CogView4 pipeline.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-                           If not provided, the model will use torch.bfloat16.
-
-        Returns:
-            CogView4Pipeline: The CogView4 pipeline instance.
-        """
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
         self.pipeline = CogView4Pipeline.from_pretrained(
             self._variant_config.pretrained_model_name,
             torch_dtype=dtype,
             **kwargs,
         )
-        return self.pipeline
+        return self.pipeline.transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the CogView4 model.
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        Returns:
-            list: A list of sample text prompts.
-        """
-        return [
+        prompt = (
             "A vibrant cherry red sports car sits proudly under the gleaming sun, "
             "its polished exterior smooth and flawless."
-        ] * batch_size
+        )
+
+        with torch.no_grad():
+            prompt_embeds, _ = self.pipeline.encode_prompt(
+                [prompt] * batch_size,
+                negative_prompt=None,
+                do_classifier_free_guidance=False,
+                dtype=dtype,
+            )
+
+        vae_scale_factor = self.pipeline.vae_scale_factor
+        height = self.pipeline.transformer.config.sample_size * vae_scale_factor
+        width = height
+        latent_channels = self.pipeline.transformer.config.in_channels
+
+        latents = torch.randn(
+            batch_size,
+            latent_channels,
+            height // vae_scale_factor,
+            width // vae_scale_factor,
+            dtype=dtype,
+        )
+        timestep = torch.tensor([500] * batch_size, dtype=torch.float32)
+        original_size = torch.tensor([[height, width]] * batch_size, dtype=dtype)
+        target_size = torch.tensor([[height, width]] * batch_size, dtype=dtype)
+        crop_coords = torch.zeros(batch_size, 2, dtype=dtype)
+
+        return {
+            "hidden_states": latents,
+            "encoder_hidden_states": prompt_embeds,
+            "timestep": timestep,
+            "original_size": original_size,
+            "target_size": target_size,
+            "crop_coords": crop_coords,
+            "return_dict": False,
+        }
