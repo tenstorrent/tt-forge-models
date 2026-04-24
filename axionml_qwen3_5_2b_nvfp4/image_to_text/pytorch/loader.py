@@ -87,6 +87,8 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
 
         model_kwargs["device_map"] = "cpu"
+        # NVFP4 packed weights have halved in_features vs unquantized model definition
+        model_kwargs["ignore_mismatched_sizes"] = True
 
         model_kwargs |= kwargs
 
