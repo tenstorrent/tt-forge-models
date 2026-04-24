@@ -5,7 +5,7 @@
 Phi 3.5 model loader implementation for causal language modeling (non-MoE)
 """
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -85,9 +85,28 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override)
         model_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+
+        config = AutoConfig.from_pretrained(pretrained_model_name, trust_remote_code=True)
+
+        # Force the model onto the static 4k RoPE path. Clearing the RoPE config
+        # entirely breaks newer HF Phi-3 configs because they now expect a dict.
+        rope_theta = config.rope_parameters.get("rope_theta", 10000.0)
+        partial_rotary_factor = config.rope_parameters.get("partial_rotary_factor", 1.0)
+        config.max_position_embeddings = 4096
+        config.original_max_position_embeddings = 4096
+        config.use_cache = False
+        config.sliding_window = None
+        config.rope_parameters = {
+            "rope_type": "default",
+            "type": "default",
+            "rope_theta": rope_theta,
+            "partial_rotary_factor": partial_rotary_factor,
+        }
+        config.rope_scaling = dict(config.rope_parameters)
+
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name,
-            use_cache=False,
+            config=config,
             torch_dtype=model_dtype,
             **kwargs,
         )
