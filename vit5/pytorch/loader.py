@@ -71,7 +71,7 @@ class ModelLoader(ForgeModel):
 
     def _load_tokenizer(self, dtype_override=None):
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, use_fast=False
+            self._variant_config.pretrained_model_name
         )
 
         return self.tokenizer
