@@ -60,6 +60,7 @@ def stable_cascade_preprocessing(
         negative_prompt_embeds_pooled,
     ) = prior_pipe.encode_prompt(
         prompt=prompt,
+        batch_size=batch_size,
         device=device,
         num_images_per_prompt=1,
         do_classifier_free_guidance=True,
