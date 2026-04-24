@@ -41,7 +41,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.SPACETHINKER_QWEN2_5_VL_3B_Q4_K_M_GGUF: LLMModelConfig(
-            pretrained_model_name="GAIR/SpaceThinker-Qwen2.5VL-3B",
+            pretrained_model_name="remyxai/SpaceThinker-Qwen2.5VL-3B",
             max_length=128,
         ),
     }
