@@ -183,24 +183,12 @@ class ModelLoader(ForgeModel):
         width_latent = 2 * (int(width) // (self.pipe.vae_scale_factor * 2))
         seq_len = (height_latent // 2) * (width_latent // 2)
 
-        # Create noisy latents (packed format)
-        noise_channels = 64
-        latents = torch.randn(
-            batch_size * num_images_per_prompt, seq_len, noise_channels, dtype=dtype
+        # Use model's in_channels to support tiny/random model variants where
+        # in_channels may differ from the standard 384 (64+64+256)
+        in_channels = self.pipe.transformer.config.in_channels
+        hidden_states = torch.randn(
+            batch_size * num_images_per_prompt, seq_len, in_channels, dtype=dtype
         )
-
-        # Create masked image latents (VAE-encoded masked image + packed mask)
-        masked_image_channels = 64
-        mask_channels = 256
-        masked_image_latents = torch.randn(
-            batch_size * num_images_per_prompt,
-            seq_len,
-            masked_image_channels + mask_channels,
-            dtype=dtype,
-        )
-
-        # Concatenate noisy latents with masked image latents along channel dim
-        hidden_states = torch.cat((latents, masked_image_latents), dim=2)
 
         # Prepare latent image IDs
         latent_image_ids = torch.zeros(height_latent // 2, width_latent // 2, 3)
