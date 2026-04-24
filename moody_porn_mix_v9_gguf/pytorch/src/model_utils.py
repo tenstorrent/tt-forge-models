@@ -17,6 +17,8 @@ _LUMINA2_NUM_LAYERS = 30
 _LUMINA2_NUM_HEADS = 30
 _LUMINA2_NUM_KV_HEADS = 30
 _LUMINA2_CAP_FEAT_DIM = 2560
+# FFN dim = 2/3 * 4 * hidden_size = 10240 (LLaMA-style SwiGLU multiplier)
+_LUMINA2_FFN_DIM_MULTIPLIER = 2.0 / 3.0
 
 
 def _patched_convert_lumina2_to_diffusers(checkpoint, **kwargs):
@@ -132,6 +134,7 @@ def load_lumina2_transformer(
         num_attention_heads=_LUMINA2_NUM_HEADS,
         num_kv_heads=_LUMINA2_NUM_KV_HEADS,
         cap_feat_dim=_LUMINA2_CAP_FEAT_DIM,
+        ffn_dim_multiplier=_LUMINA2_FFN_DIM_MULTIPLIER,
     )
 
     transformer.to("cpu")
