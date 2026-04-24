@@ -39,6 +39,27 @@ def _patch_mistral3_support():
         GGUF_TO_FAST_CONVERTERS.setdefault("mistral", GGUF_TO_FAST_CONVERTERS["llama"])
         GGUF_TO_FAST_CONVERTERS.setdefault("mistral3", GGUF_TO_FAST_CONVERTERS["llama"])
 
+    orig_get_map = _gguf_utils.get_gguf_hf_weights_map
+
+    if getattr(orig_get_map, "_mistral3_patched", False):
+        return
+
+    def _patched_get_gguf_hf_weights_map(
+        hf_model, processor=None, model_type=None, num_layers=None, qual_name=""
+    ):
+        resolved = hf_model.config.model_type if model_type is None else model_type
+        if resolved in ("mistral", "mistral3"):
+            model_type = "llama"
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    _patched_get_gguf_hf_weights_map._mistral3_patched = True
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
+    import transformers.modeling_utils as modeling_utils
+
+    if hasattr(modeling_utils, "get_gguf_hf_weights_map"):
+        modeling_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     """Wrap load_gguf_checkpoint to add mistral3 support and fix model_type."""
