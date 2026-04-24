@@ -7,8 +7,8 @@ embedding generation.
 
 Note: The mlx-community/embeddinggemma-300m-4bit model is an MLX-quantized
 variant of google/embeddinggemma-300m-qat-q4_0-unquantized. Since MLX models
-cannot be loaded directly with transformers, this loader uses the base
-google/embeddinggemma-300m-qat-q4_0-unquantized model.
+cannot be loaded directly with transformers, and the base Google model is
+gated, this loader uses the unsloth/embeddinggemma-300m community mirror.
 """
 import torch
 from transformers import AutoModel, AutoTokenizer
@@ -37,7 +37,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.EMBEDDINGGEMMA_300M_4BIT: ModelConfig(
-            pretrained_model_name="google/embeddinggemma-300m-qat-q4_0-unquantized",
+            pretrained_model_name="unsloth/embeddinggemma-300m",
         ),
     }
 
