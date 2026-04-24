@@ -85,6 +85,8 @@ class ModelLoader(ForgeModel):
 
         self.transformer = HunyuanVideoTransformer3DModel.from_single_file(
             gguf_url,
+            low_cpu_mem_usage=False,
+            ignore_mismatched_sizes=True,
             **load_kwargs,
         )
 
