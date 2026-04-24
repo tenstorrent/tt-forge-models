@@ -5,29 +5,68 @@
 Qwen 3 VL 30B A3B GGUF model loader implementation for image to text.
 """
 
-import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import re
+
 import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import (
-    Qwen3VLMoeForConditionalGeneration,
     AutoProcessor,
+    Qwen3VLMoeForConditionalGeneration,
 )
 from typing import Optional
 
 from ....base import ForgeModel
 from ....config import (
-    LLMModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 
 # Keys that stay at the top level of the VL config (not moved to text_config)
 _VL_TOP_LEVEL_KEYS = {"model_type", "architectures"}
+
+
+class _Qwen3VLMoeTensorProcessor(_gguf_utils.Qwen2MoeTensorProcessor):
+    """Extends Qwen2MoeTensorProcessor for Qwen3-VL-MoE weight naming.
+
+    Qwen3-VL-MoE stores language model weights under model.language_model.*
+    so during submodule recursion the names lack the model. prefix. We extend
+    the fallback patterns to cover both forms.
+    """
+
+    # Match layers.N.* (VL submodule) and model.layers.N.* (non-VL top-level)
+    HF_MOE_W13_PATTERN = re.compile(
+        r"(?:model\.)?layers\.(?P<bid>\d+)\.mlp\.experts\.gate_up_proj"
+    )
+    _HF_MOE_DOWN_PATTERN = re.compile(
+        r"(?:model\.)?layers\.(?P<bid>\d+)\.mlp\.experts\.down_proj"
+    )
+    _HF_MOE_GATE_INP_PATTERN = re.compile(
+        r"(?:model\.)?layers\.(?P<bid>\d+)\.mlp\.gate"
+    )
+
+    def perform_fallback_tensor_mapping(
+        self, gguf_to_hf_name_map, suffix, qual_name, hf_name
+    ):
+        if m := re.fullmatch(self.HF_MOE_W13_PATTERN, hf_name):
+            full_hf_name = qual_name + hf_name
+            bid = m["bid"]
+            gguf_to_hf_name_map[f"blk.{bid}.ffn_gate_exps{suffix}"] = full_hf_name
+            gguf_to_hf_name_map[f"blk.{bid}.ffn_up_exps{suffix}"] = full_hf_name
+        elif m := re.fullmatch(self._HF_MOE_DOWN_PATTERN, hf_name):
+            full_hf_name = qual_name + hf_name
+            bid = m["bid"]
+            gguf_to_hf_name_map[f"blk.{bid}.ffn_down_exps{suffix}"] = full_hf_name
+        elif m := re.fullmatch(self._HF_MOE_GATE_INP_PATTERN, hf_name):
+            full_hf_name = qual_name + hf_name
+            bid = m["bid"]
+            gguf_to_hf_name_map[f"blk.{bid}.ffn_gate_inp{suffix}"] = full_hf_name
 
 
 def _patch_qwen3vlmoe_gguf_support():
@@ -39,8 +78,8 @@ def _patch_qwen3vlmoe_gguf_support():
     - Adding config/tensor mappings (reuse qwen3_moe)
     - Transforming the flat GGUF config into the nested text_config structure
       required by Qwen3VLMoeConfig
-    - Patching get_gguf_hf_weights_map to map qwen3_vl_moe -> qwen3vlmoe and
-      to source num_hidden_layers from text_config
+    - Patching get_gguf_hf_weights_map to map qwen3_vl_moe -> qwen3vlmoe,
+      source num_hidden_layers from text_config, and use the VL-aware processor
     """
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
@@ -58,8 +97,7 @@ def _patch_qwen3vlmoe_gguf_support():
         GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen3_moe"]
     )
 
-    if "qwen3moe" in TENSOR_PROCESSORS:
-        TENSOR_PROCESSORS["qwen3vlmoe"] = TENSOR_PROCESSORS["qwen3moe"]
+    TENSOR_PROCESSORS["qwen3vlmoe"] = _Qwen3VLMoeTensorProcessor
 
     for alias in ("qwen3vlmoe", "qwen3_vl_moe", "qwen3_vl_moe_text"):
         if (
@@ -100,6 +138,8 @@ def _patch_qwen3vlmoe_gguf_support():
             model_type = hf_model.config.model_type
         if model_type in ("qwen3_vl_moe", "qwen3_vl_moe_text"):
             model_type = "qwen3vlmoe"
+            if not isinstance(processor, _Qwen3VLMoeTensorProcessor):
+                processor = _Qwen3VLMoeTensorProcessor()
         if num_layers is None:
             cfg = hf_model.config
             if hasattr(cfg, "num_hidden_layers"):
