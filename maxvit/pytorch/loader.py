@@ -9,8 +9,7 @@ from typing import Optional
 from dataclasses import dataclass
 
 import timm
-
-from datasets import load_dataset
+from PIL import Image
 
 from ...config import (
     ModelConfig,
@@ -122,8 +121,7 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None, batch_size=1, image=None):
         if image is None:
-            dataset = load_dataset("huggingface/cats-image", split="test")
-            image = dataset[0]["image"]
+            image = Image.new("RGB", (224, 224), color=(128, 128, 128))
         return self.input_preprocess(
             image=image,
             dtype_override=dtype_override,
