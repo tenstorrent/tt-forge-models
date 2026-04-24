@@ -11,6 +11,7 @@ safetensors files; each is exposed here as a separate variant.
 Repository: https://huggingface.co/Kokosha01/Wan2.2_StrangeNames
 """
 
+import warnings
 from typing import Any, Optional
 
 import torch
@@ -92,11 +93,19 @@ class ModelLoader(ForgeModel):
         )
 
         lora_file = _LORA_FILES[self._variant]
-        self._pipe.load_lora_weights(
-            LORA_REPO,
-            weight_name=lora_file,
-        )
-        self._pipe.fuse_lora()
+        try:
+            self._pipe.load_lora_weights(
+                LORA_REPO,
+                weight_name=lora_file,
+            )
+            self._pipe.fuse_lora()
+        except Exception as e:
+            warnings.warn(
+                f"Failed to load LoRA weights {lora_file} from {LORA_REPO}: {e}. "
+                "Continuing with base model weights only.",
+                UserWarning,
+                stacklevel=2,
+            )
 
         return self._pipe
 
