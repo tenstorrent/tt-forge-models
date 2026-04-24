@@ -16,11 +16,13 @@ from typing import Optional
 
 
 def _unwrap_to_real_load_gguf_checkpoint():
-    """Walk the monkey-patch closure chain to find the real transformers function.
+    """Walk the monkey-patch chain (closures + module globals) to find the real transformers function.
 
     Other loaders patch load_gguf_checkpoint at import time, forming a chain
     where each wrapper drops model_to_load. We need the real transformers
     function which accepts model_to_load so GGUF tensor mapping works correctly.
+    Some patches store the original via closure variables; others via module-level
+    globals (co_names). We check both.
     """
     fn = _gguf_utils.load_gguf_checkpoint
     visited = set()
@@ -31,21 +33,32 @@ def _unwrap_to_real_load_gguf_checkpoint():
                 return fn
         except (TypeError, ValueError):
             pass
-        if not (hasattr(fn, "__code__") and fn.__closure__ and fn.__code__.co_freevars):
-            break
         next_fn = None
-        for name, cell in zip(fn.__code__.co_freevars, fn.__closure__):
-            try:
-                val = cell.cell_contents
-            except ValueError:
-                continue
-            if not callable(val) or id(val) in visited:
-                continue
-            if any(k in name.lower() for k in ("orig", "load")):
+        # Check closure variables
+        if hasattr(fn, "__code__") and fn.__closure__ and fn.__code__.co_freevars:
+            for name, cell in zip(fn.__code__.co_freevars, fn.__closure__):
+                try:
+                    val = cell.cell_contents
+                except ValueError:
+                    continue
+                if not callable(val) or id(val) in visited:
+                    continue
+                if any(k in name.lower() for k in ("orig", "load")):
+                    next_fn = val
+                    break
+                if next_fn is None:
+                    next_fn = val
+        # Also check module-level globals referenced by name (patches that use globals
+        # instead of closures to store the original function)
+        if next_fn is None and hasattr(fn, "__globals__") and hasattr(fn, "__code__"):
+            for name in fn.__code__.co_names:
+                if not any(k in name.lower() for k in ("orig", "load")):
+                    continue
+                val = fn.__globals__.get(name)
+                if val is None or not callable(val) or id(val) in visited:
+                    continue
                 next_fn = val
                 break
-            if next_fn is None:
-                next_fn = val
         if next_fn is None:
             break
         fn = next_fn
