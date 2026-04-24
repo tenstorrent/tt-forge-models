@@ -6,6 +6,7 @@ Qwen 3 VL 32B Thinking heretic i1 GGUF model loader implementation for image to 
 """
 
 from transformers import (
+    Qwen3VLConfig,
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
 )
@@ -72,8 +73,11 @@ class ModelLoader(ForgeModel):
         # GGUF repos do not ship a processor; use the base model
         self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-32B-Thinking")
 
+        # Pass explicit config so from_pretrained skips GGUF config parsing
+        # (qwen3vl architecture is not yet registered in transformers GGUF support)
+        config = Qwen3VLConfig.from_pretrained("Qwen/Qwen3-VL-32B-Thinking")
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, config=config, **model_kwargs
         )
         model.eval()
 
