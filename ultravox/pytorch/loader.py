@@ -190,6 +190,30 @@ class ModelLoader(ForgeModel):
                 src = hf_hub_download(pretrained_model_name, fname)
                 shutil.copy2(src, os.path.join(tmpdir, fname))
 
+        # Patch ultravox_processing.py for transformers 5.x: audio_processor must be
+        # FeatureExtractionMixin, but UltravoxProcessor passes a full WhisperProcessor.
+        # Unwrap to feature_extractor for super().__init__ then restore the full processor.
+        proc_file = os.path.join(tmpdir, "ultravox_processing.py")
+        if os.path.exists(proc_file):
+            with open(proc_file) as f:
+                proc_code = f.read()
+            old_super = (
+                "super().__init__(audio_processor=audio_processor, tokenizer=tokenizer)"
+            )
+            new_super = (
+                "_audio_for_super = (\n"
+                "            audio_processor.feature_extractor\n"
+                "            if hasattr(audio_processor, 'feature_extractor')\n"
+                "            else audio_processor\n"
+                "        )\n"
+                "        super().__init__(audio_processor=_audio_for_super, tokenizer=tokenizer)\n"
+                "        if _audio_for_super is not audio_processor:\n"
+                "            self.audio_processor = audio_processor"
+            )
+            proc_code = proc_code.replace(old_super, new_super)
+            with open(proc_file, "w") as f:
+                f.write(proc_code)
+
         self._patched_dir = tmpdir
         return tmpdir
 
