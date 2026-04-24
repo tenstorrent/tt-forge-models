@@ -72,6 +72,24 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    def _load_patched_config(self, pretrained_model_name):
+        """Load config, computing layer_types from string sliding_window_pattern if needed."""
+        from transformers import PretrainedConfig
+
+        config_dict, _ = PretrainedConfig.get_config_dict(pretrained_model_name)
+        pattern = config_dict.get("sliding_window_pattern")
+        if isinstance(pattern, str) and not config_dict.get("layer_types"):
+            n = config_dict.get("num_hidden_layers", 0)
+            char_to_type = {"L": "sliding_attention", "G": "full_attention"}
+            layer_types = [
+                char_to_type.get(pattern[i % len(pattern)], "full_attention")
+                for i in range(n)
+            ]
+            return AutoConfig.from_pretrained(
+                pretrained_model_name, layer_types=layer_types
+            )
+        return AutoConfig.from_pretrained(pretrained_model_name)
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -83,10 +101,10 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        config = self._load_patched_config(pretrained_model_name)
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -142,7 +160,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
+        self.config = self._load_patched_config(
             self._variant_config.pretrained_model_name
         )
         return self.config
