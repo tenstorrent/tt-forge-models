@@ -141,4 +141,4 @@ class ModelLoader(ForgeModel):
             init_tokens += [tok for _, tok in decoder_prompt_ids]
 
         decoder_input_ids = torch.tensor([init_tokens], dtype=torch.long, device=device)
-        return [input_features, decoder_input_ids]
+        return [input_features, None, decoder_input_ids]
