@@ -47,17 +47,51 @@ def _patch_qwen35_support():
         )
 
 
+def _find_real_load_gguf_checkpoint():
+    """Walk the monkey-patch closure chain to find the real transformers implementation."""
+    real_module = "transformers.modeling_gguf_pytorch_utils"
+    real_qualname = "load_gguf_checkpoint"
+    visited = set()
+
+    def walk(f):
+        if not callable(f) or id(f) in visited:
+            return None
+        visited.add(id(f))
+        if (
+            getattr(f, "__module__", None) == real_module
+            and getattr(f, "__qualname__", None) == real_qualname
+        ):
+            return f
+        if hasattr(f, "__closure__") and f.__closure__:
+            for cell in f.__closure__:
+                try:
+                    result = walk(cell.cell_contents)
+                    if result is not None:
+                        return result
+                except ValueError:
+                    pass
+        return None
+
+    return walk(_gguf_utils.load_gguf_checkpoint)
+
+
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
     """Wrap load_gguf_checkpoint to add qwen35 support and fix model_type."""
     _patch_qwen35_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
+    )
     if result.get("config", {}).get("model_type") == "qwen35":
         result["config"]["model_type"] = "qwen3"
     return result
 
 
 def _apply_gguf_patch():
+    global _orig_load_gguf_checkpoint
     _patch_qwen35_support()
+    real_fn = _find_real_load_gguf_checkpoint()
+    if real_fn is not None:
+        _orig_load_gguf_checkpoint = real_fn
     _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
     _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
     _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
