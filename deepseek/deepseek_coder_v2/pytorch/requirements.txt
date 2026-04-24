@@ -1,2 +1,3 @@
 PyPcre>=0.2.14
 Defuser>=0.0.20
+LogBar>=0.4.3
