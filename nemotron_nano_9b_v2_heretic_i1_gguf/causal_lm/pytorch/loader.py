@@ -85,7 +85,34 @@ def _ensure_mamba_ssm_available():
     sys.modules["mamba_ssm.ops.triton.ssd_combined"] = ssd_combined
 
 
+def _ensure_cuda_stream_stubs():
+    """Patch torch.cuda stream functions to be no-ops in CPU-only builds.
+
+    modeling_nemotron_h.py calls torch.cuda.default_stream() inside the Mamba
+    block's forward method even when running on CPU. Patch both to no-ops so
+    the model can be traced/compiled without CUDA hardware.
+    """
+    if torch.cuda.is_available():
+        return
+
+    import contextlib
+
+    class _NullCudaStream(contextlib.AbstractContextManager):
+        def __init__(self, stream=None):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    torch.cuda.default_stream = lambda device=None: None
+    torch.cuda.stream = _NullCudaStream
+
+
 _ensure_mamba_ssm_available()
+_ensure_cuda_stream_stubs()
 
 from ....base import ForgeModel
 from ....config import (
