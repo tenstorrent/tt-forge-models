@@ -61,13 +61,19 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     return result
 
 
-def _patched_get_gguf_hf_weights_map(hf_model, processor, model_type=None, **kwargs):
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
     """Wrap get_gguf_hf_weights_map to map qwen3_vl to gguf-py's qwen3vl arch."""
     effective_type = hf_model.config.model_type if model_type is None else model_type
     if effective_type == "qwen3_vl":
         model_type = "qwen3vl"
     return _orig_get_gguf_hf_weights_map(
-        hf_model, processor, model_type=model_type, **kwargs
+        hf_model,
+        processor,
+        model_type=model_type,
+        num_layers=num_layers,
+        qual_name=qual_name,
     )
 
 
