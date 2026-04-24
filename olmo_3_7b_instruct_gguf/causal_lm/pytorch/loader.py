@@ -8,6 +8,54 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+
+def _patch_transformers_olmo2_gguf():
+    """Monkey-patch transformers to add olmo2 GGUF architecture support.
+
+    Transformers 5.x has Olmo2ForCausalLM but lacks GGUF loading support for the
+    olmo2 architecture. The gguf library (>=0.18) already knows about olmo2 tensor
+    names, so we only need to bridge transformers' config/tensor-processing layer.
+    """
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        LlamaTensorProcessor,
+        TENSOR_PROCESSORS,
+    )
+
+    if "olmo2" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    # 1. Add config key mapping for olmo2 (llama-style transformer)
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["olmo2"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+    }
+
+    # 2. Register olmo2 as a supported GGUF architecture
+    GGUF_SUPPORTED_ARCHITECTURES.append("olmo2")
+
+    # 3. Register tokenizer converter (olmo2 uses BPE/gpt2-style tokenizer)
+    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFGPTConverter
+
+    if "olmo2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["olmo2"] = GGUFGPTConverter
+
+    # 4. Register tensor processor (olmo2 uses same Q/K weight layout as llama)
+    if "olmo2" not in TENSOR_PROCESSORS:
+        TENSOR_PROCESSORS["olmo2"] = LlamaTensorProcessor
+
+
+_patch_transformers_olmo2_gguf()
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -61,15 +109,13 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+    # Load the tokenizer from the base model because the GGUF tokenizer data has a
+    # bug: 7 BPE merge rules reference token 'ï¿½' (U+FFFD replacement character)
+    # that is absent from the vocabulary, causing BPE initialisation to fail.
+    TOKENIZER_SOURCE = "allenai/OLMo-3-7B-Instruct"
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+    def _load_tokenizer(self, dtype_override=None):
+        self.tokenizer = AutoTokenizer.from_pretrained(self.TOKENIZER_SOURCE)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
