@@ -52,8 +52,9 @@ def _patch_gguf_hunyuan_dense():
             model_to_load=model_to_load,
             **kwargs,
         )
-        if result.get("config", {}).get("model_type") == "hunyuan-dense":
-            result["config"]["model_type"] = "hunyuan_v1_dense"
+        for section in ("config", "tokenizer_config"):
+            if result.get(section, {}).get("model_type") == "hunyuan-dense":
+                result[section]["model_type"] = "hunyuan_v1_dense"
         return result
 
     gguf_utils_mod.load_gguf_checkpoint = _patched_load_gguf_checkpoint
