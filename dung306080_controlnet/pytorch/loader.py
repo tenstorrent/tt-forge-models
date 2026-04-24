@@ -137,6 +137,17 @@ class ModelLoader(ForgeModel):
             torch_dtype=dtype,
         )
         self._controlnet.eval()
+
+        # diffusers' get_timestep_embedding always outputs float32 (hardcoded .float()
+        # call), causing dtype mismatch when model weights are bfloat16. Hook Timesteps
+        # modules to cast their output to match the loaded model dtype.
+        if dtype != torch.float32:
+            from diffusers.models.embeddings import Timesteps
+
+            for module in self._controlnet.modules():
+                if isinstance(module, Timesteps):
+                    module.register_forward_hook(lambda m, i, o, _d=dtype: o.to(_d))
+
         return self._controlnet
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
