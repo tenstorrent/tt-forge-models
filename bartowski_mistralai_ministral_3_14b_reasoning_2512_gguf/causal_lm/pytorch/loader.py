@@ -14,6 +14,7 @@ import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    get_gguf_hf_weights_map as _orig_get_gguf_hf_weights_map,
     GGUF_SUPPORTED_ARCHITECTURES,
 )
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
@@ -52,11 +53,34 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load
     return result
 
 
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
+    """Remap 'mistral' model_type to 'mistral3' for gguf-py tensor name lookup.
+
+    gguf-py only knows 'mistral3' (not 'mistral') for Ministral models. The HF
+    config uses 'mistral' so the model loads correctly, but the weight map
+    lookup must use 'mistral3'.
+    """
+    if model_type is None:
+        model_type = getattr(hf_model.config, "model_type", None)
+    if model_type == "mistral":
+        model_type = "mistral3"
+    return _orig_get_gguf_hf_weights_map(
+        hf_model,
+        processor,
+        model_type=model_type,
+        num_layers=num_layers,
+        qual_name=qual_name,
+    )
+
+
 _patch_mistral3_support()
 _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 from ....base import ForgeModel
 from ....config import (
