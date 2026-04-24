@@ -85,6 +85,10 @@ def _patch_transformers_qwen3vl_gguf():
                 if k in _TEXT_CONFIG_FIELDS
             }
             config["text_config"] = text_config
+            # Vision merger must output text_hidden_size for image token replacement.
+            config["vision_config"] = {
+                "out_hidden_size": text_config.get("hidden_size", 4096)
+            }
             config["model_type"] = "qwen3_vl"
         return result
 
