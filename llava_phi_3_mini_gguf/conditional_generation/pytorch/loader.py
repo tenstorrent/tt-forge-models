@@ -73,6 +73,8 @@ class ModelLoader(ForgeModel):
 
     def _load_processor(self):
         self.processor = AutoProcessor.from_pretrained(self._PROCESSOR_NAME)
+        if self.processor.patch_size is None:
+            self.processor.patch_size = 14
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
