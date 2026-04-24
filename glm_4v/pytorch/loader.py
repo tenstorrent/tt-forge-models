@@ -70,6 +70,10 @@ class ModelLoader(ForgeModel):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, trust_remote_code=True
         )
+        # batch_encode_plus was removed in transformers 5.2.0; the downloaded
+        # tokenization_chatglm.py still calls it in apply_chat_template.
+        if not hasattr(self.tokenizer, "batch_encode_plus"):
+            self.tokenizer.batch_encode_plus = self.tokenizer.__call__
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
