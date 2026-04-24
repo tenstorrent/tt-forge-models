@@ -207,7 +207,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.WAN21_VACE_1_3B,
             ModelVariant.WAN21_VACE_14B,
         ):
-            dtype = dtype_override if dtype_override is not None else torch.float32
+            dtype = dtype_override if dtype_override is not None else torch.bfloat16
             self.pipeline = load_vace_pipeline(
                 self._variant_config.pretrained_model_name, dtype
             )
@@ -262,7 +262,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.WAN21_VACE_1_3B,
             ModelVariant.WAN21_VACE_14B,
         ):
-            dtype = kwargs.get("dtype_override", torch.float32)
+            dtype = kwargs.get("dtype_override", torch.bfloat16)
             if self.pipeline is None:
                 self.load_model(dtype_override=dtype)
             return load_vace_transformer_inputs(self.pipeline.transformer, dtype)
