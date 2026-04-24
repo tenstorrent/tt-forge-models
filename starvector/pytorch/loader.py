@@ -140,14 +140,13 @@ def _patch_image_encoder_init():
             original_ie_init(self, config, **kwargs)
             return
 
-        # Exit meta device context so from_pretrained can allocate real tensors
-        _orig_device = torch.get_default_device()
-        if _orig_device.type == "meta":
-            torch.set_default_device("cpu")
-            try:
+        # Exit meta device context so from_pretrained can allocate real tensors.
+        # Use the context-manager form (with torch.device) rather than
+        # torch.set_default_device to properly nest device contexts — PyTorch 2.7
+        # raises an AssertionError if set_default_device is used to "restore" meta.
+        if torch.get_default_device().type == "meta":
+            with torch.device("cpu"):
                 original_ie_init(self, config, **kwargs)
-            finally:
-                torch.set_default_device("meta")
         else:
             original_ie_init(self, config, **kwargs)
 
