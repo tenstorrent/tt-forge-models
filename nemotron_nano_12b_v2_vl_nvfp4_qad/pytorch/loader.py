@@ -134,8 +134,16 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
-        # num_patches is used internally by the processor but not accepted by forward()
-        inputs.pop("num_patches", None)
+        # num_patches is not accepted by forward(); use it to build image_flags instead.
+        # image_flags is a (num_patches, 1) tensor of 1s indicating real image patches.
+        num_patches = inputs.pop("num_patches", None)
+        if num_patches is not None:
+            total_patches = (
+                sum(num_patches)
+                if hasattr(num_patches, "__iter__")
+                else int(num_patches)
+            )
+            inputs["image_flags"] = torch.ones(total_patches, 1, dtype=torch.long)
 
         if batch_size > 1:
             for key, value in inputs.items():
