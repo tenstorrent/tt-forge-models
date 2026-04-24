@@ -8,12 +8,33 @@ import importlib.metadata
 from typing import Optional
 
 import torch
+import transformers.modeling_gguf_pytorch_utils as _tx_gguf_utils
 import transformers.utils.import_utils as _tx_import_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 _tx_import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
     importlib.metadata.packages_distributions()
 )
+
+# transformers 5.2.0 does not include falcon-h1 GGUF support; register it here.
+if "falcon-h1" not in _tx_gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]:
+    _tx_gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]["falcon-h1"] = {
+        "context_length": "max_position_embeddings",
+        "embedding_length": "hidden_size",
+        "feed_forward_length": "intermediate_size",
+        "attention.head_count": "num_attention_heads",
+        "block_count": "num_hidden_layers",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+        "attention.head_count_kv": "num_key_value_heads",
+        "rope.freq_base": "rope_theta",
+        "ssm.conv_kernel": "mamba_d_conv",
+        "ssm.inner_size": "mamba_d_ssm",
+        "ssm.state_size": "mamba_d_state",
+        "ssm.time_step_rank": "mamba_n_heads",
+        "ssm.group_count": "mamba_n_groups",
+    }
+    _tx_gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("falcon-h1")
 
 from ....base import ForgeModel
 from ....config import (
