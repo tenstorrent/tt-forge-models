@@ -32,9 +32,9 @@ def _patch_qwen3next_support():
         GGUF_TO_FAST_CONVERTERS["qwen3next"] = GGUF_TO_FAST_CONVERTERS["qwen3"]
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+def _patched_load_gguf_checkpoint(*args, **kwargs):
     _patch_qwen3next_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
     if result.get("config", {}).get("model_type") == "qwen3next":
         result["config"]["model_type"] = "qwen3"
     return result
