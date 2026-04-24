@@ -16,7 +16,7 @@ from transformers.modeling_gguf_pytorch_utils import (
 from typing import Optional
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+def _patched_load_gguf_checkpoint(*args, **kwargs):
     """Wrap load_gguf_checkpoint to fix is_gguf_available() when gguf is installed
     per-model after transformers' PACKAGE_DISTRIBUTION_MAPPING is frozen."""
     import importlib.metadata
