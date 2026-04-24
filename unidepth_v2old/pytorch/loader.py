@@ -77,8 +77,7 @@ class UniDepthV2oldWrapper(nn.Module):
         self.model = model
 
     def forward(self, image):
-        inputs = {"image": image, "camera": None}
-        _, outputs = self.model.encode_decode(inputs, image_metas=[])
+        outputs = self.model.infer(image)
         return outputs["depth"]
 
 
