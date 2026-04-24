@@ -5,9 +5,11 @@
 mradermacher Qwen3.5 35B A3B GGUF model loader implementation for causal language modeling.
 """
 
+import re as _re
 from typing import Optional
 
 import torch
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
@@ -20,6 +22,126 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
+
+
+def _patch_transformers_qwen35moe_gguf():
+    """Register qwen35moe GGUF architecture support and fix fused expert weight mapping.
+
+    qwen35moe GGUF files store MoE expert weights as separate ffn_gate_exps /
+    ffn_up_exps tensors, but Qwen3_5MoeForCausalLM uses a fused gate_up_proj
+    nn.Parameter.  We add the missing aliases in get_gguf_hf_weights_map so
+    Qwen2MoeTensorProcessor can interleave gate and up into gate_up_proj.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        TENSOR_PROCESSORS,
+    )
+    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+    # Register qwen35moe as a supported architecture.
+    if "qwen35moe" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen35moe")
+
+    # Add config key mapping for qwen35moe.
+    if "qwen35moe" not in GGUF_TO_TRANSFORMERS_MAPPING.get("config", {}):
+        GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen35moe"] = {
+            "context_length": "max_position_embeddings",
+            "block_count": "num_hidden_layers",
+            "feed_forward_length": "intermediate_size",
+            "embedding_length": "hidden_size",
+            "rope.dimension_count": None,
+            "rope.freq_base": "rope_theta",
+            "attention.key_length": "head_dim",
+            "attention.head_count": "num_attention_heads",
+            "attention.head_count_kv": "num_key_value_heads",
+            "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+            "vocab_size": "vocab_size",
+            "expert_count": "num_experts",
+            "expert_used_count": "num_experts_per_tok",
+            "full_attention_interval": "full_attention_interval",
+        }
+
+    # Reuse qwen3moe tensor processor for qwen35moe.
+    if "qwen35moe" not in TENSOR_PROCESSORS and "qwen3moe" in TENSOR_PROCESSORS:
+        TENSOR_PROCESSORS["qwen35moe"] = TENSOR_PROCESSORS["qwen3moe"]
+
+    # Register tokenizer converters.
+    if (
+        "qwen35moe" not in GGUF_TO_FAST_CONVERTERS
+        and "qwen3_moe" in GGUF_TO_FAST_CONVERTERS
+    ):
+        GGUF_TO_FAST_CONVERTERS["qwen35moe"] = GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
+    if (
+        "qwen3_5_moe_text" not in GGUF_TO_FAST_CONVERTERS
+        and "qwen3_moe" in GGUF_TO_FAST_CONVERTERS
+    ):
+        GGUF_TO_FAST_CONVERTERS["qwen3_5_moe_text"] = GGUF_TO_FAST_CONVERTERS[
+            "qwen3_moe"
+        ]
+
+    # Patch load_gguf_checkpoint to convert qwen35moe -> qwen3_5_moe_text.
+    if not getattr(_gguf_utils, "_qwen35moe_load_patched", False):
+        _orig_load = _gguf_utils.load_gguf_checkpoint
+
+        def _patched_load_gguf_checkpoint(*args, **kwargs):
+            result = _orig_load(*args, **kwargs)
+            if result.get("config", {}).get("model_type") == "qwen35moe":
+                result["config"]["model_type"] = "qwen3_5_moe_text"
+                config = result["config"]
+                num_layers = config.get("num_hidden_layers", 40)
+                interval = config.pop("full_attention_interval", 4)
+                layer_types = [
+                    "full_attention" if (i + 1) % interval == 0 else "linear_attention"
+                    for i in range(num_layers)
+                ]
+                config["layer_types"] = layer_types
+            return result
+
+        _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _gguf_utils._qwen35moe_load_patched = True
+
+        import transformers.models.auto.tokenization_auto as _tok_auto
+        import transformers.configuration_utils as _config_utils
+        import transformers.modeling_utils as _modeling_utils
+
+        for _mod in (_tok_auto, _config_utils, _modeling_utils):
+            if hasattr(_mod, "load_gguf_checkpoint"):
+                _mod.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+    # Patch get_gguf_hf_weights_map to add ffn_gate_exps/ffn_up_exps aliases.
+    # qwen35moe GGUF has separate gate/up expert tensors, HF uses fused gate_up_proj.
+    # The existing mapping only has blk.N.ffn_gate_up_exps; we alias the separate
+    # GGUF names to the same fused HF parameter so Qwen2MoeTensorProcessor works.
+    if not getattr(_gguf_utils, "_qwen35moe_weights_map_patched", False):
+        _orig_get_map = _gguf_utils.get_gguf_hf_weights_map
+        _fused_pattern = _re.compile(r"^blk\.(\d+)\.ffn_gate_up_exps$")
+
+        def _patched_get_gguf_hf_weights_map(
+            hf_model, processor, model_type=None, num_layers=None, qual_name=""
+        ):
+            if model_type is None:
+                model_type = hf_model.config.model_type
+            if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
+                model_type = "qwen35moe"
+            result = _orig_get_map(
+                hf_model, processor, model_type, num_layers, qual_name
+            )
+            if model_type == "qwen35moe":
+                aliases = {}
+                for key, val in result.items():
+                    if m := _fused_pattern.match(key):
+                        bid = m.group(1)
+                        aliases[f"blk.{bid}.ffn_gate_exps"] = val
+                        aliases[f"blk.{bid}.ffn_up_exps"] = val
+                result.update(aliases)
+            return result
+
+        _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+        _gguf_utils._qwen35moe_weights_map_patched = True
+
+
+_patch_transformers_qwen35moe_gguf()
 
 
 class ModelVariant(StrEnum):
@@ -97,7 +219,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
