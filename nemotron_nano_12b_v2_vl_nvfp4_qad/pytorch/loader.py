@@ -145,6 +145,12 @@ class ModelLoader(ForgeModel):
             )
             inputs["image_flags"] = torch.ones(total_patches, 1, dtype=torch.long)
 
+        # Cast pixel_values to the model's dtype; the processor outputs float32 but
+        # the model weights are bfloat16.
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        if "pixel_values" in inputs:
+            inputs["pixel_values"] = inputs["pixel_values"].to(dtype)
+
         if batch_size > 1:
             for key, value in inputs.items():
                 if hasattr(value, "repeat_interleave"):
