@@ -8,8 +8,9 @@ import importlib.metadata
 
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import (
-    Qwen3VLForConditionalGeneration,
+    AutoConfig,
     AutoProcessor,
+    Qwen3VLForConditionalGeneration,
 )
 from transformers.modeling_gguf_pytorch_utils import (
     GGUF_SUPPORTED_ARCHITECTURES,
@@ -95,6 +96,9 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "EgoActor-4b-Qwen3VL.i1-Q4_K_M.gguf"
 
+    # Base unquantized model for config and processor (GGUF repo lacks these)
+    _BASE_MODEL = "BAAI-Agents/EgoActor-4b-Qwen3VL"
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.processor = None
@@ -135,17 +139,17 @@ class ModelLoader(ForgeModel):
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
+        # GGUF repo lacks processor and has a default vision config mismatched for 4B;
+        # use the base model for both.
+        self.processor = AutoProcessor.from_pretrained(self._BASE_MODEL)
+
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs["gguf_file"] = self.GGUF_FILE
         model_kwargs["ignore_mismatched_sizes"] = True
+        model_kwargs["config"] = AutoConfig.from_pretrained(self._BASE_MODEL)
         model_kwargs |= kwargs
-
-        # GGUF repos do not ship a processor; use the upstream unquantized model
-        self.processor = AutoProcessor.from_pretrained(
-            "BAAI-Agents/EgoActor-4b-Qwen3VL"
-        )
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
