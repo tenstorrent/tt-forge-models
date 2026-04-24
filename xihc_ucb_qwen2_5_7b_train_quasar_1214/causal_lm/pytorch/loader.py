@@ -4,6 +4,16 @@
 """
 xihc-ucb/Qwen2.5-7B-train-Quasar-1214 model loader implementation for causal language modeling.
 """
+import os
+import sys
+
+# Inject stub quasar package before transformers loads the model's custom code.
+# The model requires a private FP8 quantization library (quasar) not on PyPI;
+# the stub provides compatible interfaces for instantiation and compilation.
+_stub_path = os.path.join(os.path.dirname(__file__), "quasar_stub")
+if _stub_path not in sys.path:
+    sys.path.insert(0, _stub_path)
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
