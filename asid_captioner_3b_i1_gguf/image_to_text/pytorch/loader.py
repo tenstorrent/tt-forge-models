@@ -49,15 +49,17 @@ def _get_real_load_gguf_checkpoint():
     def _qwen2vl_get_weights_map(
         hf_model, processor, model_type=None, num_layers=None, qual_name=""
     ):
-        cfg = hf_model.config
-        if model_type is None:
-            raw = getattr(cfg, "model_type", None)
-            model_type = "qwen2vl" if raw == "qwen2_vl" else raw
-        if num_layers is None:
-            if hasattr(cfg, "text_config"):
-                num_layers = cfg.text_config.num_hidden_layers
-            elif hasattr(cfg, "num_hidden_layers"):
-                num_layers = cfg.num_hidden_layers
+        if model_type is None or num_layers is None:
+            cfg = getattr(hf_model, "config", None)
+            if cfg is not None:
+                if model_type is None:
+                    raw = getattr(cfg, "model_type", None)
+                    model_type = "qwen2vl" if raw == "qwen2_vl" else raw
+                if num_layers is None:
+                    if hasattr(cfg, "text_config"):
+                        num_layers = cfg.text_config.num_hidden_layers
+                    elif hasattr(cfg, "num_hidden_layers"):
+                        num_layers = cfg.num_hidden_layers
         return _orig_get_weights_map(
             hf_model,
             processor,
