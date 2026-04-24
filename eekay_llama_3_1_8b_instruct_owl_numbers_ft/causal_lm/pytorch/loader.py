@@ -5,6 +5,7 @@
 eekay/Llama-3.1-8B-Instruct-owl-numbers-ft model loader implementation for causal language modeling.
 """
 import torch
+from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 
@@ -61,16 +62,14 @@ class ModelLoader(ForgeModel):
     def _load_tokenizer(self, dtype_override=None):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name, **tokenizer_kwargs
-        )
+        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
         self.tokenizer.pad_token = self.tokenizer.eos_token
 
         return self.tokenizer
+
+    # meta-llama/Llama-3.1-8B-Instruct is gated; use the identical non-gated unsloth
+    # upload as the base so we can apply the eekay LoRA adapter on top.
+    _BASE_MODEL = "unsloth/Meta-Llama-3.1-8B-Instruct"
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -80,19 +79,21 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
             from transformers import AutoConfig
 
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config = AutoConfig.from_pretrained(self._BASE_MODEL)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+        base_model = AutoModelForCausalLM.from_pretrained(
+            self._BASE_MODEL, **model_kwargs
         )
+        model = PeftModel.from_pretrained(base_model, pretrained_model_name)
+        model = model.merge_and_unload()
         model.eval()
 
         return model
