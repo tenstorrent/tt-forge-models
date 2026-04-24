@@ -9,15 +9,26 @@ import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
-_orig_load_gguf_checkpoint = _gguf_utils.load_gguf_checkpoint
 
+def _fix_gguf_patch():
+    """Re-apply compat shim immediately before from_pretrained calls.
 
-def _patched_load_gguf_checkpoint(*args, **kwargs):
-    kwargs.pop("model_to_load", None)
-    return _orig_load_gguf_checkpoint(*args, **kwargs)
+    Other GGUF loaders monkey-patch load_gguf_checkpoint at import time
+    without accepting the model_to_load kwarg added in newer transformers.
+    Calling this helper right before each from_pretrained ensures our
+    compat wrapper is always on top of the patch chain.
+    """
+    if getattr(_gguf_utils.load_gguf_checkpoint, "_model_to_load_compat", False):
+        return
+    _current = _gguf_utils.load_gguf_checkpoint
 
+    def _compat(*args, **kwargs):
+        kwargs.pop("model_to_load", None)
+        return _current(*args, **kwargs)
 
-_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _compat._model_to_load_compat = True
+    _gguf_utils.load_gguf_checkpoint = _compat
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -78,6 +89,7 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
         tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
+        _fix_gguf_patch()
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
@@ -105,6 +117,7 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
+        _fix_gguf_patch()
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
@@ -165,6 +178,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        _fix_gguf_patch()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
