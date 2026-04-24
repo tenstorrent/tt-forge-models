@@ -3,6 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Mradermacher AdaReasoner 7B GGUF model loader implementation for image to text.
+
+Note: The qwen2vl GGUF architecture is not yet supported by the transformers
+GGUF loader, so we load from the HF-native checkpoint (AdaReasoner/AdaReasoner-7B-Randomized)
+instead.
 """
 
 from transformers import (
@@ -30,20 +34,20 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """Mradermacher AdaReasoner 7B GGUF loader for image to text tasks."""
+    """Mradermacher AdaReasoner 7B GGUF loader for image to text tasks.
+
+    Note: Uses the base model (safetensors) instead of GGUF because the
+    qwen2vl GGUF architecture is not yet supported by transformers.
+    """
 
     _VARIANTS = {
         ModelVariant.ADAREASONER_7B_Q4_K_M_GGUF: LLMModelConfig(
-            pretrained_model_name="mradermacher/AdaReasoner-7B-GGUF",
+            pretrained_model_name="AdaReasoner/AdaReasoner-7B-Randomized",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.ADAREASONER_7B_Q4_K_M_GGUF
-
-    _GGUF_FILES = {
-        ModelVariant.ADAREASONER_7B_Q4_K_M_GGUF: "AdaReasoner-7B.Q4_K_M.gguf",
-    }
 
     sample_image = (
         "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg"
@@ -64,25 +68,20 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    @property
-    def _gguf_file(self):
-        """Get the GGUF filename for the current variant."""
-        return self._GGUF_FILES.get(self._variant)
-
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-
-        model_kwargs["gguf_file"] = self._gguf_file
         model_kwargs |= kwargs
 
         self.processor = AutoProcessor.from_pretrained(
             "Qwen/Qwen2.5-VL-7B-Instruct",
         )
 
+        # Load from base safetensors model because qwen2vl GGUF architecture
+        # is not yet supported by transformers.
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
