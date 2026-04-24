@@ -4,6 +4,7 @@
 """
 FLUX.2 Klein SDNQ 4-bit model loader implementation for text-to-image generation
 """
+import sdnq  # registers sdnq quantization backend with diffusers
 import torch
 from diffusers.models import Flux2Transformer2DModel
 from typing import Optional
