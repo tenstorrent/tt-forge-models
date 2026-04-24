@@ -4,6 +4,8 @@
 """
 mradermacher/VL-Cogito-i1-GGUF model loader for vision-language tasks.
 """
+import importlib
+import importlib.metadata
 import torch
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
 from typing import Optional
@@ -76,6 +78,24 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _refresh_gguf_detection():
+        import inspect
+        import transformers.utils.import_utils as _tx
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+        _tx.PACKAGE_DISTRIBUTION_MAPPING = importlib.metadata.packages_distributions()
+        _tx.is_gguf_available.cache_clear()
+
+        try:
+            sig = inspect.signature(_gguf_utils.load_gguf_checkpoint)
+            has_model_to_load = "model_to_load" in sig.parameters
+        except (ValueError, TypeError):
+            has_model_to_load = False
+
+        if not has_model_to_load:
+            importlib.reload(_gguf_utils)
+
     def _load_processor(self):
         processor_kwargs = {
             "min_pixels": self.min_pixels,
@@ -87,6 +107,7 @@ class ModelLoader(ForgeModel):
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        self._refresh_gguf_detection()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {"low_cpu_mem_usage": True, "use_cache": False}
