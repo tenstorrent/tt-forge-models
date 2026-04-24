@@ -76,7 +76,7 @@ class ModelLoader(ForgeModel):
         model = segmenter.model.eval()
 
         if dtype_override is not None:
-            model = model.to(dtype_override)
+            model = model.to(dtype=dtype_override)
 
         if self.transform_image is None:
             self._setup_transforms()
