@@ -134,9 +134,44 @@ class ModelLoader(ForgeModel):
             _load_submodule("utils_emu3")
         _load_submodule("processing_emu3")
 
-        Emu3Processor = sys.modules[f"{pkg_name}.processing_emu3"].Emu3Processor
+        _Emu3Processor = sys.modules[f"{pkg_name}.processing_emu3"].Emu3Processor
 
-        self.processor = Emu3Processor(
+        # Newer transformers ProcessorMixin.__init__ infers required args from the
+        # __init__ signature and validates count/types strictly.  The upstream
+        # Emu3Processor.__init__ was written for an older API and only forwards 2
+        # of the 3 required positional args to super().__init__, causing a
+        # ValueError.  Subclass it to bypass the broken super().__init__ call.
+        class _PatchedEmu3Processor(_Emu3Processor):
+            def __init__(
+                self,
+                image_processor=None,
+                vision_tokenizer=None,
+                tokenizer=None,
+                **kwargs,
+            ):
+                assert vision_tokenizer is not None, "image tokenizer can not be None"
+                self.vision_tokenizer = vision_tokenizer
+                self.prefix_template = kwargs.pop("prefix_template", "{H}*{W}")
+                self.visual_template = kwargs.pop(
+                    "visual_template",
+                    (
+                        "<|visual token {token_id:0>6d}|>",
+                        r"<\|visual token (\d+)\|>",
+                    ),
+                )
+                self.vis_tok_spatial_factor = 2 ** (
+                    len(vision_tokenizer.config.ch_mult) - 1
+                )
+                # Set attrs that ProcessorMixin.__init__ would normally set
+                self.chat_template = kwargs.pop(
+                    "chat_template",
+                    "You are a helpful assistant. USER: {image_prompt}{text_prompt}. ASSISTANT:",
+                )
+                self.image_processor = image_processor
+                self.tokenizer = tokenizer
+                self.const_helper = self.build_const_helper()
+
+        self.processor = _PatchedEmu3Processor(
             self.image_processor, self.image_tokenizer, self.tokenizer
         )
         return self.processor
