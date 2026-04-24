@@ -9,6 +9,7 @@ which applies BF16 weights with FP8 static activation quantization and FP8 KV ca
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.cache_utils import DynamicCache
 from typing import Optional
 
 # compressed-tensors FP8 models fail during _init_weights because normal_() is
@@ -23,6 +24,12 @@ def _fp8_safe_normal_(self, *args, **kwargs):
 
 
 torch.Tensor.normal_ = _fp8_safe_normal_
+
+# The model's custom code uses get_usable_length which was removed in newer transformers.
+if not hasattr(DynamicCache, "get_usable_length"):
+    DynamicCache.get_usable_length = (
+        lambda self, new_seq_length, layer_idx=0: self.get_seq_length(layer_idx)
+    )
 
 from ....base import ForgeModel
 from ....config import (
