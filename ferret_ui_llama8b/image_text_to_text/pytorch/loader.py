@@ -117,6 +117,8 @@ class ModelLoader(ForgeModel):
         image = Image.open(image_file).convert("RGB")
 
         vision_tower = self.model.get_vision_tower()
+        if not vision_tower.is_loaded:
+            vision_tower.load_model()
         pixel_values = vision_tower.image_processor(images=image, return_tensors="pt")[
             "pixel_values"
         ]
