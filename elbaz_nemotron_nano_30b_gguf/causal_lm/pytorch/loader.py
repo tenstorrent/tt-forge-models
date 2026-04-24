@@ -52,10 +52,10 @@ def _patch_nemotron_h_moe_support():
         _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING.setdefault("nemotron_h_moe", {})
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+def _patched_load_gguf_checkpoint(*args, **kwargs):
     """Wrap load_gguf_checkpoint to add nemotron_h_moe support."""
     _patch_nemotron_h_moe_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
     cfg = result.get("config", {})
     if cfg.get("model_type") == "nemotron_h_moe":
         cfg["model_type"] = "nemotron_h"
