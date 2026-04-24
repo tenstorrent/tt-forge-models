@@ -9,7 +9,9 @@ uses a Mixture of Experts (MoE) architecture for high-quality image generation
 from text prompts and image inputs.
 """
 
+from contextlib import contextmanager
 from typing import Optional
+from unittest.mock import patch
 
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
@@ -24,6 +26,21 @@ from ...config import (
     ModelTask,
     StrEnum,
 )
+
+
+_real_torch_empty = torch.empty
+
+
+def _torch_empty_no_cuda(*args, **kwargs):
+    if kwargs.get("device") == "cuda":
+        kwargs["device"] = "cpu"
+    return _real_torch_empty(*args, **kwargs)
+
+
+@contextmanager
+def _redirect_cuda_to_cpu():
+    with patch("torch.empty", _torch_empty_no_cuda):
+        yield
 
 
 class ModelVariant(StrEnum):
@@ -98,9 +115,10 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        with _redirect_cuda_to_cpu():
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
