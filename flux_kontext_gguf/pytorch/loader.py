@@ -9,6 +9,7 @@ Repository:
 """
 import torch
 from diffusers import GGUFQuantizationConfig, FluxTransformer2DModel
+from huggingface_hub import hf_hub_download
 from typing import Optional
 
 from ...base import ForgeModel
@@ -72,12 +73,13 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         gguf_file = self._GGUF_FILES[self._variant]
+        gguf_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
+
         self.transformer = FluxTransformer2DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/resolve/main/{gguf_file}",
-            quantization_config=quantization_config,
+            gguf_path,
+            quantization_config=GGUFQuantizationConfig(compute_dtype=compute_dtype),
             torch_dtype=compute_dtype,
         )
 
