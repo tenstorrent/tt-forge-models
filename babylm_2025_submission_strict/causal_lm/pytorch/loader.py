@@ -8,8 +8,24 @@ A 0.3B-parameter BabyLM 2025 strict-small track submission using an xqwen-based
 architecture with Flash Linear Attention (FLA) and MLSTM kernels.
 Source: https://huggingface.co/PatrickHaller/babylm_2025_submission_strict
 """
+import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
 from typing import Optional
+
+
+def _default_rope_init(config, device=None, seq_len=None, layer_type=None, **kwargs):
+    base = getattr(config, "rope_theta", 10000.0)
+    head_dim = getattr(
+        config, "head_dim", config.hidden_size // config.num_attention_heads
+    )
+    partial_rotary_factor = getattr(config, "partial_rotary_factor", 1.0)
+    dim = int(head_dim * partial_rotary_factor)
+    inv_freq = 1.0 / (
+        base ** (torch.arange(0, dim, 2, dtype=torch.int64).float().to(device) / dim)
+    )
+    return inv_freq, 1.0
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -88,11 +104,28 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        if "default" not in ROPE_INIT_FUNCTIONS:
+            ROPE_INIT_FUNCTIONS["default"] = _default_rope_init
+
         config = AutoConfig.from_pretrained(
             pretrained_model_name, trust_remote_code=True
         )
         if not hasattr(config, "pad_token_id") or config.pad_token_id is None:
             config.pad_token_id = self.tokenizer.pad_token_id
+        # Disable sliding window attention: uses flex_attention which requires CUDA
+        config.use_sliding_window = False
+        config.sliding_window = None
+        # Override GPU-only triton kernels with CPU-compatible native kernels
+        config.chunkwise_kernel = "chunkwise--native_autograd"
+        config.sequence_kernel = "native_sequence__native"
+        config.step_kernel = "native"
+        # Disable float32 norm reductions to keep all tensors in bfloat16
+        config.norm_reduction_force_float32 = False
+        # Use train mode: config.json has mode="inference" with float32 states,
+        # which causes dtype mismatch (float32 state tensors mixed with bfloat16 Q/K/V)
+        config.mode = "train"
+        # return_last_states must be True: model always unpacks (h, state) from backend
+        config.return_last_states = True
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
         model_kwargs["config"] = config
