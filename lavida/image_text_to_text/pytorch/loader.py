@@ -5,6 +5,10 @@
 LaViDa-LLaDA model loader implementation for image-text-to-text tasks.
 """
 
+import glob
+import importlib.util
+import os
+import sys
 import torch
 from PIL import Image
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -23,6 +27,63 @@ from ....config import (
 from ....tools.utils import get_file
 
 IMAGE_TOKEN_INDEX = -200
+
+_HF_MODEL_ID = "KonstantinosKK/lavida-llada-v1.0-instruct-hf-transformers"
+
+
+def _patch_lavida_cached_module():
+    """Pre-import and patch the cached lavida modeling module for transformers 5.x compatibility.
+
+    LLaDAModelLM.tie_weights() doesn't accept **kwargs but transformers 5.x calls
+    tie_weights(recompute_mapping=False). We find the cached module on sys.path and
+    patch the class before from_pretrained instantiates it.
+    """
+    # transformers adds the huggingface modules cache dir to sys.path for trust_remote_code.
+    # Find the modeling_lavida.py under any of the known cache paths.
+    org = _HF_MODEL_ID.split("/")[0]
+    candidate_roots = [p for p in sys.path if "huggingface" in p and "modules" in p]
+    # Also check TRANSFORMERS_CACHE / HF_HOME / XDG_CACHE
+    for env_var in ("TRANSFORMERS_CACHE", "HF_HOME", "HF_DATASETS_CACHE"):
+        val = os.environ.get(env_var, "")
+        if val:
+            candidate_roots.append(os.path.join(val, "modules"))
+    # Fallback: local .cache relative to CWD
+    candidate_roots.append(
+        os.path.join(os.getcwd(), ".cache", "huggingface", "modules")
+    )
+
+    for root in candidate_roots:
+        pattern = os.path.join(
+            root, "transformers_modules", org, "*", "modeling_lavida.py"
+        )
+        matches = glob.glob(pattern)
+        if not matches:
+            # Also try without subdir org (some versions flatten the path)
+            pattern = os.path.join(
+                root, "transformers_modules", "*", "modeling_lavida.py"
+            )
+            matches = glob.glob(pattern)
+        if matches:
+            modeling_file = matches[0]
+            # Derive Python module name from path relative to root
+            rel = os.path.relpath(modeling_file, root).replace(os.sep, ".")
+            module_name = rel.removesuffix(".py")
+            if module_name in sys.modules:
+                mod = sys.modules[module_name]
+            else:
+                if root not in sys.path:
+                    sys.path.insert(0, root)
+                spec = importlib.util.spec_from_file_location(
+                    module_name, modeling_file
+                )
+                mod = importlib.util.module_from_spec(spec)
+                sys.modules[module_name] = mod
+                spec.loader.exec_module(mod)
+            # Patch tie_weights to accept **kwargs (transformers 5.x passes recompute_mapping)
+            if hasattr(mod, "LLaDAModelLM"):
+                _orig_tw = mod.LLaDAModelLM.tie_weights
+                mod.LLaDAModelLM.tie_weights = lambda self, **kw: _orig_tw(self)
+            return
 
 
 class ModelVariant(StrEnum):
@@ -88,6 +149,11 @@ class ModelLoader(ForgeModel):
 
         if self.tokenizer is None:
             self._load_tokenizer()
+
+        # Pre-import cached module and patch LLaDAModelLM.tie_weights to accept **kwargs.
+        # transformers 5.x calls tie_weights(recompute_mapping=False) but the custom model
+        # only accepts tie_weights(self).
+        _patch_lavida_cached_module()
 
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
