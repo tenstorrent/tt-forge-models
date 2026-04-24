@@ -36,6 +36,7 @@ def _patch_mistral3_support():
                 _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["mistral"],
             )
     if "llama" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("mistral", GGUF_TO_FAST_CONVERTERS["llama"])
         GGUF_TO_FAST_CONVERTERS.setdefault("mistral3", GGUF_TO_FAST_CONVERTERS["llama"])
 
 
