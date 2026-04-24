@@ -158,6 +158,27 @@ class ModelLoader(ForgeModel):
         model.eval()
         self.model_config = model.config
 
+        # DiTModel.forward indexes past_key_values with integers (old-style tuple API),
+        # but transformers 5.x returns DynamicCache which isn't subscriptable. Patch
+        # the inner dit.forward to convert DynamicCache to legacy tuple format first.
+        dit = getattr(model, "dit", None)
+        if dit is not None:
+            _orig_dit_forward = dit.forward
+
+            def _compat_dit_forward(hidden_states, past_key_values, *args, **kwargs):
+                if hasattr(past_key_values, "to_legacy_cache"):
+                    past_key_values = past_key_values.to_legacy_cache()
+                return _orig_dit_forward(
+                    hidden_states, past_key_values, *args, **kwargs
+                )
+
+            import types
+
+            dit.forward = types.MethodType(
+                lambda self, hs, pkv, *a, **kw: _compat_dit_forward(hs, pkv, *a, **kw),
+                dit,
+            )
+
         if self.processor is None:
             self._load_processor()
 
