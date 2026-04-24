@@ -108,12 +108,29 @@ class ModelLoader(ForgeModel):
         """Return the text model config for the current variant."""
         return self._TEXT_CONFIGS[self._variant]
 
-    def _get_patched_model_dir(self):
-        """Create a local directory with a patched config.json that avoids gated repo access.
+    # Training-only files from the HF repo that are not needed for inference.
+    _TRAINING_ARTIFACTS = frozenset(
+        {
+            "optimizer.bin",
+            "scheduler.pt",
+            "trainer_state.json",
+            "training_args.bin",
+            ".gitattributes",
+        }
+    )
 
-        The Ultravox custom config tries to fetch the gated Llama config from
-        HuggingFace at init time. We create a patched local copy with
-        text_model_id set to null and text_config provided inline.
+    def _get_patched_model_dir(self):
+        """Create a local directory with patched model files for transformers compat.
+
+        Patches applied:
+        - config.json: text_model_id=null to avoid gated Llama download; inline
+          text_config so the custom UltravoxConfig doesn't need to fetch it.
+        - ultravox_model.py: compatibility fixes for transformers>=5 (removed
+          _init_weights attribute, tie_weights new **kwargs signature).
+
+        Weight files (.safetensors/.bin) are symlinked from the HF hub cache so
+        from_pretrained can be called with this local dir instead of the remote
+        model name.
         """
         if self._patched_dir is not None:
             return self._patched_dir
@@ -178,20 +195,44 @@ class ModelLoader(ForgeModel):
         with open(os.path.join(tmpdir, "config.json"), "w") as f:
             json.dump(config_dict, f)
 
-        # Copy all .py and tokenizer files from the repo
+        # Copy/symlink all non-training files from the repo
+        weight_exts = (".safetensors", ".bin", ".pt", ".pth")
         info = model_info(pretrained_model_name)
         for sibling in info.siblings:
             fname = sibling.rfilename
-            if (
-                fname.endswith(".py")
-                or "tokenizer" in fname
-                or fname.endswith(".model")
-            ):
-                src = hf_hub_download(pretrained_model_name, fname)
-                shutil.copy2(src, os.path.join(tmpdir, fname))
+            if fname in self._TRAINING_ARTIFACTS or fname.startswith("rng_state"):
+                continue
+            src = hf_hub_download(pretrained_model_name, fname)
+            dst = os.path.join(tmpdir, fname)
+            if any(fname.endswith(ext) for ext in weight_exts):
+                os.symlink(src, dst)
+            else:
+                shutil.copy2(src, dst)
+
+        self._patch_ultravox_model(tmpdir)
 
         self._patched_dir = tmpdir
         return tmpdir
+
+    def _patch_ultravox_model(self, tmpdir):
+        """Apply transformers>=5 compatibility patches to ultravox_model.py."""
+        model_py = os.path.join(tmpdir, "ultravox_model.py")
+        if not os.path.exists(model_py):
+            return
+        with open(model_py) as f:
+            content = f.read()
+        # _init_weights module attribute removed in transformers>=5
+        content = content.replace(
+            "transformers.modeling_utils._init_weights",
+            "getattr(transformers.modeling_utils, '_init_weights', True)",
+        )
+        # tie_weights gained a **kwargs parameter in transformers>=5
+        content = content.replace(
+            "    def tie_weights(self):\n        return self.language_model.tie_weights()",
+            "    def tie_weights(self, **kwargs):\n        return self.language_model.tie_weights(**kwargs)",
+        )
+        with open(model_py, "w") as f:
+            f.write(content)
 
     def _cleanup_patched_dir(self):
         if self._patched_dir is not None:
@@ -220,20 +261,9 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The Ultravox model instance.
         """
         import transformers
-        import transformers.modeling_utils
         import transformers.initialization as _tf_init
 
-        # transformers>=5 removed _init_weights; the custom model code uses it as
-        # a boolean gate to decide whether to load pretrained weights vs. empty weights.
-        if not hasattr(transformers.modeling_utils, "_init_weights"):
-            transformers.modeling_utils._init_weights = True
-
-        pretrained_model_name = self._variant_config.pretrained_model_name
         patched_dir = self._get_patched_model_dir()
-
-        config = transformers.AutoConfig.from_pretrained(
-            patched_dir, trust_remote_code=True
-        )
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -254,9 +284,10 @@ class ModelLoader(ForgeModel):
 
         transformers.PreTrainedModel.get_init_context = _no_meta_get_init_context
         try:
+            # Load from patched_dir: patched config.json + patched .py files +
+            # symlinked weight files — no remote fetch needed.
             model = transformers.AutoModel.from_pretrained(
-                pretrained_model_name,
-                config=config,
+                patched_dir,
                 trust_remote_code=True,
                 **model_kwargs,
             )
