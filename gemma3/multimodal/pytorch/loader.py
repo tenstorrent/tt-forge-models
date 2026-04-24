@@ -173,6 +173,25 @@ class ModelLoader(ForgeModel):
         ):
             model_kwargs["device_map"] = "cpu"
 
+        if self._variant == ModelVariant.GEMMA_3_27B_IT_QAT_W4A16:
+            # In transformers 5.x Gemma3ForConditionalGeneration wraps its
+            # sub-models inside self.model (a Gemma3Model), so the actual
+            # named-module paths are "model.vision_tower.*" etc.  The
+            # compressed-tensors ignore list stored in the checkpoint was
+            # generated with the old layout (no "model." prefix), so the
+            # entries no longer match and vision-tower layers (whose fc2
+            # weights have 4304 columns, not divisible by group_size=128)
+            # get incorrectly quantized.  We fix this by rewriting the
+            # ignore list before the model is loaded.
+            cfg = AutoConfig.from_pretrained(pretrained_model_name)
+            qcfg = getattr(cfg, "quantization_config", None)
+            if qcfg is not None and hasattr(qcfg, "ignore") and qcfg.ignore:
+                qcfg.ignore = [
+                    f"model.{entry}" if not entry.startswith("model.") else entry
+                    for entry in qcfg.ignore
+                ]
+            model_kwargs["config"] = cfg
+
         model = Gemma3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
