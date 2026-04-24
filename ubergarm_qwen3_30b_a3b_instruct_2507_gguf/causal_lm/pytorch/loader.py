@@ -31,14 +31,14 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.QWEN_3_30B_A3B_INSTRUCT_2507_GGUF: LLMModelConfig(
-            pretrained_model_name="ubergarm/Qwen3-30B-A3B-Instruct-2507-GGUF",
+            pretrained_model_name="Qwen/Qwen3-30B-A3B-GGUF",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.QWEN_3_30B_A3B_INSTRUCT_2507_GGUF
 
-    GGUF_FILE = "Qwen3-30B-A3B-Instruct-2507-IQ4_K.gguf"
+    GGUF_FILE = "Qwen3-30B-A3B-Q4_K_M.gguf"
 
     sample_text = "Give me a short introduction to large language models."
 
