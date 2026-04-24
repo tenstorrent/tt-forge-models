@@ -5,9 +5,12 @@
 VideoChatFlash-Qwen model loader implementation for multimodal video/image conditional generation.
 """
 
+import contextlib
 from typing import Optional
 
+import torch
 from transformers import AutoConfig, AutoModel, AutoTokenizer
+from transformers.modeling_utils import PreTrainedModel
 
 from ...base import ForgeModel
 from ...config import (
@@ -20,6 +23,27 @@ from ...config import (
     StrEnum,
 )
 from ...tools.utils import cast_input_to_type
+
+
+@contextlib.contextmanager
+def _no_meta_init():
+    """Patch get_init_context to skip meta device so .item() works during model init."""
+    original = PreTrainedModel.get_init_context
+
+    @classmethod
+    def _patched(cls, dtype, is_quantized, _is_ds_init_called):
+        contexts = original.__func__(cls, dtype, is_quantized, _is_ds_init_called)
+        return [
+            c
+            for c in contexts
+            if not (isinstance(c, torch.device) and c.type == "meta")
+        ]
+
+    PreTrainedModel.get_init_context = _patched
+    try:
+        yield
+    finally:
+        PreTrainedModel.get_init_context = original
 
 
 class ModelVariant(StrEnum):
@@ -83,17 +107,14 @@ class ModelLoader(ForgeModel):
         # Custom model code uses config.rope_theta but newer transformers dropped this attribute
         if not hasattr(config, "rope_theta"):
             config.rope_theta = 1000000.0
-        # Defer vision tower loading to avoid .item() on meta tensors during meta-device init
-        config.delay_load = True
 
-        model = AutoModel.from_pretrained(
-            str(model_name), config=config, **model_kwargs
-        )
-
-        # Explicitly load the vision tower now that we have real tensors
-        vision_tower = model.model.get_vision_tower()
-        if vision_tower is not None and not vision_tower.is_loaded:
-            vision_tower.load_model()
+        # Skip meta-device init: model's vision tower calls .item() during __init__
+        # which fails on meta tensors. Loading without meta device uses more memory
+        # but avoids the error.
+        with _no_meta_init():
+            model = AutoModel.from_pretrained(
+                str(model_name), config=config, **model_kwargs
+            )
 
         model.eval()
 
