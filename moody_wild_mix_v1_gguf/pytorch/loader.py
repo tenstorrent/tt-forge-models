@@ -80,9 +80,106 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _patch_lumina2_conversion():
+        """Patch diffusers to handle Lumina2 GGUF models with non-standard attention dims.
+
+        diffusers hardcodes q_dim=2304, k_dim=v_dim=768 (for 24q/8kv heads, head_dim=96),
+        but this model uses hidden_size=3840, head_dim=128, 30 heads, no GQA — so the
+        qkv tensor is 11520 = 3*3840 requiring an equal split.
+        """
+        import diffusers.loaders.single_file_utils as sfu
+
+        original_fn = sfu.convert_lumina2_to_diffusers
+
+        def patched_fn(checkpoint, **kwargs):
+            import torch
+
+            converted_state_dict = {}
+            checkpoint.pop("norm_final.weight", None)
+            keys = list(checkpoint.keys())
+            for k in keys:
+                if "model.diffusion_model." in k:
+                    checkpoint[
+                        k.replace("model.diffusion_model.", "")
+                    ] = checkpoint.pop(k)
+
+            LUMINA_KEY_MAP = {
+                "cap_embedder": "time_caption_embed.caption_embedder",
+                "t_embedder.mlp.0": "time_caption_embed.timestep_embedder.linear_1",
+                "t_embedder.mlp.2": "time_caption_embed.timestep_embedder.linear_2",
+                "attention": "attn",
+                ".out.": ".to_out.0.",
+                "k_norm": "norm_k",
+                "q_norm": "norm_q",
+                "w1": "linear_1",
+                "w2": "linear_2",
+                "w3": "linear_3",
+                "adaLN_modulation.1": "norm1.linear",
+            }
+            ATTENTION_NORM_MAP = {
+                "attention_norm1": "norm1.norm",
+                "attention_norm2": "norm2",
+            }
+            CONTEXT_REFINER_MAP = {
+                "context_refiner.0.attention_norm1": "context_refiner.0.norm1",
+                "context_refiner.0.attention_norm2": "context_refiner.0.norm2",
+                "context_refiner.1.attention_norm1": "context_refiner.1.norm1",
+                "context_refiner.1.attention_norm2": "context_refiner.1.norm2",
+            }
+            FINAL_LAYER_MAP = {
+                "final_layer.adaLN_modulation.1": "norm_out.linear_1",
+                "final_layer.linear": "norm_out.linear_2",
+            }
+
+            def convert_lumina_attn_to_diffusers(tensor, diffusers_key):
+                total = tensor.shape[0]
+                # Standard Lumina2: q=2304 (24 heads×96), k=v=768 (8 heads×96)
+                if total == 2304 + 768 + 768:
+                    q_dim, k_dim, v_dim = 2304, 768, 768
+                elif total % 3 == 0:
+                    # Equal split for models without GQA (e.g. 30 heads×128 head_dim)
+                    q_dim = k_dim = v_dim = total // 3
+                else:
+                    raise ValueError(
+                        f"Cannot determine QKV split for tensor dim {total}"
+                    )
+                to_q, to_k, to_v = torch.split(tensor, [q_dim, k_dim, v_dim], dim=0)
+                return {
+                    diffusers_key.replace("qkv", "to_q"): to_q,
+                    diffusers_key.replace("qkv", "to_k"): to_k,
+                    diffusers_key.replace("qkv", "to_v"): to_v,
+                }
+
+            for key in keys:
+                diffusers_key = key
+                for k, v in CONTEXT_REFINER_MAP.items():
+                    diffusers_key = diffusers_key.replace(k, v)
+                for k, v in FINAL_LAYER_MAP.items():
+                    diffusers_key = diffusers_key.replace(k, v)
+                for k, v in ATTENTION_NORM_MAP.items():
+                    diffusers_key = diffusers_key.replace(k, v)
+                for k, v in LUMINA_KEY_MAP.items():
+                    diffusers_key = diffusers_key.replace(k, v)
+
+                if "qkv" in diffusers_key:
+                    converted_state_dict.update(
+                        convert_lumina_attn_to_diffusers(
+                            checkpoint.pop(key), diffusers_key
+                        )
+                    )
+                else:
+                    converted_state_dict[diffusers_key] = checkpoint.pop(key)
+
+            return converted_state_dict
+
+        sfu.convert_lumina2_to_diffusers = patched_fn
+
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
         """Load the GGUF-quantized Lumina2 transformer."""
         from diffusers import GGUFQuantizationConfig, Lumina2Transformer2DModel
+
+        self._patch_lumina2_conversion()
 
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
