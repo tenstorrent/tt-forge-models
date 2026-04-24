@@ -158,6 +158,11 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.INTERN_VL3_5_2B
 
+    _HF_NATIVE_VARIANTS = {
+        ModelVariant.INTERN_VL3_5_1B_HF,
+        ModelVariant.INTERN_VL3_5_GPT_OSS_20B_A4B,
+    }
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.processor = None
