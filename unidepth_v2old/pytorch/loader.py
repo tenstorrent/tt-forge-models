@@ -7,8 +7,6 @@ UniDepth V2old model loader implementation for monocular metric depth estimation
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import torchvision.transforms.functional as TF
 import numpy as np
 from typing import Optional
 from dataclasses import dataclass
@@ -25,59 +23,17 @@ from ...config import (
 )
 from ...base import ForgeModel
 
-IMAGENET_DATASET_MEAN = [0.485, 0.456, 0.406]
-IMAGENET_DATASET_STD = [0.229, 0.224, 0.225]
-
-
-def get_paddings(shape, ratio_bounds):
-    """Compute paddings to satisfy aspect ratio constraints."""
-    H, W = shape
-    ratio = W / H
-    if ratio < ratio_bounds[0]:
-        new_W = int(H * ratio_bounds[0])
-        pad_left = (new_W - W) // 2
-        pad_right = new_W - W - pad_left
-        pad_top, pad_bottom = 0, 0
-    elif ratio > ratio_bounds[1]:
-        new_H = int(W / ratio_bounds[1])
-        pad_top = (new_H - H) // 2
-        pad_bottom = new_H - H - pad_top
-        pad_left, pad_right = 0, 0
-    else:
-        pad_left, pad_right, pad_top, pad_bottom = 0, 0, 0, 0
-    padded_H = H + pad_top + pad_bottom
-    padded_W = W + pad_left + pad_right
-    return (pad_left, pad_right, pad_top, pad_bottom), (padded_H, padded_W)
-
-
-def get_resize_factor(shape, pixels_bounds):
-    """Compute resize factor to satisfy pixel count constraints."""
-    H, W = shape
-    pixels = H * W
-    if pixels < pixels_bounds[0]:
-        factor = (pixels_bounds[0] / pixels) ** 0.5
-    elif pixels > pixels_bounds[1]:
-        factor = (pixels_bounds[1] / pixels) ** 0.5
-    else:
-        factor = 1.0
-    new_H = int(H * factor)
-    new_W = int(W * factor)
-    # Round to multiple of 14 (ViT patch size)
-    new_H = max(14, (new_H // 14) * 14)
-    new_W = max(14, (new_W // 14) * 14)
-    return factor, (new_H, new_W)
-
 
 class UniDepthV2oldWrapper(nn.Module):
-    """Wrapper around UniDepthV2old that takes a preprocessed image tensor
-    and returns depth prediction."""
+    """Wrapper around UniDepthV2old for depth estimation inference."""
 
     def __init__(self, model):
         super().__init__()
         self.model = model
 
     def forward(self, image):
-        outputs = self.model.infer(image)
+        # infer uses antialias interpolation which requires float32
+        outputs = self.model.infer(image.float())
         return outputs["depth"]
 
 
@@ -108,7 +64,6 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self._shape_constraints = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -134,45 +89,21 @@ class ModelLoader(ForgeModel):
         model = UniDepthV2old.from_pretrained(pretrained_model_name)
         model.eval()
 
-        self._shape_constraints = model.shape_constraints
-
         wrapper = UniDepthV2oldWrapper(model)
         wrapper.eval()
 
-        if dtype_override is not None:
-            wrapper = wrapper.to(dtype_override)
-
+        # Keep model in float32: infer() uses antialias interpolation which
+        # requires float32 and fails with bfloat16.
         return wrapper
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         dataset = load_dataset("huggingface/cats-image", split="test")
         image = dataset[0]["image"].convert("RGB")
 
-        rgb = torch.from_numpy(np.array(image)).permute(2, 0, 1).float()
-
-        _, _, H, W = rgb.unsqueeze(0).shape
-
-        ratio_bounds = self._shape_constraints["ratio_bounds"]
-        pixels_bounds = self._shape_constraints["pixels_bounds"]
-
-        paddings, (padded_H, padded_W) = get_paddings((H, W), ratio_bounds)
-        pad_left, pad_right, pad_top, pad_bottom = paddings
-        _, (new_H, new_W) = get_resize_factor((padded_H, padded_W), pixels_bounds)
-
-        rgb = TF.normalize(
-            rgb / 255.0,
-            mean=IMAGENET_DATASET_MEAN,
-            std=IMAGENET_DATASET_STD,
-        )
-        rgb = F.pad(rgb, (pad_left, pad_right, pad_top, pad_bottom), value=0.0)
-        rgb = F.interpolate(
-            rgb.unsqueeze(0), size=(new_H, new_W), mode="bilinear", align_corners=False
-        )
+        # Pass raw [0, 255] float32 values; infer() handles normalization/resizing
+        rgb = torch.from_numpy(np.array(image)).permute(2, 0, 1).float().unsqueeze(0)
 
         if batch_size > 1:
             rgb = rgb.expand(batch_size, -1, -1, -1)
-
-        if dtype_override is not None:
-            rgb = rgb.to(dtype_override)
 
         return rgb
