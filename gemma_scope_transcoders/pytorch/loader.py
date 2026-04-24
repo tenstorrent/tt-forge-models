@@ -170,27 +170,26 @@ class ModelLoader(ForgeModel):
 
         if self._should_use_random_weights():
             # Return dummy token IDs without downloading the gated tokenizer.
-            return {"input_ids": torch.zeros(batch_size, max_length, dtype=torch.long)}
+            # HookedTransformer.forward() takes `input`, not `input_ids`.
+            return {"input": torch.zeros(batch_size, max_length, dtype=torch.long)}
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
         input_prompt = prompt or self.sample_text
-        inputs = self.tokenizer(
+        tokenized = self.tokenizer(
             input_prompt,
             return_tensors="pt",
             max_length=max_length,
             padding=True,
             truncation=True,
         )
-
-        for key in inputs:
-            inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+        # HookedTransformer.forward() takes `input`, not `input_ids`.
+        input_ids = tokenized["input_ids"].repeat_interleave(batch_size, dim=0)
 
         if dtype_override is not None:
             from ...tools.utils import cast_input_to_type
 
-            for key in inputs:
-                inputs[key] = cast_input_to_type(inputs[key], dtype_override)
+            input_ids = cast_input_to_type(input_ids, dtype_override)
 
-        return inputs
+        return {"input": input_ids}
