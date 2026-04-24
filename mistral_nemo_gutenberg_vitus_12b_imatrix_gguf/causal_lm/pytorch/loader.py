@@ -4,30 +4,45 @@
 """
 Mistral-Nemo-Gutenberg-Vitus-12B imatrix GGUF model loader implementation for causal language modeling.
 """
+import threading
 import torch
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+_tls = threading.local()
+
 
 def _fix_gguf_patch():
-    """Re-apply compat shim immediately before from_pretrained calls.
+    """Re-apply compat shims immediately before from_pretrained calls.
 
-    Other GGUF loaders monkey-patch load_gguf_checkpoint at import time
-    without accepting the model_to_load kwarg added in newer transformers.
-    Calling this helper right before each from_pretrained ensures our
-    compat wrapper is always on top of the patch chain.
+    Many GGUF loaders patch load_gguf_checkpoint without accepting the
+    model_to_load kwarg added in newer transformers, stripping it from
+    the call chain.  We save model_to_load in thread-local storage before
+    the broken chain drops it, then restore it in a companion patch on
+    get_gguf_hf_weights_map so that loaders patching that function (e.g.
+    onion008) receive a valid model instead of None.
     """
     if getattr(_gguf_utils.load_gguf_checkpoint, "_model_to_load_compat", False):
         return
-    _current = _gguf_utils.load_gguf_checkpoint
+    _current_load = _gguf_utils.load_gguf_checkpoint
+    _current_get_map = _gguf_utils.get_gguf_hf_weights_map
 
-    def _compat(*args, **kwargs):
-        kwargs.pop("model_to_load", None)
-        return _current(*args, **kwargs)
+    def _compat_load(*args, **kwargs):
+        _tls.model_to_load = kwargs.pop("model_to_load", None)
+        try:
+            return _current_load(*args, **kwargs)
+        finally:
+            _tls.model_to_load = None
 
-    _compat._model_to_load_compat = True
-    _gguf_utils.load_gguf_checkpoint = _compat
+    def _compat_get_map(hf_model, *args, **kwargs):
+        if hf_model is None:
+            hf_model = getattr(_tls, "model_to_load", None)
+        return _current_get_map(hf_model, *args, **kwargs)
+
+    _compat_load._model_to_load_compat = True
+    _gguf_utils.load_gguf_checkpoint = _compat_load
+    _gguf_utils.get_gguf_hf_weights_map = _compat_get_map
 
 
 from ....base import ForgeModel
