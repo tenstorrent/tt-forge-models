@@ -55,8 +55,9 @@ def _patch_gguf_for_lighton_ocr():
     ):
         config = getattr(hf_model, "config", None)
         if config is not None and type(config).__name__ == "LightOnOcrConfig":
-            if model_type is None:
-                model_type = config.text_config.model_type
+            # Always use text_config values: "lighton_ocr" is not a valid GGUF arch,
+            # and earlier patches in the chain may have already set model_type to it.
+            model_type = config.text_config.model_type
             if num_layers is None:
                 num_layers = config.text_config.num_hidden_layers
         return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
