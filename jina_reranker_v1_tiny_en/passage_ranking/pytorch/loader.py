@@ -93,18 +93,18 @@ class ModelLoader(ForgeModel):
         model_kwargs = {
             "config": config,
             "trust_remote_code": True,
-            # JinaBertEncoder does real tensor math in __init__ (alibi), so
-            # meta-device lazy loading (triggered by dtype kwarg in transformers>=5)
-            # must be disabled.
-            "low_cpu_mem_usage": False,
         }
-        if dtype_override is not None:
-            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        # JinaBertEncoder computes the ALiBi tensor in __init__, which requires
+        # real CPU tensors.  Passing dtype to from_pretrained triggers meta-device
+        # lazy loading in transformers>=5 that conflicts with the TT torch
+        # overrides, so we load in float32 and cast afterwards.
         model = AutoModelForSequenceClassification.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        if dtype_override is not None:
+            model = model.to(dtype_override)
         model.eval()
 
         return model
