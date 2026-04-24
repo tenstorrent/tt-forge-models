@@ -5,7 +5,7 @@
 Qari-OCR 0.2.2.1 VL model loader implementation for Arabic document OCR tasks.
 """
 import torch
-from transformers import Qwen2VLForConditionalGeneration, AutoProcessor, AutoConfig
+from transformers import Qwen2VLForConditionalGeneration, AutoProcessor, Qwen2VLConfig
 from typing import Optional
 
 
@@ -130,7 +130,7 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         # Load config and remove quantization_config to avoid bitsandbytes dependency
-        config = AutoConfig.from_pretrained(pretrained_model_name)
+        config = Qwen2VLConfig.from_pretrained(pretrained_model_name)
         if hasattr(config, "quantization_config"):
             delattr(config, "quantization_config")
 
