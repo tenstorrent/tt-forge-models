@@ -5,6 +5,10 @@
 Qwen 3 VL 30B A3B GGUF model loader implementation for image to text.
 """
 
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.configuration_utils as _config_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import (
     Qwen3VLMoeForConditionalGeneration,
     AutoProcessor,
@@ -21,6 +25,95 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+# Keys that stay at the top level of the VL config (not moved to text_config)
+_VL_TOP_LEVEL_KEYS = {"model_type", "architectures"}
+
+
+def _patch_qwen3vlmoe_gguf_support():
+    """Register qwen3vlmoe GGUF architecture for Qwen3-VL-30B-A3B (MoE).
+
+    Transformers 5.x has Qwen3VLMoeForConditionalGeneration but lacks GGUF
+    loading support for qwen3vlmoe. We bridge the gap by:
+    - Registering qwen3vlmoe in GGUF_SUPPORTED_ARCHITECTURES
+    - Adding config/tensor mappings (reuse qwen3_moe)
+    - Transforming the flat GGUF config into the nested text_config structure
+      required by Qwen3VLMoeConfig
+    - Patching get_gguf_hf_weights_map to map qwen3_vl_moe -> qwen3vlmoe and
+      to source num_hidden_layers from text_config
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        TENSOR_PROCESSORS,
+    )
+    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+    if "qwen3vlmoe" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vlmoe")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen3vlmoe"] = dict(
+        GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen3_moe"]
+    )
+
+    if "qwen3moe" in TENSOR_PROCESSORS:
+        TENSOR_PROCESSORS["qwen3vlmoe"] = TENSOR_PROCESSORS["qwen3moe"]
+
+    for alias in ("qwen3vlmoe", "qwen3_vl_moe", "qwen3_vl_moe_text"):
+        if (
+            alias not in GGUF_TO_FAST_CONVERTERS
+            and "qwen3_moe" in GGUF_TO_FAST_CONVERTERS
+        ):
+            GGUF_TO_FAST_CONVERTERS[alias] = GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
+
+    _orig_load = _gguf_utils.load_gguf_checkpoint
+
+    def _patched_load_gguf_checkpoint(*args, **kwargs):
+        result = _orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "qwen3vlmoe":
+            text_cfg = {"model_type": "qwen3_vl_moe_text"}
+            top_cfg = {"model_type": "qwen3_vl_moe"}
+            for k, v in config.items():
+                if k in _VL_TOP_LEVEL_KEYS:
+                    if k != "model_type":
+                        top_cfg[k] = v
+                else:
+                    text_cfg[k] = v
+            top_cfg["text_config"] = text_cfg
+            result["config"] = top_cfg
+        return result
+
+    _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+    _orig_get_map = _gguf_utils.get_gguf_hf_weights_map
+
+    def _patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type in ("qwen3_vl_moe", "qwen3_vl_moe_text"):
+            model_type = "qwen3vlmoe"
+        if num_layers is None:
+            cfg = hf_model.config
+            if hasattr(cfg, "num_hidden_layers"):
+                num_layers = cfg.num_hidden_layers
+            elif hasattr(cfg, "text_config") and hasattr(
+                cfg.text_config, "num_hidden_layers"
+            ):
+                num_layers = cfg.text_config.num_hidden_layers
+        return _orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
+
+_patch_qwen3vlmoe_gguf_support()
 
 
 class ModelVariant(StrEnum):
@@ -80,6 +173,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs["gguf_file"] = self._gguf_file
+        model_kwargs["ignore_mismatched_sizes"] = True
         model_kwargs |= kwargs
 
         # GGUF repos do not ship a processor; use the base model
