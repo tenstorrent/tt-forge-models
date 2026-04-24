@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.M3_ONNX: ModelConfig(
-            pretrained_model_name="onnx-community/bge-reranker-v2-m3-ONNX",
+            pretrained_model_name="BAAI/bge-reranker-v2-m3",
         ),
     }
 
