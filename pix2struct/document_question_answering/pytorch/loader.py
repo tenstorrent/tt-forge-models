@@ -43,6 +43,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self._processor = None
+        self._cached_model = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -78,6 +79,7 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name, **model_kwargs
         )
         model.eval()
+        self._cached_model = model
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
@@ -105,6 +107,13 @@ class ModelLoader(ForgeModel):
             for key in inputs:
                 if torch.is_tensor(inputs[key]) and inputs[key].is_floating_point():
                     inputs[key] = inputs[key].to(dtype_override)
+
+        decoder_start_token_id = (
+            self._cached_model.generation_config.decoder_start_token_id
+        )
+        inputs["decoder_input_ids"] = (
+            torch.ones((batch_size, 1), dtype=torch.long) * decoder_start_token_id
+        )
 
         return inputs
 
