@@ -8,6 +8,53 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+
+def _patch_mxfp4_decompressor():
+    """Patch MXFP4PackedCompressor to support E8M0 scale decoding.
+
+    compressed_tensors raises NotImplementedError for MXFP4 decompression because
+    the E8M0 uint8 scale requires special handling (value = 2^(byte - 127)).
+    This patch implements that conversion so CPU inference is possible.
+    """
+    try:
+        from compressed_tensors.compressors.mxfp4.base import MXFP4PackedCompressor
+        from compressed_tensors.compressors.nvfp4.helpers import unpack_fp4_from_uint8
+        from compressed_tensors.quantization.lifecycle.forward import dequantize
+        import torch as _torch
+
+        @classmethod
+        def decompress(cls, state_dict, scheme):
+            state_dict = state_dict.copy()
+            packed = state_dict.pop("weight_packed")
+            scale = state_dict.get("weight_scale")
+            global_scale = state_dict.get("weight_global_scale", None)
+
+            m, n = packed.shape
+            unpacked = unpack_fp4_from_uint8(packed, m, n * 2)
+
+            # E8M0 uint8 scale: value = 2^(byte - 127)
+            scale_float = _torch.pow(2.0, scale.to(_torch.float32) - 127.0).to(
+                unpacked.dtype
+            )
+
+            state_dict["weight"] = dequantize(
+                x_q=unpacked,
+                scale=scale_float,
+                global_scale=global_scale,
+                dtype=unpacked.dtype,
+            )
+            state_dict["weight_scale"] = _torch.nn.Parameter(
+                scale_float, requires_grad=False
+            )
+            return state_dict
+
+        MXFP4PackedCompressor.decompress = decompress
+    except ImportError:
+        pass
+
+
+_patch_mxfp4_decompressor()
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
