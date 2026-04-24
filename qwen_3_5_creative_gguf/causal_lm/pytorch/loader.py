@@ -72,6 +72,50 @@ def _patch_transformers_qwen35moe_gguf():
         gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
         gguf_utils._qwen35moe_weights_map_patched = True
 
+    # Also patch Qwen2MoeTensorProcessor.process directly so split expert tensors
+    # (ffn_gate_exps, ffn_up_exps) fall back to combined form (ffn_gate_up_exps.weight)
+    # when the tensor_key_mapping doesn't have the split key. This is more robust than
+    # relying on get_gguf_hf_weights_map being called with the right arguments.
+    from transformers.modeling_gguf_pytorch_utils import (
+        Qwen2MoeTensorProcessor,
+        GGUFTensor,
+    )
+    import numpy as _np_patch
+
+    if not getattr(Qwen2MoeTensorProcessor, "_split_expert_patched", False):
+        _orig_proc_process = Qwen2MoeTensorProcessor.process
+
+        def _patched_proc_process(self, weights, name, **kwargs):
+            if m := re.fullmatch(self.GGUF_MOE_WEIGHTS_PATTERN, name):
+                tensor_key_mapping = kwargs.get("tensor_key_mapping")
+                parsed_parameters = kwargs.get("parsed_parameters")
+                if tensor_key_mapping:
+                    key = m["name"]
+                    w = m["w"]
+                    if key not in tensor_key_mapping:
+                        if w in ("gate", "up"):
+                            fallback = (
+                                re.sub(r"ffn_(gate|up)_exps$", "ffn_gate_up_exps", key)
+                                + ".weight"
+                            )
+                            if fallback in tensor_key_mapping:
+                                key = fallback
+                        else:
+                            fallback = key + ".weight"
+                            if fallback in tensor_key_mapping:
+                                key = fallback
+                    if key in tensor_key_mapping:
+                        self._set_moe_expert_tensor(
+                            weights, parsed_parameters, tensor_key_mapping[key], w
+                        )
+                        return GGUFTensor(weights, None, {})
+            if "ffn_gate_inp_shexp" in name:
+                weights = _np_patch.expand_dims(weights, axis=0)
+            return GGUFTensor(weights, name, {})
+
+        Qwen2MoeTensorProcessor.process = _patched_proc_process
+        Qwen2MoeTensorProcessor._split_expert_patched = True
+
     if "qwen35moe" in GGUF_SUPPORTED_ARCHITECTURES:
         return  # Architecture already registered by another loader
 
