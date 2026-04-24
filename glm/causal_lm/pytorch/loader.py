@@ -205,12 +205,16 @@ class ModelLoader(ForgeModel):
         if self._needs_trust_remote_code:
             model_kwargs["trust_remote_code"] = True
 
-        if self.num_layers is not None:
+        if self.num_layers is not None or self.variant == ModelVariant.GLM_5_MXFP4_Q8:
             config_kwargs = {}
             if self._needs_trust_remote_code:
                 config_kwargs["trust_remote_code"] = True
             config = AutoConfig.from_pretrained(pretrained_model_name, **config_kwargs)
-            config.num_hidden_layers = self.num_layers
+            if self.num_layers is not None:
+                config.num_hidden_layers = self.num_layers
+            if self.variant == ModelVariant.GLM_5_MXFP4_Q8:
+                # MLX-quantized model; strip unsupported quant config to load in bfloat16
+                config.quantization_config = None
             model_kwargs["config"] = config
         model_kwargs |= kwargs
 
