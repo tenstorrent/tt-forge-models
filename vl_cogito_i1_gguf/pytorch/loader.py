@@ -34,7 +34,7 @@ def _patch_transformers_qwen2vl_gguf():
         "feed_forward_length": "intermediate_size",
         "embedding_length": "hidden_size",
         "rope.freq_base": "rope_theta",
-        "rope.dimension_sections": None,
+        "rope.dimension_sections": "_rope_dimension_sections",
         "attention.head_count": "num_attention_heads",
         "attention.head_count_kv": "num_key_value_heads",
         "attention.layer_norm_rms_epsilon": "rms_norm_eps",
@@ -58,6 +58,21 @@ def _patch_transformers_qwen2vl_gguf():
         config = result.get("config", {})
         if config.get("model_type") == "qwen2vl":
             config["model_type"] = "qwen2_5_vl"
+            # Derive MRoPE sections from the GGUF rope.dimension_sections field.
+            # qwen2vl.rope.dimension_sections encodes the temporal RoPE section;
+            # the two spatial sections split the remaining rope dimensions equally.
+            temporal = config.pop("_rope_dimension_sections", 16)
+            if isinstance(temporal, list):
+                temporal = temporal[0]
+            hidden_size = config.get("hidden_size", 3584)
+            num_heads = config.get("num_attention_heads", 28)
+            head_dim = hidden_size // num_heads
+            rope_dim = head_dim // 2
+            spatial = (rope_dim - temporal) // 2
+            config["rope_scaling"] = {
+                "type": "mrope",
+                "mrope_section": [temporal, spatial, spatial],
+            }
         return result
 
     gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
