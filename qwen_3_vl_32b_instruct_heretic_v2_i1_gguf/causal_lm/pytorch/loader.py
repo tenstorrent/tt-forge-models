@@ -20,6 +20,68 @@ from ....config import (
 )
 
 
+def _patch_transformers_qwen3vl_gguf():
+    """Monkey-patch transformers to add qwen3vl GGUF architecture support.
+
+    The qwen3vl GGUF architecture (used by Qwen3-VL models) is not natively
+    supported by transformers' GGUF loader. The text decoder uses the same
+    architecture as qwen3, so we map qwen3vl -> qwen3 for causal LM loading.
+
+    Multiple transformers modules hold their own reference to load_gguf_checkpoint
+    via module-level imports, so we must patch all of them.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "qwen3vl" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vl")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen3vl"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+    }
+
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    if "qwen3vl" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["qwen3vl"] = GGUFQwen2Converter
+
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "qwen3vl":
+            config["model_type"] = "qwen3"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    import transformers.configuration_utils as config_utils
+    import transformers.tokenization_utils_tokenizers as tok_utils
+    import transformers.models.auto.tokenization_auto as tok_auto
+
+    config_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+    tok_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+    tok_auto.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
 class ModelVariant(StrEnum):
     """Available Qwen3-VL-32B-Instruct-heretic-v2 i1 GGUF model variants for causal language modeling."""
 
@@ -62,6 +124,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _patch_transformers_qwen3vl_gguf()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -76,6 +139,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _patch_transformers_qwen3vl_gguf()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
