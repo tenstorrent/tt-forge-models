@@ -114,6 +114,10 @@ class ModelLoader(ForgeModel):
         # AWQ variants require explicit CPU device mapping
         if pretrained_model_name == "TechxGenus/DeepSeek-Coder-V2-Lite-Instruct-AWQ":
             model_kwargs["device_map"] = "cpu"
+            # Pre-import gptqmodel before from_pretrained activates the meta device
+            # context (device_map triggers accelerate's meta device context, which
+            # breaks gptqmodel's module-level constant computation via Tensor.item())
+            import gptqmodel  # noqa: F401
 
         model_kwargs |= kwargs
 
