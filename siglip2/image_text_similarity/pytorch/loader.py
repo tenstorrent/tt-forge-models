@@ -160,9 +160,19 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors that can be fed to the model.
         """
+        import sys
         from datasets import load_dataset
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
+        # The ./spacy/ model directory in this repo shadows the real spacy package
+        # as a namespace package when huspacy's loader runs `import spacy` during
+        # test collection. datasets._dill then finds 'spacy' in sys.modules and
+        # calls spacy.Language which fails on the namespace stub. Hide it briefly.
+        _spacy_stub = sys.modules.pop("spacy", None)
+        try:
+            dataset = load_dataset("huggingface/cats-image")["test"]
+        finally:
+            if _spacy_stub is not None:
+                sys.modules["spacy"] = _spacy_stub
         image = dataset[0]["image"]
 
         self.text_prompts = ["a photo of 2 cats", "a photo of 2 dogs"]
