@@ -70,7 +70,7 @@ class ModelLoader(ForgeModel):
         # GGUF weights require the gguf package which is not available.
         # Load architecture from the base model config for compile-only testing.
         config = AutoConfig.from_pretrained("Qwen/Qwen3-VL-8B-Instruct")
-        model = Qwen3VLForConditionalGeneration.from_config(config)
+        model = Qwen3VLForConditionalGeneration._from_config(config)
         if dtype_override is not None:
             model = model.to(dtype_override)
         model.eval()
