@@ -33,7 +33,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.VGGT_1B_COMMERCIAL: ModelConfig(
-            pretrained_model_name="facebook/VGGT-1B-Commercial",
+            pretrained_model_name="facebook/VGGT-1B",
         ),
     }
 
