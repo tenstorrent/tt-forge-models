@@ -6,16 +6,16 @@ Table Transformer model loader implementation for object detection.
 """
 
 import json
+from typing import Optional
 
 import torch
 from huggingface_hub import hf_hub_download
+from PIL import Image
 from transformers import (
-    AutoImageProcessor,
+    DetrImageProcessor,
     TableTransformerConfig,
     TableTransformerForObjectDetection,
 )
-from datasets import load_dataset
-from typing import Optional
 
 from ....base import ForgeModel
 from ....config import (
@@ -70,7 +70,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
-        self.processor = AutoImageProcessor.from_pretrained(
+        self.processor = DetrImageProcessor.from_pretrained(
             self._variant_config.pretrained_model_name
         )
         return self.processor
@@ -108,8 +108,7 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        image = Image.new("RGB", (640, 640), color=(128, 128, 128))
         inputs = self.processor(images=image, return_tensors="pt")
 
         for key in inputs:
