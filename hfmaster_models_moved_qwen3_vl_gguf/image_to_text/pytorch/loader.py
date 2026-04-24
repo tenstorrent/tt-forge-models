@@ -93,6 +93,30 @@ def _patch_transformers_qwen3vl_gguf():
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
+    # Patch get_gguf_hf_weights_map to add qwen3_vl -> qwen3vl arch name mapping.
+    # gguf-py uses 'qwen3vl' but transformers uses model_type 'qwen3_vl'.
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def _patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None and hasattr(hf_model, "config"):
+            model_type = hf_model.config.model_type
+        if model_type == "qwen3_vl":
+            model_type = "qwen3vl"
+        return orig_get_map(
+            hf_model,
+            processor,
+            model_type=model_type,
+            num_layers=num_layers,
+            qual_name=qual_name,
+        )
+
+    gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "get_gguf_hf_weights_map"):
+            mod.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
 
 _patch_transformers_qwen3vl_gguf()
 
