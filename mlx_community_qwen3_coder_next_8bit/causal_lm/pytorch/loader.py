@@ -102,7 +102,8 @@ class ModelLoader(ForgeModel):
         if "config" not in model_kwargs:
             config = AutoConfig.from_pretrained(pretrained_model_name)
             model_kwargs["config"] = config
-        model_kwargs["config"].quantization_config = None
+        if hasattr(model_kwargs["config"], "quantization_config"):
+            delattr(model_kwargs["config"], "quantization_config")
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
