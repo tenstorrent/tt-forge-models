@@ -1,3 +1,1 @@
-gptqmodel
-numpy>=2.3.5
-pytest>=9.0.3
+# gptqmodel is installed via requirements.nodeps.txt to avoid dependency conflicts
