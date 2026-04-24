@@ -5,7 +5,10 @@
 Emu3-Chat model loader implementation for multimodal visual question answering.
 """
 
+import importlib.util
+import os
 import sys
+import types
 import torch
 from PIL import Image
 from typing import Optional
@@ -101,16 +104,37 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        # Import the custom Emu3Processor from the model's remote code
+        # Download all remote Python files to support relative imports
         model_path = snapshot_download(
             self._variant_config.pretrained_model_name,
-            allow_patterns=["processing_emu3.py"],
+            allow_patterns=["*.py"],
         )
-        sys.path.insert(0, model_path)
-        try:
-            from processing_emu3 import Emu3Processor
-        finally:
-            sys.path.remove(model_path)
+
+        # Load processing_emu3 as part of a synthetic package so relative
+        # imports (e.g. `from .utils_emu3 import …`) resolve correctly.
+        pkg_name = "emu3_remote_code"
+        if pkg_name not in sys.modules:
+            pkg = types.ModuleType(pkg_name)
+            pkg.__path__ = [model_path]
+            pkg.__package__ = pkg_name
+            sys.modules[pkg_name] = pkg
+
+        def _load_submodule(name):
+            full_name = f"{pkg_name}.{name}"
+            if full_name not in sys.modules:
+                path = os.path.join(model_path, f"{name}.py")
+                spec = importlib.util.spec_from_file_location(full_name, path)
+                mod = importlib.util.module_from_spec(spec)
+                mod.__package__ = pkg_name
+                sys.modules[full_name] = mod
+                spec.loader.exec_module(mod)
+
+        utils_path = os.path.join(model_path, "utils_emu3.py")
+        if os.path.exists(utils_path):
+            _load_submodule("utils_emu3")
+        _load_submodule("processing_emu3")
+
+        Emu3Processor = sys.modules[f"{pkg_name}.processing_emu3"].Emu3Processor
 
         self.processor = Emu3Processor(
             self.image_processor, self.image_tokenizer, self.tokenizer
