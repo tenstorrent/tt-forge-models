@@ -90,7 +90,7 @@ class ModelLoader(ForgeModel):
         gguf_file = _GGUF_FILES[self._variant]
         repo_id = self._variant_config.pretrained_model_name
         self._transformer = QwenImageTransformer2DModel.from_single_file(
-            f"https://huggingface.co/{repo_id}/resolve/main/{gguf_file}",
+            f"https://huggingface.co/{repo_id}/blob/main/{gguf_file}",
             quantization_config=quantization_config,
             config=CONFIG_REPO,
             subfolder="transformer",
