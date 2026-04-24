@@ -12,22 +12,27 @@ import inspect
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 
 
+def _is_real_load_gguf(fn):
+    """Return True if fn is the real transformers load_gguf_checkpoint."""
+    try:
+        return "modeling_gguf_pytorch_utils" in inspect.getfile(fn)
+    except (TypeError, OSError):
+        return False
+
+
 def _find_real_load_gguf(fn, _depth=0):
     """Traverse monkey-patch closure chains to find the real transformers function."""
     if _depth > 20:
         return fn
-    try:
-        if "modeling_gguf_pytorch_utils" in inspect.getfile(fn):
-            return fn
-    except (TypeError, OSError):
-        pass
+    if _is_real_load_gguf(fn):
+        return fn
     if fn.__closure__:
         for cell in fn.__closure__:
             try:
                 val = cell.cell_contents
                 if callable(val) and hasattr(val, "__module__"):
                     result = _find_real_load_gguf(val, _depth + 1)
-                    if result is not val:
+                    if _is_real_load_gguf(result):
                         return result
             except ValueError:
                 pass
