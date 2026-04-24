@@ -7,64 +7,81 @@ MambaVision model loader implementation for image classification.
 import sys
 import types
 
-# mamba_ssm requires CUDA to build; inject a pure-PyTorch stub when absent
-try:
-    import mamba_ssm  # noqa: F401
-except ImportError:
-    import torch
-    import torch.nn.functional as F
+import torch
+import torch.nn.functional as F
 
-    def _selective_scan_fn(
-        u,
-        delta,
-        A,
-        B,
-        C,
-        D=None,
-        z=None,
-        delta_bias=None,
-        delta_softplus=False,
-        return_last_state=None,
-    ):
-        dtype_in = u.dtype
-        u = u.float()
-        delta = delta.float()
-        if delta_bias is not None:
-            delta = delta + delta_bias[..., None].float()
-        if delta_softplus:
-            delta = F.softplus(delta)
-        A = A.float()
-        B = B.float()
-        C = C.float()
-        batch, dim, seq_len = u.shape
-        dstate = A.shape[1]
-        deltaA = torch.exp(torch.einsum("bdl,dn->bdln", delta, A))
-        deltaB_u = torch.einsum("bdl,bnl,bdl->bdln", delta, B, u)
-        x = torch.zeros(batch, dim, dstate, dtype=torch.float32, device=u.device)
-        ys = []
-        for i in range(seq_len):
-            x = deltaA[:, :, i] * x + deltaB_u[:, :, i]
-            y = torch.einsum("bdn,bn->bd", x, C[:, :, i])
-            ys.append(y)
-        y = torch.stack(ys, dim=2)
-        out = y if D is None else y + u * D.float().unsqueeze(-1)
-        if z is not None:
-            out = out * F.silu(z.float())
-        out = out.to(dtype=dtype_in)
-        if return_last_state:
-            return out, x
-        return out
 
-    _mamba_ssm_pkg = types.ModuleType("mamba_ssm")
-    _mamba_ssm_ops = types.ModuleType("mamba_ssm.ops")
-    _mamba_ssm_iface = types.ModuleType("mamba_ssm.ops.selective_scan_interface")
-    _mamba_ssm_iface.selective_scan_fn = _selective_scan_fn
-    _mamba_ssm_iface.selective_scan_ref = _selective_scan_fn
-    _mamba_ssm_ops.selective_scan_interface = _mamba_ssm_iface
-    _mamba_ssm_pkg.ops = _mamba_ssm_ops
-    sys.modules["mamba_ssm"] = _mamba_ssm_pkg
-    sys.modules["mamba_ssm.ops"] = _mamba_ssm_ops
-    sys.modules["mamba_ssm.ops.selective_scan_interface"] = _mamba_ssm_iface
+def _selective_scan_fn(
+    u,
+    delta,
+    A,
+    B,
+    C,
+    D=None,
+    z=None,
+    delta_bias=None,
+    delta_softplus=False,
+    return_last_state=None,
+):
+    """Pure-PyTorch selective scan for CPU/XLA tracing (mamba_ssm CUDA fallback)."""
+    dtype_in = u.dtype
+    u = u.float()
+    delta = delta.float()
+    if delta_bias is not None:
+        delta = delta + delta_bias[..., None].float()
+    if delta_softplus:
+        delta = F.softplus(delta)
+    A = A.float()
+    B = B.float()
+    C = C.float()
+    batch, dim, seq_len = u.shape
+    dstate = A.shape[1]
+    deltaA = torch.exp(torch.einsum("bdl,dn->bdln", delta, A))
+    deltaB_u = torch.einsum("bdl,bnl,bdl->bdln", delta, B, u)
+    x = torch.zeros(batch, dim, dstate, dtype=torch.float32, device=u.device)
+    ys = []
+    for i in range(seq_len):
+        x = deltaA[:, :, i] * x + deltaB_u[:, :, i]
+        y = torch.einsum("bdn,bn->bd", x, C[:, :, i])
+        ys.append(y)
+    y = torch.stack(ys, dim=2)
+    out = y if D is None else y + u * D.float().unsqueeze(-1)
+    if z is not None:
+        out = out * F.silu(z.float())
+    out = out.to(dtype=dtype_in)
+    if return_last_state:
+        return out, x
+    return out
+
+
+def _ensure_mamba_ssm_stub():
+    """Inject a pure-PyTorch mamba_ssm stub so modeling_mambavision.py can load.
+
+    mamba_ssm requires CUDA extensions that cannot be installed in CPU/XLA
+    environments.  We register fake module objects in sys.modules so that
+    ``from mamba_ssm.ops.selective_scan_interface import selective_scan_fn``
+    resolves correctly regardless of whether the real package is present.
+    """
+    iface_key = "mamba_ssm.ops.selective_scan_interface"
+    iface = sys.modules.get(iface_key)
+    if iface is not None and hasattr(iface, "selective_scan_fn"):
+        return
+
+    _pkg = types.ModuleType("mamba_ssm")
+    _ops = types.ModuleType("mamba_ssm.ops")
+    _ops.__path__ = []
+    _iface = types.ModuleType(iface_key)
+    _iface.selective_scan_fn = _selective_scan_fn
+    _iface.selective_scan_ref = _selective_scan_fn
+    _ops.selective_scan_interface = _iface
+    _pkg.ops = _ops
+    _pkg.__path__ = []
+    sys.modules.setdefault("mamba_ssm", _pkg)
+    sys.modules.setdefault("mamba_ssm.ops", _ops)
+    sys.modules[iface_key] = _iface
+
+
+_ensure_mamba_ssm_stub()
 
 from transformers import AutoModelForImageClassification
 from timm.data.transforms_factory import create_transform
@@ -122,6 +139,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _ensure_mamba_ssm_stub()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {"trust_remote_code": True}
