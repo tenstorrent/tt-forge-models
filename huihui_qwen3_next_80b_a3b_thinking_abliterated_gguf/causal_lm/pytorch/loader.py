@@ -9,6 +9,75 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
+
+
+def _patch_transformers_qwen3next_gguf():
+    """Monkey-patch transformers to add qwen3next GGUF architecture support.
+
+    Qwen3-Next uses the 'qwen3next' architecture identifier in GGUF metadata.
+    Transformers 5.x lacks GGUF loading support for qwen3next. We bridge the
+    gap by registering the config/tensor mappings and remapping model_type to
+    qwen3_moe (the MoE text backbone that shares the same architecture).
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        TENSOR_PROCESSORS,
+        Qwen2MoeTensorProcessor,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "qwen3next" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen3next")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen3next"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.key_length": "head_dim",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+        "expert_count": "num_experts",
+        "expert_used_count": "num_experts_per_tok",
+    }
+
+    TENSOR_PROCESSORS["qwen3next"] = Qwen2MoeTensorProcessor
+
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    if "qwen3next" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["qwen3next"] = GGUFQwen2Converter
+
+    _orig_load_gguf_checkpoint = gguf_utils.load_gguf_checkpoint
+
+    def _patched_load_gguf_checkpoint(*args, **kwargs):
+        result = _orig_load_gguf_checkpoint(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "qwen3next":
+            config["model_type"] = "qwen3_moe"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+    import transformers.configuration_utils as config_utils
+    import transformers.models.auto.tokenization_auto as tok_auto
+
+    config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    tok_auto.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+
+_patch_transformers_qwen3next_gguf()
+
 from ....config import (
     LLMModelConfig,
     ModelInfo,
