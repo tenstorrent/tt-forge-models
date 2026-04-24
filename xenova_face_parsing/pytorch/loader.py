@@ -11,8 +11,8 @@ a PyTorch model.
 """
 
 import torch
+from PIL import Image
 from transformers import SegformerImageProcessor, SegformerForSemanticSegmentation
-from datasets import load_dataset
 from typing import Optional
 
 from ...base import ForgeModel
@@ -125,8 +125,7 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        image = Image.new("RGB", (512, 512), color=(128, 128, 128))
         inputs = self.processor(images=image, return_tensors="pt")
 
         if dtype_override is not None:
