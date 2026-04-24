@@ -6,6 +6,7 @@ Qwen3-24B-A4B Freedom HQ Thinking Abliterated Heretic NEOMAX Imatrix GGUF model 
 """
 
 import torch
+import transformers.integrations.ggml as _ggml
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -19,6 +20,21 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_qwen3moe_expert_ff_length():
+    """Add missing expert_feed_forward_length -> moe_intermediate_size to qwen3_moe GGUF config mapping.
+
+    The qwen3_moe entry in GGUF_CONFIG_MAPPING lacks this key, so moe_intermediate_size
+    is not set from the GGUF metadata and the model is initialised with the wrong expert
+    intermediate size, causing a weight-shape mismatch at load time.
+    """
+    qwen3_moe_config = _ggml.GGUF_CONFIG_MAPPING.get("qwen3_moe", {})
+    if "expert_feed_forward_length" not in qwen3_moe_config:
+        qwen3_moe_config["expert_feed_forward_length"] = "moe_intermediate_size"
+
+
+_patch_qwen3moe_expert_ff_length()
 
 
 class ModelVariant(StrEnum):
