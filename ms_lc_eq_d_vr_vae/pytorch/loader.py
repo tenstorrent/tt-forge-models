@@ -25,6 +25,7 @@ Available variants (FLUX-based, 16 latent channels):
 from typing import Any, Optional
 
 import torch
+import torch.nn as nn
 from diffusers import AutoencoderKL
 from huggingface_hub import hf_hub_download
 
@@ -89,6 +90,17 @@ _VARIANT_FILENAMES = {
 _FLUX_VARIANTS = {ModelVariant.FLUX, ModelVariant.PAD_FLUX_EQ_V2_B1}
 
 
+class _VaeDecoder(nn.Module):
+    """Wraps AutoencoderKL to expose only the decode path as forward."""
+
+    def __init__(self, vae: AutoencoderKL):
+        super().__init__()
+        self.vae = vae
+
+    def forward(self, latent: torch.Tensor) -> torch.Tensor:
+        return self.vae.decode(latent).sample
+
+
 class ModelLoader(ForgeModel):
     """MS-LC-EQ-D-VR VAE model loader."""
 
@@ -100,6 +112,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self._vae = None
+        self._decoder = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -144,9 +157,11 @@ class ModelLoader(ForgeModel):
                 )
             self._vae = self._vae.to(dtype=dtype)
             self._vae.eval()
+            self._decoder = _VaeDecoder(self._vae)
         elif dtype_override is not None:
             self._vae = self._vae.to(dtype=dtype_override)
-        return self._vae
+            self._decoder = _VaeDecoder(self._vae)
+        return self._decoder
 
     def load_inputs(
         self, dtype_override: Optional[torch.dtype] = None, **kwargs
