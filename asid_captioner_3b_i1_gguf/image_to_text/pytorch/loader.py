@@ -199,21 +199,26 @@ class ModelLoader(ForgeModel):
         model = Qwen2VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        # GGUF config loading does not populate rope_parameters["mrope_section"].
+        # Qwen2VL-3B uses [16, 24, 24] which sums to rope_dim (head_dim // 2 = 64).
+        rp = model.config.text_config.rope_parameters
+        if "mrope_section" not in rp:
+            rp["mrope_section"] = [16, 24, 24]
+
         model.eval()
 
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
+        # Use text-only inputs: the GGUF format only contains text LLM weights
+        # (gguf-py has no vision weight mapping for qwen2vl) so the visual
+        # encoder stays at initialization values.  Skipping pixel_values avoids
+        # the visual-encoder forward path entirely and lets the text model compile.
         messages = [
             {
                 "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
-                    },
-                    {"type": "text", "text": "Describe this image."},
-                ],
+                "content": "Describe an image in detail.",
             }
         ]
 
