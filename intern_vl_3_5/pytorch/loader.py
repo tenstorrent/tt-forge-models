@@ -214,23 +214,35 @@ class ModelLoader(ForgeModel):
     def _load_custom_model(self, pretrained_model_name, model_kwargs):
         """Load a custom trust_remote_code model while avoiding meta tensor issues.
 
-        transformers 5.x unconditionally wraps model __init__ in torch.device("meta") context.
-        Custom InternVL code calls torch.linspace(...).item() during __init__ to compute drop
-        path rates, which fails on meta tensors. We patch Tensor.item() to return 0.0 for meta
-        tensors — drop path rates are only used during training, so this is safe for inference.
+        Two issues with InternVL's custom code and transformers 5.x:
+        1. torch.linspace(...).item() in model __init__ fails under the mandatory meta device
+           context that transformers uses during model instantiation. We patch Tensor.item() to
+           return 0.0 for meta tensors — drop path rates are only used during training.
+        2. InternVLChatModel doesn't call self.post_init(), so all_tied_weights_keys is never
+           set. We patch _adjust_tied_keys_with_tied_pointers to initialize it to {} if missing.
         """
+        from transformers import PreTrainedModel
+
         _orig_item = torch.Tensor.item
+        _orig_adjust = PreTrainedModel._adjust_tied_keys_with_tied_pointers
 
         def _safe_item(self):
             if self.is_meta:
                 return 0.0
             return _orig_item(self)
 
+        def _safe_adjust(self, *args, **kwargs):
+            if not hasattr(self, "all_tied_weights_keys"):
+                self.all_tied_weights_keys = {}
+            return _orig_adjust(self, *args, **kwargs)
+
         torch.Tensor.item = _safe_item
+        PreTrainedModel._adjust_tied_keys_with_tied_pointers = _safe_adjust
         try:
             return AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         finally:
             torch.Tensor.item = _orig_item
+            PreTrainedModel._adjust_tied_keys_with_tied_pointers = _orig_adjust
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
