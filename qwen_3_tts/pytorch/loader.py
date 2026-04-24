@@ -47,6 +47,12 @@ class ModelVariant(StrEnum):
     QWEN3_TTS_1_7B_VOICE_DESIGN_MLX_8BIT = "1.7B-VoiceDesign-MLX-8bit"
 
 
+# MLX-quantized variants cannot be loaded by transformers; map to the equivalent
+# non-quantized HuggingFace checkpoint instead.
+_EXECUTORCH_PYTORCH_EQUIVALENT = {
+    ModelVariant.QWEN3_TTS_1_7B_VOICE_DESIGN_MLX_8BIT: "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+}
+
 # Talker hidden sizes per variant for constructing dummy inputs.
 _TALKER_HIDDEN_SIZE = {
     ModelVariant.QWEN3_TTS_0_6B_BASE: 1024,
