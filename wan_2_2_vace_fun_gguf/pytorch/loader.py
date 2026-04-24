@@ -82,7 +82,7 @@ class ModelLoader(ForgeModel):
         _dequantize_gguf_and_restore_linear(self.transformer)
 
         for param in self.transformer.parameters():
-            if param.data.dtype == torch.float32:
+            if param.data.dtype in (torch.float32, torch.float16):
                 param.data = param.data.to(compute_dtype)
 
         return self.transformer
