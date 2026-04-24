@@ -142,7 +142,7 @@ class ModelLoader(ForgeModel):
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         self._transformer = HunyuanVideo15Transformer3DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/resolve/main/{gguf_file}",
+            f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
             config=CONFIG_REPO,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
