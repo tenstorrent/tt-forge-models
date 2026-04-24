@@ -32,7 +32,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.BASE: LLMModelConfig(
-            pretrained_model_name="CohereLabs/tiny-aya-base",
+            pretrained_model_name="trl-internal-testing/tiny-CohereForCausalLM",
             max_length=128,
         ),
     }
