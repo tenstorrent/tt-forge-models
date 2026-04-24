@@ -16,6 +16,7 @@ try:
     import fla.layers.gla as _fla_layers_gla
     import fla.modules.layernorm as _fla_layernorm
     import fla.modules.fused_norm_gate as _fla_norm_gate
+    import fla.modules.activations as _fla_activations
     from fla.models.gla.configuration_gla import GLAConfig
     from fla.models.gla.modeling_gla import GLAForCausalLM
     from fla.ops.gla.naive import naive_recurrent_gla as _naive_recurrent_gla
@@ -146,6 +147,13 @@ try:
     _fla_layers_gla.fused_recurrent_gla = _naive_gla_op
     _fla_layers_gla.fused_chunk_gla = _naive_gla_op
     _fla_layers_gla.chunk_gla = _naive_gla_op
+
+    # GatedMLP uses SwiGLU which calls triton; replace with pure PyTorch.
+    def _torch_swiglu_fwd(x, y, output_contiguous=False):
+        z = F.silu(x) * y
+        return z.contiguous() if output_contiguous else z
+
+    _fla_activations.swiglu_fwd = _torch_swiglu_fwd
 
 except ImportError:
     pass
