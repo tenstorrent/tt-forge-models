@@ -4,6 +4,17 @@
 """
 solidrust Llama-3.1-8B-Lexi-Uncensored-V2 AWQ model loader implementation for causal language modeling.
 """
+# gptqmodel expects no_init_weights in transformers.modeling_utils; it moved to
+# transformers.initialization in transformers 5.x
+import transformers.modeling_utils as _transformers_modeling_utils
+
+if not hasattr(_transformers_modeling_utils, "no_init_weights"):
+    from transformers.initialization import (
+        no_init_weights as _no_init_weights,
+    )
+
+    _transformers_modeling_utils.no_init_weights = _no_init_weights
+
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
