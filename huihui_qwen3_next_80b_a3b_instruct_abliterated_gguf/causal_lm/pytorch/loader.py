@@ -95,14 +95,21 @@ def _patched_load_gguf_checkpoint(*args, **kwargs):
     return result
 
 
-def _patched_get_gguf_hf_weights_map(hf_model, processor, model_type=None, **kwargs):
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name="", **kwargs
+):
     """Wrap get_gguf_hf_weights_map to map qwen3_next HF model → qwen3next gguf-py arch."""
     if model_type is None and hasattr(hf_model, "config"):
         model_type = hf_model.config.model_type
     if model_type == "qwen3_next":
         model_type = "qwen3next"
     return _orig_get_gguf_hf_weights_map(
-        hf_model, processor, model_type=model_type, **kwargs
+        hf_model,
+        processor,
+        model_type=model_type,
+        num_layers=num_layers,
+        qual_name=qual_name,
+        **kwargs,
     )
 
 
