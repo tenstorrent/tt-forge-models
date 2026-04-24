@@ -115,17 +115,33 @@ class ModelLoader(ForgeModel):
             GGUFQuantizationConfig,
             WanTransformer3DModel,
         )
+        import diffusers.models.model_loading_utils as _mlu
 
-        compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        _orig_load = _mlu.load_model_dict_into_meta
 
-        gguf_file = _GGUF_FILES[self._variant]
-        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+        def _patched_load(model, state_dict, **kwargs):
+            # GGUF stores scale_shift_table as [6, dim] but model expects [1, 6, dim]
+            for key in list(state_dict.keys()):
+                if "scale_shift_table" in key and state_dict[key].ndim == 2:
+                    state_dict[key] = state_dict[key].unsqueeze(0)
+            return _orig_load(model, state_dict, **kwargs)
 
-        self._transformer = WanTransformer3DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/{gguf_file}",
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
+        _mlu.load_model_dict_into_meta = _patched_load
+        try:
+            compute_dtype = (
+                dtype_override if dtype_override is not None else torch.bfloat16
+            )
+
+            gguf_file = _GGUF_FILES[self._variant]
+            quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+
+            self._transformer = WanTransformer3DModel.from_single_file(
+                f"https://huggingface.co/{GGUF_REPO}/{gguf_file}",
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
+            )
+        finally:
+            _mlu.load_model_dict_into_meta = _orig_load
 
         return self._transformer
 
