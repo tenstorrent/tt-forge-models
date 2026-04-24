@@ -206,7 +206,11 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def get_mesh_config(self, num_devices: int):
-        mesh_shape = (1, num_devices)
+        if num_devices == 32:  # Galaxy
+            mesh_shape = (4, 8)
+        else:
+            mesh_shape = (2, num_devices // 2)
+
         if self._variant not in [ModelVariant.QWEN_3_4B]:
             assert (
                 self.config.num_attention_heads % mesh_shape[1] == 0
@@ -218,16 +222,31 @@ class ModelLoader(ForgeModel):
             return None
 
         shard_specs = {}
-        for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+        if self._variant not in [ModelVariant.QWEN_3_30B_A3B]:
+            for layer in model.model.layers:
+                shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+                shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+                shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
 
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-        shard_specs[model.lm_head.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+            shard_specs[model.lm_head.weight] = ("model", "batch")
+        else:
+            # MoE variant: mlp is Qwen3MoeSparseMoeBlock with gate + experts (each expert has gate_proj, up_proj, down_proj)
+            for layer in model.model.layers:
+                shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+
+                shard_specs[layer.mlp.gate.weight] = ("model", "batch")
+                for expert in layer.mlp.experts:
+                    shard_specs[expert.gate_proj.weight] = ("model", "batch")
+                    shard_specs[expert.up_proj.weight] = ("model", "batch")
+                    shard_specs[expert.down_proj.weight] = ("batch", "model")
+            shard_specs[model.lm_head.weight] = ("model", "batch")
 
         return shard_specs
 
