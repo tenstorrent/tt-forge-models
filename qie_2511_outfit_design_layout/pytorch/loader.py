@@ -12,11 +12,10 @@ Available variants:
 - QIE_2511_OUTFIT_DESIGN_LAYOUT: Outfit Design Layout LoRA (bf16)
 """
 
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 import torch
 from diffusers import DiffusionPipeline
-from diffusers.utils import load_image
 
 from ...base import ForgeModel
 from ...config import (
@@ -51,7 +50,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline = None
+        self._transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -67,28 +66,66 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load the Qwen-Image-Edit-2511 pipeline with Outfit Design Layout LoRA.
+        """Load the Qwen-Image-Edit-2511 transformer with Outfit Design Layout LoRA.
 
         Returns:
-            DiffusionPipeline: The pipeline with LoRA adapter applied.
+            QwenImageTransformer2DModel: The transformer with LoRA weights fused.
         """
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        self.pipeline = DiffusionPipeline.from_pretrained(
+        pipe = DiffusionPipeline.from_pretrained(
             self._variant_config.pretrained_model_name,
             torch_dtype=dtype,
             **kwargs,
         )
-        self.pipeline.load_lora_weights(LORA_REPO_ID)
-        return self.pipeline
+        pipe.load_lora_weights(LORA_REPO_ID)
+        pipe.fuse_lora()
+        self._transformer = pipe.transformer
+        self._transformer.eval()
+        del pipe
+        return self._transformer
 
-    def load_inputs(self, **kwargs) -> Any:
-        """Load sample inputs for the image editing pipeline.
+    def load_inputs(self, **kwargs) -> Dict[str, Any]:
+        """Prepare synthetic tensor inputs for the QwenImageTransformer2DModel.
+
+        Uses a small 64x64 image size. The pipeline concatenates noisy latents
+        with reference image latents along the sequence dimension, so
+        hidden_states has twice the per-image sequence length.
 
         Returns:
-            dict: A dict with 'image' and 'prompt' keys.
+            dict matching QwenImageTransformer2DModel.forward() signature.
         """
-        image = load_image(
-            "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/cat.png"
+        if self._transformer is None:
+            self.load_model()
+
+        dtype = next(self._transformer.parameters()).dtype
+        batch_size = 1
+
+        # For a 64x64 image: vae_scale_factor=8, patch_size=2
+        # packed spatial dims: 64 // (8 * 2) = 4
+        frame, h_packed, w_packed = 1, 4, 4
+        in_channels = self._transformer.config.in_channels  # 64
+        joint_attention_dim = self._transformer.config.joint_attention_dim  # 3584
+
+        img_seq_per = frame * h_packed * w_packed  # 16 tokens per image
+        # editing pipeline concatenates noisy latents + reference image latents
+        total_img_seq = img_seq_per * 2
+
+        hidden_states = torch.randn(batch_size, total_img_seq, in_channels, dtype=dtype)
+
+        txt_seq_len = 32
+        encoder_hidden_states = torch.randn(
+            batch_size, txt_seq_len, joint_attention_dim, dtype=dtype
         )
-        prompt = "Add the design inside the red marked area."
-        return {"image": image, "prompt": prompt}
+        encoder_hidden_states_mask = torch.ones(batch_size, txt_seq_len, dtype=dtype)
+        timestep = torch.tensor([0.5] * batch_size, dtype=dtype)
+        img_shapes = [
+            [(frame, h_packed, w_packed), (frame, h_packed, w_packed)]
+        ] * batch_size
+
+        return {
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "encoder_hidden_states_mask": encoder_hidden_states_mask,
+            "timestep": timestep,
+            "img_shapes": img_shapes,
+        }
