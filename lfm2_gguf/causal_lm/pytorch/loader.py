@@ -34,6 +34,10 @@ def _patch_lfm2moe_gguf_support():
     import transformers.modeling_gguf_pytorch_utils as _gguf_utils
     import transformers.models.auto.tokenization_auto as _auto_tokenizer
     import transformers.tokenization_utils_tokenizers as _tok_utils
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFLlamaConverter,
+    )
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
         GGUF_TO_TRANSFORMERS_MAPPING,
@@ -63,6 +67,7 @@ def _patch_lfm2moe_gguf_support():
     }
     GGUF_SUPPORTED_ARCHITECTURES.append("lfm2moe")
     TENSOR_PROCESSORS["lfm2moe"] = Lfm2TensorProcessor
+    GGUF_TO_FAST_CONVERTERS["lfm2_moe"] = GGUFLlamaConverter
 
     def _patched_load_gguf_checkpoint(*args, **kwargs):
         result = _orig_load_gguf_checkpoint(*args, **kwargs)
