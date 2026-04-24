@@ -5,6 +5,7 @@
 NVIDIA Nemotron Nano 9B v2 GGUF model loader implementation for causal language modeling.
 """
 import importlib.metadata
+import numpy as np
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -16,6 +17,126 @@ import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
 )
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+
+class NemotronHTensorProcessor(_gguf_utils.TensorProcessor):
+    """Tensor processor for NVIDIA Nemotron-H GGUF checkpoints.
+
+    Handles the depthwise Conv1d weight shape mismatch: GGUF stores
+    ssm_conv1d weights as [d, L] but PyTorch Conv1d expects [d, 1, L].
+    """
+
+    def __init__(self, config=None):
+        super().__init__(config=config)
+
+    def process(self, weights, name, **kwargs):
+        if "ssm_conv1d.weight" in name:
+            weights = np.expand_dims(weights, axis=1)
+        return _gguf_utils.GGUFTensor(weights, name, {})
+
+
+def _patch_nemotron_h_support():
+    """Register the nemotron_h GGUF architecture in transformers.
+
+    NVIDIA Nemotron-H is a hybrid Mamba2 + attention architecture added to
+    transformers 5.6.x as NemotronH but GGUF loading was not wired up.
+    This function adds the necessary config key mapping, tensor processor,
+    and fast-tokenizer converter so that load_gguf_checkpoint can handle it.
+    """
+    if "nemotron_h" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]:
+        return
+
+    _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]["nemotron_h"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": None,  # per-layer array; handled in post-processing
+        "attention.layer_norm_rms_epsilon": "layer_norm_epsilon",
+        "attention.layer_norm_epsilon": None,
+        "vocab_size": "vocab_size",
+        "feed_forward_length": None,  # per-layer array; handled in post-processing
+        "ssm.conv_kernel": "conv_kernel",
+        "ssm.state_size": "ssm_state_size",
+        "ssm.group_count": "n_groups",
+        "ssm.inner_size": None,  # handled in post-processing
+        "ssm.time_step_rank": None,  # handled in post-processing as mamba_num_heads
+        "rope.scaling.finetuned": None,
+        "attention.key_length": "head_dim",
+        "attention.value_length": None,
+    }
+
+    _gguf_utils.TENSOR_PROCESSORS["nemotron_h"] = NemotronHTensorProcessor
+
+    if "nemotron" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "nemotron_h", GGUF_TO_FAST_CONVERTERS["nemotron"]
+        )
+
+    # GGUF_SUPPORTED_ARCHITECTURES is a list derived from config keys at import
+    # time; update it in-place so the architecture check passes.
+    supported = _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES
+    if "nemotron_h" not in supported:
+        supported.append("nemotron_h")
+
+
+def _add_nemotron_h_derived_config(gguf_path, config_dict):
+    """Post-process the parsed config to add nemotron_h fields that require
+    per-layer GGUF array data (layers_block_type, intermediate_size, etc.)."""
+    from gguf import GGUFReader
+
+    reader = GGUFReader(gguf_path)
+
+    def _get_field_vals(field_name):
+        field = reader.fields.get(field_name)
+        if field is None:
+            return None
+        vals = [
+            field.parts[d].tolist()
+            if hasattr(field.parts[d], "tolist")
+            else field.parts[d]
+            for d in field.data
+        ]
+        return [v[0] if isinstance(v, list) else v for v in vals]
+
+    ff_values = _get_field_vals("nemotron_h.feed_forward_length")
+    kv_values = _get_field_vals("nemotron_h.attention.head_count_kv")
+
+    if ff_values is not None and kv_values is not None:
+        layers_block_type = []
+        for ff, kv in zip(ff_values, kv_values):
+            if kv > 0:
+                layers_block_type.append("attention")
+            elif ff > 0:
+                layers_block_type.append("mlp")
+            else:
+                layers_block_type.append("mamba")
+        config_dict["layers_block_type"] = layers_block_type
+
+        nonzero_ff = [v for v in ff_values if v > 0]
+        if nonzero_ff:
+            config_dict["intermediate_size"] = max(nonzero_ff)
+
+        nonzero_kv = [v for v in kv_values if v > 0]
+        if nonzero_kv:
+            config_dict["num_key_value_heads"] = max(nonzero_kv)
+
+    time_step_rank_vals = _get_field_vals("nemotron_h.ssm.time_step_rank")
+    ssm_inner_size_vals = _get_field_vals("nemotron_h.ssm.inner_size")
+
+    if time_step_rank_vals is not None:
+        mamba_num_heads = int(time_step_rank_vals[0])
+        config_dict["mamba_num_heads"] = mamba_num_heads
+
+        if ssm_inner_size_vals is not None:
+            ssm_inner_size = int(ssm_inner_size_vals[0])
+            if mamba_num_heads > 0:
+                config_dict["mamba_head_dim"] = ssm_inner_size // mamba_num_heads
+
+
+_patch_nemotron_h_support()
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
@@ -26,6 +147,9 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
     cached mapping doesn't include it, causing is_gguf_available() to raise
     InvalidVersion. This patch refreshes the mapping and clears the lru_cache
     so the check re-evaluates with the freshly installed package.
+
+    Additionally adds nemotron_h post-processing to derive layers_block_type
+    and other per-layer config fields from the GGUF metadata arrays.
     """
     from transformers.utils import import_utils as _import_utils
 
@@ -34,7 +158,13 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
     )
     if hasattr(_import_utils.is_gguf_available, "cache_clear"):
         _import_utils.is_gguf_available.cache_clear()
-    return _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+
+    if result.get("config", {}).get("model_type") == "nemotron_h":
+        _add_nemotron_h_derived_config(gguf_path, result["config"])
+
+    return result
 
 
 _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
