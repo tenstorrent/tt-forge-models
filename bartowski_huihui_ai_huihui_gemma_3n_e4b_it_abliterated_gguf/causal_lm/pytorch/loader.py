@@ -7,7 +7,15 @@ bartowski/huihui-ai_Huihui-gemma-3n-E4B-it-abliterated-GGUF model loader impleme
 import importlib.metadata
 
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -20,6 +28,42 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_gemma3n_support():
+    """Register gemma3n as an alias for gemma3 in GGUF loading machinery.
+
+    Gemma 3n uses the same GGUF config structure as Gemma 3 but declares
+    architecture as 'gemma3n', which transformers GGUF reader does not yet
+    recognise.
+    """
+    if "gemma3n" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("gemma3n")
+    if "gemma3n" not in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING.get("config", {}):
+        if "gemma3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING.get("config", {}):
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"][
+                "gemma3n"
+            ] = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]["gemma3"]
+
+
+def _patched_load_gguf_checkpoint(
+    gguf_path, return_tensors=False, model_to_load=None, **kwargs
+):
+    """Wrap load_gguf_checkpoint to add gemma3n support and fix model_type."""
+    _patch_gemma3n_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, model_to_load=model_to_load, **kwargs
+    )
+    if result.get("config", {}).get("model_type") == "gemma3n":
+        result["config"]["model_type"] = "gemma3n_text"
+    return result
+
+
+_patch_gemma3n_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
