@@ -4,6 +4,8 @@
 """
 Surya Recognition model loader implementation for OCR text recognition tasks.
 """
+import os
+import numpy as np
 import torch
 from PIL import Image
 from typing import Optional
@@ -18,6 +20,10 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+# surya/settings.py calls torch_xla.devices() at import time which crashes on TT hardware.
+# Setting TORCH_DEVICE=cpu short-circuits that path before any surya import occurs.
+os.environ.setdefault("TORCH_DEVICE", "cpu")
 
 
 class ModelVariant(StrEnum):
@@ -39,6 +45,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
+        self._foundation_predictor = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -52,18 +59,12 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        import os
-
-        # surya/settings.py calls torch_xla.devices() at import time which crashes on TT hardware.
-        # Setting TORCH_DEVICE=cpu short-circuits that path.
-        os.environ.setdefault("TORCH_DEVICE", "cpu")
-
         from surya.foundation import FoundationPredictor
         from surya.recognition import RecognitionPredictor
 
-        foundation_predictor = FoundationPredictor(device="cpu")
-        rec_predictor = RecognitionPredictor(foundation_predictor)
-        model = rec_predictor.model
+        self._foundation_predictor = FoundationPredictor(device="cpu")
+        RecognitionPredictor(self._foundation_predictor)
+        model = self._foundation_predictor.model
         model.eval()
 
         if dtype_override is not None:
@@ -72,19 +73,32 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        image = Image.new("RGB", (896, 196), color=(255, 255, 255))
+        from surya.foundation import FoundationPredictor
+        from surya.recognition import RecognitionPredictor
 
-        # Normalize to [-1, 1] matching surya's image processor (mean=0.5, std=0.5)
-        pixel_values = torch.tensor(list(image.getdata()), dtype=torch.float32).reshape(
-            1, 196, 896, 3
+        if self._foundation_predictor is None:
+            self._foundation_predictor = FoundationPredictor(device="cpu")
+            RecognitionPredictor(self._foundation_predictor)
+
+        image = Image.new("RGB", (896, 196), color=(255, 255, 255))
+        image_np = np.array(image)
+
+        batch = self._foundation_predictor.prepare_input(
+            ["ocr_without_boxes"], [image_np], [None], [False]
         )
-        pixel_values = pixel_values.permute(0, 3, 1, 2) / 255.0
-        pixel_values = (pixel_values - 0.5) / 0.5
+        processed = self._foundation_predictor.processor(
+            batch, device=torch.device("cpu")
+        )
+
+        inputs = {
+            "input_ids": processed["input_ids"],
+            "image_tiles": processed["image_tiles"],
+            "attention_mask": processed["attention_mask"],
+            "position_ids": processed["position_ids"],
+            "grid_thw": processed["grid_thw"],
+        }
 
         if dtype_override is not None:
-            pixel_values = pixel_values.to(dtype_override)
+            inputs["image_tiles"] = inputs["image_tiles"].to(dtype_override)
 
-        if batch_size > 1:
-            pixel_values = pixel_values.repeat(batch_size, 1, 1, 1)
-
-        return pixel_values
+        return inputs
