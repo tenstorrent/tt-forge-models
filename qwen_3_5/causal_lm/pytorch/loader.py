@@ -292,6 +292,9 @@ class ModelLoader(ForgeModel):
                 config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
+        if self._is_nvfp4_variant():
+            model_kwargs["ignore_mismatched_sizes"] = True
+
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
@@ -367,6 +370,16 @@ class ModelLoader(ForgeModel):
     def _gguf_file(self):
         """Get the GGUF filename for the current variant."""
         return self._GGUF_FILES.get(self._variant)
+
+    def _is_nvfp4_variant(self):
+        """Check if the current variant uses NVFP4 quantization."""
+        return self._variant in (
+            ModelVariant.QWEN_3_5_27B_NVFP4,
+            ModelVariant.QWEN_3_5_27B_NVFP4_BERKERDOOO,
+            ModelVariant.QWEN_3_5_27B_TEXT_NVFP4_MTP,
+            ModelVariant.QWEN_3_5_35B_A3B_NVFP4,
+            ModelVariant.QWEN_3_5_35B_A3B_NVFP4_SBULL_DELL,
+        )
 
     def _is_awq_variant(self):
         """Check if the current variant uses AWQ quantization."""
