@@ -86,8 +86,15 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        # MLX-quantized models have a quantization_config without quant_method,
+        # which transformers cannot load. Remove it to load in base dtype.
+        if hasattr(config, "quantization_config") and not hasattr(
+            config.quantization_config, "quant_method"
+        ):
+            delattr(config, "quantization_config")
+
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
             if hasattr(config, "text_config"):
                 config.text_config.num_hidden_layers = self.num_layers
                 if hasattr(config.text_config, "layer_types"):
@@ -96,7 +103,7 @@ class ModelLoader(ForgeModel):
                     ]
             else:
                 config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -134,6 +141,39 @@ class ModelLoader(ForgeModel):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         return inputs
+
+    def _get_text_config(self):
+        if hasattr(self.config, "text_config"):
+            return self.config.text_config
+        return self.config
+
+    def get_mesh_config(self, num_devices: int):
+        mesh_shape = (1, num_devices)
+        text_config = self._get_text_config()
+        assert (
+            text_config.num_attention_heads % mesh_shape[1] == 0
+        ), "Attention heads must be divisible by the model axis size"
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        shard_specs = {}
+        for layer in model.model.layers:
+            mlp = layer.mlp
+            if hasattr(mlp, "experts"):
+                shard_specs[mlp.experts.gate_up_proj] = (None, "model", "batch")
+                shard_specs[mlp.experts.down_proj] = (None, "batch", "model")
+            if hasattr(mlp, "shared_expert"):
+                shard_specs[mlp.shared_expert.up_proj.weight] = ("model", "batch")
+                shard_specs[mlp.shared_expert.gate_proj.weight] = ("model", "batch")
+                shard_specs[mlp.shared_expert.down_proj.weight] = ("batch", "model")
+
+            if hasattr(layer, "self_attn"):
+                shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+        shard_specs[model.lm_head.weight] = ("model", "batch")
+        return shard_specs
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
