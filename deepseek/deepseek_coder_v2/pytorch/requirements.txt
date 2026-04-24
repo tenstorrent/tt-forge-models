@@ -1,1 +1,2 @@
-gptqmodel==4.2.5
+PyPcre>=0.2.14
+Defuser>=0.0.20
