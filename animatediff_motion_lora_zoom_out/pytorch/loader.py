@@ -1,11 +1,10 @@
-#!/usr/bin/env python3
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
 AnimateDiff Motion LoRA Zoom Out model loader implementation.
 
-Loads the AnimateDiff pipeline with the Stable Diffusion v1.5 base model,
+Loads the AnimateDiff UNetMotionModel with the Stable Diffusion v1.5 base model,
 applies the motion adapter (guoyww/animatediff-motion-adapter-v1-5-2),
 and loads the zoom-out motion LoRA weights from
 guoyww/animatediff-motion-lora-zoom-out for text-to-video generation
@@ -40,7 +39,7 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """AnimateDiff Motion LoRA Zoom Out model loader."""
+    """AnimateDiff Motion LoRA Zoom Out UNetMotionModel loader."""
 
     _VARIANTS = {
         ModelVariant.ZOOM_OUT: ModelConfig(
@@ -75,7 +74,7 @@ class ModelLoader(ForgeModel):
         """Load the AnimateDiff pipeline with motion adapter and zoom-out LoRA.
 
         Returns:
-            AnimateDiffPipeline with motion adapter and LoRA weights applied.
+            UNetMotionModel with motion adapter and LoRA weights fused.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
 
@@ -92,20 +91,44 @@ class ModelLoader(ForgeModel):
 
         self.pipeline.load_lora_weights(LORA_REPO)
 
-        return self.pipeline
+        return self.pipeline.unet
 
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for text-to-video generation with zoom-out motion.
+    def load_inputs(
+        self, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
+        """Prepare synthetic tensor inputs for the UNetMotionModel.
 
         Returns:
-            dict with prompt key.
+            dict with sample, timestep, and encoder_hidden_states tensors.
         """
-        if prompt is None:
-            prompt = (
-                "A serene forest clearing with sunlight filtering through trees, "
-                "cinematic zoom out, smooth camera motion"
-            )
+        dtype = dtype_override if dtype_override is not None else torch.float32
+
+        batch_size = 1
+        num_frames = 16
+        height = 64
+        width = 64
+        in_channels = 4
+        cross_attention_dim = 768
+
+        sample = torch.randn(
+            (batch_size, in_channels, num_frames, height // 8, width // 8),
+            dtype=dtype,
+        )
+        timestep = torch.randint(0, 1000, (1,))
+        encoder_hidden_states = torch.randn(
+            (batch_size, 77, cross_attention_dim),
+            dtype=dtype,
+        )
 
         return {
-            "prompt": prompt,
+            "sample": sample,
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states,
         }
+
+    def unpack_forward_output(self, output: Any) -> torch.Tensor:
+        if hasattr(output, "sample"):
+            return output.sample
+        elif isinstance(output, tuple):
+            return output[0]
+        return output
