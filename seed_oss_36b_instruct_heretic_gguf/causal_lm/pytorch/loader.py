@@ -38,10 +38,10 @@ def _patch_seed_oss_support():
             ] = _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["qwen3"]
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+def _patched_load_gguf_checkpoint(*args, **kwargs):
     """Wrap load_gguf_checkpoint to add seed_oss support and fix model_type."""
     _patch_seed_oss_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
     if result.get("config", {}).get("model_type") == "seed_oss":
         result["config"]["model_type"] = "qwen3"
     return result
