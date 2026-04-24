@@ -47,9 +47,9 @@ def _patch_lfm2moe_support():
         "lfm2moe"
     ] = _LFM2MOE_CONFIG_MAPPING
     _gguf_utils.TENSOR_PROCESSORS["lfm2moe"] = Lfm2TensorProcessor
-    if "lfm2" in GGUF_TO_FAST_CONVERTERS:
-        GGUF_TO_FAST_CONVERTERS["lfm2moe"] = GGUF_TO_FAST_CONVERTERS["lfm2"]
-        GGUF_TO_FAST_CONVERTERS["lfm2_moe"] = GGUF_TO_FAST_CONVERTERS["lfm2"]
+    if "gpt2" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["lfm2moe"] = GGUF_TO_FAST_CONVERTERS["gpt2"]
+        GGUF_TO_FAST_CONVERTERS["lfm2_moe"] = GGUF_TO_FAST_CONVERTERS["gpt2"]
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
