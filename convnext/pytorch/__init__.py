@@ -2,6 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Deepseek-Qwen PyTorch model implementation for Tenstorrent projects.
+ConvNext PyTorch model implementation for Tenstorrent projects.
 """
 from .loader import ModelLoader, ModelVariant

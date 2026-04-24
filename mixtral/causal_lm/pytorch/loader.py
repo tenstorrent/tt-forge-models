@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-DeepSeek-R1-Distill-Qwen model loader implementation
+Mixtral MoE model loader implementation for causal language modeling
 """
 
 import torch
@@ -22,27 +22,22 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available DeepSeek-R1-Distill-Qwen model variants."""
+    """Available Mixtral model variants."""
 
-    DEEPSEEK_R1_QWEN_7B = "7B"
-    DEEPSEEK_R1_QWEN_32B = "32B"
+    MIXTRAL_8X7B_INSTRUCT_V01 = "8x7B_Instruct_v0.1"
 
 
 class ModelLoader(ForgeModel):
-    """DeepSeek-R1-Distill-Qwen model loader implementation."""
+    """Mixtral MoE model loader implementation."""
 
     _VARIANTS = {
-        ModelVariant.DEEPSEEK_R1_QWEN_7B: LLMModelConfig(
-            pretrained_model_name="deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
-            max_length=128,
-        ),
-        ModelVariant.DEEPSEEK_R1_QWEN_32B: LLMModelConfig(
-            pretrained_model_name="deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
+        ModelVariant.MIXTRAL_8X7B_INSTRUCT_V01: LLMModelConfig(
+            pretrained_model_name="mistralai/Mixtral-8x7B-Instruct-v0.1",
             max_length=128,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.DEEPSEEK_R1_QWEN_7B
+    DEFAULT_VARIANT = ModelVariant.MIXTRAL_8X7B_INSTRUCT_V01
 
     def __init__(self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None):
         super().__init__(variant)
@@ -55,7 +50,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="DeepSeek",
+            model="Mixtral",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -86,7 +81,7 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self.tokenizer = AutoTokenizer.from_pretrained(model_name)
 
-        messages = [{"role": "user", "content": "What is machine learning?"}]
+        messages = [{"role": "user", "content": "What is the capital of France?"}]
         text = self.tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
@@ -107,6 +102,7 @@ class ModelLoader(ForgeModel):
         if self.config is None:
             self.load_config()
 
+        # 32 attention heads, 8 KV heads — divisible by 2, 4, 8
         if num_devices == 32:
             mesh_shape = (8, 4)
         elif self.config.num_attention_heads % num_devices == 0:
@@ -125,17 +121,19 @@ class ModelLoader(ForgeModel):
     def load_shard_spec(self, model):
         shard_specs = {}
         for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
-
+            # Attention: standard Megatron column/row parallel
             shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.q_proj.bias] = ("model",)
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.bias] = ("model",)
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.bias] = ("model",)
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+
+            # MoE experts: shard gate_up_proj and down_proj along expert dim
+            # MixtralExperts uses pre-stacked fused weights:
+            #   gate_up_proj: [num_experts, 2*intermediate_size, hidden_size]
+            #   down_proj: [num_experts, hidden_size, intermediate_size]
+            shard_specs[layer.block_sparse_moe.experts.gate_up_proj] = ("model", None, "batch")
+            shard_specs[layer.block_sparse_moe.experts.down_proj] = ("model", "batch", None)
+
         shard_specs[model.lm_head.weight] = ("model", "batch")
 
         return shard_specs
