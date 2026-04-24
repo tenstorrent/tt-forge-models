@@ -4,6 +4,8 @@
 """
 DavidAU L3-8B-Stheno-v3.3-32K-Ultra-NEO-V1-IMATRIX GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -30,6 +32,44 @@ class ModelVariant(StrEnum):
 
 class ModelLoader(ForgeModel):
     """DavidAU L3-8B-Stheno-v3.3-32K-Ultra-NEO-V1-IMATRIX GGUF model loader implementation for causal language modeling tasks."""
+
+    @staticmethod
+    def _fix_gguf_version_detection():
+        import transformers.utils.import_utils as _import_utils
+
+        if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+            try:
+                importlib.metadata.version("gguf")
+                _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+            except importlib.metadata.PackageNotFoundError:
+                pass
+
+    @staticmethod
+    def _fix_load_gguf_checkpoint_signature():
+        import inspect
+        import sys
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+        current_fn = _gguf_utils.load_gguf_checkpoint
+        try:
+            sig = inspect.signature(current_fn)
+            if "model_to_load" in sig.parameters:
+                return
+        except (ValueError, TypeError):
+            return
+
+        for mod in list(sys.modules.values()):
+            if mod is None:
+                continue
+            orig = getattr(mod, "_orig_load_gguf_checkpoint", None)
+            if callable(orig):
+                try:
+                    orig_sig = inspect.signature(orig)
+                    if "model_to_load" in orig_sig.parameters:
+                        _gguf_utils.load_gguf_checkpoint = orig
+                        return
+                except (ValueError, TypeError):
+                    pass
 
     _VARIANTS = {
         ModelVariant.L3_8B_STHENO_V3_3_32K_ULTRA_NEO_V1_IMATRIX_GGUF: LLMModelConfig(
@@ -70,6 +110,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        self._fix_gguf_version_detection()
+        self._fix_load_gguf_checkpoint_signature()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -162,6 +204,8 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        self._fix_gguf_version_detection()
+        self._fix_load_gguf_checkpoint_signature()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
