@@ -5,7 +5,6 @@
 Wan 2.2 Fun InP GGUF model loader implementation for video generation
 """
 import torch
-from diffusers import WanTransformer3DModel
 from typing import Optional
 
 from ...base import ForgeModel
@@ -19,6 +18,13 @@ from ...config import (
     StrEnum,
 )
 
+GGUF_REPO = "QuantStack/Wan2.2-Fun-A14B-InP-GGUF"
+
+TRANSFORMER_NUM_FRAMES = 1
+TRANSFORMER_HEIGHT = 32
+TRANSFORMER_WIDTH = 32
+TRANSFORMER_TEXT_SEQ_LEN = 64
+
 
 class ModelVariant(StrEnum):
     """Available Wan 2.2 Fun InP GGUF model variants."""
@@ -26,18 +32,21 @@ class ModelVariant(StrEnum):
     A14B_HIGHNOISE_Q4_K_M = "A14B_HighNoise_Q4_K_M"
 
 
+_GGUF_FILES = {
+    ModelVariant.A14B_HIGHNOISE_Q4_K_M: "HighNoise/Wan2.2-Fun-A14B-InP_HighNoise-Q4_K_M.gguf",
+}
+
+
 class ModelLoader(ForgeModel):
     """Wan 2.2 Fun InP GGUF model loader for video generation tasks."""
 
     _VARIANTS = {
         ModelVariant.A14B_HIGHNOISE_Q4_K_M: ModelConfig(
-            pretrained_model_name="QuantStack/Wan2.2-Fun-A14B-InP-GGUF",
+            pretrained_model_name=GGUF_REPO,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.A14B_HIGHNOISE_Q4_K_M
-
-    GGUF_FILE = "HighNoise/Wan2.2-Fun-A14B-InP_HighNoise-Q4_K_M.gguf"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -58,17 +67,29 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        load_kwargs = {"gguf_file": self.GGUF_FILE}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
+        import diffusers.utils.import_utils as _diffusers_import_utils
 
-        self.transformer = WanTransformer3DModel.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            **load_kwargs,
+        if not _diffusers_import_utils._gguf_available:
+            import importlib.util
+
+            if importlib.util.find_spec("gguf") is not None:
+                _diffusers_import_utils._gguf_available = True
+
+        from diffusers import (
+            GGUFQuantizationConfig,
+            WanTransformer3DModel,
         )
 
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
+        compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+
+        gguf_file = _GGUF_FILES[self._variant]
+
+        self.transformer = WanTransformer3DModel.from_single_file(
+            f"https://huggingface.co/{GGUF_REPO}/resolve/main/{gguf_file}",
+            quantization_config=quantization_config,
+            torch_dtype=compute_dtype,
+        )
 
         return self.transformer
 
@@ -79,28 +100,26 @@ class ModelLoader(ForgeModel):
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
         config = self.transformer.config
 
-        # Video dimensions: (batch, channels, frames, height, width)
-        num_frames = 1
-        height = 32
-        width = 32
         in_channels = config.in_channels
+        text_dim = config.text_dim
 
         hidden_states = torch.randn(
-            batch_size, in_channels, num_frames, height, width, dtype=dtype
+            batch_size,
+            in_channels,
+            TRANSFORMER_NUM_FRAMES,
+            TRANSFORMER_HEIGHT,
+            TRANSFORMER_WIDTH,
+            dtype=dtype,
         )
 
-        # Timestep
         timestep = torch.tensor([1], dtype=torch.long).expand(batch_size)
 
-        # Text encoder hidden states
-        text_dim = config.text_dim
-        seq_len = 64
-        encoder_hidden_states = torch.randn(batch_size, seq_len, text_dim, dtype=dtype)
+        encoder_hidden_states = torch.randn(
+            batch_size, TRANSFORMER_TEXT_SEQ_LEN, text_dim, dtype=dtype
+        )
 
-        inputs = {
+        return {
             "hidden_states": hidden_states,
             "timestep": timestep,
             "encoder_hidden_states": encoder_hidden_states,
         }
-
-        return inputs
