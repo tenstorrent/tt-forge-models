@@ -48,14 +48,24 @@ def _patch_transformers_deepseek_v2_gguf():
     if not getattr(orig_weights_map, "_deepseek_v2_patched", False):
 
         def patched_get_gguf_hf_weights_map(
-            hf_model, processor, model_type=None, **kwargs
+            hf_model,
+            processor,
+            model_type=None,
+            num_layers=None,
+            qual_name="",
+            **kwargs
         ):
             if model_type is None and hasattr(hf_model, "config"):
                 model_type = hf_model.config.model_type
             if model_type == "deepseek_v2":
                 model_type = "deepseek2"
             return orig_weights_map(
-                hf_model, processor, model_type=model_type, **kwargs
+                hf_model,
+                processor,
+                model_type=model_type,
+                num_layers=num_layers,
+                qual_name=qual_name,
+                **kwargs,
             )
 
         patched_get_gguf_hf_weights_map._deepseek_v2_patched = True
