@@ -88,11 +88,13 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        # MLX quantization config lacks quant_method; clear it to load as standard weights
+        # MLX quantization config lacks quant_method; remove it so transformers
+        # doesn't attempt to validate an unsupported quantization format
         config = AutoConfig.from_pretrained(
             pretrained_model_name, trust_remote_code=True
         )
-        config.quantization_config = None
+        if hasattr(config, "quantization_config"):
+            del config.quantization_config
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
 
