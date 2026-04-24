@@ -6,7 +6,11 @@ PE-Core (Perception Encoder) model loader implementation for zero-shot image cla
 """
 import torch
 import torch.nn.functional as F
+from io import BytesIO
 from typing import Optional
+
+import requests
+from PIL import Image
 
 from ...base import ForgeModel
 from ...config import (
@@ -18,7 +22,6 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from datasets import load_dataset
 
 
 class ModelVariant(StrEnum):
@@ -100,8 +103,8 @@ class ModelLoader(ForgeModel):
             self.preprocess = transforms.get_image_transform(model.image_size)
             self.tokenizer = transforms.get_text_tokenizer(model.context_length)
 
-        dataset = load_dataset("huggingface/cats-image", split="test")
-        image = dataset[0]["image"]
+        url = "https://huggingface.co/datasets/huggingface/cats-image/resolve/main/cats_image.jpeg"
+        image = Image.open(BytesIO(requests.get(url, stream=True).content)).convert("RGB")
 
         self.text_prompts = ["a photo of a cat", "a photo of a dog"]
 
