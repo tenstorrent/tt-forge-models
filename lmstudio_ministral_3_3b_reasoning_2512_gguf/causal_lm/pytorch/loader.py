@@ -57,6 +57,19 @@ def _patch_gguf_mistral3():
     if "mistral3" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["mistral3"] = GGUF_TO_FAST_CONVERTERS["llama"]
 
+    _orig_get_map = gguf_utils_mod.get_gguf_hf_weights_map
+
+    def _patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type == "mistral":
+            model_type = "mistral3"
+        return _orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    gguf_utils_mod.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
 
 from ....base import ForgeModel
 from ....config import (
