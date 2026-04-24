@@ -5,9 +5,18 @@
 GUI-Libra-8B i1 GGUF model loader implementation for image to text.
 """
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import (
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFQwen2Converter
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
 )
 from typing import Optional
 
@@ -21,6 +30,57 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_qwen3vl_support():
+    """Register qwen3vl as an alias for qwen3 in GGUF loading machinery.
+
+    Qwen3-VL uses the same text backbone config as Qwen3 but declares
+    architecture as 'qwen3vl', which transformers GGUF reader does not yet
+    recognise.
+    """
+    if "qwen3vl" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vl")
+    config_mapping = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING.get("config", {})
+    if "qwen3vl" not in config_mapping and "qwen3" in config_mapping:
+        config_mapping["qwen3vl"] = config_mapping["qwen3"]
+    GGUF_TO_FAST_CONVERTERS.setdefault("qwen3vl", GGUFQwen2Converter)
+
+
+_orig_get_gguf_hf_weights_map = _gguf_utils.get_gguf_hf_weights_map
+
+
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
+    if model_type is None and hasattr(hf_model, "config"):
+        model_type = getattr(hf_model.config, "model_type", None)
+    if model_type in ("qwen3_vl", "qwen3_vl_text"):
+        model_type = "qwen3vl"
+    return _orig_get_gguf_hf_weights_map(
+        hf_model, processor, model_type, num_layers, qual_name
+    )
+
+
+def _patched_load_gguf_checkpoint(
+    gguf_path, return_tensors=False, model_to_load=None, **kwargs
+):
+    """Wrap load_gguf_checkpoint to add qwen3vl support and fix model_type."""
+    _patch_qwen3vl_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, model_to_load=model_to_load, **kwargs
+    )
+    if result.get("config", {}).get("model_type") == "qwen3vl":
+        result["config"]["model_type"] = "qwen3_vl"
+    return result
+
+
+_patch_qwen3vl_support()
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
