@@ -20,6 +20,84 @@ from ....config import (
 )
 
 
+def _patch_transformers_deepseek_v2_gguf():
+    """Monkey-patch transformers to add deepseek_v2 GGUF tokenizer and architecture support.
+
+    The mradermacher GGUF for GLM-4.7-Flash stores the tokenizer class as
+    'deepseek_v2' and the model architecture as 'deepseek2', neither of which
+    transformers' GGUF loader knows about out of the box.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    # Register deepseek_v2 tokenizer class (used by mradermacher GLM-4.7 GGUFs)
+    GGUF_TO_FAST_CONVERTERS.setdefault("deepseek_v2", GGUFQwen2Converter)
+
+    if "deepseek2" in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # Model arch already patched
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("deepseek2")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["deepseek2"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.freq_base": "rope_theta",
+        "rope.dimension_count": "qk_rope_head_dim",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "attention.key_length": None,
+        "attention.value_length": None,
+        "attention.key_length_mla": "qk_nope_head_dim",
+        "attention.value_length_mla": "v_head_dim",
+        "attention.q_lora_rank": "q_lora_rank",
+        "attention.kv_lora_rank": "kv_lora_rank",
+        "vocab_size": "vocab_size",
+        "expert_count": "n_routed_experts",
+        "expert_used_count": "num_experts_per_tok",
+        "expert_shared_count": "n_shared_experts",
+        "expert_group_count": "n_group",
+        "expert_group_used_count": "topk_group",
+        "expert_weights_scale": "routed_scaling_factor",
+        "expert_weights_norm": "norm_topk_prob",
+        "leading_dense_block_count": "first_k_dense_replace",
+        "expert_feed_forward_length": "moe_intermediate_size",
+    }
+
+    GGUF_TO_FAST_CONVERTERS.setdefault("deepseek2", GGUFQwen2Converter)
+
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "deepseek2":
+            config["model_type"] = "deepseek_v2"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
+_patch_transformers_deepseek_v2_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available Huihui GLM-4.7-Flash abliterated 57B i1-GGUF model variants for causal language modeling."""
 
@@ -134,6 +212,33 @@ class ModelLoader(ForgeModel):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
         return inputs
+
+    def get_mesh_config(self, num_devices: int):
+        mesh_shape = (1, num_devices)
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        shard_specs = {}
+        for layer in model.model.layers:
+            mlp = layer.mlp
+            if hasattr(mlp, "experts"):
+                shard_specs[mlp.experts.gate_up_proj] = (None, "model", "batch")
+                shard_specs[mlp.experts.down_proj] = (None, "batch", "model")
+            if hasattr(mlp, "shared_expert"):
+                shard_specs[mlp.shared_expert.up_proj.weight] = ("model", "batch")
+                shard_specs[mlp.shared_expert.gate_proj.weight] = ("model", "batch")
+                shard_specs[mlp.shared_expert.down_proj.weight] = ("batch", "model")
+            if hasattr(mlp, "gate_proj"):
+                shard_specs[mlp.gate_proj.weight] = ("model", "batch")
+                shard_specs[mlp.up_proj.weight] = ("model", "batch")
+                shard_specs[mlp.down_proj.weight] = ("batch", "model")
+            if hasattr(layer, "self_attn"):
+                shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+        shard_specs[model.lm_head.weight] = ("model", "batch")
+        return shard_specs
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
