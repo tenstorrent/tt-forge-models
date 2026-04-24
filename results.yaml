@@ -111,3 +111,7 @@ results:
   status: "PASS"
   date: "20260424_000527"
   branch: "arch-c-36-tt-xla-dev/nsmith/2026-04-22_16-58/hf-bringup-8"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[sand_mathscience_deepseek_qwen32b_i1_gguf/causal_lm/pytorch-SAND-MathScience-DeepSeek-Qwen32B_i1_Q4_K_M-single_device-inference]"
+  status: "PASS"
+  date: "20260424_003413"
+  branch: "arch-c-36-tt-xla-dev/nsmith/2026-04-22_16-58/hf-bringup-8"
