@@ -16,7 +16,6 @@ from typing import Any, Optional
 import torch
 from diffusers import FluxControlNetModel
 from huggingface_hub import hf_hub_download
-from safetensors.torch import load_file
 
 from ...base import ForgeModel
 from ...config import (
@@ -31,11 +30,6 @@ from ...config import (
 
 REPO_ID = "XLabs-AI/flux-controlnet-canny-v3"
 CHECKPOINT_FILE = "flux-canny-controlnet-v3.safetensors"
-
-# XLabs ControlNets use a much smaller architecture than the InstantX union
-# ControlNet: 2 double-stream transformer blocks and no single-stream blocks.
-_NUM_LAYERS = 2
-_NUM_SINGLE_LAYERS = 0
 
 
 class ModelVariant(StrEnum):
@@ -77,14 +71,10 @@ class ModelLoader(ForgeModel):
         """Load the ControlNet from the single-file safetensors checkpoint."""
         model_path = hf_hub_download(repo_id=REPO_ID, filename=CHECKPOINT_FILE)
 
-        self._controlnet = FluxControlNetModel(
-            num_layers=_NUM_LAYERS,
-            num_single_layers=_NUM_SINGLE_LAYERS,
+        self._controlnet = FluxControlNetModel.from_single_file(
+            model_path,
+            torch_dtype=dtype,
         )
-
-        state_dict = load_file(model_path)
-        self._controlnet.load_state_dict(state_dict)
-        self._controlnet.to(dtype=dtype)
         self._controlnet.eval()
         return self._controlnet
 
