@@ -226,8 +226,14 @@ class ModelLoader(ForgeModel):
             attention_mask = attention_mask.repeat_interleave(batch_size, dim=0)
             pixel_values = pixel_values.repeat_interleave(batch_size, dim=0)
 
+        # The model's forward is a masked diffusion training forward that uses labels
+        # unconditionally (labels[...] = eos_id at line 3871 before the None guard).
+        # Provide all-ignored labels (-100) so the forward pass can run.
+        labels = torch.full_like(input_ids, -100)
+
         return {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
             "images": pixel_values,
+            "labels": labels,
         }
