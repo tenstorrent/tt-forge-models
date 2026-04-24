@@ -112,9 +112,12 @@ class ModelLoader(ForgeModel):
             }
         ]
 
-        text_prompt = self.processor.apply_chat_template(
-            conversation, padding=True, add_generation_prompt=True
-        )
+        if self.processor.chat_template is not None:
+            text_prompt = self.processor.apply_chat_template(
+                conversation, padding=True, add_generation_prompt=True
+            )
+        else:
+            text_prompt = f"USER: <image>\n{self.sample_text} ASSISTANT:"
 
         # Load dataset
         dataset = load_dataset("huggingface/cats-image")["test"]
