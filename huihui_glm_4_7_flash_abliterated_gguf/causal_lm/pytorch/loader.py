@@ -65,8 +65,10 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
-
+        # Omit gguf_file: the GLM-4.7 GGUF uses a deepseek_v2 tokenizer
+        # architecture that is not in GGUF_TO_FAST_CONVERTERS in the
+        # installed transformers version; use the repo's standard HF
+        # tokenizer files instead.
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
