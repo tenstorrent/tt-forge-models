@@ -71,15 +71,14 @@ class ModelLoader(ForgeModel):
         """Load and return the RhoFold+ model with pretrained weights."""
         from .src.model import build_rhofold_model
 
-        model = build_rhofold_model(
+        # dtype_override is intentionally not applied: the embedded RNA-FM
+        # sub-model has hardcoded .float() casts in its attention layers that
+        # produce float32 intermediate tensors, which conflict with bfloat16
+        # LayerNorm parameters and cause a mixed-dtype RuntimeError on CPU.
+        return build_rhofold_model(
             repo_id=self._variant_config.pretrained_model_name,
             weights_filename=self._WEIGHTS_FILENAME,
         )
-
-        if dtype_override is not None:
-            model = model.to(dtype=dtype_override)
-
-        return model
 
     def load_inputs(self, dtype_override=None):
         """Prepare RhoFold+ input features for a sample RNA sequence.
