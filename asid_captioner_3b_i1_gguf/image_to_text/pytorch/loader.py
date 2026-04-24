@@ -218,7 +218,7 @@ class ModelLoader(ForgeModel):
         messages = [
             {
                 "role": "user",
-                "content": "Describe an image in detail.",
+                "content": [{"type": "text", "text": "Describe an image in detail."}],
             }
         ]
 
