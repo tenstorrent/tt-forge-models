@@ -29,6 +29,26 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """Way-to-Unseen-Horizon-2-MN-12B GGUF model loader implementation for causal language modeling tasks."""
 
+    @staticmethod
+    def _fix_self_attn_return_count(model):
+        """Wrap each decoder layer's self_attn to return the 2-tuple expected by transformers 5.x.
+
+        Some loaders (e.g. deepseek_ocr_8bit_mlx) patch LlamaAttention at import time with a
+        4.x-compat class that returns (attn_output, attn_weights, past_key_value). LlamaDecoderLayer
+        in transformers 5.x unpacks exactly 2 values, causing 'ValueError: too many values to unpack'.
+        """
+        for layer in model.model.layers:
+            orig = layer.self_attn.forward
+
+            def _wrap(f):
+                def _fwd(*args, **kwargs):
+                    result = f(*args, **kwargs)
+                    return result[0], result[1]
+
+                return _fwd
+
+            layer.self_attn.forward = _wrap(orig)
+
     _VARIANTS = {
         ModelVariant.WAY_TO_UNSEEN_HORIZON_2_MN_12B_Q4_K_M: LLMModelConfig(
             pretrained_model_name="mradermacher/Way-to-Unseen-Horizon-2-MN-12B-GGUF",
@@ -97,6 +117,8 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
+
+        self._fix_self_attn_return_count(model)
 
         self.config = model.config
         self.model = model
