@@ -89,20 +89,38 @@ class ModelLoader(ForgeModel):
         config.mm_tunable_parts = ""
         config.unfreeze_mm_vision_tower = False
 
-        # Patch LLaDAModelLM.tie_weights to accept **kwargs so it is compatible
-        # with transformers 5.x which calls tie_weights(recompute_mapping=False).
+        # Apply transformers 5.x compatibility patches to the custom model module.
+        # The modeling_lavida.py module uses APIs removed in transformers 5.x.
         for mod_name, mod in sys.modules.items():
-            if "modeling_lavida" in mod_name and hasattr(mod, "LLaDAModelLM"):
+            if "modeling_lavida" not in mod_name:
+                continue
+
+            # Patch LLaDAModelLM.tie_weights to accept **kwargs:
+            # transformers 5.x calls tie_weights(recompute_mapping=False).
+            if hasattr(mod, "LLaDAModelLM"):
                 cls = mod.LLaDAModelLM
                 _orig_tie = cls.tie_weights
                 if not getattr(_orig_tie, "_patched_kwargs", False):
 
-                    def _tie_weights_compat(self, **kwargs):
-                        return _orig_tie(self)
+                    def _tie_weights_compat(self, _orig=_orig_tie, **kwargs):
+                        return _orig(self)
 
                     _tie_weights_compat._patched_kwargs = True
                     cls.tie_weights = _tie_weights_compat
-                break
+
+            # Patch SigLipVisionConfig._set_token_in_kwargs:
+            # removed in transformers 5.x; was a noop for the token-passing pattern.
+            if hasattr(mod, "SigLipVisionConfig"):
+                cfg_cls = mod.SigLipVisionConfig
+                if not hasattr(cfg_cls, "_set_token_in_kwargs"):
+
+                    @classmethod
+                    def _set_token_in_kwargs(cls, kwargs, token=None):
+                        pass
+
+                    cfg_cls._set_token_in_kwargs = _set_token_in_kwargs
+
+            break
 
         model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
