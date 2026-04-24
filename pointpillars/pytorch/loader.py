@@ -7,6 +7,7 @@ PointPillars model loader implementation
 import os
 import numpy as np
 import torch
+import torch.nn as nn
 from typing import Optional
 from dataclasses import dataclass
 
@@ -37,6 +38,43 @@ class PConfig(ModelConfig):
 
 class ModelVariant(StrEnum):
     CORE = "pointpillars"
+    # BEV_INPUT: pre-scatter on CPU → pass static BEV map (1,64,496,432) to TT.
+    # Avoids the ttir.gather that the pillar-scatter produces.
+    BEV_INPUT = "pointpillars_bev"
+
+
+class PointPillarsBEVCore(nn.Module):
+    """PointPillars backbone + neck + head that accepts a pre-scattered BEV map.
+
+    The pillar encoder (including the scatter that produces ttir.gather) is run
+    entirely on CPU in load_inputs().  This module only contains the learned
+    2D-conv backbone, FPN neck, and detection head — all ops TT supports.
+
+    Input : bev_map  (1, 64, 496, 432)  bfloat16
+    Output: (bbox_cls_pred, bbox_pred, bbox_dir_cls_pred)
+              (1,18,248,216)  (1,42,248,216)  (1,12,248,216)
+    """
+
+    def __init__(self, nclasses: int = 3):
+        super().__init__()
+        core = PointPillarsCore(nclasses=nclasses)
+        self.backbone = core.backbone
+        self.neck = core.neck
+        self.head = core.head
+
+    def load_weights_from_core_state_dict(self, state_dict: dict):
+        own = {k[len("backbone."):]: v for k, v in state_dict.items() if k.startswith("backbone.")}
+        self.backbone.load_state_dict(own)
+        own = {k[len("neck."):]: v for k, v in state_dict.items() if k.startswith("neck.")}
+        self.neck.load_state_dict(own)
+        own = {k[len("head."):]: v for k, v in state_dict.items() if k.startswith("head.")}
+        self.head.load_state_dict(own)
+
+    def forward(self, bev_map):
+        x = self.backbone(bev_map)
+        x = self.neck(x)
+        bbox_cls_pred, bbox_pred, bbox_dir_cls_pred = self.head(x)
+        return bbox_cls_pred, bbox_pred, bbox_dir_cls_pred
 
 
 class ModelLoader(ForgeModel):
@@ -44,9 +82,10 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.CORE: PConfig(pretrained_model_name="pointpillars"),
+        ModelVariant.BEV_INPUT: PConfig(pretrained_model_name="pointpillars"),
     }
 
-    DEFAULT_VARIANT = ModelVariant.CORE
+    DEFAULT_VARIANT = ModelVariant.BEV_INPUT
 
     # PointPillars constants
     CLASSES = {"Pedestrian": 0, "Cyclist": 1, "Car": 2}
@@ -55,6 +94,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
+        self.model = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None):
@@ -69,29 +109,73 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, **kwargs):
-        """Load and return the PointPillars model instance for this instance's variant."""
-        checkpoint = get_file(
+    def _load_checkpoint(self):
+        return get_file(
             "https://raw.githubusercontent.com/zhulf0804/PointPillars/main/pretrained/epoch_160.pth"
         )
+
+    def load_model(self, dtype_override=None, **kwargs):
+        """Load and return the PointPillars model instance for this instance's variant."""
+        checkpoint = self._load_checkpoint()
+
+        if self._variant == ModelVariant.BEV_INPUT:
+            model = PointPillarsBEVCore(nclasses=len(self.CLASSES))
+            state_dict = torch.load(checkpoint, map_location=torch.device("cpu"))
+            model.load_weights_from_core_state_dict(state_dict)
+            model.eval()
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+            self.model = model
+            return model
+
+        # CORE variant (original behaviour)
         model = PointPillarsCore(nclasses=len(self.CLASSES))
         model.load_state_dict(torch.load(checkpoint, map_location=torch.device("cpu")))
         self.model = model
         return model
 
-    def load_inputs(self):
+    def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the PointPillars model."""
+        if self._variant == ModelVariant.BEV_INPUT:
+            return self._load_bev_inputs(dtype_override)
+        return self._load_core_inputs()
+
+    def _load_bev_inputs(self, dtype_override=None):
+        """Pre-compute BEV map on CPU — the static-shape input for TT."""
+        checkpoint = self._load_checkpoint()
+        full_core = PointPillarsCore(nclasses=len(self.CLASSES))
+        full_core.load_state_dict(
+            torch.load(checkpoint, map_location=torch.device("cpu"))
+        )
+        full_core.eval()
+
+        pc_path = get_file(
+            "https://raw.githubusercontent.com/zhulf0804/PointPillars/main/pointpillars/dataset/demo_data/val/000134.bin"
+        )
+        pc = read_points(pc_path)
+        pc = point_range_filter(pc, self.PCD_LIMIT_RANGE)
+        pc_torch = torch.from_numpy(pc)
+
+        pre = PointPillarsPre()
+        pre.eval()
+        with torch.no_grad():
+            pillars, coors_batch, npoints = pre([pc_torch])
+            bev_map = full_core.pillar_encoder(pillars, coors_batch, npoints)
+
+        if dtype_override is not None:
+            bev_map = bev_map.to(dtype_override)
+        return (bev_map,)  # (1, 64, 496, 432) — fully static
+
+    def _load_core_inputs(self):
+        """Original CORE variant inputs."""
         pre_processor_layer = PointPillarsPre()
         pre_processor_layer.eval()
 
         pc_path = get_file(
             "https://raw.githubusercontent.com/zhulf0804/PointPillars/main/pointpillars/dataset/demo_data/val/000134.bin"
         )
-        # Load actual point cloud data
         pc = read_points(pc_path)
-        # Apply point cloud filtering
         pc = point_range_filter(pc, self.PCD_LIMIT_RANGE)
-        # Convert to torch tensor
         pc_torch = torch.from_numpy(pc)
 
         with torch.no_grad():
@@ -125,36 +209,16 @@ class ModelLoader(ForgeModel):
         labels = result_filter["labels"]
         scores = result_filter["scores"]
 
-        # Convert labels to class names
         class_names = [self.LABEL2CLASSES[label] for label in labels]
-
         print("Objects Found in Pointclouds are:", class_names)
 
     def unpack_forward_output(self, fwd_output):
-        """Unpack forward pass output to extract a differentiable tensor.
-
-        The PointPillars model returns different outputs based on mode:
-        - test/val mode: List of result tensors [(k, 11), ...]
-        - train mode: (bbox_cls_pred, bbox_pred, bbox_dir_cls_pred, anchor_target_dict)
-          where each pred tensor has shape (bs, channels, H, W)
-
-        For training, we concatenate the prediction tensors (excluding the dict)
-        to create a single differentiable tensor for backpropagation.
-
-        Args:
-            fwd_output: Output from the model's forward pass
-
-        Returns:
-            torch.Tensor: Concatenated flattened outputs for backward pass
-        """
+        """Unpack forward pass output to extract a differentiable tensor."""
         if isinstance(fwd_output, tuple):
-            # Train mode: (bbox_cls_pred, bbox_pred, bbox_dir_cls_pred, anchor_target_dict)
-            # Extract only the tensor outputs (skip the dict)
             tensors = [t for t in fwd_output if isinstance(t, torch.Tensor)]
             flattened = [t.flatten(start_dim=1) for t in tensors]
             return torch.cat(flattened, dim=1)
         elif isinstance(fwd_output, list):
-            # Test/val mode: list of result tensors
             if len(fwd_output) > 0 and isinstance(fwd_output[0], torch.Tensor):
                 flattened = [t.flatten() for t in fwd_output]
                 return torch.cat(flattened, dim=0)
