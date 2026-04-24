@@ -66,7 +66,7 @@ class ModelLoader(ForgeModel):
     def _patch_cambrian_init():
         """Patch cambrian classes for transformers 5.x and torch_xla compatibility.
 
-        Three issues fixed:
+        Four issues fixed:
         1. In transformers 5.x, config.rope_scaling is a property that delegates to
            config.rope_parameters. The cambrian-s code sets config.rope_scaling = None
            (originally harmless in transformers 4.x), which now clears rope_parameters
@@ -76,6 +76,10 @@ class ModelLoader(ForgeModel):
         3. SigLipVisionTower.device unconditionally returns xm.xla_device()
            when torch_xla is importable, breaking CPU baseline runs when model weights
            are on CPU. Override to follow actual parameter device.
+        4. SigLipVisionEmbeddings registers position_ids as a non-persistent buffer
+           via expand() which creates a non-contiguous view. In torch 2.9+ non-persistent
+           non-contiguous buffers can contain garbage values after model loading.
+           Override __init__ to use contiguous storage.
         """
         import torch.nn as nn
         from cambrian.model.language_model.cambrian_qwen2 import (
@@ -84,6 +88,7 @@ class ModelLoader(ForgeModel):
         )
         from cambrian.model.multimodal_encoder.llava_next_siglip_encoder import (
             SigLipVisionConfig,
+            SigLipVisionEmbeddings,
             SigLipVisionTower,
         )
         from transformers.models.qwen2.modeling_qwen2 import Qwen2ForCausalLM
@@ -120,6 +125,20 @@ class ModelLoader(ForgeModel):
                 return p.device
 
         SigLipVisionTower.device = patched_device
+
+        _orig_embeddings_init = SigLipVisionEmbeddings.__init__
+
+        def patched_embeddings_init(self, config):
+            _orig_embeddings_init(self, config)
+            # Fix: expand() creates a non-contiguous view; replace with contiguous clone
+            # to avoid garbage values in non-persistent buffers with torch 2.9+.
+            self.register_buffer(
+                "position_ids",
+                torch.arange(self.num_positions).unsqueeze(0),
+                persistent=False,
+            )
+
+        SigLipVisionEmbeddings.__init__ = patched_embeddings_init
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Cambrian-S model instance."""
