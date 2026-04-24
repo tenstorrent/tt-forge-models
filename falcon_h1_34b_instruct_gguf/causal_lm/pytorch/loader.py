@@ -29,7 +29,8 @@ def _patch_transformers_for_falcon_h1():
     )
     from transformers import modeling_gguf_pytorch_utils
     from transformers.models.auto.configuration_auto import CONFIG_MAPPING
-    from transformers.models.falcon_h1 import FalconH1Config
+    from transformers.models.auto.modeling_auto import MODEL_FOR_CAUSAL_LM_MAPPING
+    from transformers.models.falcon_h1 import FalconH1Config, FalconH1ForCausalLM
 
     if "falcon-h1" not in GGUF_CONFIG_MAPPING:
         GGUF_CONFIG_MAPPING["falcon-h1"] = {
@@ -46,6 +47,9 @@ def _patch_transformers_for_falcon_h1():
         }
         modeling_gguf_pytorch_utils.GGUF_SUPPORTED_ARCHITECTURES.append("falcon-h1")
         CONFIG_MAPPING.register("falcon-h1", FalconH1Config, exist_ok=True)
+        MODEL_FOR_CAUSAL_LM_MAPPING.register(
+            "falcon-h1", FalconH1ForCausalLM, exist_ok=True
+        )
         GGUF_TO_FAST_CONVERTERS["falcon-h1"] = GGUFLlamaConverter
 
 
@@ -123,8 +127,6 @@ class ModelLoader(ForgeModel):
         config = AutoConfig.from_pretrained(
             pretrained_model_name, gguf_file=self.GGUF_FILE
         )
-        # Normalize model_type from GGUF 'falcon-h1' to transformers 'falcon_h1'
-        config.model_type = "falcon_h1"
 
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
@@ -176,6 +178,4 @@ class ModelLoader(ForgeModel):
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
-        # Normalize model_type from GGUF 'falcon-h1' to transformers 'falcon_h1'
-        self.config.model_type = "falcon_h1"
         return self.config
