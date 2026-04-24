@@ -10,6 +10,7 @@ from PIL import Image
 from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
 from transformers.models.mm_grounding_dino.modeling_mm_grounding_dino import (
     MMGroundingDinoEncoderLayer,
+    MultiScaleDeformableAttention,
 )
 from typing import Optional
 
@@ -115,9 +116,10 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         if dtype_override is not None:
-            # transformers hard-codes .float() in get_text_position_embeddings, causing
-            # Float/BFloat16 mismatch when model weights are bfloat16. Patch it to
-            # preserve the input tensor's dtype instead.
+            # transformers hard-codes dtype=torch.float32 in several places (position
+            # embeddings, reference points) causing Float/BFloat16 mismatches when the
+            # model is loaded in bfloat16. Patch the two affected methods to preserve
+            # the surrounding tensor dtype instead.
             _orig_get_pos = MMGroundingDinoEncoderLayer.get_text_position_embeddings
 
             def _typed_get_pos(
@@ -129,6 +131,27 @@ class ModelLoader(ForgeModel):
                 return result.to(text_features.dtype) if result is not None else result
 
             MMGroundingDinoEncoderLayer.get_text_position_embeddings = _typed_get_pos
+
+            _orig_msda_fwd = MultiScaleDeformableAttention.forward
+
+            def _typed_msda_fwd(self, value, *args, **kwargs):
+                # Cast float32 sampling locations to match value dtype so grid_sample
+                # doesn't raise a scalar-type mismatch.
+                new_args = [
+                    a.to(value.dtype)
+                    if isinstance(a, torch.Tensor) and a.is_floating_point()
+                    else a
+                    for a in args
+                ]
+                new_kwargs = {
+                    k: v.to(value.dtype)
+                    if isinstance(v, torch.Tensor) and v.is_floating_point()
+                    else v
+                    for k, v in kwargs.items()
+                }
+                return _orig_msda_fwd(self, value, *new_args, **new_kwargs)
+
+            MultiScaleDeformableAttention.forward = _typed_msda_fwd
 
         model = AutoModelForZeroShotObjectDetection.from_pretrained(
             pretrained_model_name, **model_kwargs
