@@ -91,6 +91,8 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None):
+        from transformers import AutoConfig
+
         if self._processor is None:
             self._load_processor()
 
@@ -105,6 +107,13 @@ class ModelLoader(ForgeModel):
             audio_array,
             sampling_rate=sampling_rate,
             return_tensors="pt",
+        )
+
+        # Moonshine is a seq2seq model; decoder needs a seed token to start generation
+        config = AutoConfig.from_pretrained(self._variant_config.pretrained_model_name)
+        decoder_start_token_id = config.decoder_start_token_id or 1
+        inputs["decoder_input_ids"] = torch.tensor(
+            [[decoder_start_token_id]], dtype=torch.long
         )
 
         if dtype_override is not None:
