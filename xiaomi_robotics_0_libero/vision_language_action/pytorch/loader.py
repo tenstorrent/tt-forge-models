@@ -9,6 +9,7 @@ vision-language-action prediction on the LIBERO benchmark.
 from typing import Optional
 
 import torch
+import transformers.modeling_rope_utils as _rope_utils
 from PIL import Image
 from transformers import AutoModel, AutoProcessor
 
@@ -84,6 +85,28 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        # Qwen3VLTextRotaryEmbedding uses ROPE_INIT_FUNCTIONS['default'] which is
+        # absent in older transformers versions (pre-5.x).
+        if "default" not in _rope_utils.ROPE_INIT_FUNCTIONS:
+
+            def _default_rope(config, device=None, seq_len=None, **kw):
+                head_dim = getattr(
+                    config,
+                    "head_dim",
+                    config.hidden_size // config.num_attention_heads,
+                )
+                theta = getattr(config, "rope_theta", 10000)
+                inv_freq = 1.0 / (
+                    theta
+                    ** (
+                        torch.arange(0, head_dim, 2, dtype=torch.float32, device=device)
+                        / head_dim
+                    )
+                )
+                return inv_freq, 1.0
+
+            _rope_utils.ROPE_INIT_FUNCTIONS["default"] = _default_rope
 
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
