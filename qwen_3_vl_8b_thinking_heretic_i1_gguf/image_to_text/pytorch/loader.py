@@ -61,7 +61,63 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _apply_gguf_compat_patches():
+        """Patch is_gguf_available and load_gguf_checkpoint for transformers 5.2+.
+
+        transformers 5.2 calls version.parse(gguf_version) which raises
+        InvalidVersion when gguf is installed at runtime and its metadata is not
+        yet visible to importlib.metadata (stale cache). Wrap the function to
+        fall back to a find_spec check on failure."""
+        import inspect
+        import importlib.util
+
+        import transformers.modeling_gguf_pytorch_utils as _gguf_mod
+        import transformers.utils.import_utils as _import_utils
+
+        _orig_is_gguf_available = _import_utils.is_gguf_available
+
+        def _safe_is_gguf_available(min_version=None):
+            try:
+                if min_version is not None:
+                    return _orig_is_gguf_available(min_version=min_version)
+                return _orig_is_gguf_available()
+            except Exception:
+                return importlib.util.find_spec("gguf") is not None
+
+        _import_utils.is_gguf_available = _safe_is_gguf_available
+        _gguf_mod.is_gguf_available = _safe_is_gguf_available
+
+        chain_top = _gguf_mod.load_gguf_checkpoint
+        try:
+            needs_compat = (
+                "model_to_load" not in inspect.signature(chain_top).parameters
+            )
+        except Exception:
+            needs_compat = False
+
+        if needs_compat:
+
+            def _compat_load_gguf(gguf_path, return_tensors=False, **kw):
+                kw.pop("model_to_load", None)
+                return chain_top(gguf_path, return_tensors=return_tensors, **kw)
+
+            orig_get_map = _gguf_mod.get_gguf_hf_weights_map
+
+            def _compat_get_map(
+                hf_model, processor, model_type=None, num_layers=None, qual_name=""
+            ):
+                if hf_model is None:
+                    return {}
+                return orig_get_map(
+                    hf_model, processor, model_type, num_layers, qual_name
+                )
+
+            _gguf_mod.load_gguf_checkpoint = _compat_load_gguf
+            _gguf_mod.get_gguf_hf_weights_map = _compat_get_map
+
     def load_model(self, *, dtype_override=None, **kwargs):
+        self._apply_gguf_compat_patches()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
