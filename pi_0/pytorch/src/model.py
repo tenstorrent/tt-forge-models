@@ -1,11 +1,30 @@
 # SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
+import json
+import os
+import tempfile
 import torch
 from collections import deque
+from pathlib import Path
 from torch import Tensor
 from lerobot.policies.pi0 import PI0Policy
 from types import MethodType
+
+_UNKNOWN_PI0_CONFIG_FIELDS = frozenset(
+    [
+        "resize_imgs_with_padding",
+        "adapt_to_pi_aloha",
+        "use_delta_joint_actions_aloha",
+        "proj_width",
+        "num_steps",
+        "use_cache",
+        "attention_implementation",
+        "train_state_proj",
+        "paligemma_pretrained_path",
+        "use_amp",
+    ]
+)
 
 
 @torch.no_grad()
@@ -117,6 +136,43 @@ def forward(
     return queue.popleft()
 
 
+def _load_pi0_policy_compat(pretrained_model_name: str) -> PI0Policy:
+    """Load PI0Policy, stripping config fields unknown to lerobot 0.4.3's PI0Config."""
+    from huggingface_hub import hf_hub_download
+
+    try:
+        config_file = hf_hub_download(
+            repo_id=pretrained_model_name,
+            filename="config.json",
+            local_files_only=True,
+        )
+    except Exception:
+        config_file = str(Path(pretrained_model_name) / "config.json")
+
+    with open(config_file) as f:
+        config_data = json.load(f)
+
+    unknown = {k for k in config_data if k in _UNKNOWN_PI0_CONFIG_FIELDS}
+    if not unknown:
+        return PI0Policy.from_pretrained(pretrained_model_name)
+
+    patched = {
+        k: v for k, v in config_data.items() if k not in _UNKNOWN_PI0_CONFIG_FIELDS
+    }
+    model_dir = Path(config_file).parent
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        with open(tmp_path / "config.json", "w") as f:
+            json.dump(patched, f)
+        for file in model_dir.iterdir():
+            if file.name != "config.json":
+                os.symlink(file, tmp_path / file.name)
+        policy = PI0Policy.from_pretrained(tmpdir)
+
+    return policy
+
+
 def get_custom_pi0_policy(pretrained_model_name: str) -> PI0Policy:
     """
     Create a customized Pi-0 Policy instance for inference.
@@ -135,7 +191,7 @@ def get_custom_pi0_policy(pretrained_model_name: str) -> PI0Policy:
         PI0Policy: An instance of the Pi-0 Policy with overridden
                    inference methods.
     """
-    policy = PI0Policy.from_pretrained(pretrained_model_name)
+    policy = _load_pi0_policy_compat(pretrained_model_name)
     policy.preprocess_for_sampling = MethodType(preprocess_for_sampling, policy)
     policy.forward = MethodType(forward, policy)
     return policy
