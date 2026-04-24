@@ -100,13 +100,22 @@ class ModelLoader(ForgeModel):
         # gptqmodel incorrectly replaces vision MLP layers (intermediate_size=4304,
         # 4304 % 32 != 0) causing an assertion error in convert_weight_packed_zp.
         config = AutoConfig.from_pretrained(pretrained_model_name)
-        if hasattr(config, "quantization_config") and hasattr(
-            config.quantization_config, "modules_to_not_convert"
-        ):
-            config.quantization_config.modules_to_not_convert = [
-                f"model.{m}" if not m.startswith("model.") else m
-                for m in config.quantization_config.modules_to_not_convert
-            ]
+        qc = getattr(config, "quantization_config", None)
+        if qc is not None:
+            modules_key = "modules_to_not_convert"
+            modules = (
+                qc.get(modules_key)
+                if isinstance(qc, dict)
+                else getattr(qc, modules_key, None)
+            )
+            if modules:
+                fixed = [
+                    f"model.{m}" if not m.startswith("model.") else m for m in modules
+                ]
+                if isinstance(qc, dict):
+                    qc[modules_key] = fixed
+                else:
+                    setattr(qc, modules_key, fixed)
         model_kwargs["config"] = config
 
         # AWQ repos may not ship a processor; fall back to the base model
