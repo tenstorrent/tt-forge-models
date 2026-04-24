@@ -55,7 +55,7 @@ _LORA_FILES = {
 
 _BASE_MODELS = {
     ModelVariant.ARCANE_STYLE_ILLUSTRIOUS: "OnomaAIResearch/Illustrious-xl-early-release-v0",
-    ModelVariant.ARCANE_STYLE_PONYXL: "AstraliteHeart/pony-diffusion-v6",
+    ModelVariant.ARCANE_STYLE_PONYXL: "stabilityai/stable-diffusion-xl-base-1.0",
     ModelVariant.NOOBAI_32K_UHD_AESTHETIC: "Laxhar/noobai-XL-1.1",
     ModelVariant.MICRO_CUBE_WORLDS_SDXL: "stabilityai/stable-diffusion-xl-base-1.0",
 }
