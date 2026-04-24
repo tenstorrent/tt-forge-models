@@ -446,14 +446,15 @@ class ModelLoader(ForgeModel):
         ]:
             return None
 
+        causal_lm = model.get_base_model() if hasattr(model, "get_base_model") else model
         shard_specs = {}
 
         if strategy == "fsdp":
             # FSDP: weights sharded across both batch_axis and "model" mesh axes.
-            shard_specs[model.model.embed_tokens.weight] = (None, batch_axis)
-            shard_specs[model.lm_head.weight] = ("model", batch_axis)
-            shard_specs[model.model.norm.weight] = (batch_axis,)
-            for layer in model.model.layers:
+            shard_specs[causal_lm.model.embed_tokens.weight] = (None, batch_axis)
+            shard_specs[causal_lm.lm_head.weight] = ("model", batch_axis)
+            shard_specs[causal_lm.model.norm.weight] = (batch_axis,)
+            for layer in causal_lm.model.layers:
                 shard_specs[layer.mlp.up_proj.weight] = ("model", batch_axis)
                 shard_specs[layer.mlp.gate_proj.weight] = ("model", batch_axis)
                 shard_specs[layer.mlp.down_proj.weight] = (batch_axis, "model")
@@ -467,10 +468,10 @@ class ModelLoader(ForgeModel):
 
         elif strategy == "megatron":
             # Megatron: weights sharded on "model" axis, replicated (None) on the other.
-            shard_specs[model.model.embed_tokens.weight] = (None, None)
-            shard_specs[model.lm_head.weight] = ("model", None)
-            shard_specs[model.model.norm.weight] = (None,)
-            for layer in model.model.layers:
+            shard_specs[causal_lm.model.embed_tokens.weight] = (None, None)
+            shard_specs[causal_lm.lm_head.weight] = ("model", None)
+            shard_specs[causal_lm.model.norm.weight] = (None,)
+            for layer in causal_lm.model.layers:
                 shard_specs[layer.mlp.up_proj.weight] = ("model", None)
                 shard_specs[layer.mlp.gate_proj.weight] = ("model", None)
                 shard_specs[layer.mlp.down_proj.weight] = (None, "model")

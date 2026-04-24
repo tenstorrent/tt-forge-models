@@ -225,8 +225,9 @@ class ModelLoader(ForgeModel):
         ]:
             return None
 
+        causal_lm = model.get_base_model() if hasattr(model, "get_base_model") else model
         shard_specs = {}
-        for layer in model.model.layers:
+        for layer in causal_lm.model.layers:
             shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
