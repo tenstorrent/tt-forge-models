@@ -20,6 +20,38 @@ from ....config import (
 )
 
 
+def _patch_transformers_for_falcon_h1():
+    """Add falcon-h1 GGUF support missing from transformers at the time of writing."""
+    from transformers.integrations.ggml import (
+        GGUF_CONFIG_MAPPING,
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFLlamaConverter,
+    )
+    from transformers import modeling_gguf_pytorch_utils
+    from transformers.models.auto.configuration_auto import CONFIG_MAPPING
+    from transformers.models.falcon_h1 import FalconH1Config
+
+    if "falcon-h1" not in GGUF_CONFIG_MAPPING:
+        GGUF_CONFIG_MAPPING["falcon-h1"] = {
+            "context_length": "max_position_embeddings",
+            "block_count": "num_hidden_layers",
+            "feed_forward_length": "intermediate_size",
+            "embedding_length": "hidden_size",
+            "rope.dimension_count": None,
+            "rope.freq_base": "rope_theta",
+            "attention.head_count": "num_attention_heads",
+            "attention.head_count_kv": "num_key_value_heads",
+            "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+            "vocab_size": "vocab_size",
+        }
+        modeling_gguf_pytorch_utils.GGUF_SUPPORTED_ARCHITECTURES.append("falcon-h1")
+        CONFIG_MAPPING.register("falcon-h1", FalconH1Config, exist_ok=True)
+        GGUF_TO_FAST_CONVERTERS["falcon-h1"] = GGUFLlamaConverter
+
+
+_patch_transformers_for_falcon_h1()
+
+
 class ModelVariant(StrEnum):
     """Available Falcon-H1-34B-Instruct GGUF model variants for causal language modeling."""
 
@@ -86,13 +118,18 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["ignore_mismatched_sizes"] = True
+
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, gguf_file=self.GGUF_FILE
+        )
+        # Normalize model_type from GGUF 'falcon-h1' to transformers 'falcon_h1'
+        config.model_type = "falcon_h1"
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -139,4 +176,6 @@ class ModelLoader(ForgeModel):
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
+        # Normalize model_type from GGUF 'falcon-h1' to transformers 'falcon_h1'
+        self.config.model_type = "falcon_h1"
         return self.config
