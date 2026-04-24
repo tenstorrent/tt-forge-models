@@ -86,11 +86,12 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         # MLX quantization config lacks `quant_method` required by transformers;
-        # clear it so the model loads in the specified dtype instead.
+        # remove it so the model loads in the specified dtype instead.
         config = AutoConfig.from_pretrained(pretrained_model_name)
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
-        config.quantization_config = None
+        if hasattr(config, "quantization_config"):
+            delattr(config, "quantization_config")
         model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
