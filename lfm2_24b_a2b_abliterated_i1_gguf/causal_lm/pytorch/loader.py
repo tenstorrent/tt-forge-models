@@ -51,10 +51,10 @@ def _patch_lfm2moe_support():
         GGUF_TO_FAST_CONVERTERS["lfm2_moe"] = GGUF_TO_FAST_CONVERTERS["llama"]
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+def _patched_load_gguf_checkpoint(*args, **kwargs):
     """Wrap load_gguf_checkpoint to add lfm2moe support and fix model_type."""
     _patch_lfm2moe_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
     config = result.get("config", {})
     if config.get("model_type") == "lfm2moe":
         config["model_type"] = "lfm2_moe"
