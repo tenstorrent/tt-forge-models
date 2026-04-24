@@ -114,8 +114,8 @@ class ModelLoader(ForgeModel):
         """Load and return sample inputs for the Flux Fill model.
 
         The Flux Fill transformer expects hidden_states that include the noisy latents
-        concatenated with masked image latents and a packed mask along dim=2,
-        resulting in in_channels of 384 (64 + 64 + 256).
+        concatenated with masked image latents and a packed mask along dim=2.
+        Channel counts are derived from the model config to support different model sizes.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
@@ -183,15 +183,22 @@ class ModelLoader(ForgeModel):
         width_latent = 2 * (int(width) // (self.pipe.vae_scale_factor * 2))
         seq_len = (height_latent // 2) * (width_latent // 2)
 
+        # Derive channel counts from model config to support different model sizes
+        vae_latent_channels = self.pipe.vae.config.latent_channels
+        noise_channels = vae_latent_channels * 4  # 2x2 spatial packing
+        masked_image_channels = vae_latent_channels * 4
+        mask_channels = (
+            self.pipe.transformer.config.in_channels
+            - noise_channels
+            - masked_image_channels
+        )
+
         # Create noisy latents (packed format)
-        noise_channels = 64
         latents = torch.randn(
             batch_size * num_images_per_prompt, seq_len, noise_channels, dtype=dtype
         )
 
         # Create masked image latents (VAE-encoded masked image + packed mask)
-        masked_image_channels = 64
-        mask_channels = 256
         masked_image_latents = torch.randn(
             batch_size * num_images_per_prompt,
             seq_len,
