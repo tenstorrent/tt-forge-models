@@ -121,11 +121,46 @@ class ModelLoader(ForgeModel):
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
-        self._transformer = WanTransformer3DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/{gguf_file}",
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
+        # GGUF stores modulation as [6, dim] but WanTransformer3DModel expects
+        # scale_shift_table as [1, 6, dim]. Patch the dispatch table entry that
+        # single_file_model.py reads at call time (the module-level name is
+        # captured at import, so patching the dict is required).
+        from diffusers.loaders import single_file_utils
+        import diffusers.loaders.single_file_model as _sfm
+
+        _orig_convert = single_file_utils.convert_wan_transformer_to_diffusers
+        _wan_entry = _sfm.SINGLE_FILE_LOADABLE_CLASSES["WanTransformer3DModel"]
+        _orig_map_fn = _wan_entry["checkpoint_mapping_fn"]
+
+        def _patched_convert(checkpoint, **kwargs):
+            state_dict = _orig_convert(checkpoint, **kwargs)
+            for key in list(state_dict.keys()):
+                if "scale_shift_table" in key and state_dict[key].ndim == 2:
+                    state_dict[key] = state_dict[key].unsqueeze(0)
+            return state_dict
+
+        _wan_entry["checkpoint_mapping_fn"] = _patched_convert
+        try:
+            self._transformer = WanTransformer3DModel.from_single_file(
+                f"https://huggingface.co/{GGUF_REPO}/{gguf_file}",
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
+            )
+        finally:
+            _wan_entry["checkpoint_mapping_fn"] = _orig_map_fn
+
+        # Dequantize GGUFLinear → standard nn.Linear so XLA can compile the graph
+        # without encountering custom GGUF dequantization ops during tracing.
+        # Clear the quantization config first so .to() isn't blocked, then cast
+        # since _dequantize_gguf_and_restore_linear produces float16 by default.
+        from diffusers.quantizers.gguf.utils import _dequantize_gguf_and_restore_linear
+
+        self._transformer = _dequantize_gguf_and_restore_linear(self._transformer)
+        # Clear quantization markers so .to(dtype) is not blocked.
+        self._transformer.quantization_config = None
+        self._transformer.hf_quantizer = None
+        self._transformer.is_quantized = False
+        self._transformer = self._transformer.to(compute_dtype)
 
         return self._transformer
 
