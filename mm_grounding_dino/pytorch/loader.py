@@ -113,6 +113,8 @@ class ModelLoader(ForgeModel):
         model = AutoModelForZeroShotObjectDetection.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        if dtype_override is None:
+            model = model.to(torch.float32)
         model.eval()
 
         return model
