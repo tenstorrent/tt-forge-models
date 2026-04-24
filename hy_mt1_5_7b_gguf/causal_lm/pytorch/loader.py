@@ -78,12 +78,20 @@ def _patch_transformers_hunyuan_dense_gguf():
     # which uses "hunyuan-dense" not "hunyuan_v1_dense", so we remap it.
     orig_weights_map = gguf_utils.get_gguf_hf_weights_map
 
-    def patched_get_gguf_hf_weights_map(hf_model, processor, model_type=None, **kwargs):
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
         if model_type is None and hasattr(hf_model, "config"):
             model_type = hf_model.config.model_type
         if model_type == "hunyuan_v1_dense":
             model_type = "hunyuan-dense"
-        return orig_weights_map(hf_model, processor, model_type=model_type, **kwargs)
+        return orig_weights_map(
+            hf_model,
+            processor,
+            model_type=model_type,
+            num_layers=num_layers,
+            qual_name=qual_name,
+        )
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
     if hasattr(modeling_utils, "get_gguf_hf_weights_map"):
