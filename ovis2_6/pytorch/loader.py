@@ -6,7 +6,7 @@ Ovis2.6 model loader implementation for multimodal visual question answering.
 """
 
 import torch
-from transformers import AutoModelForCausalLM, Qwen3MoeForCausalLM
+from transformers import AutoModelForCausalLM, PreTrainedModel
 from PIL import Image
 from typing import Optional
 
@@ -62,9 +62,9 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         # transformers 5.x removed is_parallelizable from PreTrainedModel;
-        # modeling_ovis2_6.py accesses self.llm.is_parallelizable at init time.
-        if not hasattr(Qwen3MoeForCausalLM, "is_parallelizable"):
-            Qwen3MoeForCausalLM.is_parallelizable = False
+        # modeling_ovis2_6.py accesses llm.is_parallelizable and vit.is_parallelizable.
+        if not hasattr(PreTrainedModel, "is_parallelizable"):
+            PreTrainedModel.is_parallelizable = False
 
         model_kwargs = {
             "trust_remote_code": True,
