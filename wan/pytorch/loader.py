@@ -44,6 +44,7 @@ from .src.utils import (
     load_vae_decoder_inputs,
     load_vae_encoder_inputs,
     load_vace_pipeline,
+    load_vace_transformer_inputs,
     load_vace_inputs,
     load_i2v_pipeline,
     load_i2v_inputs,
@@ -210,7 +211,7 @@ class ModelLoader(ForgeModel):
             self.pipeline = load_vace_pipeline(
                 self._variant_config.pretrained_model_name, dtype
             )
-            return self.pipeline
+            return self.pipeline.transformer
 
         if self.pipeline is None:
             return self._load_pipeline(
@@ -261,9 +262,10 @@ class ModelLoader(ForgeModel):
             ModelVariant.WAN21_VACE_1_3B,
             ModelVariant.WAN21_VACE_14B,
         ):
-            return load_vace_inputs(
-                prompt=prompt if prompt is not None else self.DEFAULT_PROMPT
-            )
+            dtype = kwargs.get("dtype_override", torch.float32)
+            if self.pipeline is None:
+                self.load_model(dtype_override=dtype)
+            return load_vace_transformer_inputs(self.pipeline.transformer, dtype)
 
         prompt_value = prompt if prompt is not None else self.DEFAULT_PROMPT
         return {"prompt": prompt_value}

@@ -17,6 +17,13 @@ LATENT_HEIGHT = 8
 LATENT_WIDTH = 8
 LATENT_DEPTH = 2  # temporal latent frames
 
+# Small test dimensions for VACE transformer inputs
+# Height and width must be divisible by patch_size (2, 2)
+VACE_TRANSFORMER_NUM_FRAMES = 1
+VACE_TRANSFORMER_HEIGHT = 8
+VACE_TRANSFORMER_WIDTH = 8
+VACE_TRANSFORMER_TEXT_SEQ_LEN = 16
+
 
 # ============================================================================
 # Model Loading Functions
@@ -174,6 +181,54 @@ def load_i2v_inputs(prompt: str, height: int = 480, width: int = 832) -> dict:
         "num_frames": 9,
         "num_inference_steps": 2,
         "guidance_scale": 5.0,
+    }
+
+
+def load_vace_transformer_inputs(
+    transformer, dtype: torch.dtype = torch.float32
+) -> dict:
+    """
+    Prepare tensor inputs for the WanVACETransformer3DModel forward pass.
+
+    Args:
+        transformer: Loaded WanVACETransformer3DModel instance
+        dtype: Torch dtype for generated tensors
+    """
+    config = transformer.config
+    batch_size = 1
+
+    hidden_states = torch.randn(
+        batch_size,
+        config.in_channels,
+        VACE_TRANSFORMER_NUM_FRAMES,
+        VACE_TRANSFORMER_HEIGHT,
+        VACE_TRANSFORMER_WIDTH,
+        dtype=dtype,
+    )
+    timestep = torch.tensor([500], dtype=torch.long)
+    encoder_hidden_states = torch.randn(
+        batch_size,
+        VACE_TRANSFORMER_TEXT_SEQ_LEN,
+        config.text_dim,
+        dtype=dtype,
+    )
+    control_hidden_states = torch.randn(
+        batch_size,
+        config.vace_in_channels,
+        VACE_TRANSFORMER_NUM_FRAMES,
+        VACE_TRANSFORMER_HEIGHT,
+        VACE_TRANSFORMER_WIDTH,
+        dtype=dtype,
+    )
+    control_hidden_states_scale = torch.ones(len(config.vace_layers), dtype=dtype)
+
+    return {
+        "hidden_states": hidden_states,
+        "timestep": timestep,
+        "encoder_hidden_states": encoder_hidden_states,
+        "control_hidden_states": control_hidden_states,
+        "control_hidden_states_scale": control_hidden_states_scale,
+        "return_dict": False,
     }
 
 
