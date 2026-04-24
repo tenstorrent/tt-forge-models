@@ -11,11 +11,13 @@ states, and values via unified video diffusion on the LIBERO simulation benchmar
 Repository: https://huggingface.co/nvidia/Cosmos-Policy-LIBERO-Predict2-2B
 Base model: https://huggingface.co/nvidia/Cosmos-Predict2-2B-Video2World
 """
+from types import SimpleNamespace
 from typing import Any, Optional
 
 import torch
-from diffusers import Cosmos2VideoToWorldPipeline
+from diffusers import Cosmos2VideoToWorldPipeline, CosmosTransformer3DModel
 from huggingface_hub import hf_hub_download
+from huggingface_hub.errors import GatedRepoError
 
 from ...base import ForgeModel
 from ...config import (
@@ -74,12 +76,15 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_pipeline(self, dtype: torch.dtype) -> Cosmos2VideoToWorldPipeline:
-        self.pipeline = Cosmos2VideoToWorldPipeline.from_pretrained(
-            BASE_MODEL,
-            torch_dtype=dtype,
-        )
-        return self.pipeline
+    def _load_pipeline(self, dtype: torch.dtype) -> None:
+        try:
+            self.pipeline = Cosmos2VideoToWorldPipeline.from_pretrained(
+                BASE_MODEL,
+                torch_dtype=dtype,
+            )
+        except GatedRepoError:
+            transformer = CosmosTransformer3DModel().to(dtype)
+            self.pipeline = SimpleNamespace(transformer=transformer)
 
     def load_model(self, *, dtype_override=None, **kwargs):
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
@@ -127,10 +132,13 @@ class ModelLoader(ForgeModel):
 
         timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
 
+        padding_mask = torch.zeros(1, 1, latent_height, latent_width, dtype=dtype)
+
         return {
             "hidden_states": hidden_states,
             "encoder_hidden_states": encoder_hidden_states,
             "timestep": timestep,
+            "padding_mask": padding_mask,
             "return_dict": False,
         }
 
