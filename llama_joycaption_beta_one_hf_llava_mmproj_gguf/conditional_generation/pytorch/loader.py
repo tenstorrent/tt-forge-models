@@ -87,9 +87,12 @@ class ModelLoader(ForgeModel):
         """Load and return the llama-joycaption-beta-one-hf-llava-mmproj-gguf model instance."""
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        # The GGUF repo config has a wrong vocab size (32000 vs 128256 in the GGUF).
-        # Load the correct config from the matching non-GGUF model to avoid the mismatch.
-        config = LlavaConfig.from_pretrained(self._PROCESSOR_NAME)
+        # The GGUF repo config has text_config.vocab_size=32000 but the GGUF weights
+        # use Llama-3 vocab (128256). Patch the config before loading to avoid mismatch.
+        config = LlavaConfig.from_pretrained(
+            pretrained_model_name, gguf_file=self.gguf_file
+        )
+        config.text_config.vocab_size = 128256
 
         model_kwargs = {"config": config}
         if dtype_override is not None:
