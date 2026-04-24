@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.LLAMA_2_7B_CHAT_HF_Q4F16_1_MLC: LLMModelConfig(
-            pretrained_model_name="mlc-ai/Llama-2-7b-chat-hf-q4f16_1-MLC",
+            pretrained_model_name="NousResearch/Llama-2-7b-chat-hf",
             max_length=128,
         ),
     }
