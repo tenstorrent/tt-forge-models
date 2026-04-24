@@ -51,7 +51,7 @@ _patch_cohere2_gguf()
 _orig_load = _gguf_utils.load_gguf_checkpoint
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+def _patched_load_gguf_checkpoint(*args, **kwargs):
     """Wrap load_gguf_checkpoint to generate layer_types for cohere2."""
     result = _orig_load(gguf_path, return_tensors=return_tensors)
     config = result.get("config", {})

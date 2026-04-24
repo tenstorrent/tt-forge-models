@@ -43,9 +43,9 @@ def _patch_seed_oss_support():
             ] = _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["llama"]
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+def _patched_load_gguf_checkpoint(*args, **kwargs):
     _patch_seed_oss_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
     if result.get("config", {}).get("model_type") == "llama":
         if result.get("config", {}).get("gguf_architecture") == "seed_oss":
             result["config"]["model_type"] = "seed_oss"
