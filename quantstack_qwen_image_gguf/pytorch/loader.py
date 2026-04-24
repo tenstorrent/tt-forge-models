@@ -20,6 +20,59 @@ from diffusers import QwenImageTransformer2DModel
 from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
+
+
+def _patch_gguf_loader():
+    """Patch diffusers 0.37.1 load_gguf_checkpoint to dequantize all tensors on load.
+
+    In diffusers 0.37.1, GGUF quantized tensors are loaded as GGUFParameter with
+    raw uint8 byte shapes, but load_model_dict_into_meta checks raw shape vs model
+    shape without a GGUF quantizer configured (requires explicit quantization_config).
+    BF16 tensors are also incorrectly treated as quantized, doubling the apparent
+    last dimension. This patch dequantizes all tensors at load time so plain
+    float tensors with correct shapes are returned.
+    """
+    from gguf import GGUFReader, GGMLQuantizationType
+    from diffusers.models import model_loading_utils
+    from diffusers.quantizers.gguf.utils import (
+        GGUFParameter,
+        SUPPORTED_GGUF_QUANT_TYPES,
+        dequantize_gguf_tensor,
+    )
+
+    _UNQUANTIZED = {
+        GGMLQuantizationType.F32,
+        GGMLQuantizationType.F16,
+        GGMLQuantizationType.BF16,
+    }
+
+    def _patched_load_gguf_checkpoint(gguf_checkpoint_path, return_tensors=False):
+        reader = GGUFReader(gguf_checkpoint_path)
+        parsed_parameters = {}
+        for tensor in reader.tensors:
+            name = tensor.name
+            quant_type = tensor.tensor_type
+            if quant_type == GGMLQuantizationType.BF16:
+                weights = torch.from_numpy(tensor.data.copy()).view(torch.bfloat16)
+            elif quant_type in _UNQUANTIZED:
+                weights = torch.from_numpy(tensor.data.copy())
+            else:
+                if quant_type not in SUPPORTED_GGUF_QUANT_TYPES:
+                    supported = "\n".join(str(t) for t in SUPPORTED_GGUF_QUANT_TYPES)
+                    raise ValueError(
+                        f"{name} has unsupported quantization type: {quant_type}\n\n"
+                        f"Supported types:\n{supported}"
+                    )
+                raw = torch.from_numpy(tensor.data.copy())
+                weights = dequantize_gguf_tensor(
+                    GGUFParameter(raw, quant_type=quant_type)
+                )
+            parsed_parameters[name] = weights
+        return parsed_parameters
+
+    model_loading_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+
 from ...config import (
     ModelConfig,
     ModelInfo,
@@ -87,6 +140,7 @@ class ModelLoader(ForgeModel):
             filename=gguf_filename,
         )
 
+        _patch_gguf_loader()
         self._transformer = QwenImageTransformer2DModel.from_single_file(
             model_path,
             config=CONFIG_REPO,
@@ -110,7 +164,7 @@ class ModelLoader(ForgeModel):
 
         Returns a dict matching QwenImageTransformer2DModel.forward() signature.
         """
-        dtype = kwargs.get("dtype_override", torch.float32)
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
         batch_size = kwargs.get("batch_size", 1)
 
         # From Qwen-Image config: in_channels=64 (img_in linear input dimension)
