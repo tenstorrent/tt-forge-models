@@ -55,10 +55,10 @@ def _patch_llama4_gguf_support():
             ] = _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["llama"]
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+def _patched_load_gguf_checkpoint(*args, **kwargs):
     """Wrap load_gguf_checkpoint to add llama4 support and fix model_type."""
     _patch_llama4_gguf_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
     config = result.get("config", {})
     if config.get("model_type") == "llama4":
         config["model_type"] = "llama4_text"
