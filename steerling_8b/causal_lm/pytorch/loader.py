@@ -122,6 +122,9 @@ class ModelLoader(ForgeModel):
             max_length=max_length,
         )
 
+        # SteerlingForCausalLM.forward() does not accept attention_mask
+        inputs.pop("attention_mask", None)
+
         for key in inputs:
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
