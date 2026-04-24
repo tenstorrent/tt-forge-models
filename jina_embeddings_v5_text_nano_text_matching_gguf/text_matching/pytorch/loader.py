@@ -149,8 +149,13 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
 
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
+        # The GGUFGPTConverter adds extra tokens that push eos_token_id beyond
+        # vocab_size; use the GGUF padding_token_id (128004) which is in range.
+        if self.tokenizer.pad_token is None or (
+            self.tokenizer.pad_token_id is not None
+            and self.tokenizer.pad_token_id >= self.tokenizer.vocab_size
+        ):
+            self.tokenizer.pad_token_id = 128004
 
         return self.tokenizer
 
