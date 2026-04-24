@@ -83,10 +83,10 @@ class ModelLoader(ForgeModel):
         return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the model.
+        """Load and return sample inputs for the UNet model.
 
         Returns:
-            list: Input tensors for the UNet model.
+            dict: Keyword arguments for the UNet forward method.
         """
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
@@ -100,9 +100,16 @@ class ModelLoader(ForgeModel):
             add_time_ids,
         ) = stable_diffusion_preprocessing_xl(self.pipeline, self.prompt)
 
+        timestep = timesteps[0]
+
         if dtype_override:
             latent_model_input = latent_model_input.to(dtype_override)
-            timesteps = timesteps.to(dtype_override)
+            timestep = timestep.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
 
-        return [latent_model_input, timesteps, prompt_embeds, added_cond_kwargs]
+        return {
+            "sample": latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "added_cond_kwargs": added_cond_kwargs,
+        }
