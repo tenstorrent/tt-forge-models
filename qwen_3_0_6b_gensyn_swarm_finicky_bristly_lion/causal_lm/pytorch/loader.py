@@ -96,6 +96,10 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
 
+        if self.tokenizer.chat_template is None:
+            base_tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-0.6B")
+            self.tokenizer.chat_template = base_tokenizer.chat_template
+
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
