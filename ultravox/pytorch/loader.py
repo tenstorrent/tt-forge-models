@@ -257,24 +257,26 @@ class ModelLoader(ForgeModel):
         # tie_weights(); the custom hausa-ultravox model overrides tie_weights()
         # without **kwargs. AutoConfig loading above imports the custom module
         # into sys.modules — find UltravoxModel there and wrap tie_weights.
-        import inspect
-        import sys
+        # transformers>=5.x added recompute_mapping and missing_keys kwargs to
+        # tie_weights(); the custom hausa-ultravox model overrides tie_weights()
+        # without **kwargs. Derive the model module from the config class's
+        # __module__ and force-import it so we can patch tie_weights before
+        # from_pretrained runs.
+        import importlib
 
-        for _mod_name, _mod in sys.modules.items():
-            if (
-                "transformers_modules" in _mod_name
-                and "ultravox" in _mod_name
-                and hasattr(_mod, "UltravoxModel")
-                and inspect.isclass(_mod.UltravoxModel)
-            ):
-                _UltravoxModel = _mod.UltravoxModel
-                _orig_tie_weights = _UltravoxModel.tie_weights
+        _config_module_name = type(config).__module__
+        if "transformers_modules" in _config_module_name:
+            _model_module_name = _config_module_name.replace(
+                "ultravox_config", "ultravox_model"
+            )
+            _ultravox_module = importlib.import_module(_model_module_name)
+            _UltravoxModel = _ultravox_module.UltravoxModel
+            _orig_tie_weights = _UltravoxModel.tie_weights
 
-                def _patched_tie_weights(self_model, **kwargs):
-                    return _orig_tie_weights(self_model)
+            def _patched_tie_weights(self_model, **kwargs):
+                return _orig_tie_weights(self_model)
 
-                _UltravoxModel.tie_weights = _patched_tie_weights
-                break
+            _UltravoxModel.tie_weights = _patched_tie_weights
 
         model = transformers.AutoModel.from_pretrained(
             pretrained_model_name,
