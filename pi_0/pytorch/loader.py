@@ -101,13 +101,25 @@ class ModelLoader(ForgeModel):
         Returns images, image masks, language tokens, language masks, state,
         and a pre-generated noise tensor for deterministic diffusion sampling.
         """
+        from huggingface_hub import hf_hub_download
+        from huggingface_hub.errors import EntryNotFoundError
         from lerobot.policies.factory import make_pre_post_processors
         from lerobot.datasets.lerobot_dataset import LeRobotDataset
         from .src.model import preprocess_for_sampling
 
+        try:
+            hf_hub_download(
+                repo_id=self.pretrained_model_name,
+                filename="policy_preprocessor.json",
+                local_files_only=True,
+            )
+            preprocessor_path = self.pretrained_model_name
+        except Exception:
+            preprocessor_path = None
+
         self.preprocess, self.postprocess_fn = make_pre_post_processors(
             self.pi_0.config,
-            self.pretrained_model_name,
+            preprocessor_path,
             preprocessor_overrides={"device_processor": {"device": "cpu"}},
         )
         dataset = LeRobotDataset("lerobot/libero")
