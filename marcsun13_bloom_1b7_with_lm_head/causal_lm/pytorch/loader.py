@@ -35,6 +35,9 @@ class ModelLoader(ForgeModel):
         ),
     }
 
+    # The marcsun13 model repo lacks tokenizer files; use the base model's tokenizer instead.
+    _TOKENIZER_NAME = "bigscience/bloom-1b7"
+
     DEFAULT_VARIANT = ModelVariant.BLOOM_1B7_WITH_LM_HEAD
 
     sample_text = "My name is Julien and I like to"
@@ -63,7 +66,7 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._TOKENIZER_NAME, **tokenizer_kwargs
         )
 
         if self.tokenizer.pad_token is None:
