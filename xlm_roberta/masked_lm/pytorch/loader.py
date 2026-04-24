@@ -5,6 +5,7 @@
 XLM-RoBERTa model loader implementation for masked language modeling (PyTorch).
 """
 
+import sys
 import torch
 from transformers import AutoTokenizer, AutoModelForMaskedLM
 from typing import Optional
@@ -67,6 +68,45 @@ class ModelLoader(ForgeModel):
         )
         return self.tokenizer
 
+    @staticmethod
+    def _patch_nomic_bert_remap(model_name):
+        """Patch remap_bert_state_dict to handle tied decoder weight absent from state dict.
+
+        nomic-xlm-2048 ties cls.predictions.decoder.weight to word embeddings, so it
+        is not stored in the checkpoint. remap_bert_state_dict unconditionally accesses
+        that key, causing a KeyError. We temporarily inject the tied weight so the
+        function can proceed without error.
+        """
+        from transformers.dynamic_module_utils import get_class_from_dynamic_module
+
+        # Loading the class triggers import of the modeling module into sys.modules.
+        get_class_from_dynamic_module(
+            "nomic-ai/nomic-bert-2048--modeling_hf_nomic_bert.NomicBertForPreTraining",
+            model_name,
+        )
+
+        for mod_name, mod in list(sys.modules.items()):
+            if (
+                "nomic" in mod_name
+                and "bert" in mod_name
+                and hasattr(mod, "remap_bert_state_dict")
+            ):
+                if getattr(mod, "_remap_patched", False):
+                    return
+                orig = mod.remap_bert_state_dict
+
+                def _safe_remap(state_dict, config, **kwargs):
+                    key = "cls.predictions.decoder.weight"
+                    emb_key = "bert.embeddings.word_embeddings.weight"
+                    if key not in state_dict and emb_key in state_dict:
+                        state_dict = dict(state_dict)
+                        state_dict[key] = state_dict[emb_key]
+                    return orig(state_dict, config, **kwargs)
+
+                mod.remap_bert_state_dict = _safe_remap
+                mod._remap_patched = True
+                return
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -78,6 +118,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["from_tf"] = True
         if self._variant == ModelVariant.NOMIC_XLM_2048:
             model_kwargs["trust_remote_code"] = True
+            self._patch_nomic_bert_remap(pretrained_model_name)
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
