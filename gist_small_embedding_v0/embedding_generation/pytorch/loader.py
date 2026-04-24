@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.GIST_SMALL_EMBEDDING_V0: ModelConfig(
-            pretrained_model_name="Xenova/GIST-small-Embedding-v0",
+            pretrained_model_name="avsolatorio/GIST-small-Embedding-v0",
         ),
     }
 
@@ -73,7 +73,7 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {"return_dict": False}
         if dtype_override is not None:
-            model_kwargs["dtype"] = dtype_override
+            model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
