@@ -74,10 +74,13 @@ class ModelLoader(ForgeModel):
 
         model_kwargs |= kwargs
 
-        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
+        # wangkanai/qwen3-vl-8b-instruct lacks standard processor config and
+        # model weight files; use base model which has identical architecture.
+        base_model_name = "Qwen/Qwen3-VL-8B-Instruct"
+        self.processor = AutoProcessor.from_pretrained(base_model_name)
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            base_model_name, **model_kwargs
         )
         model.eval()
 
