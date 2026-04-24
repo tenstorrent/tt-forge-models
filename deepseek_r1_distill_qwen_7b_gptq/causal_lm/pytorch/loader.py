@@ -10,6 +10,26 @@ from typing import Optional
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+# gptqmodel >= 3.0 removed BACKEND.EXLLAMA_V1; patch optimum's module-level
+# BACKEND reference so the post_init_model comparison doesn't raise AttributeError.
+try:
+    from gptqmodel import BACKEND as _GPTQ_BACKEND
+
+    if not hasattr(_GPTQ_BACKEND, "EXLLAMA_V1"):
+        import optimum.gptq.quantizer as _opt_quant
+
+        class _BackendShim:
+            """Proxy that forwards attribute lookups to the real BACKEND but adds EXLLAMA_V1."""
+
+            EXLLAMA_V1 = "exllama_v1_removed"
+
+            def __getattr__(self, name):
+                return getattr(_GPTQ_BACKEND, name)
+
+        _opt_quant.BACKEND = _BackendShim()
+except Exception:
+    pass
+
 from ....base import ForgeModel
 from ....config import (
     Framework,
