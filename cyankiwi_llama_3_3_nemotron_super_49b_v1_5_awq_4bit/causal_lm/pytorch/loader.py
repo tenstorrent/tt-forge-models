@@ -6,13 +6,33 @@ cyankiwi Llama 3.3 Nemotron Super 49B v1.5 AWQ 4bit model loader implementation 
 """
 import torch
 import transformers.generation.utils as _gen_utils
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    AutoConfig,
+    PreTrainedModel,
+)
 from typing import Optional
 
 # Compatibility shim: NEED_SETUP_CACHE_CLASSES_MAPPING was removed in transformers 5.x
 # but the cached remote model code (modeling_decilm.py) still references it.
 if not hasattr(_gen_utils, "NEED_SETUP_CACHE_CLASSES_MAPPING"):
     _gen_utils.NEED_SETUP_CACHE_CLASSES_MAPPING = {}
+
+# Compatibility shim: compressed-tensors quantized Linear layers store weights in packed
+# form without a standard .weight attribute. Guard _initialize_weights against AttributeError
+# so that quantized layers are skipped during weight initialization.
+_orig_initialize_weights = PreTrainedModel._initialize_weights
+
+
+def _safe_initialize_weights(self, module):
+    try:
+        _orig_initialize_weights(self, module)
+    except AttributeError:
+        module._is_hf_initialized = True
+
+
+PreTrainedModel._initialize_weights = _safe_initialize_weights
 
 from ....base import ForgeModel
 from ....config import (
