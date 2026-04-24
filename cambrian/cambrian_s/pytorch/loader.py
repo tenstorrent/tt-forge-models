@@ -7,8 +7,16 @@ Cambrian-S model loader implementation for multimodal visual question answering.
 
 import torch
 from PIL import Image
-from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor
 from typing import Optional
+
+try:
+    from cambrian import CambrianQwenConfig, CambrianQwenForCausalLM
+
+    AutoConfig.register("cambrian_qwen", CambrianQwenConfig)
+    AutoModelForCausalLM.register(CambrianQwenConfig, CambrianQwenForCausalLM)
+except ImportError:
+    pass
 
 from ....base import ForgeModel
 from ....config import (
