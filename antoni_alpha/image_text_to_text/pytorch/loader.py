@@ -74,7 +74,24 @@ class ModelLoader(ForgeModel):
         Requires the antoni_alpha package:
             pip install git+https://github.com/computationalpathologygroup/ANTONI-Alpha.git
         """
-        from antoni_alpha.models.antoni_pretrained import AntoniAlphaPreTrained
+        import sys as _sys
+
+        # The local antoni_alpha/ directory shadows the installed antoni_alpha
+        # pip package. Temporarily remove the models root from sys.path so the
+        # installed package is found first, then restore it.
+        _models_root = str(__import__("pathlib").Path(__file__).resolve().parents[3])
+        _orig_path = _sys.path.copy()
+        _sys.path = [p for p in _sys.path if p != _models_root]
+        _cached = {
+            k: _sys.modules.pop(k)
+            for k in list(_sys.modules)
+            if k == "antoni_alpha" or k.startswith("antoni_alpha.")
+        }
+        try:
+            from antoni_alpha.models.antoni_pretrained import AntoniAlphaPreTrained
+        finally:
+            _sys.path = _orig_path
+            _sys.modules.update(_cached)
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -97,14 +114,14 @@ class ModelLoader(ForgeModel):
         conversation. Synthetic slide latents are produced here to match
         the expected feature dimensions.
         """
-        slide_latents = torch.randn(batch_size, self.num_tiles, self.prism_embedding_dim)
+        slide_latents = torch.randn(
+            batch_size, self.num_tiles, self.prism_embedding_dim
+        )
 
         if dtype_override is not None:
             slide_latents = slide_latents.to(dtype_override)
 
-        conversations = [
-            [{"role": "user", "content": self.sample_prompt}]
-        ] * batch_size
+        conversations = [[{"role": "user", "content": self.sample_prompt}]] * batch_size
 
         return {
             "slide_latents": slide_latents,
