@@ -145,7 +145,9 @@ class ModelLoader(ForgeModel):
         image_tensor_list, _ = process_images(
             [image], self.image_processor, self.model.config
         )
+        # process_images returns [batch, num_patches, C, H, W]; flatten to [batch*num_patches, C, H, W]
         images = image_tensor_list[0]
+        images = images.view(-1, *images.shape[2:])
 
         if dtype_override is not None:
             images = images.to(dtype=dtype_override)
