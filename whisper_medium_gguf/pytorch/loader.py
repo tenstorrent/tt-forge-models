@@ -7,11 +7,13 @@ Whisper Medium GGUF model loader implementation for automatic speech recognition
 Repository:
 - https://huggingface.co/OllmOne/whisper-medium-GGUF
 """
+import numpy as np
 import torch
+from huggingface_hub import hf_hub_download
 from transformers import (
+    WhisperConfig,
     WhisperForConditionalGeneration,
     WhisperProcessor,
-    WhisperConfig,
 )
 from typing import Optional
 
@@ -28,6 +30,27 @@ from ...config import (
 
 # The GGUF repo does not include processor files, so we load from the base model.
 BASE_MODEL_NAME = "openai/whisper-medium"
+
+
+def _load_state_dict_from_gguf(gguf_path, dtype=None):
+    """Load state dict from a non-standard GGUF file with PyTorch-style tensor names.
+
+    This GGUF file has no architecture metadata and stores tensors with HuggingFace
+    naming conventions, so the standard transformers GGUF loading path cannot be used.
+    The gguf.dequantize function handles shape transposition and returns float32 arrays
+    in the correct PyTorch (row-major) layout.
+    """
+    from gguf import GGUFReader, dequantize
+
+    reader = GGUFReader(gguf_path)
+    state_dict = {}
+    for tensor in reader.tensors:
+        arr = dequantize(tensor.data, tensor.tensor_type)
+        t = torch.from_numpy(np.array(arr, dtype=np.float32))
+        if dtype is not None:
+            t = t.to(dtype)
+        state_dict[tensor.name] = t
+    return state_dict
 
 
 class ModelVariant(StrEnum):
@@ -68,28 +91,25 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
-
-        # Pre-load config from the base Whisper model so that random-weights
-        # mode does not need to download/parse the GGUF file just for config.
         config = WhisperConfig.from_pretrained(BASE_MODEL_NAME)
-        model_kwargs["config"] = config
+        config.use_cache = False
 
         self.processor = WhisperProcessor.from_pretrained(BASE_MODEL_NAME)
 
-        model = WhisperForConditionalGeneration.from_pretrained(
-            pretrained_model_name, use_cache=False, **model_kwargs
-        ).eval()
+        gguf_path = hf_hub_download(
+            repo_id=self._variant_config.pretrained_model_name,
+            filename=self.GGUF_FILE,
+        )
+
+        state_dict = _load_state_dict_from_gguf(gguf_path, dtype=dtype_override)
+
+        model = WhisperForConditionalGeneration(config)
+        model.load_state_dict(state_dict, strict=False)
 
         if dtype_override is not None:
             model = model.to(dtype_override)
 
+        model = model.eval()
         self.model = model
         return model
 
