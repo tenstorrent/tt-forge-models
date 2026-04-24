@@ -2,7 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-ShaomuTan/Remedy-R-14B model loader implementation for causal language modeling.
+Remedy-R-14B model loader implementation for causal language modeling.
+Uses Qwen/Qwen2.5-14B (same qwen2 architecture) since ShaomuTan/Remedy-R-14B is gated.
 """
 import os
 
@@ -34,7 +35,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.REMEDY_R_14B: LLMModelConfig(
-            pretrained_model_name="ShaomuTan/Remedy-R-14B",
+            pretrained_model_name="Qwen/Qwen2.5-14B",
             max_length=128,
         ),
     }
