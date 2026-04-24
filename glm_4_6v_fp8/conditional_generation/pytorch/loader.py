@@ -5,7 +5,7 @@
 GLM-4.6V-FP8 model loader implementation for multimodal conditional generation.
 """
 import torch
-from transformers import AutoConfig, AutoProcessor, Glm4vMoeForConditionalGeneration
+from transformers import AutoProcessor, Glm4vMoeForConditionalGeneration
 from typing import Optional
 
 from ....base import ForgeModel
@@ -74,19 +74,28 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
+        # compressed-tensors keeps MoE expert weights as FP8 for inference, but
+        # torch._grouped_mm does not support FP8. Patch the MoE helper to cast
+        # FP8 weights to bfloat16 before the grouped MM so the model runs on
+        # hardware without native FP8 grouped-MM support.
+        import transformers.integrations.moe as _moe
+
+        _fp8_dtypes = {torch.float8_e4m3fn, torch.float8_e5m2}
+
+        def _grouped_mm_fp8_compat(input, weight, offs=None):
+            if weight.dtype in _fp8_dtypes:
+                weight = weight.to(torch.bfloat16)
+            return torch._grouped_mm(input.to(weight.dtype), weight, offs=offs)
+
+        _moe._grouped_mm = _grouped_mm_fp8_compat
+
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        # Load config and strip quantization_config so FP8 weights are cast to
-        # bfloat16 directly. Without this, compressed-tensors keeps weights as
-        # FP8 and uses torch._grouped_mm with FP8 input, which is unsupported.
-        config = AutoConfig.from_pretrained(pretrained_model_name)
-        config.quantization_config = None
-
         model = Glm4vMoeForConditionalGeneration.from_pretrained(
-            pretrained_model_name, config=config, **model_kwargs
+            pretrained_model_name, **model_kwargs
         )
         model.eval()
         self.model = model
