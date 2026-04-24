@@ -5,6 +5,7 @@
 NVIDIA Nemotron Nano 12B v2 VL NVFP4-QAD model loader implementation for image to text.
 """
 
+import torch
 from transformers import AutoModel, AutoProcessor, PreTrainedModel
 from PIL import Image
 from typing import Optional
@@ -142,6 +143,16 @@ class ModelLoader(ForgeModel):
             images=image,
             text="<image>\nDescribe this image.",
             return_tensors="pt",
+        )
+
+        num_patches = inputs.pop("num_patches")
+        total_patches = (
+            int(sum(num_patches.tolist()))
+            if hasattr(num_patches, "tolist")
+            else int(num_patches)
+        )
+        inputs["image_flags"] = torch.ones(total_patches, dtype=torch.long).unsqueeze(
+            -1
         )
 
         if batch_size > 1:
