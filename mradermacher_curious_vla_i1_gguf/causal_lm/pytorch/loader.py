@@ -73,6 +73,20 @@ class ModelLoader(ForgeModel):
             ] = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen2"]
             _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("qwen2vl")
 
+            _orig_load = _gguf_utils.load_gguf_checkpoint
+
+            def _patched_load(*args, **kwargs):
+                result = _orig_load(*args, **kwargs)
+                if (
+                    isinstance(result, dict)
+                    and result.get("config", {}).get("model_type") == "qwen2vl"
+                ):
+                    result["config"]["model_type"] = "qwen2"
+                    result["config"]["architectures"] = ["Qwen2ForCausalLM"]
+                return result
+
+            _gguf_utils.load_gguf_checkpoint = _patched_load
+
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
     ):
