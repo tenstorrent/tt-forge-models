@@ -81,6 +81,10 @@ class ModelLoader(ForgeModel):
 
         _dequantize_gguf_and_restore_linear(self.transformer)
 
+        for param in self.transformer.parameters():
+            if param.data.dtype == torch.float32:
+                param.data = param.data.to(compute_dtype)
+
         return self.transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
