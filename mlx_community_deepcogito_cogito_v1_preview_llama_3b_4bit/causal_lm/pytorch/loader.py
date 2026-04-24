@@ -91,11 +91,13 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
 
         # MLX quantized models have a quantization_config without quant_method.
-        # Strip it so transformers doesn't try to apply an unsupported quantizer.
+        # Remove the attribute entirely so transformers treats the model as
+        # non-quantized (setting to None is insufficient because transformers
+        # checks hasattr, not truthiness).
         if hasattr(config, "quantization_config") and not hasattr(
             config.quantization_config, "quant_method"
         ):
-            config.quantization_config = None
+            delattr(config, "quantization_config")
 
         model_kwargs["config"] = config
 
