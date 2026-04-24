@@ -111,8 +111,11 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
         model_kwargs["config"] = config
 
+        # ignore_mismatched_sizes=True is needed because:
+        # - conv1d.weight: GGUF stores as [C, K] but PyTorch Conv1d needs [C, 1, K]
+        # - dt_bias: GGUF tensor blk.N.ssm_dt.bias has no transformers name mapping yet
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, **model_kwargs, ignore_mismatched_sizes=True
         ).eval()
 
         self.config = model.config
