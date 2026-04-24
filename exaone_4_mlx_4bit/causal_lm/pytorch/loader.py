@@ -4,9 +4,7 @@
 """
 EXAONE 4.0 MLX 4-bit model loader implementation for causal language modeling.
 """
-import json
 import torch
-from huggingface_hub import hf_hub_download
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -20,6 +18,34 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_exaone4_config():
+    """Patch Exaone4Config to handle string sliding_window_pattern (transformers 5.2 bug).
+
+    transformers 5.2.0 Exaone4Config.__init__ assumes sliding_window_pattern is an int
+    but the model's config.json uses a string pattern like "LLLG". This patch converts
+    the string to its equivalent integer value before the broken code path runs.
+    """
+    from transformers.models.exaone4.configuration_exaone4 import Exaone4Config
+
+    if getattr(Exaone4Config, "_sliding_window_str_patched", False):
+        return
+
+    _original_init = Exaone4Config.__init__
+
+    def _patched_init(self, *args, sliding_window_pattern=4, **kwargs):
+        if isinstance(sliding_window_pattern, str):
+            sliding_window_pattern = len(sliding_window_pattern)
+        _original_init(
+            self, *args, sliding_window_pattern=sliding_window_pattern, **kwargs
+        )
+
+    Exaone4Config.__init__ = _patched_init
+    Exaone4Config._sliding_window_str_patched = True
+
+
+_patch_exaone4_config()
 
 
 class ModelVariant(StrEnum):
@@ -86,9 +112,7 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, **self._get_layer_types_fix()
-            )
+            config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
@@ -145,31 +169,8 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
         return shard_specs
 
-    def _get_layer_types_fix(self):
-        """Compute layer_types from string sliding_window_pattern to work around transformers bug."""
-        config_path = hf_hub_download(
-            self._variant_config.pretrained_model_name, "config.json"
-        )
-        with open(config_path) as f:
-            config_data = json.load(f)
-        pattern = config_data.get("sliding_window_pattern")
-        if not isinstance(pattern, str):
-            return {}
-        num_layers = config_data.get("num_hidden_layers", 32)
-        layer_types = []
-        for i in range(num_layers):
-            if i == num_layers - 1:
-                layer_types.append("full_attention")
-            else:
-                char = pattern[i % len(pattern)]
-                layer_types.append(
-                    "sliding_attention" if char == "L" else "full_attention"
-                )
-        return {"layer_types": layer_types}
-
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            **self._get_layer_types_fix(),
+            self._variant_config.pretrained_model_name
         )
         return self.config
