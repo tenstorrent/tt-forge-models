@@ -8,6 +8,9 @@ import requests
 import torch
 from PIL import Image
 from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
+from transformers.models.mm_grounding_dino.modeling_mm_grounding_dino import (
+    MMGroundingDinoEncoderLayer,
+)
 from typing import Optional
 
 from ...base import ForgeModel
@@ -110,6 +113,22 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        if dtype_override is not None:
+            # transformers hard-codes .float() in get_text_position_embeddings, causing
+            # Float/BFloat16 mismatch when model weights are bfloat16. Patch it to
+            # preserve the input tensor's dtype instead.
+            _orig_get_pos = MMGroundingDinoEncoderLayer.get_text_position_embeddings
+
+            def _typed_get_pos(
+                self, text_features, text_position_embedding, text_position_ids
+            ):
+                result = _orig_get_pos(
+                    self, text_features, text_position_embedding, text_position_ids
+                )
+                return result.to(text_features.dtype) if result is not None else result
+
+            MMGroundingDinoEncoderLayer.get_text_position_embeddings = _typed_get_pos
 
         model = AutoModelForZeroShotObjectDetection.from_pretrained(
             pretrained_model_name, **model_kwargs
