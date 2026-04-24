@@ -8,7 +8,9 @@ import requests
 import torch
 from PIL import Image
 from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
+import transformers.models.mm_grounding_dino.modeling_mm_grounding_dino as _mm_gdino_mod
 from transformers.models.mm_grounding_dino.modeling_mm_grounding_dino import (
+    MMGroundingDinoEncoder,
     MMGroundingDinoEncoderLayer,
     MultiScaleDeformableAttention,
 )
@@ -117,9 +119,11 @@ class ModelLoader(ForgeModel):
 
         if dtype_override is not None:
             # transformers hard-codes dtype=torch.float32 in several places (position
-            # embeddings, reference points) causing Float/BFloat16 mismatches when the
-            # model is loaded in bfloat16. Patch the two affected methods to preserve
+            # embeddings, reference points, get_sine_pos_embed) causing Float/BFloat16
+            # mismatches when the model is loaded in bfloat16. Patch these to preserve
             # the surrounding tensor dtype instead.
+
+            # 1. Text position embeddings (encoder)
             _orig_get_pos = MMGroundingDinoEncoderLayer.get_text_position_embeddings
 
             def _typed_get_pos(
@@ -132,11 +136,10 @@ class ModelLoader(ForgeModel):
 
             MMGroundingDinoEncoderLayer.get_text_position_embeddings = _typed_get_pos
 
+            # 2. Multi-scale deformable attention (float32 sampling grids vs bf16 values)
             _orig_msda_fwd = MultiScaleDeformableAttention.forward
 
             def _typed_msda_fwd(self, value, *args, **kwargs):
-                # Cast float32 sampling locations to match value dtype so grid_sample
-                # doesn't raise a scalar-type mismatch.
                 new_args = [
                     a.to(value.dtype)
                     if isinstance(a, torch.Tensor) and a.is_floating_point()
@@ -153,11 +156,50 @@ class ModelLoader(ForgeModel):
 
             MultiScaleDeformableAttention.forward = _typed_msda_fwd
 
+            # 3. get_sine_pos_embed creates float32 dim_t regardless of input dtype;
+            #    cast output back to the input pos_tensor's dtype.
+            _orig_sine = _mm_gdino_mod.get_sine_pos_embed
+
+            def _typed_sine(
+                pos_tensor, num_pos_feats=128, temperature=10000, exchange_xy=True
+            ):
+                result = _orig_sine(pos_tensor, num_pos_feats, temperature, exchange_xy)
+                return result.to(pos_tensor.dtype)
+
+            _mm_gdino_mod.get_sine_pos_embed = _typed_sine
+
+            # 4. get_reference_points uses hard-coded float32 linspace; make it follow
+            #    valid_ratios.dtype so downstream tensors stay in the model dtype.
+            _orig_ref_pts = MMGroundingDinoEncoder.get_reference_points.__func__
+
+            @staticmethod
+            def _typed_ref_pts(spatial_shapes_list, valid_ratios, device):
+                result = _orig_ref_pts(spatial_shapes_list, valid_ratios, device)
+                return result.to(valid_ratios.dtype)
+
+            MMGroundingDinoEncoder.get_reference_points = _typed_ref_pts
+
         model = AutoModelForZeroShotObjectDetection.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
         if dtype_override is not None:
             model = model.to(dtype_override)
+
+            # 5. MMGroundingDinoModel.forward forces valid_ratios to float32 before
+            #    passing to encoder/decoder. Register hooks to cast it back to the
+            #    model dtype so that reference_points and downstream tensors stay bf16.
+            def _cast_valid_ratios_to_bf16(module, args, kwargs):
+                if "valid_ratios" in kwargs and kwargs["valid_ratios"] is not None:
+                    kwargs["valid_ratios"] = kwargs["valid_ratios"].to(dtype_override)
+                return args, kwargs
+
+            model.model.encoder.register_forward_pre_hook(
+                _cast_valid_ratios_to_bf16, with_kwargs=True
+            )
+            model.model.decoder.register_forward_pre_hook(
+                _cast_valid_ratios_to_bf16, with_kwargs=True
+            )
+
         model.eval()
 
         return model
