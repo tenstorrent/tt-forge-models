@@ -1,0 +1,2 @@
+vibevoice>=0.0.1
+bitsandbytes>=0.46.1

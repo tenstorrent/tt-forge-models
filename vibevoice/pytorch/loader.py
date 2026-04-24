@@ -72,16 +72,35 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from vibevoice.modular.modeling_vibevoice_inference import (
-            VibeVoiceForConditionalGenerationInference,
+        from huggingface_hub import hf_hub_download
+        from transformers import Qwen2Config, Qwen2Model
+        import json
+
+        # The HF model uses BnB 8-bit quantization which requires CUDA/Intel+IPEX.
+        # For CPU compile-only testing we load just the Qwen2 backbone with random
+        # weights using the architecture described in the model's decoder_config.
+        config_path = hf_hub_download(
+            self._variant_config.pretrained_model_name, "config.json"
+        )
+        with open(config_path) as f:
+            raw_config = json.load(f)
+
+        decoder_cfg = raw_config["decoder_config"]
+        qwen2_config = Qwen2Config(
+            hidden_size=decoder_cfg["hidden_size"],
+            intermediate_size=decoder_cfg["intermediate_size"],
+            num_hidden_layers=decoder_cfg["num_hidden_layers"],
+            num_attention_heads=decoder_cfg["num_attention_heads"],
+            num_key_value_heads=decoder_cfg["num_key_value_heads"],
+            rms_norm_eps=decoder_cfg["rms_norm_eps"],
+            rope_theta=decoder_cfg["rope_theta"],
+            vocab_size=decoder_cfg["vocab_size"],
+            max_position_embeddings=decoder_cfg["max_position_embeddings"],
         )
 
-        full_model = VibeVoiceForConditionalGenerationInference.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            device_map="cpu",
-            torch_dtype=dtype_override or torch.bfloat16,
-        )
-        model = VibeVoiceQwen2Wrapper(full_model.model)
+        dtype = dtype_override or torch.bfloat16
+        backbone = Qwen2Model(qwen2_config).to(dtype)
+        model = VibeVoiceQwen2Wrapper(backbone)
         model.eval()
         return model
 
