@@ -85,6 +85,8 @@ class ModelLoader(ForgeModel):
             quantization_config=GGUFQuantizationConfig(compute_dtype=compute_dtype),
         )
         _dequantize_gguf_and_restore_linear(self.transformer)
+        # After full dequantization, mark model as no longer quantized so .to() works.
+        self.transformer.is_quantized = False
         self.transformer = self.transformer.to(compute_dtype)
 
         return self.transformer
