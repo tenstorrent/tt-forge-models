@@ -12,18 +12,23 @@ Available variants:
 - BASE: nvidia/difix (576x1024 image-to-image enhancement)
 """
 
-import torch
-from diffusers import DiffusionPipeline
+import json
+from types import SimpleNamespace
 from typing import Optional
+
+import torch
+from diffusers import UNet2DConditionModel
+from huggingface_hub import hf_hub_download
+from transformers import CLIPTextModel, CLIPTokenizer
 
 from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 
@@ -67,14 +72,33 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_pipeline(self, dtype_override=None):
-        """Load and cache the Difix pipeline."""
-        pipe_kwargs = {"trust_remote_code": True}
-        if dtype_override is not None:
-            pipe_kwargs["torch_dtype"] = dtype_override
+        """Load and cache Difix components individually.
 
-        self.pipe = DiffusionPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name, **pipe_kwargs
+        DifixPipeline is not part of any released diffusers version, so we load
+        UNet, text encoder, and tokenizer directly and stub the VAE with its config.
+        """
+        model_id = self._variant_config.pretrained_model_name
+
+        pipe = SimpleNamespace()
+        pipe.unet = UNet2DConditionModel.from_pretrained(
+            model_id, subfolder="unet", torch_dtype=dtype_override
         )
+        pipe.text_encoder = CLIPTextModel.from_pretrained(
+            model_id, subfolder="text_encoder", torch_dtype=dtype_override
+        )
+        pipe.tokenizer = CLIPTokenizer.from_pretrained(model_id, subfolder="tokenizer")
+
+        # Only the VAE config (block_out_channels) is needed for input generation.
+        vae_config_path = hf_hub_download(model_id, "vae/config.json")
+        with open(vae_config_path) as f:
+            vae_config_data = json.load(f)
+        pipe.vae = SimpleNamespace(
+            config=SimpleNamespace(
+                block_out_channels=vae_config_data["block_out_channels"]
+            )
+        )
+
+        self.pipe = pipe
         return self.pipe
 
     def load_model(self, *, dtype_override=None, **kwargs):
