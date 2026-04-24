@@ -34,7 +34,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.QWEN_3_5_27B_6BIT: ModelConfig(
-            pretrained_model_name="mlx-community/Qwen3.5-27B-6bit",
+            pretrained_model_name="Qwen/Qwen3.5-27B",
         ),
     }
 
