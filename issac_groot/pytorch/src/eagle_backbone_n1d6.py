@@ -71,6 +71,13 @@ class EagleBackboneN1d6(torch.nn.Module):
             for n, p in self.named_parameters():
                 if p.requires_grad:
                     p.data = p.data.to(torch.float32)
+            # lm_head must be fp32 to match hidden states produced by fp32 top layers
+            lm_head = getattr(
+                getattr(self.model, "language_model", None), "lm_head", None
+            )
+            if lm_head is not None:
+                for p in lm_head.parameters():
+                    p.data = p.data.to(torch.float32)
 
     def set_trainable_parameters(
         self, tune_llm: bool, tune_visual: bool, tune_top_llm_layers: int
