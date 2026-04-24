@@ -79,6 +79,16 @@ class ModelLoader(ForgeModel):
         model = AutoModel.from_pretrained(model_name, **model_kwargs)
         model.eval()
 
+        # transformers 5.x fast_init skips __init__ for non-persistent buffers;
+        # position_ids must be reinitialized with torch.arange values.
+        if hasattr(model, "embeddings") and hasattr(model.embeddings, "position_ids"):
+            max_pos_emb = model.config.max_position_embeddings
+            model.embeddings.register_buffer(
+                "position_ids",
+                torch.arange(max_pos_emb),
+                persistent=False,
+            )
+
         self.model = model
 
         return model
