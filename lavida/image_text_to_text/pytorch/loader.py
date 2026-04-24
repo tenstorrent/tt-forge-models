@@ -101,11 +101,30 @@ class ModelLoader(ForgeModel):
                 return "cpu"
             return _orig_check(device_map)
 
-        _t_modeling.check_and_set_device_map = _patched_check
-        try:
-            model = AutoModelForCausalLM.from_pretrained(
+        def _load_model():
+            return AutoModelForCausalLM.from_pretrained(
                 pretrained_model_name, **model_kwargs
             )
+
+        def _patch_siglip_config():
+            # SigLipVisionConfig.from_pretrained calls _set_token_in_kwargs which was
+            # removed in transformers 5.x. Patch it after the module is in sys.modules.
+            import sys
+
+            for _mod in sys.modules.values():
+                _cls = getattr(_mod, "SigLipVisionConfig", None)
+                if _cls is not None and not hasattr(_cls, "_set_token_in_kwargs"):
+                    _cls._set_token_in_kwargs = classmethod(lambda cls, kwargs: None)
+
+        _t_modeling.check_and_set_device_map = _patched_check
+        try:
+            try:
+                model = _load_model()
+            except AttributeError as e:
+                if "_set_token_in_kwargs" not in str(e):
+                    raise
+                _patch_siglip_config()
+                model = _load_model()
         finally:
             _t_modeling.check_and_set_device_map = _orig_check
         model.resize_token_embeddings(len(self.tokenizer))
