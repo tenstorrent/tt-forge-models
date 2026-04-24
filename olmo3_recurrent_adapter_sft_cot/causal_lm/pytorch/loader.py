@@ -7,6 +7,8 @@ Olmo3 Recurrent Adapter SFT CoT causal LM model loader implementation.
 
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+import transformers.integrations.accelerate as _acc_module
+from transformers.modeling_utils import get_torch_context_manager_or_global_device
 from typing import Optional
 
 from ....base import ForgeModel
@@ -78,17 +80,33 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        # low_cpu_mem_usage=False avoids the meta device context manager, which
-        # would break the nested from_pretrained inside this model's __init__.
-        model_kwargs = {"trust_remote_code": True, "low_cpu_mem_usage": False}
+        model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        # The model's __init__ calls from_pretrained internally for the base model.
+        # Newer transformers wraps __init__ in a torch.device("meta") context, which
+        # causes the nested from_pretrained to raise. Patch check_and_set_device_map
+        # to redirect to CPU instead of raising when inside a meta device context.
+        _orig_check = _acc_module.check_and_set_device_map
+
+        def _allow_nested_from_pretrained(device_map):
+            if (
+                device_map is None
+                and get_torch_context_manager_or_global_device() == torch.device("meta")
+            ):
+                return {"": torch.device("cpu")}
+            return _orig_check(device_map)
+
+        _acc_module.check_and_set_device_map = _allow_nested_from_pretrained
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+        finally:
+            _acc_module.check_and_set_device_map = _orig_check
         model.eval()
 
         self.config = model.config
