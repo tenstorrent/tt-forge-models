@@ -89,9 +89,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, trust_remote_code=True
         )
         # The repo ships an MLX-style quantization_config that lacks the
-        # `quant_method` field expected by transformers; clear it so the
-        # model loads as a regular (dequantized) checkpoint.
-        config.quantization_config = None
+        # `quant_method` field expected by transformers; remove the attribute
+        # entirely so the model loads as a regular (dequantized) checkpoint.
+        if hasattr(config, "quantization_config"):
+            delattr(config, "quantization_config")
 
         if self.num_layers is not None:
             if hasattr(config, "text_config"):
@@ -149,5 +150,6 @@ class ModelLoader(ForgeModel):
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, trust_remote_code=True
         )
-        self.config.quantization_config = None
+        if hasattr(self.config, "quantization_config"):
+            delattr(self.config, "quantization_config")
         return self.config
