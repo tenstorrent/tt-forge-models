@@ -110,10 +110,12 @@ class ModelLoader(ForgeModel):
         config = self._load_patched_config(pretrained_model_name)
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
+        if hasattr(config, "quantization_config"):
+            del config.quantization_config
         model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
