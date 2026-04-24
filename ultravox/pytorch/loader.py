@@ -219,8 +219,10 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The Ultravox model instance.
         """
+        import sys
         import transformers
         import transformers.modeling_utils
+        from transformers.dynamic_module_utils import get_cached_module_file
 
         # transformers 5.x removed _init_weights; ultravox_model.py still references it
         if not hasattr(transformers.modeling_utils, "_init_weights"):
@@ -228,6 +230,26 @@ class ModelLoader(ForgeModel):
 
         pretrained_model_name = self._variant_config.pretrained_model_name
         patched_dir = self._get_patched_model_dir()
+
+        # Patch cached ultravox_model.py for transformers 5.x: tie_weights must accept **kwargs
+        try:
+            cached_module = get_cached_module_file(
+                pretrained_model_name, "ultravox_model.py"
+            )
+            with open(cached_module) as f:
+                code = f.read()
+            patched = code.replace(
+                "def tie_weights(self):\n        return self.language_model.tie_weights()",
+                "def tie_weights(self, **kwargs):\n        return self.language_model.tie_weights(**kwargs)",
+            )
+            if patched != code:
+                with open(cached_module, "w") as f:
+                    f.write(patched)
+                for key in list(sys.modules.keys()):
+                    if "ultravox_model" in key:
+                        del sys.modules[key]
+        except Exception:
+            pass
 
         config = transformers.AutoConfig.from_pretrained(
             patched_dir, trust_remote_code=True
