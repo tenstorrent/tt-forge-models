@@ -8,6 +8,8 @@ Olmo3 Causal LM model loader implementation
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
+from transformers.cache_utils import StaticCache
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -33,6 +35,12 @@ class ModelVariant(StrEnum):
 
 class ModelLoader(ForgeModel):
     """Olmo3 model loader implementation for causal language modeling tasks."""
+
+    # These variants use sliding window attention and need StaticCache + overrides.
+    _SLIDING_WINDOW_VARIANTS = {
+        ModelVariant.Olmo_3_1025_7B,
+        ModelVariant.Olmo_3_1125_32B,
+    }
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
@@ -107,12 +115,10 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded tokenizer instance
         """
-        # Initialize tokenizer with dtype override if specified
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
-        # Load the tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
@@ -146,12 +152,15 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
-        if getattr(model.config, "use_cache", True):
-            model.config.layer_types = [
-                "full_attention"
-            ] * model.config.num_hidden_layers
-        model.eval()
+        if self._variant in self._SLIDING_WINDOW_VARIANTS:
+            from tt_torch.transformers_overrides import (
+                override_olmo3_sliding_window_causal_mask,
+            )
 
+            override_olmo3_sliding_window_causal_mask()
+        model.eval()
+        print("model", model)
+        print("model.config", model.config)
         self.config = model.config
         self.model = model
         return model
@@ -170,10 +179,17 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
+        max_cache_len = self._variant_config.max_length
+
         # Get max_length from the variant config
         max_length = self._variant_config.max_length
 
         prompts = [self.sample_text]
+
+        # Compute the actual prompt token length to get a consistent static shape
+        prompt_token_len = len(
+            self.tokenizer.encode(self.sample_text, add_special_tokens=False)
+        )
 
         inputs = self.tokenizer(
             prompts,
@@ -188,7 +204,50 @@ class ModelLoader(ForgeModel):
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
-        return inputs
+        # Non-sliding variants: return standard tokenizer output
+        if self._variant not in self._SLIDING_WINDOW_VARIANTS:
+            print("inputs", inputs)
+            return inputs
+
+        # Sliding window variants: build full input_args with StaticCache
+        seq_len = inputs.input_ids.shape[1]
+
+        from tt_torch.transformers_overrides import (
+            override_cache_sliding_window_layers,
+            _init_static_cache,
+        )
+
+        static_cache = StaticCache(
+            config=self.config,
+            max_cache_len=max_cache_len,
+        )
+        _init_static_cache(static_cache, self.config, batch_size)
+
+        sliding_window = getattr(
+            self.config.get_text_config(decoder=True), "sliding_window", max_cache_len
+        )
+        override_cache_sliding_window_layers(
+            static_cache, max_cache_len, sliding_window
+        )
+
+        # Attention mask must match max_cache_len to prevent recompilation or
+        # implicit padding by transformers, which can cause degenerate output.
+        full_attention_mask = torch.ones(
+            (batch_size, max_cache_len), dtype=inputs.attention_mask.dtype
+        )
+        full_attention_mask[:, :seq_len] = inputs.attention_mask
+
+        cache_position = torch.arange(0, seq_len)
+
+        input_args = {
+            "input_ids": inputs.input_ids,
+            "past_key_values": static_cache,
+            "cache_position": cache_position,
+            "use_cache": True,
+            "attention_mask": full_attention_mask,
+        }
+        print("input_args", input_args)
+        return input_args
 
     def get_mesh_config(self, num_devices: int):
 
