@@ -116,9 +116,7 @@ class ModelLoader(ForgeModel):
         model_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
 
         with tempfile.TemporaryDirectory() as config_dir:
-            transformer_dir = os.path.join(config_dir, "transformer")
-            os.makedirs(transformer_dir)
-            with open(os.path.join(transformer_dir, "config.json"), "w") as f:
+            with open(os.path.join(config_dir, "config.json"), "w") as f:
                 json.dump(_TRANSFORMER_CONFIG, f)
 
             self.transformer = Flux2Transformer2DModel.from_single_file(
