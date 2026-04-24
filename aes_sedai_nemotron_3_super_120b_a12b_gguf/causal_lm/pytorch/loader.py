@@ -110,8 +110,11 @@ def _patch_transformers_nemotron_h_moe_gguf():
     model_type is 'nemotron_h' (NemotronHForCausalLM via trust_remote_code),
     so after reading the GGUF config we remap model_type accordingly and fill
     in values that are absent from the GGUF metadata.
+
+    Returns the tuple (patched_load_fn, patched_weights_map_fn) so callers
+    can re-install the patches if other model loaders overwrite them.
     """
-    from transformers import AutoConfig
+    from transformers import AutoConfig, AutoModelForCausalLM
     from transformers.dynamic_module_utils import get_class_from_dynamic_module
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
@@ -121,15 +124,10 @@ def _patch_transformers_nemotron_h_moe_gguf():
     )
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
 
-    if "nemotron_h_moe" in GGUF_SUPPORTED_ARCHITECTURES:
-        return
-
     # Register NemotronHConfig and NemotronHForCausalLM so that AutoConfig and
     # AutoModelForCausalLM can resolve model_type='nemotron_h'.  The GGUF repo
     # lacks auto_map so trust_remote_code alone is insufficient; we load the
     # classes from the BF16 base repo (cached locally) explicitly.
-    from transformers import AutoModelForCausalLM
-
     try:
         _nemotron_h_config_cls = get_class_from_dynamic_module(
             "configuration_nemotron_h.NemotronHConfig",
@@ -157,7 +155,8 @@ def _patch_transformers_nemotron_h_moe_gguf():
     if "nemotron_h" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["nemotron_h"] = GGUFGPTConverter
 
-    GGUF_SUPPORTED_ARCHITECTURES.append("nemotron_h_moe")
+    if "nemotron_h_moe" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("nemotron_h_moe")
 
     GGUF_TO_TRANSFORMERS_MAPPING["config"]["nemotron_h_moe"] = {
         "context_length": "max_position_embeddings",
@@ -191,10 +190,25 @@ def _patch_transformers_nemotron_h_moe_gguf():
 
     TENSOR_PROCESSORS["nemotron_h"] = NemotronTensorProcessor
 
-    orig_load = gguf_utils.load_gguf_checkpoint
+    # Capture the real original transformers function (not a prior loader's patch)
+    # by walking up the chain until we find one that accepts model_to_load.
+    import inspect
+
+    _candidate = gguf_utils.load_gguf_checkpoint
+    _real_orig_load = _candidate
+    try:
+        sig = inspect.signature(_candidate)
+        if "model_to_load" not in sig.parameters:
+            from transformers.modeling_gguf_pytorch_utils import (
+                load_gguf_checkpoint as _tf_orig,
+            )
+
+            _real_orig_load = _tf_orig
+    except Exception:
+        pass
 
     def patched_load_gguf_checkpoint(*args, **kwargs):
-        result = orig_load(*args, **kwargs)
+        result = _real_orig_load(*args, **kwargs)
         if result.get("config", {}).get("model_type") == "nemotron_h_moe":
             cfg = result["config"]
             cfg["model_type"] = "nemotron_h"
@@ -241,39 +255,53 @@ def _patch_transformers_nemotron_h_moe_gguf():
             cfg.setdefault("attention_bias", False)
         return result
 
-    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
-
-    import transformers.models.auto.tokenization_auto as tok_auto
-    import transformers.configuration_utils as config_utils
-    import transformers.modeling_utils as modeling_utils
-
-    for mod in (tok_auto, config_utils, modeling_utils):
-        if hasattr(mod, "load_gguf_checkpoint"):
-            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
-
-    try:
-        import transformers.tokenization_utils_tokenizers as tok_tokenizers
-
-        if hasattr(tok_tokenizers, "load_gguf_checkpoint"):
-            tok_tokenizers.load_gguf_checkpoint = patched_load_gguf_checkpoint
-    except Exception:
-        pass
-
     # Use NEMOTRON_H_MOE arch for tensor name mapping so that MoE and SSM
     # tensor names are included when building the GGUF→HF weight map.
-    orig_get_weights_map = gguf_utils.get_gguf_hf_weights_map
+    _orig_get_weights_map = gguf_utils.get_gguf_hf_weights_map
 
     def patched_get_gguf_hf_weights_map(hf_model, processor, model_type=None, **kw):
         mt = hf_model.config.model_type if model_type is None else model_type
         if mt == "nemotron_h":
             model_type = "nemotron_h_moe"
-        return orig_get_weights_map(hf_model, processor, model_type=model_type, **kw)
+        return _orig_get_weights_map(hf_model, processor, model_type=model_type, **kw)
 
-    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+    return patched_load_gguf_checkpoint, patched_get_gguf_hf_weights_map
+
+
+def _install_nemotron_h_patches(load_fn, weights_map_fn):
+    """(Re-)install the nemotron_h GGUF patches into all relevant transformers modules.
+
+    Called at import time and again immediately before model loading to ensure
+    that loaders imported later (which overwrite load_gguf_checkpoint with a
+    limited-signature version) do not break our model loading.
+    """
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    gguf_utils.load_gguf_checkpoint = load_fn
+    gguf_utils.get_gguf_hf_weights_map = weights_map_fn
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = load_fn
+
+    try:
+        import transformers.tokenization_utils_tokenizers as tok_tokenizers
+
+        if hasattr(tok_tokenizers, "load_gguf_checkpoint"):
+            tok_tokenizers.load_gguf_checkpoint = load_fn
+    except Exception:
+        pass
 
 
 _create_mamba_ssm_stub()
-_patch_transformers_nemotron_h_moe_gguf()
+(
+    _NEMOTRON_H_LOAD_FN,
+    _NEMOTRON_H_WEIGHTS_MAP_FN,
+) = _patch_transformers_nemotron_h_moe_gguf()
+_install_nemotron_h_patches(_NEMOTRON_H_LOAD_FN, _NEMOTRON_H_WEIGHTS_MAP_FN)
 
 
 class ModelVariant(StrEnum):
@@ -335,6 +363,10 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        # Re-install patches: other model loaders imported after ours may have
+        # overwritten load_gguf_checkpoint with a limited-signature version.
+        _install_nemotron_h_patches(_NEMOTRON_H_LOAD_FN, _NEMOTRON_H_WEIGHTS_MAP_FN)
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
