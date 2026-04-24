@@ -10,7 +10,7 @@ using a small random-weight variant for testing.
 
 from typing import Optional
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
@@ -84,6 +84,13 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name, trust_remote_code=True
+        )
+        if hasattr(config, "quantization_config"):
+            del config.quantization_config
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             self._variant_config.pretrained_model_name, **model_kwargs
