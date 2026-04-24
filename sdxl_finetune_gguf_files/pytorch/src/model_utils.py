@@ -8,14 +8,13 @@ Helper functions for loading GGUF-quantized Stable Diffusion XL finetune models.
 from typing import Optional, Tuple
 
 import torch
-from diffusers import (
-    GGUFQuantizationConfig,
-    StableDiffusionXLPipeline,
-    UNet2DConditionModel,
-)
+from diffusers import StableDiffusionXLPipeline
+from diffusers.loaders.single_file_utils import convert_ldm_unet_checkpoint
+from diffusers.models.model_loading_utils import load_gguf_checkpoint
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
     retrieve_timesteps,
 )
+from diffusers.quantizers.gguf.utils import dequantize_gguf_tensor
 from huggingface_hub import hf_hub_download
 
 SDXL_BASE_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
@@ -24,8 +23,9 @@ SDXL_BASE_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
 def load_gguf_pipe(repo_id: str, gguf_filename: str, subfolder: Optional[str] = None):
     """Load a Stable Diffusion XL pipeline from a GGUF UNet checkpoint.
 
-    The GGUF file contains only UNet weights; the rest of the pipeline is loaded
-    from the base SDXL model.
+    The GGUF file uses ComfyUI naming (bare input_blocks.* keys). We load and
+    dequantize the GGUF weights, add the model.diffusion_model. prefix, convert
+    to diffusers format, and load into the UNet from the base SDXL model.
 
     Args:
         repo_id: HuggingFace repository ID.
@@ -39,19 +39,23 @@ def load_gguf_pipe(repo_id: str, gguf_filename: str, subfolder: Optional[str] = 
         repo_id=repo_id, filename=gguf_filename, subfolder=subfolder
     )
 
-    quantization_config = GGUFQuantizationConfig(compute_dtype=torch.float32)
-
-    unet = UNet2DConditionModel.from_single_file(
-        model_path,
-        quantization_config=quantization_config,
-        torch_dtype=torch.float32,
-    )
-
+    # Load base SDXL pipeline first to obtain the UNet config
     pipe = StableDiffusionXLPipeline.from_pretrained(
         SDXL_BASE_MODEL,
-        unet=unet,
         torch_dtype=torch.float32,
     )
+
+    # GGUF file uses ComfyUI naming (bare input_blocks.*, etc.).
+    # Add model.diffusion_model. prefix so convert_ldm_unet_checkpoint can
+    # map these keys to the diffusers UNet naming convention.
+    raw_gguf = load_gguf_checkpoint(model_path)
+    checkpoint = {}
+    for k, v in raw_gguf.items():
+        tensor = dequantize_gguf_tensor(v) if hasattr(v, "quant_type") else v
+        checkpoint["model.diffusion_model." + k] = tensor
+
+    unet_state_dict = convert_ldm_unet_checkpoint(checkpoint, pipe.unet.config)
+    pipe.unet.load_state_dict(unet_state_dict, strict=False)
 
     pipe.to("cpu")
 
