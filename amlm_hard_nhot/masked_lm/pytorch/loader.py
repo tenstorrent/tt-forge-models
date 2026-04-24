@@ -60,12 +60,22 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
 
-        model_kwargs = {"trust_remote_code": True, "low_cpu_mem_usage": False}
+        model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = AutoModelForMaskedLM.from_pretrained(self.model_name, **model_kwargs)
+
+        # In transformers 5.x, models are always initialized on meta device. The custom
+        # NGramEmbeds.ref_table is not a registered buffer so it stays as a meta tensor
+        # and cannot be copied in forward(). Re-initialize it with real data after loading.
+        try:
+            ngram_embeds = model.deberta.NGram_embeddings
+            ngram_embeds.ref_table = ngram_embeds.prepare_vocab_table()
+        except AttributeError:
+            pass
+
         model.eval()
         return model
 
