@@ -140,7 +140,7 @@ class ModelLoader(ForgeModel):
 
         torch.manual_seed(42)
         sample_rate = 24000
-        wav = torch.randn(1, 1, sample_rate, dtype=dtype)
+        wav = torch.randn(1, sample_rate, dtype=dtype)
 
         bandwidth_id = torch.tensor([0])
 
