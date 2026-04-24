@@ -92,12 +92,17 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        # MLX quantization config lacks quant_method; strip it so transformers can load the model
+        if hasattr(config, "quantization_config") and not hasattr(
+            config.quantization_config, "quant_method"
+        ):
+            config.quantization_config = None
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model_kwargs |= kwargs
 
