@@ -87,9 +87,9 @@ class ModelLoader(ForgeModel):
         # MLX-quantized safetensors store weights at different shapes than the
         # standard architecture expects, so from_pretrained raises a size-mismatch
         # error. Load the config and instantiate with random weights instead.
-        config = AutoConfig.from_pretrained(
-            pretrained_model_name, trust_remote_code=True
-        )
+        # Skip trust_remote_code so the built-in DeepseekV2Config is used, which
+        # sets `head_dim`; the remote config class omits that attribute.
+        config = AutoConfig.from_pretrained(pretrained_model_name)
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
 
