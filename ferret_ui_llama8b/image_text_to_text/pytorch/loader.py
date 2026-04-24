@@ -84,6 +84,10 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        # Vision tower is built with delay_load=True; explicitly load the CLIP weights.
+        vision_tower = model.get_vision_tower()
+        if vision_tower is not None and not vision_tower.is_loaded:
+            vision_tower.load_model()
         model.eval()
         self.model = model
         return model
