@@ -19,6 +19,8 @@ from typing import Any, Optional
 
 import torch
 from diffusers import ZImagePipeline
+from huggingface_hub import hf_hub_download
+import safetensors.torch
 
 from ...base import ForgeModel
 from ...config import (
@@ -88,10 +90,19 @@ class ModelLoader(ForgeModel):
         )
 
         lora_file = _LORA_FILES[self._variant]
-        self._pipe.load_lora_weights(
-            LORA_REPO,
-            weight_name=lora_file,
-        )
+        lora_path = hf_hub_download(LORA_REPO, lora_file)
+        state_dict = safetensors.torch.load_file(lora_path)
+
+        # Diffusers 0.37+ requires .alpha keys alongside lora_A/lora_B weights.
+        # This checkpoint has none, so inject alpha=rank (scale=1.0) for each pair.
+        alpha_keys = {
+            k.replace(".lora_A.weight", ".alpha"): torch.tensor(float(v.shape[0]))
+            for k, v in state_dict.items()
+            if k.endswith(".lora_A.weight")
+        }
+        state_dict.update(alpha_keys)
+
+        self._pipe.load_lora_weights(state_dict)
         self._pipe.fuse_lora()
 
         return self._pipe
