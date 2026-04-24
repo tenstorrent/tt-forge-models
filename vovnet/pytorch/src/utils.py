@@ -14,30 +14,22 @@ from timm.data.transforms_factory import create_transform
 import requests
 import shutil
 import time
-from ....tools.utils import get_file
+from datasets import load_dataset
 
 
 def preprocess_steps(model_type):
-    # Use randomly initialized weights (no pretrained download)
     model = model_type(False, True).eval()
     config = resolve_data_config({}, model=model)
     transform = create_transform(**config)
 
-    try:
-        file_path = get_file("https://github.com/pytorch/hub/raw/master/images/dog.jpg")
-        img = Image.open(file_path).convert("RGB")
-        img_tensor = transform(img).unsqueeze(0)  # transform and add batch dimension
-    except:
-        logger.warning(
-            "Failed to download the image file, replacing input with random tensor. Please check if the URL is up to date"
-        )
-        img_tensor = torch.rand(1, 3, 224, 224)
+    dataset = load_dataset("huggingface/cats-image", split="test")
+    img = dataset[0]["image"].convert("RGB")
+    img_tensor = transform(img).unsqueeze(0)
 
     return model, img_tensor
 
 
 def preprocess_timm_model(model_name):
-    # Use randomly initialized weights (no pretrained download)
     use_pretrained_weights = False
     if model_name == "ese_vovnet99b":
         use_pretrained_weights = False
@@ -46,15 +38,9 @@ def preprocess_timm_model(model_name):
     config = resolve_data_config({}, model=model)
     transform = create_transform(**config)
 
-    try:
-        file_path = get_file("https://github.com/pytorch/hub/raw/master/images/dog.jpg")
-        img = Image.open(file_path).convert("RGB")
-        img_tensor = transform(img).unsqueeze(0)  # transform and add batch dimension
-    except:
-        logger.warning(
-            "Failed to download the image file, replacing input with random tensor. Please check if the URL is up to date"
-        )
-        img_tensor = torch.rand(1, 3, 224, 224)
+    dataset = load_dataset("huggingface/cats-image", split="test")
+    img = dataset[0]["image"].convert("RGB")
+    img_tensor = transform(img).unsqueeze(0)
 
     return model, img_tensor
 

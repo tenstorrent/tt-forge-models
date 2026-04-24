@@ -26,7 +26,7 @@ from ....config import (
     StrEnum,
 )
 from ....base import ForgeModel
-from ....tools.utils import get_file
+from datasets import load_dataset
 
 
 @dataclass
@@ -134,8 +134,8 @@ class ModelLoader(ForgeModel):
         task = self._variant_config.task
         processor = BlipProcessor.from_pretrained(model_name)
 
-        image_path = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
-        image = Image.open(str(image_path))
+        ds = load_dataset("huggingface/cats-image", split="test")
+        image = ds[0]["image"]
 
         if task == BlipTask.TEXT:
             text = "a photo of cats in bed"

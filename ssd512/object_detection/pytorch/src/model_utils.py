@@ -3,15 +3,16 @@
 # SPDX-License-Identifier: Apache-2.0
 import cv2
 import numpy as np
-from .....tools.utils import get_file
 import torch
 import torch.nn.functional as F
+from datasets import load_dataset
 from ..src.model import decode, nms
 
 
 def load_ssd512_inputs():
-    image_path = get_file("test_images/ssd512_input.jpg")
-    img = cv2.imread(image_path, cv2.IMREAD_COLOR)
+    dataset = load_dataset("huggingface/cats-image", split="test")
+    image = dataset[0]["image"].convert("RGB")
+    img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
     dataset_mean = (104, 117, 123)
     transform = BaseTransform(300, dataset_mean)
     img_t, _, _ = transform(img)

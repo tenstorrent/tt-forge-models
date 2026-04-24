@@ -7,6 +7,7 @@
 import torch
 from transformers import AutoProcessor, AutoModelForImageTextToText, AutoConfig
 from typing import Optional
+from datasets import load_dataset
 
 from ....base import ForgeModel
 from ....config import (
@@ -149,6 +150,10 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
+        # Load image from HuggingFace dataset
+        ds = load_dataset("huggingface/cats-image", split="test")
+        image = ds[0]["image"].convert("RGB")
+
         # Use chat template for input text
         messages = [
             {
@@ -156,7 +161,7 @@ class ModelLoader(ForgeModel):
                 "content": [
                     {
                         "type": "image",
-                        "image": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/pipeline-cat-chonk.jpeg",
+                        "image": image,
                     },
                     {"type": "text", "text": "Describe the image."},
                 ],

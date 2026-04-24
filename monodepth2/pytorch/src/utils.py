@@ -4,11 +4,11 @@
 import os
 import torch
 from torchvision import transforms
-import requests
 from PIL import Image
 import PIL.Image as pil
 from .resnet_encoder import ResnetEncoder
 from .depth_decoder import DepthDecoder
+from datasets import load_dataset
 from ....tools.utils import get_file
 
 
@@ -51,10 +51,8 @@ def load_model(variant):
 
 def load_input(feed_height, feed_width):
 
-    image_file = get_file(
-        "https://raw.githubusercontent.com/nianticlabs/monodepth2/master/assets/test_image.jpg"
-    )
-    input_image = Image.open(image_file).convert("RGB")
+    dataset = load_dataset("huggingface/cats-image", split="test")
+    input_image = dataset[0]["image"].convert("RGB")
     original_width, original_height = input_image.size
     input_image_resized = input_image.resize((feed_width, feed_height), pil.LANCZOS)
     input_tensor = transforms.ToTensor()(input_image_resized).unsqueeze(0)
