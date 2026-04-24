@@ -5,7 +5,12 @@
 InternVL3.5 GGUF model loader implementation for image to text.
 """
 
-from transformers import AutoModelForImageTextToText, AutoProcessor
+from transformers import (
+    AutoConfig,
+    AutoProcessor,
+    InternVLForConditionalGeneration,
+    Qwen3ForCausalLM,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -65,6 +70,14 @@ class ModelLoader(ForgeModel):
         ModelVariant.INTERN_VL3_5_14B_Q8_0: "OpenGVLab/InternVL3_5-14B-HF",
     }
 
+    # HF model names for loading configs (GGUF files only contain text backbone)
+    _HF_CONFIGS = {
+        ModelVariant.INTERN_VL3_5_4B_Q4_K_M: "OpenGVLab/InternVL3_5-4B-HF",
+        ModelVariant.INTERN_VL3_5_4B_Q8_0: "OpenGVLab/InternVL3_5-4B-HF",
+        ModelVariant.INTERN_VL3_5_14B_Q4_K_M: "OpenGVLab/InternVL3_5-14B-HF",
+        ModelVariant.INTERN_VL3_5_14B_Q8_0: "OpenGVLab/InternVL3_5-14B-HF",
+    }
+
     DEFAULT_VARIANT = ModelVariant.INTERN_VL3_5_4B_Q4_K_M
 
     sample_image = "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
@@ -89,22 +102,33 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
         gguf_file = self._GGUF_FILES[self._variant]
-
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-
-        model_kwargs["gguf_file"] = gguf_file
-        model_kwargs |= kwargs
+        hf_config_name = self._HF_CONFIGS[self._variant]
 
         self.processor = AutoProcessor.from_pretrained(
             self._HF_PROCESSORS[self._variant],
             trust_remote_code=True,
         )
 
-        model = AutoModelForImageTextToText.from_pretrained(
-            pretrained_model_name, **model_kwargs
+        # GGUF files only contain the quantized text backbone (Qwen3).
+        # Load the full InternVL config from HF, initialize the model (vision
+        # encoder gets random weights), then replace the language model with the
+        # GGUF-loaded text backbone.
+        config = AutoConfig.from_pretrained(hf_config_name)
+
+        lm_kwargs = {}
+        if dtype_override is not None:
+            lm_kwargs["torch_dtype"] = dtype_override
+        lm_kwargs["gguf_file"] = gguf_file
+        lm_kwargs |= kwargs
+
+        language_model = Qwen3ForCausalLM.from_pretrained(
+            pretrained_model_name,
+            config=config.text_config,
+            **lm_kwargs,
         )
+
+        model = InternVLForConditionalGeneration(config)
+        model.language_model = language_model
         model.eval()
 
         return model
