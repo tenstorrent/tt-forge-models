@@ -142,14 +142,37 @@ class ModelLoader(ForgeModel):
         _ensure_mamba_ssm_stub()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"trust_remote_code": True}
+        model_kwargs = {"trust_remote_code": True, "low_cpu_mem_usage": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForImageClassification.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        # MambaVision calls .item() on a torch.linspace() result during __init__,
+        # which fails when the model is initialized inside a torch.device("meta")
+        # context (used by transformers 5.x always).  Patch get_init_context to
+        # remove the meta-device context so .item() works on real CPU tensors.
+        from transformers import PreTrainedModel
+
+        _orig_get_init_context = PreTrainedModel.get_init_context.__func__
+
+        @classmethod
+        def _no_meta_init_context(cls, dtype, is_quantized, _is_ds_init_called):
+            contexts = _orig_get_init_context(
+                cls, dtype, is_quantized, _is_ds_init_called
+            )
+            return [
+                c
+                for c in contexts
+                if not (isinstance(c, torch.device) and c.type == "meta")
+            ]
+
+        PreTrainedModel.get_init_context = _no_meta_init_context
+        try:
+            model = AutoModelForImageClassification.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+        finally:
+            PreTrainedModel.get_init_context = classmethod(_orig_get_init_context)
         model.eval()
 
         self._cached_model = model
