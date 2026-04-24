@@ -9,6 +9,7 @@ so this loader uses the base safetensors model from nvidia instead.
 The nemotron_h model requires mamba-ssm (CUDA-only), so we install a pure PyTorch
 stub when the real package is unavailable.
 """
+import contextlib
 import sys
 import types
 import importlib
@@ -83,6 +84,44 @@ def _ensure_mamba_ssm_available():
 
 
 _ensure_mamba_ssm_available()
+
+
+def _patch_cuda_stream_for_cpu():
+    """Patch torch.cuda.stream and default_stream to be no-ops on non-CUDA devices.
+
+    NemotronH's forward() wraps all computation in torch.cuda.stream(), which
+    raises AssertionError on CPU-only PyTorch builds. This patch makes the context
+    manager a no-op when the device is not CUDA.
+    """
+    if torch.cuda.is_available():
+        return
+
+    _orig_default_stream = torch.cuda.default_stream
+    _orig_stream = torch.cuda.stream
+
+    def _cpu_default_stream(device=None):
+        dev = (
+            torch.device(device)
+            if device is not None and not isinstance(device, torch.device)
+            else device
+        )
+        if dev is None or dev.type != "cuda":
+            return None
+        return _orig_default_stream(device)
+
+    @contextlib.contextmanager
+    def _cpu_stream(stream):
+        if stream is None:
+            yield
+        else:
+            with _orig_stream(stream):
+                yield
+
+    torch.cuda.default_stream = _cpu_default_stream
+    torch.cuda.stream = _cpu_stream
+
+
+_patch_cuda_stream_for_cpu()
 
 from ....base import ForgeModel
 from ....config import (
