@@ -4,16 +4,22 @@
 """
 FLUX-SRPO GGUF model loader implementation for text-to-image generation.
 
-FLUX-SRPO is a Stepwise Relative Preference Optimization fine-tune based on
-FLUX.1-Depth-dev architecture (in_channels=128: 64 latent + 64 depth channels).
-The GGUF transformer is loaded via diffusers' FluxTransformer2DModel.from_single_file.
-Config is sourced from sayakpaul/FLUX.1-Depth-dev-nf4 (public, ungated).
+FLUX-SRPO is a Stepwise Relative Preference Optimization fine-tune of FLUX.1-dev.
+The GGUF file is stored in MonsterMMORPG/Wan_GGUF.  The transformer config is
+constructed locally (in_channels=64, guidance_embeds=True, standard FLUX.1-dev
+architecture) because all official FLUX repos are gated.  diffusers incorrectly
+classifies this GGUF as flux-depth by inspecting raw byte shapes rather than
+logical float shapes, so we supply the config explicitly to override that.
 """
 
+import json
+import os
+import tempfile
 from typing import Optional
 
 import torch
 from diffusers import FluxTransformer2DModel, GGUFQuantizationConfig
+from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -27,8 +33,22 @@ from ...config import (
 )
 
 GGUF_REPO = "MonsterMMORPG/Wan_GGUF"
-# Public ungated repo with FLUX.1-Depth-dev transformer config (in_channels=128)
-CONFIG_REPO = "sayakpaul/FLUX.1-Depth-dev-nf4"
+
+# FLUX.1-dev transformer config (in_channels=64, guidance_embeds=True).
+# Constructed locally to avoid depending on gated HuggingFace repos.
+_FLUX_DEV_TRANSFORMER_CONFIG = {
+    "_class_name": "FluxTransformer2DModel",
+    "_diffusers_version": "0.30.0",
+    "attention_head_dim": 128,
+    "guidance_embeds": True,
+    "in_channels": 64,
+    "joint_attention_dim": 4096,
+    "num_attention_heads": 24,
+    "num_layers": 19,
+    "num_single_layers": 38,
+    "patch_size": 1,
+    "pooled_projection_dim": 768,
+}
 
 
 class ModelVariant(StrEnum):
@@ -60,6 +80,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.transformer = None
+        self._config_dir = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -74,6 +95,14 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _get_config_dir(self):
+        """Create a temporary directory with the FLUX transformer config.json."""
+        if self._config_dir is None:
+            self._config_dir = tempfile.mkdtemp(prefix="flux_srpo_config_")
+            with open(os.path.join(self._config_dir, "config.json"), "w") as f:
+                json.dump(_FLUX_DEV_TRANSFORMER_CONFIG, f)
+        return self._config_dir
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the GGUF-quantized FLUX-SRPO transformer.
 
@@ -87,11 +116,12 @@ class ModelLoader(ForgeModel):
             return self.transformer
 
         gguf_file = _GGUF_FILES[self._variant]
+        gguf_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
         quantization_config = GGUFQuantizationConfig(compute_dtype=dtype)
 
         self.transformer = FluxTransformer2DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
-            config=CONFIG_REPO,
+            gguf_path,
+            config=self._get_config_dir(),
             quantization_config=quantization_config,
             torch_dtype=dtype,
         )
@@ -115,8 +145,7 @@ class ModelLoader(ForgeModel):
         width = 128
         vae_scale_factor = 8
 
-        # FLUX packs 2x2 spatial patches; for Depth-dev in_channels=128
-        # represents 64 latent + 64 depth channels packed together.
+        # FLUX packs 2x2 spatial patches; in_channels=64 after packing.
         height_latent = 2 * (height // (vae_scale_factor * 2))
         width_latent = 2 * (width // (vae_scale_factor * 2))
         h_packed = height_latent // 2
