@@ -6,7 +6,7 @@ Nemotron-H model loader implementation for causal language modeling.
 """
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -99,14 +99,20 @@ class ModelLoader(ForgeModel):
             self._load_tokenizer(dtype_override=dtype_override)
 
         model_kwargs = {"trust_remote_code": True}
-        effective_dtype = dtype_override
-        if (
-            effective_dtype is None
-            and self._variant == ModelVariant.NEMOTRON_NANO_9B_V2_FP8_DYNAMIC
-        ):
-            effective_dtype = torch.bfloat16
-        if effective_dtype is not None:
-            model_kwargs["torch_dtype"] = effective_dtype
+        if dtype_override is not None:
+            model_kwargs["torch_dtype"] = dtype_override
+
+        if self._variant == ModelVariant.NEMOTRON_NANO_9B_V2_FP8_DYNAMIC:
+            # FP8 weights remain as Float8_e4m3fn after loading; the model's
+            # _init_weights rescales out_proj.weight via division which CPU
+            # does not support for Float8. Disabling rescale_prenorm_residual
+            # avoids the unsupported op during post-load weight initialization.
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, trust_remote_code=True
+            )
+            config.rescale_prenorm_residual = False
+            model_kwargs["config"] = config
+
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
