@@ -27,3 +27,7 @@ results:
   status: "MODEL_TOO_LARGE"
   date: "20260424_183545"
   branch: "ip-172-31-30-236-tt-xla-dev/ubuntu/2026-04-23_15-56/hf-bringup-19"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[bartowski_huihui_ai_deepseek_r1_distill_llama_70b_abliterated_gguf/causal_lm/pytorch-huihui_ai_DeepSeek_R1_Distill_Llama_70B_abliterated_GGUF-single_device-inference]"
+  status: "MODEL_TOO_LARGE"
+  date: "20260424_233442"
+  branch: "ip-172-31-30-236-tt-xla-dev/ubuntu/2026-04-23_15-56/hf-bringup-19"
