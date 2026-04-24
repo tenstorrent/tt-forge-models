@@ -97,22 +97,29 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
         gguf_file = self._GGUF_FILES[self._variant]
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = gguf_file
-
-        # Pre-load config from the base Whisper model so that random-weights
-        # mode does not need to download/parse the GGUF file just for config.
         config = WhisperConfig.from_pretrained("openai/whisper-small")
-        model_kwargs["config"] = config
-
+        config.use_cache = False
         self.processor = WhisperProcessor.from_pretrained("openai/whisper-small")
 
-        model = WhisperForConditionalGeneration.from_pretrained(
-            pretrained_model_name, use_cache=False, **model_kwargs
-        ).eval()
+        model = WhisperForConditionalGeneration(config)
+
+        # The FL33TW00D-HF GGUF file uses PyTorch-style tensor names and omits
+        # the standard `general.architecture` metadata field, so transformers'
+        # from_pretrained(gguf_file=...) path fails. Load weights directly.
+        from huggingface_hub import hf_hub_download
+        from gguf import GGUFReader, dequantize
+        import numpy as np
+
+        gguf_path = hf_hub_download(repo_id=pretrained_model_name, filename=gguf_file)
+        reader = GGUFReader(gguf_path)
+        state_dict = {}
+        for tensor in reader.tensors:
+            arr = np.array(tensor.data)
+            dq = dequantize(arr, tensor.tensor_type)
+            state_dict[tensor.name] = torch.from_numpy(dq)
+
+        model.load_state_dict(state_dict, strict=False)
+        model.eval()
 
         if dtype_override is not None:
             model = model.to(dtype_override)
