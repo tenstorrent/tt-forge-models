@@ -170,14 +170,13 @@ class ModelLoader(ForgeModel):
 
             # 4. get_reference_points uses hard-coded float32 linspace; make it follow
             #    valid_ratios.dtype so downstream tensors stay in the model dtype.
-            _orig_ref_pts = MMGroundingDinoEncoder.get_reference_points.__func__
+            _orig_ref_pts = MMGroundingDinoEncoder.get_reference_points
 
-            @staticmethod
             def _typed_ref_pts(spatial_shapes_list, valid_ratios, device):
                 result = _orig_ref_pts(spatial_shapes_list, valid_ratios, device)
                 return result.to(valid_ratios.dtype)
 
-            MMGroundingDinoEncoder.get_reference_points = _typed_ref_pts
+            MMGroundingDinoEncoder.get_reference_points = staticmethod(_typed_ref_pts)
 
         model = AutoModelForZeroShotObjectDetection.from_pretrained(
             pretrained_model_name, **model_kwargs
