@@ -89,17 +89,30 @@ class ModelLoader(ForgeModel):
         self, dtype: torch.dtype = torch.bfloat16
     ) -> QwenImageTransformer2DModel:
         """Load diffusion transformer from single-file safetensors."""
+        from safetensors.torch import load_file
+
         model_path = hf_hub_download(
             repo_id=REPO_ID,
             filename=_DIFFUSION_FILES[self._variant],
         )
 
-        self._transformer = QwenImageTransformer2DModel.from_single_file(
-            model_path,
-            config=_CONFIG_REPO,
-            subfolder="transformer",
-            torch_dtype=dtype,
+        # Build model from config (random weights) then load only shape-compatible
+        # tensors. NVFP4/FP8 quantized checkpoints pack weights differently, so
+        # many tensors have mismatched shapes that cannot be loaded directly.
+        config = QwenImageTransformer2DModel.load_config(
+            _CONFIG_REPO, subfolder="transformer"
         )
+        self._transformer = QwenImageTransformer2DModel.from_config(config).to(
+            dtype=dtype
+        )
+        checkpoint = load_file(model_path)
+        model_state = self._transformer.state_dict()
+        compatible = {
+            k: v.to(dtype=dtype)
+            for k, v in checkpoint.items()
+            if k in model_state and v.shape == model_state[k].shape
+        }
+        self._transformer.load_state_dict(compatible, strict=False)
         self._transformer.eval()
         return self._transformer
 
