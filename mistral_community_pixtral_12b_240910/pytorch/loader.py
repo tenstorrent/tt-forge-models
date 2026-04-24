@@ -40,7 +40,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.PIXTRAL_12B_240910: ModelConfig(
-            pretrained_model_name="mistral-community/pixtral-12b-240910",
+            pretrained_model_name="mistral-community/pixtral-12b",
         ),
     }
 
