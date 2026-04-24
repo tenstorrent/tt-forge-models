@@ -73,7 +73,7 @@ class ModelLoader(ForgeModel):
             "BAAI-Agents/EgoActor-4b-Qwen3VL"
         )
 
-        model = Qwen3VLForConditionalGeneration.from_config(config)
+        model = Qwen3VLForConditionalGeneration(config)
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
         model = model.to(dtype).eval()
 
