@@ -5,11 +5,13 @@
 Chandra OCR GGUF model loader implementation for image to text.
 """
 
-from transformers import (
-    Qwen3VLForConditionalGeneration,
-    AutoProcessor,
-)
+import importlib.metadata
 from typing import Optional
+
+from transformers import (
+    AutoProcessor,
+    Qwen3VLForConditionalGeneration,
+)
 
 from ....base import ForgeModel
 from ....config import (
@@ -69,7 +71,66 @@ class ModelLoader(ForgeModel):
         """Get the GGUF filename for the current variant."""
         return self._GGUF_FILES.get(self._variant)
 
+    @staticmethod
+    def _fix_gguf_version_detection():
+        """Fix gguf version detection when installed at runtime by RequirementsManager.
+
+        transformers caches PACKAGE_DISTRIBUTION_MAPPING at import time. When gguf
+        is installed later, the mapping is stale and version detection falls back to
+        gguf.__version__ which doesn't exist, yielding 'N/A' and crashing version.parse.
+        """
+        import transformers.utils.import_utils as _import_utils
+
+        if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+            try:
+                importlib.metadata.version("gguf")
+                _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+                _import_utils.is_gguf_available.cache_clear()
+            except importlib.metadata.PackageNotFoundError:
+                pass
+
+    @staticmethod
+    def _fix_gguf_model_to_load():
+        """Fix model_to_load kwarg compatibility with transformers 5.x.
+
+        Other GGUF loaders in this repo monkey-patch load_gguf_checkpoint without
+        the model_to_load parameter added in transformers 5.x, causing TypeError
+        when from_pretrained passes it.
+
+        Also wraps get_gguf_hf_weights_map to handle hf_model=None gracefully
+        (returns empty mapping, acceptable in compile-only mode where weights
+        are not used for accuracy comparison).
+        """
+        import inspect
+
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+        current_fn = _gguf_utils.load_gguf_checkpoint
+        if "model_to_load" not in inspect.signature(current_fn).parameters:
+            orig_fn = current_fn
+
+            def _wrapped(
+                gguf_checkpoint_path, return_tensors=False, model_to_load=None
+            ):
+                return orig_fn(gguf_checkpoint_path, return_tensors=return_tensors)
+
+            _gguf_utils.load_gguf_checkpoint = _wrapped
+
+        current_map_fn = _gguf_utils.get_gguf_hf_weights_map
+        if not getattr(current_map_fn, "_handles_none_model", False):
+            orig_map_fn = current_map_fn
+
+            def _wrapped_map(hf_model, *args, **kwargs):
+                if hf_model is None:
+                    return {}
+                return orig_map_fn(hf_model, *args, **kwargs)
+
+            _wrapped_map._handles_none_model = True
+            _gguf_utils.get_gguf_hf_weights_map = _wrapped_map
+
     def load_model(self, *, dtype_override=None, **kwargs):
+        self._fix_gguf_version_detection()
+        self._fix_gguf_model_to_load()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
