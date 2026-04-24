@@ -99,8 +99,14 @@ class ModelLoader(ForgeModel):
             self._load_tokenizer(dtype_override=dtype_override)
 
         model_kwargs = {"trust_remote_code": True}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+        effective_dtype = dtype_override
+        if (
+            effective_dtype is None
+            and self._variant == ModelVariant.NEMOTRON_NANO_9B_V2_FP8_DYNAMIC
+        ):
+            effective_dtype = torch.bfloat16
+        if effective_dtype is not None:
+            model_kwargs["torch_dtype"] = effective_dtype
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
