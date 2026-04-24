@@ -21,21 +21,15 @@ from ....config import (
 
 
 def _patch_transformers_falcon_h1_gguf():
-    """Monkey-patch transformers to add falcon-h1 GGUF architecture support.
+    """Register falcon-h1 GGUF architecture support in global transformers tables.
 
     The Falcon H1R model uses the 'falcon-h1' architecture identifier in its
-    GGUF metadata. Transformers has FalconH1ForCausalLM (model_type='falcon_h1')
-    but lacks GGUF loading support for the 'falcon-h1' architecture key. We
-    bridge the gap by registering the config mapping, remapping model_type, and
-    registering a tokenizer converter for the 'falcon_h1' model type.
-
-    Other loaders in this repo patch load_gguf_checkpoint with restricted
-    signatures that lack the model_to_load parameter. We bypass that broken
-    chain by finding and using the real function directly for tensor loads.
+    GGUF metadata. Transformers has FalconH1ForCausalLM but lacks GGUF loading
+    support for the 'falcon-h1' architecture key. We add all required entries
+    globally so that the real load_gguf_checkpoint (restored at load time) can
+    process the file correctly without any model_type remapping.
     """
-    import inspect
-    import sys
-
+    from transformers import FalconH1Config
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
         GGUF_TO_TRANSFORMERS_MAPPING,
@@ -45,7 +39,7 @@ def _patch_transformers_falcon_h1_gguf():
         GGUF_TO_FAST_CONVERTERS,
         GGUFGPTConverter,
     )
-    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 
     if "falcon-h1" in GGUF_SUPPORTED_ARCHITECTURES:
         return
@@ -73,40 +67,12 @@ def _patch_transformers_falcon_h1_gguf():
         "falcon-h1"
     ]
 
-    # The tokenizer converter lookup uses model_type as the key after remapping,
-    # so register 'falcon_h1' with the GPT-2 converter (tokenizer.ggml.model=gpt2).
-    if "falcon_h1" not in GGUF_TO_FAST_CONVERTERS:
-        GGUF_TO_FAST_CONVERTERS["falcon_h1"] = GGUFGPTConverter
+    # Tokenizer converter lookup uses the architecture key directly.
+    if "falcon-h1" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["falcon-h1"] = GGUFGPTConverter
 
-    # Find the real load_gguf_checkpoint that accepts model_to_load. Other loaders
-    # save their _orig_load_gguf_checkpoint before patching; we search for the one
-    # with the full signature to bypass the broken patch chain for tensor loads.
-    real_load = gguf_utils.load_gguf_checkpoint
-    if "model_to_load" not in inspect.signature(real_load).parameters:
-        for mod in list(sys.modules.values()):
-            candidate = getattr(mod, "_orig_load_gguf_checkpoint", None)
-            if candidate is None:
-                continue
-            try:
-                if "model_to_load" in inspect.signature(candidate).parameters:
-                    real_load = candidate
-                    break
-            except Exception:
-                pass
-
-    orig_load = gguf_utils.load_gguf_checkpoint
-
-    def patched_load_gguf_checkpoint(*args, **kwargs):
-        # Use the real function when model_to_load is requested to bypass other
-        # loaders' patches that have restricted signatures lacking that parameter.
-        loader = real_load if "model_to_load" in kwargs else orig_load
-        result = loader(*args, **kwargs)
-        config = result.get("config", {})
-        if config.get("model_type") == "falcon-h1":
-            config["model_type"] = "falcon_h1"
-        return result
-
-    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+    # AutoConfig.for_model / AutoTokenizer need 'falcon-h1' → FalconH1Config.
+    CONFIG_MAPPING.register("falcon-h1", FalconH1Config, exist_ok=True)
 
 
 _patch_transformers_falcon_h1_gguf()
@@ -163,7 +129,37 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _restore_real_load_gguf_checkpoint():
+        """Restore the real load_gguf_checkpoint before calling from_pretrained.
+
+        Other loaders in this repo patch load_gguf_checkpoint with restricted
+        signatures lacking the model_to_load parameter. Since our global table
+        registrations (GGUF_SUPPORTED_ARCHITECTURES, CONFIG_MAPPING, etc.) are
+        already in place, restoring the real function is sufficient for correct
+        GGUF loading without any model_type remapping.
+        """
+        import inspect
+        import sys
+
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+        _current = _gguf_utils.load_gguf_checkpoint
+        if "model_to_load" not in inspect.signature(_current).parameters:
+            for _mod in list(sys.modules.values()):
+                _candidate = getattr(_mod, "_orig_load_gguf_checkpoint", None)
+                if _candidate is None:
+                    continue
+                try:
+                    if "model_to_load" in inspect.signature(_candidate).parameters:
+                        _gguf_utils.load_gguf_checkpoint = _candidate
+                        break
+                except Exception:
+                    pass
+
     def _load_tokenizer(self, dtype_override=None):
+        self._restore_real_load_gguf_checkpoint()
+
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -179,6 +175,8 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        self._restore_real_load_gguf_checkpoint()
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
