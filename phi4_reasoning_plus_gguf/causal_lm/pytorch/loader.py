@@ -8,6 +8,26 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.integrations.ggml as _ggml_mod
+
+_OrigPhi3Converter = _ggml_mod.GGUF_TO_FAST_CONVERTERS["phi3"]
+
+
+class _PatchedPhi3Converter(_OrigPhi3Converter):
+    def tokenizer(self, proto):
+        # Phi-4 Reasoning Plus GGUF has merges containing the Unicode replacement
+        # character (ï¿½) which is absent from the BPE vocabulary, causing
+        # Tokenizer(BPE(...)) initialization to fail.
+        vocab_scores = self.vocab(proto)
+        bpe_vocab = {word: i for i, (word, _) in enumerate(vocab_scores)}
+        proto.merges = [
+            (a, b) for a, b in proto.merges if a in bpe_vocab and b in bpe_vocab
+        ]
+        return super().tokenizer(proto)
+
+
+_ggml_mod.GGUF_TO_FAST_CONVERTERS["phi3"] = _PatchedPhi3Converter
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
