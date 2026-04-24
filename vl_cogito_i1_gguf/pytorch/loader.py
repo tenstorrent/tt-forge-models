@@ -96,6 +96,14 @@ class ModelLoader(ForgeModel):
         if not has_model_to_load:
             importlib.reload(_gguf_utils)
 
+        # transformers 5.x doesn't include qwen2vl in GGUF_SUPPORTED_ARCHITECTURES;
+        # the GGUF contains only LLM backbone — vision encoder stays randomly initialized.
+        if "qwen2vl" not in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"][
+                "qwen2vl"
+            ] = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen2"].copy()
+            _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("qwen2vl")
+
     def _load_processor(self):
         processor_kwargs = {
             "min_pixels": self.min_pixels,
@@ -108,9 +116,15 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         self._refresh_gguf_detection()
+
+        from transformers import AutoConfig
+
+        # GGUF repo has no config.json; load full vision+language config from base model
+        config = AutoConfig.from_pretrained(self.PROCESSOR_MODEL)
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"low_cpu_mem_usage": True, "use_cache": False}
+        model_kwargs = {"low_cpu_mem_usage": True, "use_cache": False, "config": config}
 
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
