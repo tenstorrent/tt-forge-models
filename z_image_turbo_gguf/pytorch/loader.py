@@ -125,6 +125,19 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
         """Load and return the GGUF-quantized DiT transformer."""
+        import diffusers.utils.import_utils as _diffusers_import_utils
+
+        # diffusers caches _gguf_available at import time; if gguf was installed
+        # after diffusers was first imported (via requirements.txt), we must update
+        # the cached flag so load_gguf_checkpoint doesn't raise ImportError.
+        if not _diffusers_import_utils._gguf_available:
+            try:
+                import gguf  # noqa: F401
+
+                _diffusers_import_utils._gguf_available = True
+            except ImportError:
+                pass
+
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
         if self._pipe is None:
             self._load_pipeline(dtype)
