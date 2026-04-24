@@ -5,7 +5,12 @@
 GLM-4V model loader implementation for multimodal conditional generation.
 """
 import torch
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import (
+    AutoConfig,
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    PreTrainedModel,
+)
 from typing import Optional
 
 from ...base import ForgeModel
@@ -79,14 +84,27 @@ class ModelLoader(ForgeModel):
         if not hasattr(config, "max_length") and hasattr(config, "seq_length"):
             config.max_length = config.seq_length
 
-        model_kwargs = {"trust_remote_code": True, "config": config}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+        # ChatGLM remote code doesn't call post_init(), so all_tied_weights_keys
+        # is never initialized (required by transformers 5.2.0).
+        _orig_adjust = PreTrainedModel._adjust_tied_keys_with_tied_pointers
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        def _patched_adjust(self, missing_keys):
+            if not hasattr(self, "all_tied_weights_keys"):
+                PreTrainedModel.post_init(self)
+            return _orig_adjust(self, missing_keys)
+
+        PreTrainedModel._adjust_tied_keys_with_tied_pointers = _patched_adjust
+        try:
+            model_kwargs = {"trust_remote_code": True, "config": config}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+        finally:
+            PreTrainedModel._adjust_tied_keys_with_tied_pointers = _orig_adjust
         model.eval()
         self.model = model
         self.config = model.config
