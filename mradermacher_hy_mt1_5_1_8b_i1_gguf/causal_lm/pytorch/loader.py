@@ -13,10 +13,7 @@ import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
-from transformers.modeling_gguf_pytorch_utils import (
-    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
-    GGUF_SUPPORTED_ARCHITECTURES,
-)
+from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
 
 from ....base import ForgeModel
 from ....config import (
@@ -55,20 +52,37 @@ def _patch_hunyuan_dense_support():
         _ggml.GGUF_TO_FAST_CONVERTERS["hunyuan_v1_dense"] = _ggml.GGUFGPTConverter
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
-    """Wrap load_gguf_checkpoint to add hunyuan-dense GGUF arch support."""
+def _make_hunyuan_patch(base_fn):
+    """Return a wrapper around base_fn that adds hunyuan-dense model_type fix."""
+
+    def _patched(gguf_path, return_tensors=False, **kw):
+        _patch_hunyuan_dense_support()
+        result = base_fn(gguf_path, return_tensors=return_tensors, **kw)
+        if result.get("config", {}).get("model_type") == "hunyuan-dense":
+            result["config"]["model_type"] = "hunyuan_v1_dense"
+        return result
+
+    return _patched
+
+
+def _apply_hunyuan_patches():
+    """Install hunyuan-dense patch as top-of-chain across all GGUF loader sites."""
     _patch_hunyuan_dense_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
-    if result.get("config", {}).get("model_type") == "hunyuan-dense":
-        result["config"]["model_type"] = "hunyuan_v1_dense"
-    return result
+    current = _gguf_utils.load_gguf_checkpoint
+    patched = _make_hunyuan_patch(current)
+    _gguf_utils.load_gguf_checkpoint = patched
+    _config_utils.load_gguf_checkpoint = patched
+    _auto_tokenizer.load_gguf_checkpoint = patched
+    _tok_utils.load_gguf_checkpoint = patched
+    return current, patched
 
 
-_patch_hunyuan_dense_support()
-_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+def _restore_hunyuan_patches(original):
+    """Restore the pre-patch load_gguf_checkpoint across all loader sites."""
+    _gguf_utils.load_gguf_checkpoint = original
+    _config_utils.load_gguf_checkpoint = original
+    _auto_tokenizer.load_gguf_checkpoint = original
+    _tok_utils.load_gguf_checkpoint = original
 
 
 class ModelVariant(StrEnum):
@@ -139,9 +153,14 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
         tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+        original, _ = _apply_hunyuan_patches()
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            )
+        finally:
+            _restore_hunyuan_patches(original)
+
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -167,9 +186,13 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        original, _ = _apply_hunyuan_patches()
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _restore_hunyuan_patches(original)
 
         self.config = model.config
         self.model = model
