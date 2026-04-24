@@ -30,7 +30,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.ROCKET_3B_LLAMAFILE: LLMModelConfig(
-            pretrained_model_name="mozilla-ai/rocket-3B-llamafile",
+            pretrained_model_name="pansophic/rocket-3B",
             max_length=256,
         ),
     }
@@ -82,13 +82,8 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded tokenizer instance
         """
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
-            **tokenizer_kwargs,
         )
 
         if self.tokenizer.pad_token is None:
