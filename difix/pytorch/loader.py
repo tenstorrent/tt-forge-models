@@ -68,7 +68,10 @@ class ModelLoader(ForgeModel):
 
     def _load_pipeline(self, dtype_override=None):
         """Load and cache the Difix pipeline."""
-        pipe_kwargs = {"trust_remote_code": True}
+        pipe_kwargs = {
+            "custom_pipeline": self._variant_config.pretrained_model_name,
+            "trust_remote_code": True,
+        }
         if dtype_override is not None:
             pipe_kwargs["torch_dtype"] = dtype_override
 
