@@ -11,8 +11,15 @@ model is too large to load directly.
 from typing import Optional
 
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import DynamicCache
 
 from ....base import ForgeModel
+
+# Shim for transformers 5.x: DynamicCache.get_usable_length was renamed to get_seq_length
+if not hasattr(DynamicCache, "get_usable_length"):
+    DynamicCache.get_usable_length = (
+        lambda self, new_seq_length, layer_idx=0: self.get_seq_length(layer_idx)
+    )
 from ....config import (
     Framework,
     ModelGroup,
