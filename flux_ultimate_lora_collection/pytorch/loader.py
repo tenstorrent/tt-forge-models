@@ -27,7 +27,7 @@ from ...config import (
     StrEnum,
 )
 
-BASE_MODEL = "black-forest-labs/FLUX.1-dev"
+BASE_MODEL = "black-forest-labs/FLUX.1-schnell"
 LORA_REPO = "strangerzonehf/Flux-Ultimate-LoRA-Collection"
 
 LORA_ANIMEO = "Animeo.safetensors"
