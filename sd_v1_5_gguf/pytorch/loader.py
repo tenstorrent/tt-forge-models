@@ -125,21 +125,22 @@ class ModelLoader(ForgeModel):
                 quantization_config=quantization_config,
                 torch_dtype=compute_dtype,
             )
-            # Dequantize GroupNorm weights: diffusers GGUF quantizer only wraps
-            # Linear layers, leaving norm layer parameters as raw GGUFParameter
-            # tensors that group_norm cannot consume.
+            # Dequantize norm layer weights: diffusers GGUF quantizer only wraps
+            # Linear layers, leaving norm layer (GroupNorm, LayerNorm, etc.)
+            # parameters as raw GGUFParameter tensors that norm ops cannot consume.
+            norm_types = (torch.nn.GroupNorm, torch.nn.LayerNorm)
             for module in self._unet.modules():
-                if isinstance(module, torch.nn.GroupNorm):
-                    if isinstance(module.weight, GGUFParameter):
-                        module.weight = torch.nn.Parameter(
-                            dequantize_gguf_tensor(module.weight).to(compute_dtype)
-                        )
-                    if module.bias is not None and isinstance(
-                        module.bias, GGUFParameter
-                    ):
-                        module.bias = torch.nn.Parameter(
-                            dequantize_gguf_tensor(module.bias).to(compute_dtype)
-                        )
+                if isinstance(module, norm_types):
+                    for param_name in ("weight", "bias"):
+                        param = getattr(module, param_name, None)
+                        if param is not None and isinstance(param, GGUFParameter):
+                            setattr(
+                                module,
+                                param_name,
+                                torch.nn.Parameter(
+                                    dequantize_gguf_tensor(param).to(compute_dtype)
+                                ),
+                            )
             self._unet.eval()
         elif dtype_override is not None:
             self._unet = self._unet.to(dtype=dtype_override)
