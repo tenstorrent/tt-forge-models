@@ -111,6 +111,8 @@ def _patch_transformers_nemotron_h_moe_gguf():
     so after reading the GGUF config we remap model_type accordingly and fill
     in values that are absent from the GGUF metadata.
     """
+    from transformers import AutoConfig
+    from transformers.dynamic_module_utils import get_class_from_dynamic_module
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
         GGUF_TO_TRANSFORMERS_MAPPING,
@@ -121,6 +123,18 @@ def _patch_transformers_nemotron_h_moe_gguf():
 
     if "nemotron_h_moe" in GGUF_SUPPORTED_ARCHITECTURES:
         return
+
+    # Register NemotronHConfig so AutoConfig can resolve model_type='nemotron_h'.
+    # The GGUF repo lacks auto_map so trust_remote_code alone is insufficient;
+    # we load the config class from the BF16 base repo (cached locally) explicitly.
+    try:
+        _nemotron_h_config_cls = get_class_from_dynamic_module(
+            "configuration_nemotron_h.NemotronHConfig",
+            "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16",
+        )
+        AutoConfig.register("nemotron_h", _nemotron_h_config_cls, exist_ok=True)
+    except Exception:
+        pass
 
     GGUF_SUPPORTED_ARCHITECTURES.append("nemotron_h_moe")
 
