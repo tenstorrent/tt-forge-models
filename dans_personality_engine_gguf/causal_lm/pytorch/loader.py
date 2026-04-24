@@ -4,9 +4,33 @@
 """
 Dans PersonalityEngine GGUF model loader implementation for causal language modeling.
 """
+import inspect
+
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tok
+import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+
+def _make_model_to_load_compat(fn):
+    if "model_to_load" in inspect.signature(fn).parameters:
+        return fn
+
+    def _wrapper(gguf_path, return_tensors=False, model_to_load=None):
+        return fn(gguf_path, return_tensors=return_tensors)
+
+    return _wrapper
+
+
+def _apply_model_to_load_compat():
+    wrapped = _make_model_to_load_compat(_gguf_utils.load_gguf_checkpoint)
+    _gguf_utils.load_gguf_checkpoint = wrapped
+    for _mod in (_config_utils, _auto_tok, _tok_utils):
+        _mod.load_gguf_checkpoint = wrapped
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -106,6 +130,7 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
+        _apply_model_to_load_compat()
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
