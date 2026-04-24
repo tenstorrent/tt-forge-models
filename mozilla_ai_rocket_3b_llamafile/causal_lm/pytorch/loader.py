@@ -140,11 +140,9 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        messages = [{"role": "user", "content": self.sample_text}]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
+        # rocket-3B uses ChatML format; pansophic/rocket-3B tokenizer has no chat_template
+        text = (
+            f"<|im_start|>user\n{self.sample_text}<|im_end|>\n<|im_start|>assistant\n"
         )
 
         prompts = [text] * batch_size
