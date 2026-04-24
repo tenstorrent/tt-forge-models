@@ -12,6 +12,7 @@ import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
     GGUF_SUPPORTED_ARCHITECTURES,
@@ -44,6 +45,10 @@ def _patch_gemma3n_support():
             _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"][
                 "gemma3n"
             ] = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]["gemma3"]
+    if "gemma3_text" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "gemma3n_text", GGUF_TO_FAST_CONVERTERS["gemma3_text"]
+        )
 
 
 def _patched_load_gguf_checkpoint(
