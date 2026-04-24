@@ -45,6 +45,28 @@ from .configuration_audio import (
 )
 
 
+class LanguageBindAudioVisionEmbeddings(CLIPVisionEmbeddings):
+    """CLIPVisionEmbeddings subclass that skips the square-image-size check.
+
+    LanguageBind resizes position embeddings to handle non-square mel spectrograms
+    (e.g. 112x1036), so self.image_size becomes a list after resize_pos.  The
+    upstream check compares height/width against the list value, which always fails.
+    We simply omit that guard and rely on the pre-resized positional embeddings.
+    """
+
+    def forward(
+        self, pixel_values: torch.FloatTensor, interpolate_pos_encoding=False
+    ) -> torch.Tensor:
+        batch_size = pixel_values.shape[0]
+        target_dtype = self.patch_embedding.weight.dtype
+        patch_embeds = self.patch_embedding(pixel_values.to(dtype=target_dtype))
+        patch_embeds = patch_embeds.flatten(2).transpose(1, 2)
+        class_embeds = self.class_embedding.expand(batch_size, 1, -1)
+        embeddings = torch.cat([class_embeds, patch_embeds], dim=1)
+        embeddings = embeddings + self.position_embedding(self.position_ids)
+        return embeddings
+
+
 class PatchDropout(nn.Module):
     """
     https://arxiv.org/abs/2212.00794
@@ -691,7 +713,7 @@ class CLIPVisionTransformer(nn.Module):
         self.config = config
         embed_dim = config.hidden_size
 
-        self.embeddings = CLIPVisionEmbeddings(config)
+        self.embeddings = LanguageBindAudioVisionEmbeddings(config)
         self.patch_dropout = PatchDropout(config.force_patch_dropout)
         self.pre_layrnorm = nn.LayerNorm(embed_dim, eps=config.layer_norm_eps)
         self.encoder = CLIPEncoder(config)

@@ -1,6 +1,6 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
 --find-links languagebind_wheels
-languagebind==0.1.2
+languagebind==0.1.3
 torchaudio==2.9.1+cpu
 soundfile
 einops

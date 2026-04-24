@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "languagebind"
-version = "0.1.2"
+version = "0.1.3"
 
 [tool.setuptools.packages.find]
 where = ["."]
