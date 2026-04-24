@@ -121,25 +121,34 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        # Patch load_gguf_checkpoint right before calling from_pretrained so
-        # that subsequent GGUF loader patches (which drop model_to_load) don't
-        # interfere.  The multimodal config triggers the model_to_load path
-        # in from_pretrained; we accept and ignore it since weight-name
-        # mapping mismatches are acceptable in compile-only mode.
+        # Patch load_gguf_checkpoint and get_gguf_hf_weights_map right before
+        # calling from_pretrained.  The multimodal config triggers the
+        # model_to_load path in from_pretrained; we accept and ignore it since
+        # weight-name mapping mismatches are acceptable in compile-only mode.
+        # get_gguf_hf_weights_map may also be monkey-patched by other loaders
+        # and can crash when hf_model is None, so we guard that too.
         _current_load_gguf = _gguf_utils.load_gguf_checkpoint
+        _current_get_map = _gguf_utils.get_gguf_hf_weights_map
 
         def _accept_model_to_load(
             gguf_path, return_tensors=False, model_to_load=None, **kw
         ):
             return _current_load_gguf(gguf_path, return_tensors=return_tensors)
 
+        def _safe_get_weights_map(hf_model, processor, model_type=None, **kw):
+            if hf_model is None and model_type is None:
+                model_type = "gemma3"
+            return _current_get_map(hf_model, processor, model_type=model_type, **kw)
+
         _gguf_utils.load_gguf_checkpoint = _accept_model_to_load
+        _gguf_utils.get_gguf_hf_weights_map = _safe_get_weights_map
         try:
             model = AutoModelForImageTextToText.from_pretrained(
                 pretrained_model_name, **model_kwargs
             ).eval()
         finally:
             _gguf_utils.load_gguf_checkpoint = _current_load_gguf
+            _gguf_utils.get_gguf_hf_weights_map = _current_get_map
 
         self.config = model.config
         return model
