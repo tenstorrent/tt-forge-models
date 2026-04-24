@@ -318,7 +318,14 @@ class ModelLoader(ForgeModel):
         max_length = self._variant_config.max_length
 
         # Base models use plain text; chat models use chat template
-        if self._variant in (ModelVariant.QWEN_3_5_4B_BASE,):
+        _BASE_VARIANTS = (
+            ModelVariant.QWEN_3_5_2B_BASE,
+            ModelVariant.QWEN_3_5_2B_BASE_UNSLOTH,
+            ModelVariant.QWEN_3_5_4B_BASE,
+            ModelVariant.QWEN_3_5_9B_BASE,
+            ModelVariant.QWEN_3_5_35B_A3B_BASE,
+        )
+        if self._variant in _BASE_VARIANTS:
             prompts = [self.sample_text]
         else:
             messages = [{"role": "user", "content": self.sample_text}]
