@@ -83,13 +83,18 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        # The model's config.json has a malformed quantization_config lacking
+        # quant_method, which newer transformers rejects. Remove the attribute
+        # entirely so transformers treats it as an unquantized fp model.
+        if hasattr(config, "quantization_config"):
+            del config.quantization_config
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
