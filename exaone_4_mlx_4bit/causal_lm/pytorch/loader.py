@@ -73,21 +73,27 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def _load_patched_config(self, pretrained_model_name):
-        """Load config, computing layer_types from string sliding_window_pattern if needed."""
+        """Load config, computing layer_types from string sliding_window_pattern if needed.
+
+        transformers 5.x passes config_dict to cls(**config_dict) before applying kwargs,
+        so we must patch the dict before construction rather than relying on kwarg overrides.
+        """
         from transformers import PretrainedConfig
+        from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 
         config_dict, _ = PretrainedConfig.get_config_dict(pretrained_model_name)
         pattern = config_dict.get("sliding_window_pattern")
         if isinstance(pattern, str) and not config_dict.get("layer_types"):
             n = config_dict.get("num_hidden_layers", 0)
             char_to_type = {"L": "sliding_attention", "G": "full_attention"}
-            layer_types = [
+            config_dict["layer_types"] = [
                 char_to_type.get(pattern[i % len(pattern)], "full_attention")
                 for i in range(n)
             ]
-            return AutoConfig.from_pretrained(
-                pretrained_model_name, layer_types=layer_types
-            )
+            config_dict["sliding_window_pattern"] = len(pattern)
+            model_type = config_dict.get("model_type", "")
+            if model_type in CONFIG_MAPPING:
+                return CONFIG_MAPPING[model_type].from_dict(config_dict)
         return AutoConfig.from_pretrained(pretrained_model_name)
 
     def load_model(self, *, dtype_override=None, **kwargs):
