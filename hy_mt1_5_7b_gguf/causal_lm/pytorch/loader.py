@@ -74,6 +74,21 @@ def _patch_transformers_hunyuan_dense_gguf():
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
+    # get_gguf_hf_weights_map looks up model_type in gguf's MODEL_ARCH_NAMES,
+    # which uses "hunyuan-dense" not "hunyuan_v1_dense", so we remap it.
+    orig_weights_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(hf_model, processor, model_type=None, **kwargs):
+        if model_type is None and hasattr(hf_model, "config"):
+            model_type = hf_model.config.model_type
+        if model_type == "hunyuan_v1_dense":
+            model_type = "hunyuan-dense"
+        return orig_weights_map(hf_model, processor, model_type=model_type, **kwargs)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+    if hasattr(modeling_utils, "get_gguf_hf_weights_map"):
+        modeling_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
 
 _patch_transformers_hunyuan_dense_gguf()
 
