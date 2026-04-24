@@ -80,11 +80,11 @@ class ModelLoader(ForgeModel):
         config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, trust_remote_code=True
         )
-        # The MLX quantization_config is a plain dict without a quant_method field,
-        # which transformers' quantizer registry does not recognise. Clear it so that
-        # from_pretrained and random-weight instantiation both proceed without error.
+        # The MLX quantization_config is a plain dict without a quant_method field
+        # that transformers' quantizer registry does not recognise. Deleting the
+        # attribute makes pre_quantized=False so the check is skipped entirely.
         if isinstance(getattr(config, "quantization_config", None), dict):
-            config.quantization_config = None
+            del config.quantization_config
         return config
 
     def load_model(self, *, dtype_override=None, **kwargs):
