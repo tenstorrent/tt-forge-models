@@ -92,6 +92,7 @@ class ModelLoader(ForgeModel):
             config=CONFIG_REPO,
             subfolder="transformer",
             torch_dtype=dtype,
+            ignore_mismatched_sizes=True,
         )
         self._transformer.eval()
         return self._transformer
