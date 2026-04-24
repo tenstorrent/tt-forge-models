@@ -94,13 +94,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
+        # The fine-tuned model's tokenizer is broken (vocab_size=1), so always
+        # load the tokenizer from the base Qwen3-0.6B model.
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self.BASE_MODEL_NAME, **tokenizer_kwargs
         )
-
-        if self.tokenizer.chat_template is None:
-            base_tokenizer = AutoTokenizer.from_pretrained(self.BASE_MODEL_NAME)
-            self.tokenizer.chat_template = base_tokenizer.chat_template
 
         return self.tokenizer
 
