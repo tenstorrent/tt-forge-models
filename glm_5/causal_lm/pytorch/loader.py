@@ -6,7 +6,7 @@ GLM-5 model loader implementation for causal language modeling.
 """
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -97,6 +97,15 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         if self._variant in self._NVFP4_VARIANTS:
+            model_kwargs["ignore_mismatched_sizes"] = True
+        if self._variant == ModelVariant.GLM_5_4BIT_MLX:
+            # MLX-quantized models have a non-standard quantization_config
+            # without quant_method; strip it so transformers can load the model.
+            mlx_config = AutoConfig.from_pretrained(
+                pretrained_model_name, trust_remote_code=True
+            )
+            mlx_config.quantization_config = None
+            model_kwargs["config"] = mlx_config
             model_kwargs["ignore_mismatched_sizes"] = True
         model_kwargs |= kwargs
 
