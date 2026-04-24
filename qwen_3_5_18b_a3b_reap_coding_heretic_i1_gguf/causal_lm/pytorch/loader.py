@@ -9,6 +9,59 @@ from typing import Optional
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
+
+def _patch_qwen35moe_separate_expert_weights():
+    """Patch get_gguf_hf_weights_map to support qwen35moe GGUF files with separate
+    gate/up/down expert weight tensors (e.g. i1-quantized models).
+
+    Qwen2MoeTensorProcessor.process() looks up tensor_key_mapping using GGUF names
+    without the .weight suffix (e.g. 'blk.0.ffn_gate_exps'), but the standard
+    get_gguf_hf_weights_map stores keys with .weight suffix and maps gate_up_proj to
+    the fused ffn_gate_up_exps key.  Some i1-quantized GGUF files store expert weights
+    separately as ffn_gate_exps / ffn_up_exps / ffn_down_exps rather than fused as
+    ffn_gate_up_exps.  This patch adds the without-suffix entries so process() can
+    fuse them into the HF gate_up_proj / down_proj tensors.
+    """
+    import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+    _orig = _gguf_utils.get_gguf_hf_weights_map
+
+    def _patched(hf_model, processor, model_type=None, num_layers=None, qual_name=""):
+        result = _orig(hf_model, processor, model_type, num_layers, qual_name)
+        if qual_name != "":
+            return result
+        mt = (
+            model_type
+            if model_type is not None
+            else (getattr(getattr(hf_model, "config", None), "model_type", None))
+        )
+        if mt not in ("qwen35moe", "qwen3_5_moe_text", "qwen3_5_moe"):
+            return result
+        cfg = getattr(hf_model, "config", None)
+        if cfg is None:
+            return result
+        n_layers = (
+            num_layers
+            if num_layers is not None
+            else getattr(cfg, "num_hidden_layers", 0)
+        )
+        for n in range(n_layers):
+            result[
+                f"blk.{n}.ffn_gate_exps"
+            ] = f"model.layers.{n}.mlp.experts.gate_up_proj.weight"
+            result[
+                f"blk.{n}.ffn_up_exps"
+            ] = f"model.layers.{n}.mlp.experts.gate_up_proj.weight"
+            result[
+                f"blk.{n}.ffn_down_exps"
+            ] = f"model.layers.{n}.mlp.experts.down_proj.weight"
+        return result
+
+    _gguf_utils.get_gguf_hf_weights_map = _patched
+
+
+_patch_qwen35moe_separate_expert_weights()
+
 from ....base import ForgeModel
 from ....config import (
     Framework,
