@@ -82,6 +82,9 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    # BeetleLM repos don't include tokenizer files; use open_llama's matching vocabulary
+    _TOKENIZER_SOURCE = "openlm-research/open_llama_3b_v2"
+
     def _load_tokenizer(self, dtype_override=None):
         """Load tokenizer for the current variant.
 
@@ -91,16 +94,7 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded tokenizer instance
         """
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
-            **tokenizer_kwargs,
-        )
-
+        self.tokenizer = AutoTokenizer.from_pretrained(self._TOKENIZER_SOURCE)
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
