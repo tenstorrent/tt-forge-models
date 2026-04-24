@@ -32,6 +32,9 @@ from ...config import (
 
 GGUF_REPO = "jayn7/HunyuanVideo-1.5_I2V_720p-GGUF"
 
+# Diffusers-format config repo for HunyuanVideo 1.5 I2V 720p
+DIFFUSERS_CONFIG_REPO = "hunyuanvideo-community/HunyuanVideo-1.5-Diffusers-720p_i2v"
+
 # Small spatial/temporal dimensions for compile-only testing.
 TRANSFORMER_NUM_FRAMES = 4
 TRANSFORMER_HEIGHT = 8
@@ -72,6 +75,159 @@ _GGUF_FILES = {
     ModelVariant.I2V_720P_CFG_DISTILLED_Q6_K: "720p_distilled/hunyuanvideo1.5_720p_i2v_cfg_distilled-Q6_K.gguf",
     ModelVariant.I2V_720P_CFG_DISTILLED_Q8_0: "720p_distilled/hunyuanvideo1.5_720p_i2v_cfg_distilled-Q8_0.gguf",
 }
+
+
+def _convert_hunyuan_video15_transformer_to_diffusers(checkpoint, **kwargs):
+    """Convert HunyuanVideo 1.5 original Tencent format to diffusers format.
+
+    The GGUF files from jayn7/HunyuanVideo-1.5_I2V_720p-GGUF use the original
+    Tencent key naming convention. This function remaps them to the naming used
+    by diffusers' HunyuanVideo15Transformer3DModel.
+    """
+    new_checkpoint = {}
+
+    for key, value in checkpoint.items():
+        # img_in -> x_embedder
+        if key.startswith("img_in."):
+            new_checkpoint[key.replace("img_in.", "x_embedder.", 1)] = value
+
+        # txt_in input embedder -> context_embedder.proj_in
+        elif key.startswith("txt_in.input_embedder."):
+            new_checkpoint[
+                key.replace("txt_in.input_embedder.", "context_embedder.proj_in.", 1)
+            ] = value
+
+        # txt_in time embedder -> context_embedder.time_text_embed.timestep_embedder
+        elif key.startswith("txt_in.t_embedder.mlp.0."):
+            new_checkpoint[
+                key.replace(
+                    "txt_in.t_embedder.mlp.0.",
+                    "context_embedder.time_text_embed.timestep_embedder.linear_1.",
+                    1,
+                )
+            ] = value
+        elif key.startswith("txt_in.t_embedder.mlp.2."):
+            new_checkpoint[
+                key.replace(
+                    "txt_in.t_embedder.mlp.2.",
+                    "context_embedder.time_text_embed.timestep_embedder.linear_2.",
+                    1,
+                )
+            ] = value
+
+        # txt_in text embedder -> context_embedder.time_text_embed.text_embedder
+        elif key.startswith("txt_in.c_embedder.linear_1."):
+            new_checkpoint[
+                key.replace(
+                    "txt_in.c_embedder.linear_1.",
+                    "context_embedder.time_text_embed.text_embedder.linear_1.",
+                    1,
+                )
+            ] = value
+        elif key.startswith("txt_in.c_embedder.linear_2."):
+            new_checkpoint[
+                key.replace(
+                    "txt_in.c_embedder.linear_2.",
+                    "context_embedder.time_text_embed.text_embedder.linear_2.",
+                    1,
+                )
+            ] = value
+
+        # txt_in individual token refiner -> context_embedder.token_refiner.refiner_blocks
+        elif key.startswith("txt_in.individual_token_refiner.blocks."):
+            new_key = key.replace(
+                "txt_in.individual_token_refiner.blocks.",
+                "context_embedder.token_refiner.refiner_blocks.",
+                1,
+            )
+            new_key = new_key.replace(".adaLN_modulation.1.", ".norm_out.linear.")
+            new_key = new_key.replace(".mlp.fc1.", ".ff.net.0.proj.")
+            new_key = new_key.replace(".mlp.fc2.", ".ff.net.2.")
+            new_key = new_key.replace(".self_attn_proj.", ".attn.to_out.0.")
+
+            if ".self_attn_qkv." in new_key:
+                # Split combined qkv into separate q, k, v tensors
+                suffix = new_key.split(".self_attn_qkv.")[-1]  # "weight" or "bias"
+                base = new_key.split(".self_attn_qkv.")[0]
+                q, k, v = value.chunk(3, dim=0)
+                new_checkpoint[f"{base}.attn.to_q.{suffix}"] = q
+                new_checkpoint[f"{base}.attn.to_k.{suffix}"] = k
+                new_checkpoint[f"{base}.attn.to_v.{suffix}"] = v
+            else:
+                new_checkpoint[new_key] = value
+
+        # double_blocks -> transformer_blocks
+        elif key.startswith("double_blocks."):
+            new_key = key.replace("double_blocks.", "transformer_blocks.", 1)
+            new_key = new_key.replace(".img_attn_q.", ".attn.to_q.")
+            new_key = new_key.replace(".img_attn_k.", ".attn.to_k.")
+            new_key = new_key.replace(".img_attn_v.", ".attn.to_v.")
+            new_key = new_key.replace(".img_attn_proj.", ".attn.to_out.0.")
+            new_key = new_key.replace(".img_attn_q_norm.", ".attn.norm_q.")
+            new_key = new_key.replace(".img_attn_k_norm.", ".attn.norm_k.")
+            new_key = new_key.replace(".img_mlp.fc1.", ".ff.net.0.proj.")
+            new_key = new_key.replace(".img_mlp.fc2.", ".ff.net.2.")
+            new_key = new_key.replace(".img_mod.linear.", ".norm1.linear.")
+            new_key = new_key.replace(".txt_attn_q.", ".attn.add_q_proj.")
+            new_key = new_key.replace(".txt_attn_k.", ".attn.add_k_proj.")
+            new_key = new_key.replace(".txt_attn_v.", ".attn.add_v_proj.")
+            new_key = new_key.replace(".txt_attn_proj.", ".attn.to_add_out.")
+            new_key = new_key.replace(".txt_attn_q_norm.", ".attn.norm_added_q.")
+            new_key = new_key.replace(".txt_attn_k_norm.", ".attn.norm_added_k.")
+            new_key = new_key.replace(".txt_mlp.fc1.", ".ff_context.net.0.proj.")
+            new_key = new_key.replace(".txt_mlp.fc2.", ".ff_context.net.2.")
+            new_key = new_key.replace(".txt_mod.linear.", ".norm1_context.linear.")
+            new_checkpoint[new_key] = value
+
+        # time_in -> time_embed.timestep_embedder
+        elif key.startswith("time_in.mlp.0."):
+            new_checkpoint[
+                key.replace(
+                    "time_in.mlp.0.",
+                    "time_embed.timestep_embedder.linear_1.",
+                    1,
+                )
+            ] = value
+        elif key.startswith("time_in.mlp.2."):
+            new_checkpoint[
+                key.replace(
+                    "time_in.mlp.2.",
+                    "time_embed.timestep_embedder.linear_2.",
+                    1,
+                )
+            ] = value
+
+        # final_layer -> norm_out + proj_out
+        elif key.startswith("final_layer.adaLN_modulation.1."):
+            new_checkpoint[
+                key.replace("final_layer.adaLN_modulation.1.", "norm_out.linear.", 1)
+            ] = value
+        elif key.startswith("final_layer.linear."):
+            new_checkpoint[key.replace("final_layer.linear.", "proj_out.", 1)] = value
+
+        # cond_type_embedding -> cond_type_embed
+        elif key == "cond_type_embedding.weight":
+            new_checkpoint["cond_type_embed.weight"] = value
+
+        # byt5_in -> context_embedder_2 (glyph ByteT5 encoder)
+        elif key.startswith("byt5_in."):
+            new_key = key
+            new_key = new_key.replace("byt5_in.fc1.", "context_embedder_2.linear_1.")
+            new_key = new_key.replace("byt5_in.fc2.", "context_embedder_2.linear_2.")
+            new_key = new_key.replace("byt5_in.fc3.", "context_embedder_2.linear_3.")
+            new_key = new_key.replace("byt5_in.layernorm.", "context_embedder_2.norm.")
+            new_checkpoint[new_key] = value
+
+        # vision_in -> image_embedder (image conditioning for I2V)
+        elif key.startswith("vision_in."):
+            new_key = key
+            new_key = new_key.replace("vision_in.proj.0.", "image_embedder.linear_1.")
+            new_key = new_key.replace("vision_in.proj.1.", "image_embedder.norm_in.")
+            new_key = new_key.replace("vision_in.proj.3.", "image_embedder.linear_2.")
+            new_key = new_key.replace("vision_in.proj.4.", "image_embedder.norm_out.")
+            new_checkpoint[new_key] = value
+
+    return new_checkpoint
 
 
 class ModelLoader(ForgeModel):
@@ -118,18 +274,32 @@ class ModelLoader(ForgeModel):
             if importlib.util.find_spec("gguf") is not None:
                 _diffusers_import_utils._gguf_available = True
 
+        import diffusers.loaders.single_file_model as _sfm
         from diffusers import (
             GGUFQuantizationConfig,
             HunyuanVideo15Transformer3DModel,
         )
+        from huggingface_hub import hf_hub_download
+
+        # HunyuanVideo15Transformer3DModel is not in SINGLE_FILE_LOADABLE_CLASSES in
+        # diffusers 0.37.1. Register it with a conversion function that maps the
+        # original Tencent key format to the diffusers naming convention.
+        if "HunyuanVideo15Transformer3DModel" not in _sfm.SINGLE_FILE_LOADABLE_CLASSES:
+            _sfm.SINGLE_FILE_LOADABLE_CLASSES["HunyuanVideo15Transformer3DModel"] = {
+                "checkpoint_mapping_fn": _convert_hunyuan_video15_transformer_to_diffusers,
+                "default_subfolder": "transformer",
+            }
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         gguf_file = _GGUF_FILES[self._variant]
+        gguf_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
+
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         self._transformer = HunyuanVideo15Transformer3DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/resolve/main/{gguf_file}",
+            gguf_path,
+            config=DIFFUSERS_CONFIG_REPO,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
