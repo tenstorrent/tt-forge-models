@@ -25,51 +25,21 @@ from ....config import (
 _TRANSFORMERS_LOAD_GGUF = None
 
 
-def _find_real_load_gguf_checkpoint():
-    """Traverse the patch chain to find the original transformers function.
+def _get_real_load_gguf_checkpoint():
+    """Load a fresh, unpatched load_gguf_checkpoint from the transformers source file.
 
-    Other GGUF loaders monkey-patch load_gguf_checkpoint with wrappers that
-    have fixed signatures (gguf_path, return_tensors=False) and cannot handle
-    the model_to_load kwarg that transformers passes on the second call.
-    The real transformers function has model_to_load in its signature, so we
-    walk the closure chain until we find a function that accepts it.
+    Other GGUF loaders monkey-patch transformers.modeling_gguf_pytorch_utils.load_gguf_checkpoint
+    with wrappers that have fixed signatures (gguf_path, return_tensors=False) stored as
+    module-level globals rather than closures, making closure traversal impossible.
+    Loading a fresh copy from source bypasses all patches while still seeing our
+    GGUF_CONFIG_MAPPING modifications (shared dict via sys.modules).
     """
-    import inspect
-    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    import importlib.util
 
-    fn = gguf_utils.load_gguf_checkpoint
-    seen: set = set()
-
-    while fn is not None:
-        fn_id = id(fn)
-        if fn_id in seen:
-            break
-        seen.add(fn_id)
-
-        try:
-            sig = inspect.signature(fn)
-            if "model_to_load" in sig.parameters:
-                return fn
-        except (ValueError, TypeError):
-            pass
-
-        closure = getattr(fn, "__closure__", None)
-        if not closure:
-            break
-
-        next_fn = None
-        for cell in closure:
-            try:
-                val = cell.cell_contents
-                if callable(val) and id(val) not in seen:
-                    next_fn = val
-                    break
-            except ValueError:
-                pass
-
-        fn = next_fn
-
-    return gguf_utils.load_gguf_checkpoint
+    spec = importlib.util.find_spec("transformers.modeling_gguf_pytorch_utils")
+    fresh_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fresh_module)
+    return fresh_module.load_gguf_checkpoint
 
 
 def _register_qwen2vl_gguf_architecture():
@@ -105,10 +75,9 @@ def _register_qwen2vl_gguf_architecture():
     if "qwen2vl" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["qwen2vl"] = GGUFQwen2Converter
 
-    # Save real transformers function now, before other loaders patch it further.
-    # We use it later to bypass broken intermediate patch chains.
+    # Load the real transformers function from source, bypassing all monkey-patches.
     if _TRANSFORMERS_LOAD_GGUF is None:
-        _TRANSFORMERS_LOAD_GGUF = _find_real_load_gguf_checkpoint()
+        _TRANSFORMERS_LOAD_GGUF = _get_real_load_gguf_checkpoint()
 
 
 _register_qwen2vl_gguf_architecture()
@@ -126,7 +95,7 @@ def _apply_qwen2vl_load_patch():
     import transformers.configuration_utils as config_utils
     import transformers.modeling_utils as modeling_utils
 
-    real_fn = _TRANSFORMERS_LOAD_GGUF or _find_real_load_gguf_checkpoint()
+    real_fn = _TRANSFORMERS_LOAD_GGUF or _get_real_load_gguf_checkpoint()
 
     def _qwen2vl_patched(*args, **kwargs):
         result = real_fn(*args, **kwargs)
