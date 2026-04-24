@@ -7,11 +7,13 @@ Falcon H1R 7B GGUF model loader implementation for causal language modeling.
 import importlib.metadata
 from typing import Optional
 
+import numpy as np
 import torch
 import transformers.integrations.ggml as _tx_ggml
 import transformers.modeling_gguf_pytorch_utils as _tx_gguf_utils
 import transformers.utils.import_utils as _tx_import_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.modeling_gguf_pytorch_utils import GGUFTensor, TensorProcessor
 
 _tx_import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
     importlib.metadata.packages_distributions()
@@ -29,6 +31,7 @@ if "falcon-h1" not in _tx_gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]:
         "vocab_size": "vocab_size",
         "attention.head_count_kv": "num_key_value_heads",
         "rope.freq_base": "rope_theta",
+        "attention.key_length": "head_dim",
         "ssm.conv_kernel": "mamba_d_conv",
         "ssm.inner_size": "mamba_d_ssm",
         "ssm.state_size": "mamba_d_state",
@@ -36,6 +39,28 @@ if "falcon-h1" not in _tx_gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]:
         "ssm.group_count": "mamba_n_groups",
     }
     _tx_gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("falcon-h1")
+
+
+class _FalconH1TensorProcessor(TensorProcessor):
+    """Fix GGUF tensor shapes to match FalconH1 model expectations.
+
+    GGUF stores mamba.A_log and mamba.D as [n_heads, 1] but the model expects
+    [n_heads].  GGUF stores mamba.conv1d.weight as [channels, kernel] (2-D) but
+    nn.Conv1d expects [channels, 1, kernel] (3-D).
+    """
+
+    def process(self, weights, name, **kwargs):
+        if ".mamba.A_log" in name or ".mamba.D" in name:
+            if weights.ndim == 2 and weights.shape[-1] == 1:
+                weights = weights.squeeze(-1)
+        elif ".mamba.conv1d.weight" in name:
+            if weights.ndim == 2:
+                weights = np.expand_dims(weights, axis=1)
+        return GGUFTensor(weights, name, {})
+
+
+if "falcon-h1" not in _tx_gguf_utils.TENSOR_PROCESSORS:
+    _tx_gguf_utils.TENSOR_PROCESSORS["falcon-h1"] = _FalconH1TensorProcessor
 
 # Register falcon_h1 tokenizer converter (Qwen3.5-derived, uses ChatML/QwenConverter).
 if "falcon_h1" not in _tx_ggml.GGUF_TO_FAST_CONVERTERS:
