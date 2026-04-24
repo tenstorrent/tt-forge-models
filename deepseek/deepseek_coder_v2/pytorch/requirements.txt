@@ -1,1 +1,1 @@
-gptqmodel
+gptqmodel==4.2.5
