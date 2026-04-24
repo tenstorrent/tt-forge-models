@@ -101,14 +101,12 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
+        # GGUF files only contain the language model weights; the visual encoder
+        # is absent, so we use a text-only prompt to avoid visual encode errors.
         messages = [
             {
                 "role": "user",
                 "content": [
-                    {
-                        "type": "image",
-                        "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
-                    },
                     {"type": "text", "text": "Describe this image."},
                 ],
             }
