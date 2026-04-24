@@ -7,6 +7,7 @@ AMead10 Llama 3.2 3B Instruct AWQ model loader implementation for causal languag
 
 from typing import Optional
 
+import gptqmodel  # noqa: F401 - must be imported before transformers loads the AWQ quantizer in a meta-device context
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
