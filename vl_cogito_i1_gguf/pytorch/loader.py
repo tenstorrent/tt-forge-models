@@ -4,9 +4,34 @@
 """
 mradermacher/VL-Cogito-i1-GGUF model loader for vision-language tasks.
 """
+import importlib.metadata
+import importlib.util
+
 import torch
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
 from typing import Optional
+
+
+def _fix_gguf_version_detection():
+    """Update transformers' cached package map so gguf version resolves correctly.
+
+    transformers.utils.import_utils builds PACKAGE_DISTRIBUTION_MAPPING once at
+    import time.  When gguf is installed later (e.g. by RequirementsManager),
+    the map is stale and version lookup falls back to gguf.__version__, which
+    doesn't exist, returning 'N/A' and crashing version.parse().
+    """
+    if importlib.util.find_spec("gguf") is None:
+        return
+    try:
+        import transformers.utils.import_utils as _iu
+
+        if "gguf" not in _iu.PACKAGE_DISTRIBUTION_MAPPING:
+            _iu.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+    except Exception:
+        pass
+
+
+_fix_gguf_version_detection()
 
 from ...base import ForgeModel
 from ...config import (
