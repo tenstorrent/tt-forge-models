@@ -9,6 +9,8 @@ Repository:
 """
 import torch
 from diffusers import QwenImageTransformer2DModel
+from diffusers.quantizers.gguf.utils import _dequantize_gguf_and_restore_linear
+from diffusers.quantizers.quantization_config import GGUFQuantizationConfig
 from huggingface_hub import hf_hub_download
 from typing import Optional
 
@@ -73,21 +75,17 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         gguf_file = self._GGUF_FILES[self._variant]
-
-        load_kwargs = {}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
+        compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         gguf_path = hf_hub_download(repo_id=PRETRAINED_MODEL_NAME, filename=gguf_file)
         self.transformer = QwenImageTransformer2DModel.from_single_file(
             gguf_path,
             config=CONFIG_MODEL_NAME,
             subfolder="transformer",
-            **load_kwargs,
+            quantization_config=GGUFQuantizationConfig(compute_dtype=compute_dtype),
         )
-
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
+        _dequantize_gguf_and_restore_linear(self.transformer)
+        self.transformer = self.transformer.to(compute_dtype)
 
         return self.transformer
 
