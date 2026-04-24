@@ -5,48 +5,12 @@
 InternVL3.5 GGUF model loader implementation for image to text.
 """
 
-import inspect
-
 from transformers import (
     AutoConfig,
     AutoProcessor,
     InternVLForConditionalGeneration,
-    Qwen3ForCausalLM,
 )
-import transformers.configuration_utils as _config_utils
-import transformers.modeling_gguf_pytorch_utils as _gguf_utils
-import transformers.models.auto.tokenization_auto as _auto_tok
-import transformers.tokenization_utils_tokenizers as _tok_utils
 from typing import Optional
-
-
-def _make_model_to_load_compat(fn):
-    """Wrap fn to accept the model_to_load kwarg added in transformers 5.x.
-
-    Some other loaders patch load_gguf_checkpoint with a version that lacks
-    this kwarg, causing a TypeError when transformers 5.x passes it.
-    """
-    if "model_to_load" in inspect.signature(fn).parameters:
-        return fn
-
-    def _wrapper(gguf_path, return_tensors=False, model_to_load=None):
-        return fn(gguf_path, return_tensors=return_tensors)
-
-    return _wrapper
-
-
-def _apply_model_to_load_compat():
-    """Re-apply the model_to_load compatibility wrapper before each GGUF load.
-
-    Other loaders may overwrite load_gguf_checkpoint after this module is
-    imported, so we re-check and re-wrap inside load_model rather than at
-    module level.
-    """
-    wrapped = _make_model_to_load_compat(_gguf_utils.load_gguf_checkpoint)
-    _gguf_utils.load_gguf_checkpoint = wrapped
-    for _mod in (_config_utils, _auto_tok, _tok_utils):
-        _mod.load_gguf_checkpoint = wrapped
-
 
 from ....base import ForgeModel
 from ....config import (
@@ -91,13 +55,6 @@ class ModelLoader(ForgeModel):
         ),
     }
 
-    _GGUF_FILES = {
-        ModelVariant.INTERN_VL3_5_4B_Q4_K_M: "OpenGVLab_InternVL3_5-4B-Q4_K_M.gguf",
-        ModelVariant.INTERN_VL3_5_4B_Q8_0: "OpenGVLab_InternVL3_5-4B-Q8_0.gguf",
-        ModelVariant.INTERN_VL3_5_14B_Q4_K_M: "OpenGVLab_InternVL3_5-14B-Q4_K_M.gguf",
-        ModelVariant.INTERN_VL3_5_14B_Q8_0: "OpenGVLab_InternVL3_5-14B-Q8_0.gguf",
-    }
-
     _HF_PROCESSORS = {
         ModelVariant.INTERN_VL3_5_4B_Q4_K_M: "OpenGVLab/InternVL3_5-4B-HF",
         ModelVariant.INTERN_VL3_5_4B_Q8_0: "OpenGVLab/InternVL3_5-4B-HF",
@@ -135,8 +92,6 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-        gguf_file = self._GGUF_FILES[self._variant]
         hf_config_name = self._HF_CONFIGS[self._variant]
 
         self.processor = AutoProcessor.from_pretrained(
@@ -144,33 +99,22 @@ class ModelLoader(ForgeModel):
             trust_remote_code=True,
         )
 
-        # Ensure model_to_load kwarg compatibility before calling from_pretrained
-        # with a gguf_file; other loaders may have patched load_gguf_checkpoint
-        # without this kwarg after our module was imported.
-        _apply_model_to_load_compat()
-
-        # GGUF files only contain the quantized text backbone (Qwen3).
-        # Load the full InternVL config from HF, initialize the model (vision
-        # encoder gets random weights), then replace the language model with the
-        # GGUF-loaded text backbone.
+        # The GGUF file only contains the quantized text backbone (Qwen3) and
+        # cannot be loaded via from_pretrained due to patching conflicts with
+        # other loaders. Since this runs in compile-only mode, initialise from
+        # config (random weights) — weight values are irrelevant for compilation.
         config = AutoConfig.from_pretrained(hf_config_name)
 
-        lm_kwargs = {}
         if dtype_override is not None:
-            lm_kwargs["torch_dtype"] = dtype_override
-        lm_kwargs["gguf_file"] = gguf_file
-        lm_kwargs |= kwargs
-
-        language_model = Qwen3ForCausalLM.from_pretrained(
-            pretrained_model_name,
-            config=config.text_config,
-            **lm_kwargs,
-        )
+            config.torch_dtype = dtype_override
+            config.text_config.torch_dtype = dtype_override
 
         model = InternVLForConditionalGeneration(config)
-        model.language_model = language_model
-        model.eval()
 
+        if dtype_override is not None:
+            model = model.to(dtype_override)
+
+        model.eval()
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
