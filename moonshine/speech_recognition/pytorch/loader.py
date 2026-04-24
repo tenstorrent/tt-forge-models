@@ -91,6 +91,8 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None):
+        from transformers import AutoConfig
+
         if self._processor is None:
             self._load_processor()
 
@@ -105,6 +107,11 @@ class ModelLoader(ForgeModel):
             audio_array,
             sampling_rate=sampling_rate,
             return_tensors="pt",
+        )
+
+        config = AutoConfig.from_pretrained(self._variant_config.pretrained_model_name)
+        inputs["decoder_input_ids"] = torch.full(
+            (1, 1), config.decoder_start_token_id, dtype=torch.long
         )
 
         if dtype_override is not None:
