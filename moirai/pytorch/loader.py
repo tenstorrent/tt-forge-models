@@ -97,7 +97,8 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: MoiraiForecast instance.
         """
-        from uni2ts.model.moirai import MoiraiForecast, MoiraiModule
+        from uni2ts.model.moirai.module import MoiraiModule
+        from uni2ts.model.moirai.forecast import MoiraiForecast
 
         cfg = self._variant_config
 

@@ -1,0 +1,2 @@
+# uni2ts and its transitive deps are installed without dependencies in requirements.nodeps.txt
+# to avoid version conflicts with torch/jax/numpy in the test environment.
