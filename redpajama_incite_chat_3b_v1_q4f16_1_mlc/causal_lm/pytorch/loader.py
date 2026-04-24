@@ -32,7 +32,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.REDPAJAMA_INCITE_CHAT_3B_V1_Q4F16_1_MLC: LLMModelConfig(
-            pretrained_model_name="mlc-ai/RedPajama-INCITE-Chat-3B-v1-q4f16_1-MLC",
+            pretrained_model_name="togethercomputer/RedPajama-INCITE-Chat-3B-v1",
             max_length=128,
         ),
     }
@@ -60,12 +60,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
