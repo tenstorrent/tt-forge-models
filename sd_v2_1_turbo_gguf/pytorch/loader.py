@@ -113,6 +113,8 @@ class ModelLoader(ForgeModel):
         gguf_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
         unet = UNet2DConditionModel.from_single_file(
             gguf_path,
+            config=BASE_PIPELINE,
+            subfolder="unet",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
