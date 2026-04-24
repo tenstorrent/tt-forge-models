@@ -7,6 +7,7 @@ StableDiffusionVN/Flux GGUF model loader implementation for text-to-image genera
 The StableDiffusionVN/Flux HuggingFace repository hosts Q4_K_S GGUF quantizations of
 both FLUX.1-dev and FLUX.1-schnell transformers under its Unet/ subdirectory.
 """
+import os
 import torch
 from diffusers import GGUFQuantizationConfig
 from diffusers.models import FluxTransformer2DModel
@@ -22,6 +23,8 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+_DIR = os.path.dirname(__file__)
 
 REPO_ID = "StableDiffusionVN/Flux"
 
@@ -52,6 +55,11 @@ class ModelLoader(ForgeModel):
         ModelVariant.SCHNELL_Q4_K_S: "Unet/flux1-schnell-Q4_K_S.gguf",
     }
 
+    _CONFIG_DIRS = {
+        ModelVariant.DEV_Q4_K_S: os.path.join(_DIR, "dev_config"),
+        ModelVariant.SCHNELL_Q4_K_S: os.path.join(_DIR, "schnell_config"),
+    }
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.transformer = None
@@ -79,9 +87,11 @@ class ModelLoader(ForgeModel):
 
         repo_id = self._variant_config.pretrained_model_name
         gguf_file = self._GGUF_FILES[self._variant]
+        config_dir = self._CONFIG_DIRS[self._variant]
         gguf_path = hf_hub_download(repo_id=repo_id, filename=gguf_file)
         self.transformer = FluxTransformer2DModel.from_single_file(
             gguf_path,
+            config=config_dir,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
