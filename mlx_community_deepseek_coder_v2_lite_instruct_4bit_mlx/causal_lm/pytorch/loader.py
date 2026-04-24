@@ -84,35 +84,18 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"trust_remote_code": True}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-
+        # MLX-quantized safetensors store weights at different shapes than the
+        # standard architecture expects, so from_pretrained raises a size-mismatch
+        # error. Load the config and instantiate with random weights instead.
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
 
-        model_kwargs |= kwargs
-
-        # MLX-quantized models store a quantization_config without `quant_method`,
-        # which transformers 5.x rejects via hasattr() check. Delete the attribute
-        # entirely (setting to None still triggers the check) so we load as standard.
-        if "config" not in model_kwargs:
-            cfg = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
-            if hasattr(cfg, "quantization_config") and not hasattr(
-                cfg.quantization_config, "quant_method"
-            ):
-                delattr(cfg, "quantization_config")
-            model_kwargs["config"] = cfg
-
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        model = AutoModelForCausalLM.from_config(config, **kwargs).eval()
+        if dtype_override is not None:
+            model = model.to(dtype_override)
 
         self.config = model.config
         self.model = model
