@@ -18,20 +18,6 @@ from transformers import (
 from typing import Optional
 
 from ....base import ForgeModel
-
-# Other GGUF loaders patch load_gguf_checkpoint without a model_to_load parameter.
-# Loading a multimodal config triggers the model_to_load code path, so we wrap
-# the current (possibly-patched) function to accept and ignore model_to_load.
-_prev_load_gguf = _gguf_utils.load_gguf_checkpoint
-
-
-def _load_gguf_accept_model(
-    gguf_path, return_tensors=False, model_to_load=None, **kwargs
-):
-    return _prev_load_gguf(gguf_path, return_tensors=return_tensors)
-
-
-_gguf_utils.load_gguf_checkpoint = _load_gguf_accept_model
 from ....config import (
     ModelConfig,
     ModelInfo,
@@ -135,9 +121,25 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForImageTextToText.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        # Patch load_gguf_checkpoint right before calling from_pretrained so
+        # that subsequent GGUF loader patches (which drop model_to_load) don't
+        # interfere.  The multimodal config triggers the model_to_load path
+        # in from_pretrained; we accept and ignore it since weight-name
+        # mapping mismatches are acceptable in compile-only mode.
+        _current_load_gguf = _gguf_utils.load_gguf_checkpoint
+
+        def _accept_model_to_load(
+            gguf_path, return_tensors=False, model_to_load=None, **kw
+        ):
+            return _current_load_gguf(gguf_path, return_tensors=return_tensors)
+
+        _gguf_utils.load_gguf_checkpoint = _accept_model_to_load
+        try:
+            model = AutoModelForImageTextToText.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _gguf_utils.load_gguf_checkpoint = _current_load_gguf
 
         self.config = model.config
         return model
