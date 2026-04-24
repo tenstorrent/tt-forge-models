@@ -18,7 +18,15 @@ from transformers import (
     Qwen2_5_VLForConditionalGeneration,
     AutoProcessor,
 )
+from transformers.models.qwen2_5_vl.configuration_qwen2_5_vl import Qwen2_5_VLConfig
 from typing import Optional
+
+# Qwen2_5_VLConfig nests num_hidden_layers under text_config; expose it at
+# the top level so get_gguf_hf_weights_map can find it during GGUF weight mapping.
+if not hasattr(Qwen2_5_VLConfig, "num_hidden_layers"):
+    Qwen2_5_VLConfig.num_hidden_layers = property(
+        lambda self: self.text_config.num_hidden_layers
+    )
 
 _QWEN2VL_CONFIG_MAPPING = {
     "context_length": "max_position_embeddings",
