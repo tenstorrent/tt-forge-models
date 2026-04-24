@@ -5,7 +5,7 @@
 MercuriusDream Huihui Qwen3.5-35B-A3B Abliterated MLX 2bit low model loader implementation for causal language modeling.
 """
 
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -107,8 +107,22 @@ class ModelLoader(ForgeModel):
         model_kwargs["ignore_mismatched_sizes"] = True
         model_kwargs |= kwargs
 
+        # Load config and extract text_config if this is a VLM wrapper (has text_config
+        # nested inside, as in Qwen3.5-MoE conditional generation models). Also strip
+        # MLX-format quantization_config which lacks the quant_method key required by
+        # transformers and would cause a ValueError during loading.
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        if hasattr(config, "text_config"):
+            config = config.text_config
+        if (
+            hasattr(config, "quantization_config")
+            and isinstance(config.quantization_config, dict)
+            and "quant_method" not in config.quantization_config
+        ):
+            del config.quantization_config
+
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, config=config, **model_kwargs
         )
         model.eval()
 
