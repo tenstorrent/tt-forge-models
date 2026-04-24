@@ -70,8 +70,12 @@ def _patch_transformers_glm4moe_gguf():
         GGUFQwen2Converter,
     )
 
+    # Register under both the raw GGUF architecture name and the transformers model_type,
+    # because tokenization_utils_tokenizers.py uses config["model_type"] for the lookup.
     if "glm4moe" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["glm4moe"] = GGUFQwen2Converter
+    if "glm4_moe" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["glm4_moe"] = GGUFQwen2Converter
 
     orig_load = gguf_utils.load_gguf_checkpoint
 
