@@ -74,6 +74,12 @@ def _patch_transformers_qwen2vl_gguf():
         config = result.get("config", {})
         if config.get("model_type") == "qwen2vl":
             config["model_type"] = "qwen2_5_vl"
+        # GGUF metadata omits rope_scaling/mrope_section; inject defaults for qwen2vl.
+        # mrope_section=[16,24,24] is the standard value for Qwen2.5-VL-7B architecture
+        # (from GGUF field qwen2vl.rope.dimension_sections = [16, 24, 24, 0]).
+        rope_scaling = config.setdefault("rope_scaling", {})
+        rope_scaling.setdefault("type", "mrope")
+        rope_scaling.setdefault("mrope_section", [16, 24, 24])
         return result
 
     gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
