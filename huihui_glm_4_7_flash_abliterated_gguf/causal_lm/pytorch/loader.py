@@ -188,6 +188,9 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
+        # GLM-4.7-Flash MoE architecture differs from DeepseekV2 in q_b_proj
+        # and expert tensor layouts; ignore shape mismatches for compile-only.
+        model_kwargs.setdefault("ignore_mismatched_sizes", True)
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
