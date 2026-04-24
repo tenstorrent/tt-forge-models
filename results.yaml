@@ -19,3 +19,7 @@ results:
   status: "PASS"
   date: "20260424_030949"
   branch: "ip-172-31-30-236-tt-xla-dev/ubuntu/2026-04-23_15-56/hf-bringup-24"
+- test_name: "<frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute"
+  status: "MAX_FAILED_ATTEMPTS"
+  date: "20260424_032849"
+  branch: "ip-172-31-30-236-tt-xla-dev/ubuntu/2026-04-23_15-56/hf-bringup-24"
