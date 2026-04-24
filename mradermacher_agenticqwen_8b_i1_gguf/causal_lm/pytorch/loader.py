@@ -4,9 +4,32 @@
 """
 mradermacher AgenticQwen-8B i1 GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from typing import Optional
+
+
+def _fresh_is_gguf_available(min_version: str = "0.10.0") -> bool:
+    """Re-check gguf availability using live metadata.
+
+    transformers.utils.import_utils.PACKAGE_DISTRIBUTION_MAPPING is computed
+    once at import time.  When gguf is installed after transformers is first
+    imported (e.g. via RequirementsManager), that mapping is stale and
+    is_gguf_available() raises InvalidVersion('N/A').  This wrapper bypasses
+    the stale mapping by querying importlib.metadata directly.
+    """
+    try:
+        from packaging import version
+
+        v = importlib.metadata.version("gguf")
+        return version.parse(v) >= version.parse(min_version)
+    except Exception:
+        return False
+
+
+_gguf_utils.is_gguf_available = _fresh_is_gguf_available
 
 from ....base import ForgeModel
 from ....config import (
