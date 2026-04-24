@@ -39,7 +39,7 @@ def _patch_qwen3vl_support():
         GGUF_TO_FAST_CONVERTERS.setdefault("qwen3vl", GGUF_TO_FAST_CONVERTERS["qwen3"])
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+def _patched_load_gguf_checkpoint(*args, **kwargs):
     """Wrap load_gguf_checkpoint to add qwen3vl support and fix model_type.
 
     Also fixes a single-element array scalar collapse issue: when the GGUF
@@ -49,7 +49,7 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
     merges is always a list.
     """
     _patch_qwen3vl_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
     if result.get("config", {}).get("model_type") == "qwen3vl":
         result["config"]["model_type"] = "qwen3"
     tokenizer = result.get("tokenizer", {})
