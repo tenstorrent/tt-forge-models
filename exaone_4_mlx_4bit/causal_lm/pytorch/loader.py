@@ -4,7 +4,9 @@
 """
 EXAONE 4.0 MLX 4-bit model loader implementation for causal language modeling.
 """
+import json
 import torch
+from huggingface_hub import hf_hub_download
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -84,7 +86,9 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, **self._get_layer_types_fix()
+            )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
@@ -141,8 +145,31 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
         return shard_specs
 
+    def _get_layer_types_fix(self):
+        """Compute layer_types from string sliding_window_pattern to work around transformers bug."""
+        config_path = hf_hub_download(
+            self._variant_config.pretrained_model_name, "config.json"
+        )
+        with open(config_path) as f:
+            config_data = json.load(f)
+        pattern = config_data.get("sliding_window_pattern")
+        if not isinstance(pattern, str):
+            return {}
+        num_layers = config_data.get("num_hidden_layers", 32)
+        layer_types = []
+        for i in range(num_layers):
+            if i == num_layers - 1:
+                layer_types.append("full_attention")
+            else:
+                char = pattern[i % len(pattern)]
+                layer_types.append(
+                    "sliding_attention" if char == "L" else "full_attention"
+                )
+        return {"layer_types": layer_types}
+
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name,
+            **self._get_layer_types_fix(),
         )
         return self.config
