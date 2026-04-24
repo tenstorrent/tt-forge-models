@@ -179,3 +179,7 @@ results:
   status: "PASS"
   date: "20260424_180446"
   branch: "arch-c-36-tt-xla-dev/nsmith/2026-04-22_16-58/hf-bringup-8"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[qwen_3_coder_next_ream_awq_4bit/causal_lm/pytorch-Next_REAM_AWQ_4bit-single_device-inference]"
+  status: "PASS"
+  date: "20260424_193428"
+  branch: "arch-c-36-tt-xla-dev/nsmith/2026-04-22_16-58/hf-bringup-8"
