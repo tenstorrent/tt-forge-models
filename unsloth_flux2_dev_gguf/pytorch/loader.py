@@ -9,6 +9,7 @@ unsloth/FLUX.2-dev-GGUF. The GGUF transformer is loaded via diffusers'
 Flux2Transformer2DModel.from_single_file.
 """
 
+import os
 from typing import Optional
 
 import torch
@@ -88,15 +89,24 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The FLUX.2-dev transformer model instance.
         """
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        gguf_file = _GGUF_FILES[self._variant]
-        model_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
-        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
-        self.transformer = Flux2Transformer2DModel.from_single_file(
-            model_path,
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            orig_dtype = torch.get_default_dtype()
+            torch.set_default_dtype(compute_dtype)
+            try:
+                self.transformer = Flux2Transformer2DModel()
+            finally:
+                torch.set_default_dtype(orig_dtype)
+            self.transformer.eval()
+        else:
+            gguf_file = _GGUF_FILES[self._variant]
+            model_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
+            quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+            self.transformer = Flux2Transformer2DModel.from_single_file(
+                model_path,
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
+            )
 
         return self.transformer
 
