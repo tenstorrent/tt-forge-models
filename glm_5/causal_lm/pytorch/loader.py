@@ -99,12 +99,14 @@ class ModelLoader(ForgeModel):
         if self._variant in self._NVFP4_VARIANTS:
             model_kwargs["ignore_mismatched_sizes"] = True
         if self._variant == ModelVariant.GLM_5_4BIT_MLX:
-            # MLX-quantized models have a non-standard quantization_config
-            # without quant_method; strip it so transformers can load the model.
+            # MLX-quantized models have a non-standard quantization_config without
+            # quant_method. Delete the attribute so transformers treats it as
+            # unquantized (hasattr-based check in transformers/quantizers/auto.py).
             mlx_config = AutoConfig.from_pretrained(
                 pretrained_model_name, trust_remote_code=True
             )
-            mlx_config.quantization_config = None
+            if hasattr(mlx_config, "quantization_config"):
+                delattr(mlx_config, "quantization_config")
             model_kwargs["config"] = mlx_config
             model_kwargs["ignore_mismatched_sizes"] = True
         model_kwargs |= kwargs
