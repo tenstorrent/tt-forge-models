@@ -29,7 +29,7 @@ from ...config import (
     StrEnum,
 )
 
-BASE_MODEL = "black-forest-labs/FLUX.1-dev"
+BASE_MODEL = "camenduru/FLUX.1-dev-diffusers"
 LORA_REPO = "nerijs/flux_prettyshot_v1"
 LORA_WEIGHT_NAME = "flux_prettyshot_v1.safetensors"
 
