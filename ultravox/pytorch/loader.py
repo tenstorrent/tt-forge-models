@@ -238,10 +238,14 @@ class ModelLoader(ForgeModel):
         if not hasattr(transformers.modeling_utils, "_init_weights"):
             transformers.modeling_utils._init_weights = True
 
+        # low_cpu_mem_usage=False avoids the meta-device context that transformers
+        # uses when torch_dtype is set; nested from_pretrained calls (e.g. the
+        # audio tower) fail inside that context.
         model = transformers.AutoModel.from_pretrained(
             pretrained_model_name,
             config=config,
             trust_remote_code=True,
+            low_cpu_mem_usage=False,
             **model_kwargs,
         )
         model.eval()
