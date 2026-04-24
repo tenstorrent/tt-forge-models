@@ -90,6 +90,7 @@ class ModelLoader(ForgeModel):
         )
 
         self.pipeline.load_lora_weights(LORA_REPO)
+        self.pipeline.fuse_lora()
 
         return self.pipeline.unet
 
