@@ -259,24 +259,22 @@ class ModelLoader(ForgeModel):
         # into sys.modules — find UltravoxModel there and wrap tie_weights.
         # transformers>=5.x added recompute_mapping and missing_keys kwargs to
         # tie_weights(); the custom hausa-ultravox model overrides tie_weights()
-        # without **kwargs. Derive the model module from the config class's
-        # __module__ and force-import it so we can patch tie_weights before
+        # without **kwargs. Use get_class_from_dynamic_module to load
+        # UltravoxModel from patched_dir and patch tie_weights before
         # from_pretrained runs.
-        import importlib
+        from transformers.dynamic_module_utils import get_class_from_dynamic_module
 
-        _config_module_name = type(config).__module__
-        if "transformers_modules" in _config_module_name:
-            _model_module_name = _config_module_name.replace(
-                "ultravox_config", "ultravox_model"
-            )
-            _ultravox_module = importlib.import_module(_model_module_name)
-            _UltravoxModel = _ultravox_module.UltravoxModel
-            _orig_tie_weights = _UltravoxModel.tie_weights
+        _UltravoxModel = get_class_from_dynamic_module(
+            "ultravox_model.UltravoxModel",
+            patched_dir,
+            local_files_only=True,
+        )
+        _orig_tie_weights = _UltravoxModel.tie_weights
 
-            def _patched_tie_weights(self_model, **kwargs):
-                return _orig_tie_weights(self_model)
+        def _patched_tie_weights(self_model, **kwargs):
+            return _orig_tie_weights(self_model)
 
-            _UltravoxModel.tie_weights = _patched_tie_weights
+        _UltravoxModel.tie_weights = _patched_tie_weights
 
         model = transformers.AutoModel.from_pretrained(
             pretrained_model_name,
