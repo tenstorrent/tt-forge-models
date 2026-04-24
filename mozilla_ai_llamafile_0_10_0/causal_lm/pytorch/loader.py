@@ -159,6 +159,9 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = gguf_name
+        # Some alternating global-attention layers have different head dims in the
+        # GGUF than what the auto-derived config expects; reuse the model config shape.
+        model_kwargs["ignore_mismatched_sizes"] = True
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(local_dir, gguf_file=gguf_name)
