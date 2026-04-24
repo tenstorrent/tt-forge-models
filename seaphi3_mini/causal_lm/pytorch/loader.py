@@ -7,6 +7,7 @@ SeaPhi3-mini causal language model loader implementation.
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.configuration_utils import PretrainedConfig as HFPretrainedConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -57,6 +58,23 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _load_patched_config(self):
+        # transformers 5.x requires original_max_position_embeddings for longrope
+        # (old-style "type": "su" maps to longrope). Inject missing key before validation.
+        config_dict, _ = HFPretrainedConfig.get_config_dict(
+            self._variant_config.pretrained_model_name
+        )
+        rope_scaling = config_dict.get("rope_scaling", {})
+        rope_type = rope_scaling.get("rope_type") or rope_scaling.get("type")
+        if (
+            rope_type in ("longrope", "su")
+            and "original_max_position_embeddings" not in rope_scaling
+        ):
+            rope_scaling["original_max_position_embeddings"] = 4096
+            config_dict["rope_scaling"] = rope_scaling
+        model_type = config_dict.pop("model_type")
+        return AutoConfig.for_model(model_type, **config_dict)
+
     def _load_tokenizer(self, dtype_override=None):
         tokenizer_kwargs = {}
         if dtype_override is not None:
@@ -81,10 +99,10 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        config = self._load_patched_config()
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -141,7 +159,5 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+        self.config = self._load_patched_config()
         return self.config
