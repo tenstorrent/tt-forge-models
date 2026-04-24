@@ -7,6 +7,7 @@ mradermacher/SpaceThinker-Qwen2.5VL-3B-GGUF model loader implementation for imag
 
 from transformers import (
     Qwen2_5_VLForConditionalGeneration,
+    AutoConfig,
     AutoProcessor,
 )
 from typing import Optional
@@ -91,6 +92,11 @@ class ModelLoader(ForgeModel):
         self.processor = AutoProcessor.from_pretrained(
             "Qwen/Qwen2.5-VL-3B-Instruct",
         )
+
+        # The GGUF repo has no config.json and transformers doesn't support
+        # the qwen2vl GGUF architecture tag, so load config from the base model.
+        config = AutoConfig.from_pretrained("Qwen/Qwen2.5-VL-3B-Instruct")
+        model_kwargs["config"] = config
 
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
