@@ -42,7 +42,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.CONTROLNET_MEDIAPIPE_FACE
 
     prompt = "a happy family at a dentist advertisement, high quality"
-    base_model = "stabilityai/stable-diffusion-2-1-base"
+    base_model = "Manojb/stable-diffusion-2-1-base"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
