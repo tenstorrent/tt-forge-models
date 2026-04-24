@@ -9,6 +9,7 @@ image to text.
 from transformers import (
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
+    AutoConfig,
 )
 from typing import Optional
 
@@ -44,6 +45,9 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "Qwen3-VL-8B-Thinking-heretic.i1-Q4_K_M.gguf"
 
+    # Base model for config and processor (GGUF repo has no config.json or processor files)
+    BASE_MODEL = "Qwen/Qwen3-VL-8B-Thinking"
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.processor = None
@@ -63,18 +67,25 @@ class ModelLoader(ForgeModel):
 
     @staticmethod
     def _apply_gguf_compat_patches():
-        """Patch is_gguf_available and load_gguf_checkpoint for transformers 5.2+.
+        """Patch transformers GGUF utilities to support qwen3vl architecture.
 
-        transformers 5.2 calls version.parse(gguf_version) which raises
-        InvalidVersion when gguf is installed at runtime and its metadata is not
-        yet visible to importlib.metadata (stale cache). Wrap the function to
-        fall back to a find_spec check on failure."""
-        import inspect
+        transformers 5.2 does not include qwen3vl in its GGUF architecture
+        registry, but the gguf-py package (>=0.10.0) already has full tensor
+        name mappings for it. This patch:
+          1. Registers qwen3vl in GGUF_TO_TRANSFORMERS_MAPPING so the
+             architecture check in load_gguf_checkpoint passes.
+          2. Wraps get_gguf_hf_weights_map to translate the HF model_type
+             "qwen3_vl" → "qwen3vl" (the gguf-py arch name) and to fix
+             num_layers for VL models whose top-level config nests the layer
+             count under text_config.
+          3. Wraps is_gguf_available to handle InvalidVersion when gguf is
+             installed at runtime and importlib.metadata cache is stale."""
         import importlib.util
 
         import transformers.modeling_gguf_pytorch_utils as _gguf_mod
         import transformers.utils.import_utils as _import_utils
 
+        # --- patch 1: safe is_gguf_available ---
         _orig_is_gguf_available = _import_utils.is_gguf_available
 
         def _safe_is_gguf_available(min_version=None):
@@ -88,33 +99,39 @@ class ModelLoader(ForgeModel):
         _import_utils.is_gguf_available = _safe_is_gguf_available
         _gguf_mod.is_gguf_available = _safe_is_gguf_available
 
-        chain_top = _gguf_mod.load_gguf_checkpoint
-        try:
-            needs_compat = (
-                "model_to_load" not in inspect.signature(chain_top).parameters
+        # --- patch 2: register qwen3vl in GGUF config mapping ---
+        if "qwen3vl" not in _gguf_mod.GGUF_TO_TRANSFORMERS_MAPPING["config"]:
+            qwen3_cfg = dict(
+                _gguf_mod.GGUF_TO_TRANSFORMERS_MAPPING["config"].get("qwen3", {})
             )
-        except Exception:
-            needs_compat = False
+            _gguf_mod.GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen3vl"] = qwen3_cfg
+            _gguf_mod.GGUF_SUPPORTED_ARCHITECTURES = list(
+                _gguf_mod.GGUF_TO_TRANSFORMERS_MAPPING["config"].keys()
+            )
 
-        if needs_compat:
+        # --- patch 3: fix get_gguf_hf_weights_map for qwen3_vl model type ---
+        orig_get_map = _gguf_mod.get_gguf_hf_weights_map
 
-            def _compat_load_gguf(gguf_path, return_tensors=False, **kw):
-                kw.pop("model_to_load", None)
-                return chain_top(gguf_path, return_tensors=return_tensors, **kw)
+        def _compat_get_map(
+            hf_model, processor, model_type=None, num_layers=None, qual_name=""
+        ):
+            if hf_model is None:
+                return {}
+            # Translate HF model_type to gguf-py arch name for VL models
+            if model_type is None and hasattr(hf_model, "config"):
+                mt = getattr(hf_model.config, "model_type", None)
+                if mt == "qwen3_vl":
+                    model_type = "qwen3vl"
+            # Fix num_layers for VL configs where it lives under text_config
+            if num_layers is None and hasattr(hf_model, "config"):
+                cfg = hf_model.config
+                if not hasattr(cfg, "num_hidden_layers") and hasattr(
+                    cfg, "text_config"
+                ):
+                    num_layers = getattr(cfg.text_config, "num_hidden_layers", None)
+            return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
 
-            orig_get_map = _gguf_mod.get_gguf_hf_weights_map
-
-            def _compat_get_map(
-                hf_model, processor, model_type=None, num_layers=None, qual_name=""
-            ):
-                if hf_model is None:
-                    return {}
-                return orig_get_map(
-                    hf_model, processor, model_type, num_layers, qual_name
-                )
-
-            _gguf_mod.load_gguf_checkpoint = _compat_load_gguf
-            _gguf_mod.get_gguf_hf_weights_map = _compat_get_map
+        _gguf_mod.get_gguf_hf_weights_map = _compat_get_map
 
     def load_model(self, *, dtype_override=None, **kwargs):
         self._apply_gguf_compat_patches()
@@ -126,11 +143,14 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = self.GGUF_FILE
         model_kwargs |= kwargs
 
-        # GGUF repos do not ship a processor; use the base model
-        self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-8B-Thinking")
+        # GGUF repos do not ship processor or config.json; load both from base model.
+        self.processor = AutoProcessor.from_pretrained(self.BASE_MODEL)
+        # Pass config explicitly so from_pretrained skips GGUF config parsing
+        # (qwen3vl config keys map to Qwen3Config fields, not Qwen3VLConfig).
+        config = AutoConfig.from_pretrained(self.BASE_MODEL)
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, config=config, **model_kwargs
         )
         model.eval()
 
