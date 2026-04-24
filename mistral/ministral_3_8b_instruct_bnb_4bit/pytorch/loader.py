@@ -90,10 +90,11 @@ class ModelLoader(ForgeModel):
             self._load_processor(dtype_override)
 
         model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
 
-        # BnB variants need device_map="cpu" for CPU-based loading
+        # BnB 4-bit models must not receive torch_dtype when loading on CPU.
+        # Passing torch_dtype bypasses quantization initialization, leaving
+        # quant_state=None and causing an assertion failure in bitsandbytes
+        # forward pass: assert module.weight.shape[1] == 1.
         model_kwargs["device_map"] = "cpu"
 
         model_kwargs |= kwargs
