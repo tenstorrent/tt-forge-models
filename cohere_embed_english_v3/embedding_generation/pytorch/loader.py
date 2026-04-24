@@ -6,7 +6,7 @@ Cohere-embed-english-v3.0 model loader implementation for sentence embedding gen
 """
 
 import torch
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoTokenizer, BertConfig, BertModel
 from typing import Optional
 
 from ....base import ForgeModel
@@ -72,16 +72,24 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        # CohereLabs/Cohere-embed-english-v3.0 on HuggingFace is a tokenizer-only
+        # repo (no model weights, no model_type in config.json). Construct a
+        # BertModel with the architecture parameters from the model's config.json
+        # (hidden_dim=1024, n_positions=512) and the known BERT-large topology.
+        config = BertConfig(
+            vocab_size=30522,
+            hidden_size=1024,
+            num_hidden_layers=24,
+            num_attention_heads=16,
+            intermediate_size=4096,
+            max_position_embeddings=512,
+        )
+        model = BertModel(config)
 
-        model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+            model = model.to(dtype_override)
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
-
         return model
 
     def load_inputs(self, dtype_override=None):
