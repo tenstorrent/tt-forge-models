@@ -4,6 +4,7 @@
 """
 DeepSeek-OCR 8-bit MLX model loader implementation for document OCR tasks.
 """
+import os
 import transformers.models.llama.modeling_llama as _llama_modeling
 from transformers import AutoTokenizer, AutoModel, AutoConfig
 from typing import Optional
@@ -100,7 +101,12 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        image_file = get_file("test_images/doc.png")
+        if "IRD_LF_CACHE" in os.environ or "DOCKER_CACHE_ROOT" in os.environ:
+            image_file = get_file("test_images/doc.png")
+        else:
+            image_file = get_file(
+                "http://images.cocodataset.org/val2017/000000039769.jpg"
+            )
 
         inputs = preprocess(
             tokenizer=self.tokenizer,
