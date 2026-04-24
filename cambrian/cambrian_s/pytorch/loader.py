@@ -73,7 +73,7 @@ class ModelLoader(ForgeModel):
            and breaks Qwen2RotaryEmbedding initialization.
         2. SigLipVisionConfig.from_pretrained calls _set_token_in_kwargs which was
            removed from PretrainedConfig in transformers 5.x.
-        3. LlavaNextSigLipVisionTower.device unconditionally returns xm.xla_device()
+        3. SigLipVisionTower.device unconditionally returns xm.xla_device()
            when torch_xla is importable, breaking CPU baseline runs when model weights
            are on CPU. Override to follow actual parameter device.
         """
@@ -83,8 +83,8 @@ class ModelLoader(ForgeModel):
             CambrianQwenModel,
         )
         from cambrian.model.multimodal_encoder.llava_next_siglip_encoder import (
-            LlavaNextSigLipVisionTower,
             SigLipVisionConfig,
+            SigLipVisionTower,
         )
         from transformers.models.qwen2.modeling_qwen2 import Qwen2ForCausalLM
 
@@ -119,7 +119,7 @@ class ModelLoader(ForgeModel):
             for p in self.vision_tower.parameters():
                 return p.device
 
-        LlavaNextSigLipVisionTower.device = patched_device
+        SigLipVisionTower.device = patched_device
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Cambrian-S model instance."""
