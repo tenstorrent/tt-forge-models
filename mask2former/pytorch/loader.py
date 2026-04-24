@@ -5,21 +5,23 @@
 Mask2Former model loader implementation for instance segmentation tasks.
 """
 
-import torch
 from typing import Optional
+
+import numpy as np
+import torch
+from PIL import Image
 from transformers import AutoImageProcessor, Mask2FormerForUniversalSegmentation
 
 from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
-from datasets import load_dataset
 
 
 class ModelVariant(StrEnum):
@@ -87,8 +89,9 @@ class ModelLoader(ForgeModel):
         if self.image_processor is None:
             self._load_image_processor()
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        image = Image.fromarray(
+            np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
+        )
 
         inputs = self.image_processor(images=image, return_tensors="pt")
 
