@@ -5,7 +5,7 @@
 MediX R1 8B GGUF model loader implementation for image to text.
 """
 
-from transformers import Qwen3VLForConditionalGeneration, AutoProcessor
+from transformers import Qwen3VLForConditionalGeneration, AutoProcessor, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -89,6 +89,21 @@ class ModelLoader(ForgeModel):
         _config_utils.load_gguf_checkpoint = _patched_load
         _modeling_utils.load_gguf_checkpoint = _patched_load
 
+        _orig_get_map = _gguf_utils.get_gguf_hf_weights_map
+
+        def _patched_get_map(
+            hf_model, processor, model_type=None, num_layers=None, qual_name=""
+        ):
+            if model_type is None:
+                model_type = hf_model.config.model_type
+            if model_type == "qwen3_vl":
+                model_type = "qwen3vl"
+                if num_layers is None:
+                    num_layers = hf_model.config.text_config.num_hidden_layers
+            return _orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+        _gguf_utils.get_gguf_hf_weights_map = _patched_get_map
+
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         if variant is None:
@@ -113,6 +128,8 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
 
         model_kwargs["gguf_file"] = gguf_file
+        model_kwargs["config"] = AutoConfig.from_pretrained(self.BASE_MODEL)
+        model_kwargs["ignore_mismatched_sizes"] = True
         model_kwargs |= kwargs
 
         self.processor = AutoProcessor.from_pretrained(self.BASE_MODEL)
