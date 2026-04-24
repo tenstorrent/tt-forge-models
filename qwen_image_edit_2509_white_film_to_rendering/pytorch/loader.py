@@ -9,21 +9,25 @@ top of the Qwen/Qwen-Image-Edit-2509 base diffusion pipeline for converting
 white-model (white film) renders into textured/material renderings.
 """
 
+from typing import Any, Optional
+
 import torch
 from diffusers import QwenImageEditPlusPipeline
-from PIL import Image
-from typing import Optional
 
 from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
+
+BASE_MODEL = "Qwen/Qwen-Image-Edit-2509"
+LORA_REPO = "dx8152/Qwen-Image-Edit-2509-White_film_to_rendering"
+LORA_WEIGHT_NAME = "白膜转材质.safetensors"
 
 
 class ModelVariant(StrEnum):
@@ -37,20 +41,15 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.WHITE_FILM_TO_RENDERING: ModelConfig(
-            pretrained_model_name="dx8152/Qwen-Image-Edit-2509-White_film_to_rendering",
+            pretrained_model_name=BASE_MODEL,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.WHITE_FILM_TO_RENDERING
 
-    _BASE_MODEL = "Qwen/Qwen-Image-Edit-2509"
-
-    _LORA_WEIGHT_NAMES = {
-        ModelVariant.WHITE_FILM_TO_RENDERING: "白膜转材质.safetensors",
-    }
-
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
+        self._transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None):
@@ -63,25 +62,55 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
-        dtype = dtype_override or torch.bfloat16
-        pipe = QwenImageEditPlusPipeline.from_pretrained(
-            self._BASE_MODEL, torch_dtype=dtype, **kwargs
-        )
-        pipe.load_lora_weights(
-            self._variant_config.pretrained_model_name,
-            weight_name=self._LORA_WEIGHT_NAMES[self._variant],
-        )
-        return pipe
+    def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
+        """Load the Qwen-Image-Edit-2509 transformer with white film to rendering LoRA applied.
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
-        image = Image.new("RGB", (512, 512), color=(255, 255, 255))
-        prompt = "白膜转材质"
+        Returns:
+            QwenImageTransformer2DModel instance with LoRA weights merged.
+        """
+        dtype = dtype_override if dtype_override is not None else torch.float32
+
+        pipeline = QwenImageEditPlusPipeline.from_pretrained(
+            BASE_MODEL,
+            torch_dtype=dtype,
+        )
+        pipeline.load_lora_weights(
+            LORA_REPO,
+            weight_name=LORA_WEIGHT_NAME,
+        )
+        pipeline.fuse_lora()
+
+        self._transformer = pipeline.transformer
+        self._transformer.eval()
+        return self._transformer
+
+    def load_inputs(self, **kwargs) -> Any:
+        """Prepare sample inputs for the diffusion transformer.
+
+        Returns a dict matching QwenImageTransformer2DModel.forward() signature.
+        """
+        dtype = kwargs.get("dtype_override", torch.float32)
+        batch_size = kwargs.get("batch_size", 1)
+
+        img_dim = 64
+        text_dim = 3584
+        txt_seq_len = 32
+
+        frame, height, width = 1, 8, 8
+        img_seq_len = frame * height * width
+
+        hidden_states = torch.randn(batch_size, img_seq_len, img_dim, dtype=dtype)
+        encoder_hidden_states = torch.randn(
+            batch_size, txt_seq_len, text_dim, dtype=dtype
+        )
+        encoder_hidden_states_mask = torch.ones(batch_size, txt_seq_len, dtype=dtype)
+        timestep = torch.tensor([500.0] * batch_size, dtype=dtype)
+        img_shapes = [(frame, height, width)] * batch_size
+
         return {
-            "image": image,
-            "prompt": prompt,
-            "negative_prompt": " ",
-            "num_inference_steps": 40,
-            "guidance_scale": 1.0,
-            "true_cfg_scale": 4.0,
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "encoder_hidden_states_mask": encoder_hidden_states_mask,
+            "timestep": timestep,
+            "img_shapes": img_shapes,
         }
