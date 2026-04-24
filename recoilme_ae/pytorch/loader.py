@@ -4,15 +4,15 @@
 """
 Recoilme AE model loader implementation.
 
-Loads the recoilme/ae autoencoder checkpoint as an AutoencoderKL.
-The repository hosts a collection of VAE checkpoints at the root
-without a diffusers-style config.json, so we pull the primary
-``diffusion_pytorch_model.safetensors`` file and load it through
-``AutoencoderKL.from_single_file`` with the SDXL VAE architecture
-as the reference configuration.
+Loads the recoilme/ae VAE checkpoint as an AutoencoderKL decoder.
+The repository hosts a collection of VAE checkpoints; ``vae_v1.safetensors``
+is a standard diffusers-format KL autoencoder whose weights are
+loaded into the SDXL VAE architecture.  The loader exposes only the
+decode path (post_quant_conv + decoder) so that the compile target
+receives a latent tensor and produces a reconstructed image.
 
 Available variants:
-- BASE: primary ``diffusion_pytorch_model.safetensors`` checkpoint
+- BASE: ``vae_v1.safetensors`` checkpoint
 """
 
 from typing import Any, Optional
@@ -20,6 +20,7 @@ from typing import Any, Optional
 import torch
 from diffusers import AutoencoderKL
 from huggingface_hub import hf_hub_download
+from safetensors.torch import load_file as load_safetensors
 
 from ...base import ForgeModel
 from ...config import (
@@ -33,7 +34,7 @@ from ...config import (
 )
 
 REPO_ID = "recoilme/ae"
-CHECKPOINT_FILENAME = "diffusion_pytorch_model.safetensors"
+CHECKPOINT_FILENAME = "vae_v1.safetensors"
 
 # Reference VAE architecture used to interpret the checkpoint.
 REFERENCE_VAE_CONFIG = "stabilityai/sdxl-vae"
@@ -42,6 +43,18 @@ REFERENCE_VAE_CONFIG = "stabilityai/sdxl-vae"
 LATENT_CHANNELS = 4
 LATENT_HEIGHT = 64
 LATENT_WIDTH = 64
+
+
+class _VaeDecoder(torch.nn.Module):
+    """Thin wrapper that exposes only the VAE decode path."""
+
+    def __init__(self, vae: AutoencoderKL):
+        super().__init__()
+        self.post_quant_conv = vae.post_quant_conv
+        self.decoder = vae.decoder
+
+    def forward(self, z: torch.FloatTensor) -> torch.FloatTensor:
+        return self.decoder(self.post_quant_conv(z))
 
 
 class ModelVariant(StrEnum):
@@ -78,16 +91,15 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
-        """Load and return the Recoilme AE model."""
+        """Load and return the Recoilme AE decoder."""
         dtype = dtype_override if dtype_override is not None else torch.float32
         if self._vae is None:
             checkpoint_path = hf_hub_download(REPO_ID, CHECKPOINT_FILENAME)
-            self._vae = AutoencoderKL.from_single_file(
-                checkpoint_path,
-                config=REFERENCE_VAE_CONFIG,
-                torch_dtype=dtype,
-            )
-            self._vae.eval()
+            ref_vae = AutoencoderKL.from_pretrained(REFERENCE_VAE_CONFIG)
+            ref_vae.load_state_dict(load_safetensors(checkpoint_path))
+            ref_vae = ref_vae.to(dtype=dtype)
+            ref_vae.eval()
+            self._vae = _VaeDecoder(ref_vae)
         elif dtype_override is not None:
             self._vae = self._vae.to(dtype=dtype_override)
         return self._vae
