@@ -9,6 +9,7 @@ from typing import Optional
 
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import PreTrainedModel
 
 from ....base import ForgeModel
 from ....config import (
@@ -75,6 +76,9 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **tokenizer_kwargs
         )
 
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -88,16 +92,33 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        # transformers 5.x converts rope_scaling=null to {"rope_type": "default", ...} but the
+        # custom modeling_minicpm.py expects the old {"type": ...} format; reset to None for default.
+        if isinstance(config.rope_scaling, dict) and "type" not in config.rope_scaling:
+            config.rope_scaling = None
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        # transformers 5.x expects _tied_weights_keys to be a dict, but the custom
+        # modeling_minicpm.py defines it as a list (old format). Patch post_init to handle this.
+        _orig_get_expanded = PreTrainedModel.get_expanded_tied_weights_keys
+
+        def _patched_get_expanded(self_model, all_submodels=False):
+            if isinstance(self_model._tied_weights_keys, list):
+                self_model._tied_weights_keys = None
+            return _orig_get_expanded(self_model, all_submodels=all_submodels)
+
+        PreTrainedModel.get_expanded_tied_weights_keys = _patched_get_expanded
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            PreTrainedModel.get_expanded_tied_weights_keys = _orig_get_expanded
 
         self.config = model.config
         self.model = model
