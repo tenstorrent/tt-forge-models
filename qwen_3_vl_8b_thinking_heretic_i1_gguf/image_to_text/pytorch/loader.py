@@ -5,9 +5,12 @@
 Qwen 3 VL 8B Thinking Heretic i1 GGUF model loader implementation for
 image to text.
 """
+import os
 
+import torch
 from transformers import (
     Qwen3VLForConditionalGeneration,
+    Qwen3VLConfig,
     AutoProcessor,
 )
 from typing import Optional
@@ -61,7 +64,41 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _use_random_weights():
+        return os.environ.get("TT_RANDOM_WEIGHTS") or os.environ.get(
+            "TT_COMPILE_ONLY_SYSTEM_DESC"
+        )
+
+    def _qwen3vl_config(self):
+        from transformers import Qwen3VLTextConfig
+
+        text_config = Qwen3VLTextConfig(
+            hidden_size=4096,
+            intermediate_size=22016,
+            num_hidden_layers=32,
+            num_attention_heads=32,
+            num_key_value_heads=8,
+            head_dim=128,
+            vocab_size=151936,
+        )
+        return Qwen3VLConfig(text_config=text_config)
+
     def load_model(self, *, dtype_override=None, **kwargs):
+        if self._use_random_weights():
+            config = self._qwen3vl_config()
+            target_dtype = (
+                dtype_override if dtype_override is not None else torch.bfloat16
+            )
+            orig_dtype = torch.get_default_dtype()
+            torch.set_default_dtype(target_dtype)
+            try:
+                model = Qwen3VLForConditionalGeneration(config)
+            finally:
+                torch.set_default_dtype(orig_dtype)
+            model.eval()
+            return model
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
@@ -81,6 +118,17 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
+        max_length = self._variant_config.max_length
+
+        if self._use_random_weights():
+            vocab_size = 151936
+            input_ids = torch.randint(0, vocab_size, (batch_size, max_length))
+            attention_mask = torch.ones(batch_size, max_length, dtype=torch.long)
+            return {"input_ids": input_ids, "attention_mask": attention_mask}
+
+        if self.processor is None:
+            self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-8B-Thinking")
+
         messages = [
             {
                 "role": "user",
