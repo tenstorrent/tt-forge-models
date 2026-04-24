@@ -108,13 +108,13 @@ class ModelLoader(ForgeModel):
 
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        else:
+            model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
 
         model = AutoModelForZeroShotObjectDetection.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
-        if dtype_override is None:
-            model = model.to(torch.float32)
         model.eval()
 
         return model
