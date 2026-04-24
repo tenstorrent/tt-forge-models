@@ -46,24 +46,14 @@ def _patch_transformers_qwen2vl_gguf():
     if "qwen2vl" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["qwen2vl"] = GGUFQwen2Converter
 
-    orig_load = gguf_utils.load_gguf_checkpoint
+    # get_gguf_hf_weights_map accesses config.num_hidden_layers directly, but
+    # Qwen2_5_VLConfig stores it in text_config. Add a property to bridge this.
+    from transformers import Qwen2_5_VLConfig
 
-    def patched_load_gguf_checkpoint(*args, **kwargs):
-        result = orig_load(*args, **kwargs)
-        config = result.get("config", {})
-        if config.get("model_type") == "qwen2vl":
-            config["model_type"] = "qwen2_5_vl"
-        return result
-
-    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
-
-    import transformers.models.auto.tokenization_auto as tok_auto
-    import transformers.configuration_utils as config_utils
-    import transformers.modeling_utils as modeling_utils
-
-    for mod in (tok_auto, config_utils, modeling_utils):
-        if hasattr(mod, "load_gguf_checkpoint"):
-            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+    if not isinstance(Qwen2_5_VLConfig.__dict__.get("num_hidden_layers"), property):
+        Qwen2_5_VLConfig.num_hidden_layers = property(
+            lambda self: self.text_config.num_hidden_layers
+        )
 
 
 _patch_transformers_qwen2vl_gguf()
