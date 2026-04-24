@@ -49,6 +49,30 @@ def _compute_default_rope_parameters(
 if "default" not in _ROPE_INIT_FUNCTIONS:
     _ROPE_INIT_FUNCTIONS["default"] = _compute_default_rope_parameters
 
+
+class _CausalMaskWrapper(torch.nn.Module):
+    """Wrap a causal LM to convert 2D int attention masks to 4D float causal masks.
+
+    PanguEmbedded (NBDiff) uses SDPA but its forward does not call create_causal_mask
+    internally, so the raw tokenizer int64 mask must be pre-processed before the
+    scaled_dot_product_attention call.
+    """
+
+    def __init__(self, model):
+        super().__init__()
+        self._model = model
+
+    def forward(self, input_ids, attention_mask=None, **kwargs):
+        if attention_mask is not None and attention_mask.dtype not in (
+            torch.bool,
+            torch.float16,
+            torch.bfloat16,
+            torch.float32,
+        ):
+            attention_mask = attention_mask.bool()
+        return self._model(input_ids, attention_mask=attention_mask, **kwargs)
+
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -140,8 +164,8 @@ class ModelLoader(ForgeModel):
         ).eval()
 
         self.config = model.config
-        self.model = model
-        return model
+        self.model = _CausalMaskWrapper(model)
+        return self.model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
