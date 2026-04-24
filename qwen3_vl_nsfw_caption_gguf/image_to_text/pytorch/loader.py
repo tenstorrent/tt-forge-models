@@ -69,6 +69,10 @@ def _patched_get_gguf_hf_weights_map(
     effective_type = hf_model.config.model_type if model_type is None else model_type
     if effective_type == "qwen3_vl":
         model_type = "qwen3vl"
+        # Qwen3VLConfig nests num_hidden_layers under text_config; provide it
+        # explicitly so the original function doesn't call hf_model.config.num_hidden_layers
+        if num_layers is None:
+            num_layers = hf_model.config.text_config.num_hidden_layers
     return _orig_get_gguf_hf_weights_map(
         hf_model,
         processor,
