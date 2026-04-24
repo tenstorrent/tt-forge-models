@@ -32,7 +32,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.NATURE_OCT: ModelConfig(
-            pretrained_model_name="iszt/RETFound_mae_natureOCT",
+            pretrained_model_name="bitfount/RETFound_MAE_OCT",
         ),
     }
 
