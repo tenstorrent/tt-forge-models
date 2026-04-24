@@ -5,8 +5,9 @@
 GUI-Libra 4B i1 GGUF model loader implementation for image to text.
 """
 
+import numpy as np
+import torch
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
-import transformers.configuration_utils as _config_utils
 from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
 from transformers.integrations.ggml import GGUF_CONFIG_MAPPING
 
@@ -30,11 +31,11 @@ from ....config import (
 
 
 def _patch_qwen3vl_gguf_support():
-    """Register qwen3vl GGUF architecture for transformers.
+    """Register qwen3vl GGUF architecture and patch get_gguf_hf_weights_map.
 
-    Qwen3-VL GGUF files only contain text model weights (language model backbone).
-    The vision encoder is not quantized and keeps its default initialization.
-    The text model parameters use the same GGUF naming convention as qwen3.
+    Qwen3-VL GGUF files contain only text model weights.  The vision encoder
+    keeps its randomly-initialised defaults.  Text model parameters share the
+    same GGUF naming convention as qwen3.
     """
     if "qwen3vl" in GGUF_SUPPORTED_ARCHITECTURES:
         return
@@ -49,7 +50,9 @@ def _patch_qwen3vl_gguf_support():
                 "qwen3vl"
             ] = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"]
 
-    # Patch get_gguf_hf_weights_map to translate qwen3_vl (HF) → qwen3vl (gguf-py)
+    # Patch get_gguf_hf_weights_map to translate qwen3_vl (HF) → qwen3vl (gguf-py).
+    # This must be a module-level assignment so that internal recursive calls inside
+    # the original function also use the patched version.
     _orig_get_weights_map = _gguf_utils.get_gguf_hf_weights_map
 
     def _patched_get_weights_map(
@@ -71,6 +74,36 @@ def _patch_qwen3vl_gguf_support():
 
 
 _patch_qwen3vl_gguf_support()
+
+
+def _load_qwen3vl_gguf_weights(model, gguf_path, dtype=None):
+    """Load GGUF text-model weights into a Qwen3VL model using gguf-py directly.
+
+    Bypasses transformers' load_gguf_checkpoint to avoid compatibility issues
+    with other loaders that monkey-patch that function without forwarding the
+    model_to_load argument required by transformers >= 5.x.
+    """
+    from gguf import GGUFReader
+    from gguf.quants import dequantize
+    from transformers.modeling_gguf_pytorch_utils import TensorProcessor
+
+    reader = GGUFReader(gguf_path)
+    processor = TensorProcessor()
+
+    # Our patched get_gguf_hf_weights_map handles the qwen3_vl → qwen3vl translation
+    tensor_key_mapping = _gguf_utils.get_gguf_hf_weights_map(model, processor)
+
+    target_dtype = dtype if dtype is not None else torch.bfloat16
+    tensors_to_load = {}
+
+    for tensor in reader.tensors:
+        if tensor.name not in tensor_key_mapping:
+            continue
+        weights = dequantize(tensor.data, tensor.tensor_type)
+        hf_name = tensor_key_mapping[tensor.name]
+        tensors_to_load[hf_name] = torch.from_numpy(np.copy(weights)).to(target_dtype)
+
+    model.load_state_dict(tensors_to_load, strict=False)
 
 
 class ModelVariant(StrEnum):
@@ -114,27 +147,30 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        from huggingface_hub import hf_hub_download
 
-        # Pre-load config from base model to include the correct vision config.
-        # The GGUF file only contains text model weights; vision encoder defaults
-        # come from the 4B base model config.
+        pretrained_model_name = self._variant_config.pretrained_model_name
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+
+        # Download only the GGUF quantised weights file to the local HF cache
+        gguf_path = hf_hub_download(
+            repo_id=pretrained_model_name, filename=self.GGUF_FILE
+        )
+
+        # Load full config (text + vision) from the base model.  The GGUF file
+        # only contains text model weights so vision encoder params come from here.
         config = AutoConfig.from_pretrained(self.BASE_MODEL)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs["gguf_file"] = self.GGUF_FILE
-        model_kwargs["config"] = config
-        model_kwargs |= kwargs
+        # Initialise model with the config; weights start randomly initialised
+        model = Qwen3VLForConditionalGeneration(config).to(dtype)
+
+        # Replace text-model weights with the GGUF quantised + dequantised values
+        _load_qwen3vl_gguf_weights(model, gguf_path, dtype=dtype)
+
+        model.eval()
 
         # GGUF repos do not ship a processor; use the base model
         self.processor = AutoProcessor.from_pretrained(self.BASE_MODEL)
-
-        model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
-        model.eval()
 
         return model
 
