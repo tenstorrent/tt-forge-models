@@ -11,6 +11,56 @@ from huggingface_hub import hf_hub_download
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+
+def _patch_qwen35_support():
+    """Register qwen35 architecture and qwen3_5_text tokenizer as aliases for qwen3.
+
+    Qwen 3.5 uses the same model architecture as Qwen 3 but the GGUF file
+    declares architecture as 'qwen35' and tokenizer class as 'qwen3_5_text',
+    which transformers 5.x does not yet recognise.
+    """
+    if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "qwen35",
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
+            )
+    if "qwen3" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "qwen3_5_text", GGUF_TO_FAST_CONVERTERS["qwen3"]
+        )
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    """Wrap load_gguf_checkpoint to add qwen35 support and fix model_type."""
+    _patch_qwen35_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
+    if result.get("config", {}).get("model_type") == "qwen35":
+        result["config"]["model_type"] = "qwen3"
+    return result
+
+
+_patch_qwen35_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -41,7 +91,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.QWEN3_5_0_8B_Q8_0_LLAMAFILE
 
-    _GGUF_FILES = {
+    _LLAMAFILES = {
         ModelVariant.QWEN3_5_0_8B_Q8_0_LLAMAFILE: "Qwen3.5-0.8B-Q8_0.llamafile",
     }
 
@@ -54,7 +104,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self.config = None
         self.num_layers = num_layers
-        self.gguf_file = self._GGUF_FILES[self._variant]
+        self.llamafile = self._LLAMAFILES[self._variant]
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -68,12 +118,16 @@ class ModelLoader(ForgeModel):
         )
 
     def _get_gguf_path(self):
-        """Extract GGUF from llamafile zip and return (local_dir, gguf_filename)."""
+        """Extract GGUF from llamafile zip and return (local_dir, gguf_filename).
+
+        Llamafiles are cosmopolitan executables (zip archives) that embed a GGUF
+        model. The GGUF file inside shares the same base name with a .gguf extension.
+        """
         llamafile_path = hf_hub_download(
             repo_id=self._variant_config.pretrained_model_name,
-            filename=self.gguf_file,
+            filename=self.llamafile,
         )
-        gguf_name = os.path.splitext(os.path.basename(self.gguf_file))[0] + ".gguf"
+        gguf_name = os.path.splitext(os.path.basename(self.llamafile))[0] + ".gguf"
         extract_dir = os.path.dirname(llamafile_path)
         gguf_path = os.path.join(extract_dir, gguf_name)
         if not os.path.exists(gguf_path):
