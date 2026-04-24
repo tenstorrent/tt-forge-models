@@ -90,9 +90,24 @@ class ModelLoader(ForgeModel):
             config.n_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, trust_remote_code=True, **model_kwargs
-        )
+        # huginn uses trust_remote_code with _tied_weights_keys as a list (old transformers format),
+        # but transformers>=4.46 expects a dict. Patch to handle the list case gracefully.
+        from transformers import PreTrainedModel as _PTM
+
+        _orig_get_expanded = _PTM.get_expanded_tied_weights_keys
+
+        def _patched_get_expanded(self_inner, all_submodels=False):
+            if isinstance(self_inner._tied_weights_keys, list):
+                self_inner._tied_weights_keys = None
+            return _orig_get_expanded(self_inner, all_submodels=all_submodels)
+
+        _PTM.get_expanded_tied_weights_keys = _patched_get_expanded
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, trust_remote_code=True, **model_kwargs
+            )
+        finally:
+            _PTM.get_expanded_tied_weights_keys = _orig_get_expanded
         model.eval()
 
         return model
