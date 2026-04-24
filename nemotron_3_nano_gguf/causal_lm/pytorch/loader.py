@@ -4,9 +4,215 @@
 """
 Nemotron 3 Nano GGUF model loader implementation for causal language modeling.
 """
+import re
+
+import numpy as np
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUFTensor,
+    TensorProcessor,
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+
+class NemotronHMoeTensorProcessor(TensorProcessor):
+    """Tensor processor for nemotron_h_moe GGUF files mapping to transformers NemotronH."""
+
+    _LAYER_RE = re.compile(r"model\.layers\.(\d+)\.mixer\.(.+)")
+
+    # Keys are full HF param names after "model.layers.N.mixer." (including .weight/.bias).
+    # Values are full GGUF tensor names (including suffix as stored in the file).
+    _PARAM_MAP = {
+        # Mamba (SSM) parameters
+        "A_log": "blk.{}.ssm_a",
+        "D": "blk.{}.ssm_d",
+        "dt_bias": "blk.{}.ssm_dt.bias",
+        "in_proj.weight": "blk.{}.ssm_in.weight",
+        "out_proj.weight": "blk.{}.ssm_out.weight",
+        "conv1d.weight": "blk.{}.ssm_conv1d.weight",
+        "conv1d.bias": "blk.{}.ssm_conv1d.bias",
+        "norm.weight": "blk.{}.ssm_norm.weight",
+        # Attention parameters
+        "q_proj.weight": "blk.{}.attn_q.weight",
+        "k_proj.weight": "blk.{}.attn_k.weight",
+        "v_proj.weight": "blk.{}.attn_v.weight",
+        "o_proj.weight": "blk.{}.attn_output.weight",
+        # MoE parameters (experts.* are nn.Parameter — no .weight in HF name)
+        "gate.weight": "blk.{}.ffn_gate_inp.weight",
+        "gate.e_score_correction_bias": "blk.{}.exp_probs_b.bias",
+        "experts.up_proj": "blk.{}.ffn_up_exps.weight",
+        "experts.down_proj": "blk.{}.ffn_down_exps.weight",
+        "shared_experts.up_proj.weight": "blk.{}.ffn_up_shexp.weight",
+        "shared_experts.down_proj.weight": "blk.{}.ffn_down_shexp.weight",
+    }
+
+    def perform_fallback_tensor_mapping(
+        self, gguf_to_hf_name_map, suffix, qual_name, hf_name
+    ):
+        m = self._LAYER_RE.match(hf_name)
+        if m is None:
+            return
+        bid = m.group(1)
+        param = m.group(2)
+        if param in self._PARAM_MAP:
+            gguf_tensor_name = self._PARAM_MAP[param].format(bid)
+            gguf_to_hf_name_map[gguf_tensor_name] = qual_name + hf_name
+
+    def process(self, weights, name, **kwargs):
+        # A and D: dequantized as (num_heads, 1) → HF (num_heads,)
+        if re.search(r"\.ssm_a$|\.ssm_d$", name):
+            weights = weights.reshape(-1)
+        # conv1d weight: dequantized as (channels, kernel) → HF (channels, 1, kernel)
+        elif re.search(r"\.ssm_conv1d\.weight$", name):
+            weights = weights.reshape(weights.shape[0], 1, weights.shape[1])
+        # ssm_norm weight: dequantized as (n_groups, group_size) → HF (hidden,)
+        elif re.search(r"\.ssm_norm\.weight$", name):
+            weights = weights.reshape(-1)
+        # Expert weights: dequantized as (n_experts, inter, hidden) — already correct shape
+        return GGUFTensor(weights, name, {})
+
+
+def _get_nemotron_h_moe_config_mapping():
+    return {
+        "block_count": "num_hidden_layers",
+        "context_length": "max_position_embeddings",
+        "embedding_length": "hidden_size",
+        "feed_forward_length": None,  # per-layer list in GGUF; not usable as scalar
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": None,  # 0 in GGUF; derived from tensors
+        "rope.freq_base": None,  # NemotronH attention doesn't use RoPE
+        "rope.dimension_count": None,
+        "rope.scaling.finetuned": None,
+        "attention.layer_norm_rms_epsilon": "layer_norm_epsilon",
+        "attention.layer_norm_epsilon": None,  # duplicate
+        "attention.key_length": "head_dim",
+        "attention.value_length": None,
+        "expert_used_count": "num_experts_per_tok",
+        "expert_group_count": "n_group",
+        "expert_group_used_count": "topk_group",
+        "vocab_size": "vocab_size",
+        "ssm.conv_kernel": "conv_kernel",
+        "ssm.state_size": "ssm_state_size",
+        "ssm.group_count": "n_groups",
+        "ssm.inner_size": None,  # derived: mamba_head_dim = inner_size / time_step_rank
+        "ssm.time_step_rank": "mamba_num_heads",
+        "expert_feed_forward_length": "moe_intermediate_size",
+        "expert_shared_feed_forward_length": "moe_shared_expert_intermediate_size",
+        "expert_count": "n_routed_experts",
+        "expert_shared_count": "n_shared_experts",
+        "expert_weights_norm": "norm_topk_prob",
+        "expert_weights_scale": "routed_scaling_factor",
+    }
+
+
+def _patch_nemotron_h_moe_support():
+    """Register nemotron_h_moe GGUF architecture so transformers can load it."""
+    arch = "nemotron_h_moe"
+
+    if arch not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append(arch)
+
+    if arch not in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]:
+        _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"][
+            arch
+        ] = _get_nemotron_h_moe_config_mapping()
+
+    _gguf_utils.TENSOR_PROCESSORS[arch] = NemotronHMoeTensorProcessor
+
+    if arch not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS[arch] = GGUF_TO_FAST_CONVERTERS.get("nemotron")
+
+
+def _patched_load_gguf_checkpoint(
+    gguf_path, return_tensors=False, model_to_load=None, torch_dtype=None
+):
+    """Wrap load_gguf_checkpoint to add nemotron_h_moe support."""
+    _patch_nemotron_h_moe_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path,
+        return_tensors=return_tensors,
+        model_to_load=model_to_load,
+    )
+
+    if result.get("config", {}).get("model_type") != "nemotron_h_moe":
+        return result
+
+    config = result["config"]
+    config["model_type"] = "nemotron_h"
+
+    # Read GGUF to derive layers_block_type, mamba_head_dim, num_key_value_heads
+    from gguf import GGUFReader
+    from transformers.integrations.ggml import _gguf_parse_value
+
+    reader = GGUFReader(gguf_path, "r")
+
+    # Derive layers_block_type from which tensors exist per block
+    block_tensor_types: dict[int, set] = {}
+    for tensor in reader.tensors:
+        if not tensor.name.startswith("blk."):
+            continue
+        parts = tensor.name.split(".")
+        bid = int(parts[1])
+        ttype = parts[2]
+        block_tensor_types.setdefault(bid, set()).add(ttype)
+
+    num_layers = max(block_tensor_types) + 1
+    layers_block_type = []
+    num_kv_heads = None
+    for i in range(num_layers):
+        types = block_tensor_types.get(i, set())
+        if "ssm_a" in types:
+            layers_block_type.append("mamba")
+        elif "attn_q" in types:
+            layers_block_type.append("attention")
+        elif "ffn_down_exps" in types:
+            layers_block_type.append("moe")
+        else:
+            layers_block_type.append("mlp")
+
+    config["layers_block_type"] = layers_block_type
+    config["num_hidden_layers"] = num_layers
+
+    # Derive num_key_value_heads from an attn_k tensor shape
+    for tensor in reader.tensors:
+        if re.search(r"^blk\.\d+\.attn_k$", tensor.name):
+            # shape: (hidden_size, kv_heads * head_dim)
+            kv_dim = tensor.shape[1]
+            head_dim = config.get("head_dim", 128)
+            num_kv_heads = int(kv_dim) // int(head_dim)
+            break
+    if num_kv_heads is not None:
+        config["num_key_value_heads"] = num_kv_heads
+
+    # Derive mamba_head_dim = ssm_inner_size / mamba_num_heads
+    ssm_inner_size_field = reader.fields.get("nemotron_h_moe.ssm.inner_size")
+    if ssm_inner_size_field is not None:
+        ssm_inner_size = _gguf_parse_value(
+            ssm_inner_size_field.parts[ssm_inner_size_field.data[0]],
+            ssm_inner_size_field.types,
+        )
+        mamba_num_heads = config.get("mamba_num_heads", 64)
+        if mamba_num_heads > 0:
+            config["mamba_head_dim"] = int(ssm_inner_size) // int(mamba_num_heads)
+
+    return result
+
+
+_patch_nemotron_h_moe_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -100,6 +306,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.gguf_file
+        model_kwargs["ignore_mismatched_sizes"] = True
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
