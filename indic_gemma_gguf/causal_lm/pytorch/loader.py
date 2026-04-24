@@ -44,9 +44,9 @@ def _patch_gemma_gguf_support():
         _gguf_utils.TENSOR_PROCESSORS["gemma"] = _gguf_utils.TENSOR_PROCESSORS["gemma2"]
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+def _patched_load_gguf_checkpoint(*args, **kwargs):
     _patch_gemma_gguf_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
     if result.get("config", {}).get("model_type") == "gemma2":
         result["config"]["model_type"] = "gemma"
     return result
