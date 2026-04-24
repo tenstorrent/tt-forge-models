@@ -72,12 +72,22 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from vibevoice.modular.configuration_vibevoice import VibeVoiceConfig
         from vibevoice.modular.modeling_vibevoice_inference import (
             VibeVoiceForConditionalGenerationInference,
         )
 
+        config = VibeVoiceConfig.from_pretrained(
+            self._variant_config.pretrained_model_name
+        )
+        # Strip bitsandbytes quantization config so the model loads on CPU
+        # without requiring CUDA or Intel extensions.
+        if hasattr(config, "quantization_config"):
+            delattr(config, "quantization_config")
+
         full_model = VibeVoiceForConditionalGenerationInference.from_pretrained(
             self._variant_config.pretrained_model_name,
+            config=config,
             device_map="cpu",
             torch_dtype=dtype_override or torch.bfloat16,
         )
