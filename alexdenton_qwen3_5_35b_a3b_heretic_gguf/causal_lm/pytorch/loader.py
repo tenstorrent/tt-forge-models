@@ -8,6 +8,87 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+
+def _patch_transformers_qwen35moe():
+    """Register qwen35moe GGUF architecture (Qwen3.5 MoE) with transformers."""
+    from transformers.integrations.ggml import (
+        GGUF_CONFIG_MAPPING,
+        GGUF_CONFIG_DEFAULTS_MAPPING,
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        TENSOR_PROCESSORS,
+        Qwen2MoeTensorProcessor,
+    )
+    from transformers.models.auto.configuration_auto import CONFIG_MAPPING
+    from transformers.models.qwen3_5_moe.configuration_qwen3_5_moe import (
+        Qwen3_5MoeConfig,
+    )
+
+    import numpy as _np
+
+    class Qwen35MoeTensorProcessor(Qwen2MoeTensorProcessor):
+        """Extends Qwen2MoeTensorProcessor with conv1d weight reshape for Qwen3.5 MoE SSM layers."""
+
+        def process(self, weights, name: str, **kwargs):
+            # GGUF stores ssm_conv1d.weight as [N, kernel] but HF expects [N, 1, kernel]
+            if "ssm_conv1d" in name and weights.ndim == 2:
+                weights = weights[:, _np.newaxis, :]
+            return super().process(weights, name, **kwargs)
+
+    arch = "qwen35moe"
+    if arch in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    qwen35moe_config_mapping = GGUF_CONFIG_MAPPING["qwen3_moe"].copy()
+    qwen35moe_config_mapping["full_attention_interval"] = "full_attention_interval"
+    GGUF_CONFIG_MAPPING[arch] = qwen35moe_config_mapping
+    GGUF_CONFIG_DEFAULTS_MAPPING[arch] = GGUF_CONFIG_DEFAULTS_MAPPING.get(
+        "qwen3_moe", {}
+    ).copy()
+    GGUF_TO_FAST_CONVERTERS[arch] = GGUFQwen2Converter
+    GGUF_SUPPORTED_ARCHITECTURES.append(arch)
+    TENSOR_PROCESSORS[arch] = Qwen35MoeTensorProcessor
+    CONFIG_MAPPING.register(arch, Qwen3_5MoeConfig, exist_ok=True)
+
+    import re as _re
+
+    _orig_get_gguf_hf_weights_map = _gguf_utils.get_gguf_hf_weights_map
+    _fused_gate_up_pattern = _re.compile(r"(blk\.\d+\.ffn_)gate_up(_exps.*)")
+
+    def _patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type in ("qwen3_5_moe", "qwen3_5_moe_text"):
+            model_type = arch
+        result = _orig_get_gguf_hf_weights_map(
+            hf_model, processor, model_type, num_layers, qual_name
+        )
+        # The GGUF file stores expert projections as separate gate/up tensors
+        # (ffn_gate_exps, ffn_up_exps), but the qwen35moe tensor name map assumes
+        # the fused format (ffn_gate_up_exps). Add the separate-format mappings so
+        # they can be loaded and merged into the fused HF parameter.
+        additions = {}
+        for key, hf_name in result.items():
+            m = _fused_gate_up_pattern.fullmatch(key)
+            if m:
+                additions[m.group(1) + "gate" + m.group(2)] = hf_name
+                additions[m.group(1) + "up" + m.group(2)] = hf_name
+        result.update(additions)
+        return result
+
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
+
+_patch_transformers_qwen35moe()
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
