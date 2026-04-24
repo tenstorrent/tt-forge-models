@@ -102,6 +102,20 @@ class ModelLoader(ForgeModel):
             PreTrainedModel.get_init_context = _orig_get_init_context
         model.eval()
 
+        # The XLM-Roberta text encoder explicitly casts tokens to float32 internally
+        # for numerical stability, causing text_embeds to be float32 while
+        # image_embeds stays bfloat16, which breaks torch.matmul in CLIP forward.
+        # Wrap get_text_features to cast its output back to the target dtype.
+        if dtype_override is not None:
+            _dtype = dtype_override
+            _orig_get_text_features = model.get_text_features
+
+            def _cast_text_features(*args, **kwargs):
+                result = _orig_get_text_features(*args, **kwargs)
+                return result.to(_dtype) if isinstance(result, torch.Tensor) else result
+
+            model.get_text_features = _cast_text_features
+
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
