@@ -36,6 +36,31 @@ GGUF_REPO = "gpustack/stable-diffusion-v2-1-turbo-GGUF"
 BASE_PIPELINE = "stabilityai/sd-turbo"
 
 
+def _dequantize_non_linear_gguf_params(model, dtype):
+    """Dequantize GGUF parameters in non-Linear modules (e.g. GroupNorm weights).
+
+    GGUFQuantizer only dequantizes GGUFLinear layers at inference time; other
+    layers (norm, bias, etc.) that happen to carry quantized GGUF params are
+    left as raw packed tensors, causing shape errors at runtime.  Walk the
+    model and eagerly dequantize those leftover params.
+    """
+    try:
+        from diffusers.quantizers.gguf.linear import GGUFLinear
+        from diffusers.quantizers.gguf.utils import dequantize_gguf_tensor
+    except ImportError:
+        return
+
+    for module in model.modules():
+        if isinstance(module, GGUFLinear):
+            continue
+        for name, param in list(module._parameters.items()):
+            if param is not None and hasattr(param, "quant_type"):
+                dequantized = dequantize_gguf_tensor(param).to(dtype)
+                module._parameters[name] = torch.nn.Parameter(
+                    dequantized, requires_grad=False
+                )
+
+
 class ModelVariant(StrEnum):
     """Available Stable Diffusion v2.1 Turbo GGUF variants."""
 
@@ -121,6 +146,8 @@ class ModelLoader(ForgeModel):
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
+
+        _dequantize_non_linear_gguf_params(unet, compute_dtype)
 
         self.pipeline = StableDiffusionPipeline.from_pretrained(
             BASE_PIPELINE,
