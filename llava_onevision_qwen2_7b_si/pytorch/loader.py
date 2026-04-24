@@ -76,7 +76,7 @@ class ModelLoader(ForgeModel):
         """Load and return the LLaVA-OneVision-Qwen2-7B-SI model instance."""
         model_name = self._variant_config.pretrained_model_name
         model = LlavaOnevisionForConditionalGeneration.from_pretrained(
-            str(model_name), **kwargs
+            str(model_name), ignore_mismatched_sizes=True, **kwargs
         )
         model.eval()
 
