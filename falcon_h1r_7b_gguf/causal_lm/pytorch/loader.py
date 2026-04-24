@@ -4,9 +4,16 @@
 """
 Falcon H1R 7B GGUF model loader implementation for causal language modeling.
 """
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import importlib.metadata
 from typing import Optional
+
+import torch
+import transformers.utils.import_utils as _tx_import_utils
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+
+_tx_import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+    importlib.metadata.packages_distributions()
+)
 
 from ....base import ForgeModel
 from ....config import (
