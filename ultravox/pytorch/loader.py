@@ -188,7 +188,29 @@ class ModelLoader(ForgeModel):
                 or fname.endswith(".model")
             ):
                 src = hf_hub_download(pretrained_model_name, fname)
-                shutil.copy2(src, os.path.join(tmpdir, fname))
+                dst = os.path.join(tmpdir, fname)
+                shutil.copy2(src, dst)
+
+                # transformers 5.x validates that audio_processor is a FeatureExtractionMixin,
+                # not a ProcessorMixin. Patch ultravox_processing.py to use WhisperFeatureExtractor
+                # instead of WhisperProcessor.
+                if fname == "ultravox_processing.py":
+                    with open(dst) as f:
+                        code = f.read()
+                    code = code.replace(
+                        'audio_processor_class = ("WhisperProcessor",)',
+                        'audio_processor_class = ("WhisperFeatureExtractor",)',
+                    )
+                    code = code.replace(
+                        "transformers.AutoProcessor.from_pretrained(",
+                        "transformers.AutoFeatureExtractor.from_pretrained(",
+                    )
+                    code = code.replace(
+                        "self.audio_processor.feature_extractor.hop_length",
+                        "self.audio_processor.hop_length",
+                    )
+                    with open(dst, "w") as f:
+                        f.write(code)
 
         self._patched_dir = tmpdir
         return tmpdir
@@ -228,9 +250,35 @@ class ModelLoader(ForgeModel):
             patched_dir, trust_remote_code=True
         )
 
+        # transformers 5.x removed _init_weights from modeling_utils. Set it to False so
+        # custom model code (e.g. ultravox_model.py) takes the architecture-only init path
+        # (init_empty_weights + from_config), letting transformers load weights from the
+        # checkpoint afterwards — as required when from_pretrained uses a meta device context.
+        if not hasattr(transformers.modeling_utils, "_init_weights"):
+            transformers.modeling_utils._init_weights = False
+
+        # transformers 5.x added recompute_mapping kwarg to the tie_weights() call in
+        # init_weights(). Patch the custom UltravoxModel class to accept **kwargs so it
+        # doesn't crash on older custom model code that doesn't have this parameter.
+        from transformers.dynamic_module_utils import get_class_from_dynamic_module
+
+        try:
+            ultravox_cls = get_class_from_dynamic_module(
+                "ultravox_model.UltravoxModel",
+                pretrained_model_name,
+                trust_remote_code=True,
+            )
+            if "recompute_mapping" not in str(
+                ultravox_cls.tie_weights.__code__.co_varnames
+            ):
+                _orig_tie = ultravox_cls.tie_weights
+                ultravox_cls.tie_weights = lambda self, **kwargs: _orig_tie(self)
+        except Exception:
+            pass
+
         model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = transformers.AutoModel.from_pretrained(
