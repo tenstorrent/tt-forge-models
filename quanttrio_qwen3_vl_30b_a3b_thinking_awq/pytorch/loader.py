@@ -7,6 +7,7 @@ QuantTrio Qwen3-VL-30B-A3B-Thinking AWQ model loader implementation for image to
 
 import gptqmodel  # noqa: F401 — must import before transformers enters init_empty_weights context
 from transformers import (
+    AutoConfig,
     Qwen3VLMoeForConditionalGeneration,
     AutoProcessor,
 )
@@ -93,6 +94,20 @@ class ModelLoader(ForgeModel):
             model_kwargs["device_map"] = "auto"
 
         model_kwargs |= kwargs
+
+        # Fix modules_to_not_convert: the model config uses bare names like 'visual'
+        # but named_modules() returns 'model.visual.*', so the prefix matching fails and
+        # gptqmodel incorrectly replaces vision MLP layers (intermediate_size=4304,
+        # 4304 % 32 != 0) causing an assertion error in convert_weight_packed_zp.
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        if hasattr(config, "quantization_config") and hasattr(
+            config.quantization_config, "modules_to_not_convert"
+        ):
+            config.quantization_config.modules_to_not_convert = [
+                f"model.{m}" if not m.startswith("model.") else m
+                for m in config.quantization_config.modules_to_not_convert
+            ]
+        model_kwargs["config"] = config
 
         # AWQ repos may not ship a processor; fall back to the base model
         self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-30B-A3B-Thinking")
