@@ -75,7 +75,43 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    @staticmethod
+    def _apply_gguf_compat_patches():
+        """Patch load_gguf_checkpoint and get_gguf_hf_weights_map to accept/handle
+        newer transformers kwargs (e.g. model_to_load) that older monkey-patches
+        in the test session drop silently, breaking the call chain."""
+        import inspect
+        import transformers.modeling_gguf_pytorch_utils as _gguf_mod
+
+        chain_top = _gguf_mod.load_gguf_checkpoint
+        try:
+            needs_compat = (
+                "model_to_load" not in inspect.signature(chain_top).parameters
+            )
+        except Exception:
+            needs_compat = False
+
+        if not needs_compat:
+            return
+
+        def _compat_load_gguf(gguf_path, return_tensors=False, **kw):
+            kw.pop("model_to_load", None)
+            return chain_top(gguf_path, return_tensors=return_tensors, **kw)
+
+        orig_get_map = _gguf_mod.get_gguf_hf_weights_map
+
+        def _compat_get_map(
+            hf_model, processor, model_type=None, num_layers=None, qual_name=""
+        ):
+            if hf_model is None:
+                return {}
+            return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+        _gguf_mod.load_gguf_checkpoint = _compat_load_gguf
+        _gguf_mod.get_gguf_hf_weights_map = _compat_get_map
+
     def load_model(self, *, dtype_override=None, **kwargs):
+        self._apply_gguf_compat_patches()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
