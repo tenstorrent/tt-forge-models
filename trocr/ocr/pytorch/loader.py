@@ -6,7 +6,6 @@ TrOCR model loader implementation for optical character recognition tasks.
 """
 from transformers import TrOCRProcessor, VisionEncoderDecoderModel
 from PIL import Image
-import requests
 from typing import Optional
 
 from ....base import ForgeModel
@@ -88,8 +87,7 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        url = "https://fki.tic.heia-fr.ch/static/img/a01-122-02-00.jpg"
-        image = Image.open(requests.get(url, stream=True).raw).convert("RGB")
+        image = Image.new("RGB", (384, 64), color=(255, 255, 255))
 
         pixel_values = self.processor(images=image, return_tensors="pt").pixel_values
 
