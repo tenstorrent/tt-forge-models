@@ -94,7 +94,9 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = LlamaForCausalLM.from_pretrained(pretrained_model_name, **model_kwargs)
+        model = LlamaForCausalLM.from_pretrained(
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
+        )
 
         return model
 
