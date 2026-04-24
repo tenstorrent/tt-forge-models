@@ -6,9 +6,12 @@ Jina Embeddings v5 Text Nano Text Matching GGUF model loader implementation for 
 """
 import torch
 import torch.nn.functional as F
-from huggingface_hub import hf_hub_download
 from transformers import AutoModel, AutoTokenizer
 from typing import Optional
+
+# Source of modeling_eurobert.py and config.json with auto_map; the GGUF repo
+# has no config.json or model code so we pull class definitions from here.
+_EUROBERT_BASE_MODEL = "jinaai/jina-embeddings-v5-text-nano-text-matching"
 
 
 def _patch_transformers_eurobert_gguf():
@@ -16,9 +19,10 @@ def _patch_transformers_eurobert_gguf():
 
     Transformers lacks GGUF loading support for the eurobert architecture.
     EuroBERT inherits from LlamaConfig/LlamaModel, so we reuse the llama
-    config key mapping and tensor processor.
+    config key mapping and tensor processor.  We also register the EuroBERT
+    config and model classes with the Auto factories so they are resolved by
+    model_type without requiring an auto_map entry in the checkpoint.
     """
-    import transformers.modeling_gguf_pytorch_utils as gguf_utils
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
         GGUF_TO_TRANSFORMERS_MAPPING,
@@ -56,6 +60,27 @@ def _patch_transformers_eurobert_gguf():
     if "eurobert" not in TENSOR_PROCESSORS:
         TENSOR_PROCESSORS["eurobert"] = LlamaTensorProcessor
 
+    # 5. Register EuroBERT config and model classes with the Auto factories.
+    # The GGUF repo has no config.json so there's no auto_map; downloading the
+    # class definitions from the base model and registering them lets AutoConfig
+    # and AutoModel resolve "eurobert" model_type without trust_remote_code lookups
+    # against the GGUF repo.
+    from transformers import AutoConfig, AutoModel
+    from transformers.dynamic_module_utils import get_class_from_dynamic_module
+
+    config_class = get_class_from_dynamic_module(
+        "configuration_eurobert.EuroBertConfig",
+        _EUROBERT_BASE_MODEL,
+        trust_remote_code=True,
+    )
+    model_class = get_class_from_dynamic_module(
+        "modeling_eurobert.EuroBertModel",
+        _EUROBERT_BASE_MODEL,
+        trust_remote_code=True,
+    )
+    AutoConfig.register("eurobert", config_class, exist_ok=True)
+    AutoModel.register(config_class, model_class, exist_ok=True)
+
 
 _patch_transformers_eurobert_gguf()
 
@@ -92,10 +117,6 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "v5-nano-text-matching-Q4_K_M.gguf"
 
-    # Base model provides config.json with auto_map for the custom EuroBERT class;
-    # the GGUF repo has no config.json so trust_remote_code alone is not enough.
-    BASE_MODEL = "jinaai/jina-embeddings-v5-text-nano-text-matching"
-
     sample_sentences = [
         "Jina Embeddings v5 is a multilingual text embedding model for text matching"
     ]
@@ -119,39 +140,27 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        gguf_local_path = hf_hub_download(
-            repo_id=self._variant_config.pretrained_model_name,
-            filename=self.GGUF_FILE,
-        )
-
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = gguf_local_path
+        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self.BASE_MODEL, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
 
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        # Download GGUF file to local cache; pass the local path so that
-        # from_pretrained can load model code from BASE_MODEL (which has
-        # modeling_eurobert.py) while using GGUF weights from the GGUF repo.
-        gguf_local_path = hf_hub_download(
-            repo_id=self._variant_config.pretrained_model_name,
-            filename=self.GGUF_FILE,
-        )
+        pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = gguf_local_path
-        model_kwargs["trust_remote_code"] = True
+        model_kwargs["gguf_file"] = self.GGUF_FILE
 
-        model = AutoModel.from_pretrained(self.BASE_MODEL, **model_kwargs)
+        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
 
         return model
