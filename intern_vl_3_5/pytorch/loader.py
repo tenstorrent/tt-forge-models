@@ -223,7 +223,16 @@ class ModelLoader(ForgeModel):
         The upstream code calls torch.linspace(...).item() during __init__, which
         fails when torch.device('meta') is the active default device.
         """
-        AutoConfig.from_pretrained(pretrained_model_name, trust_remote_code=True)
+        from transformers.dynamic_module_utils import get_class_from_dynamic_module
+
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        auto_map = getattr(config, "auto_map", {})
+        model_cls_ref = auto_map.get("AutoModel", None)
+        if model_cls_ref:
+            get_class_from_dynamic_module(model_cls_ref, pretrained_model_name)
+
         for mod_name, module in sys.modules.items():
             if "transformers_modules" in mod_name and "modeling_intern_vit" in mod_name:
                 if not hasattr(module, "InternVisionEncoder"):
