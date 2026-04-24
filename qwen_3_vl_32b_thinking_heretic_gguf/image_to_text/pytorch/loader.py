@@ -70,6 +70,10 @@ def _patch_transformers_qwen3vl_gguf():
             model_type = hf_model.config.model_type
         if model_type == "qwen3_vl":
             model_type = "qwen3vl"
+            if num_layers is None:
+                cfg = hf_model.config
+                text_cfg = getattr(cfg, "text_config", cfg)
+                num_layers = text_cfg.num_hidden_layers
         return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
