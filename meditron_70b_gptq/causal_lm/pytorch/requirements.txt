@@ -1,2 +1,8 @@
 optimum
-gptqmodel
+logbar
+defuser
+device-smi
+kernels
+maturin
+pypcre
+tokenicer
