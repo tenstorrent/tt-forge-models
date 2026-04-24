@@ -58,9 +58,17 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import torch
         from transformers import BertModel
 
-        model = BertModel.from_pretrained(self.model_name)
+        # The model's .bin file uses pickle protocol 4 (FRAME opcode) which is
+        # unsupported by PyTorch 2.6+ weights_only=True unpickler.
+        _orig_load = torch.load
+        torch.load = lambda *a, **kw: _orig_load(*a, **{**kw, "weights_only": False})
+        try:
+            model = BertModel.from_pretrained(self.model_name)
+        finally:
+            torch.load = _orig_load
 
         if dtype_override is not None:
             model = model.to(dtype_override)
