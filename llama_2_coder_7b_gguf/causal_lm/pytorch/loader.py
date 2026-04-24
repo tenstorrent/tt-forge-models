@@ -5,9 +5,16 @@
 TheBloke Llama 2 Coder 7B GGUF model loader implementation for causal language modeling.
 """
 
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import importlib.metadata
+import inspect
 from typing import Optional
+
+import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tok
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 
 from ....base import ForgeModel
 from ....config import (
@@ -21,6 +28,64 @@ from ....config import (
 )
 
 
+def _unwrap_to_real_load_gguf_checkpoint():
+    """Walk the monkey-patch chain to find the real transformers load_gguf_checkpoint."""
+    fn = _gguf_utils.load_gguf_checkpoint
+    visited = set()
+    while fn is not None and id(fn) not in visited:
+        visited.add(id(fn))
+        try:
+            if "model_to_load" in inspect.signature(fn).parameters:
+                return fn
+        except (TypeError, ValueError):
+            pass
+        next_fn = None
+        if hasattr(fn, "__code__") and fn.__closure__ and fn.__code__.co_freevars:
+            for name, cell in zip(fn.__code__.co_freevars, fn.__closure__):
+                try:
+                    val = cell.cell_contents
+                except ValueError:
+                    continue
+                if not callable(val) or id(val) in visited:
+                    continue
+                if any(k in name.lower() for k in ("orig", "load")):
+                    next_fn = val
+                    break
+                if next_fn is None:
+                    next_fn = val
+        if next_fn is None and hasattr(fn, "__globals__") and hasattr(fn, "__code__"):
+            for name in fn.__code__.co_names:
+                if not any(k in name.lower() for k in ("orig", "load")):
+                    continue
+                val = fn.__globals__.get(name)
+                if val is None or not callable(val) or id(val) in visited:
+                    continue
+                next_fn = val
+                break
+        if next_fn is None:
+            break
+        fn = next_fn
+    return None
+
+
+def _apply_model_to_load_compat():
+    real_fn = _unwrap_to_real_load_gguf_checkpoint()
+    if real_fn is not None:
+        _gguf_utils.load_gguf_checkpoint = real_fn
+        for _mod in (_config_utils, _auto_tok, _tok_utils):
+            _mod.load_gguf_checkpoint = real_fn
+    else:
+        fn = _gguf_utils.load_gguf_checkpoint
+        if "model_to_load" not in inspect.signature(fn).parameters:
+
+            def _wrapper(gguf_path, return_tensors=False, model_to_load=None):
+                return fn(gguf_path, return_tensors=return_tensors)
+
+            _gguf_utils.load_gguf_checkpoint = _wrapper
+            for _mod in (_config_utils, _auto_tok, _tok_utils):
+                _mod.load_gguf_checkpoint = _wrapper
+
+
 class ModelVariant(StrEnum):
     """Available Llama 2 Coder 7B GGUF model variants for causal language modeling."""
 
@@ -29,6 +94,24 @@ class ModelVariant(StrEnum):
 
 class ModelLoader(ForgeModel):
     """TheBloke Llama 2 Coder 7B GGUF model loader implementation for causal language modeling tasks."""
+
+    @staticmethod
+    def _fix_gguf_version_detection():
+        """Fix gguf version detection when installed at runtime by RequirementsManager.
+
+        transformers caches PACKAGE_DISTRIBUTION_MAPPING at import time. When gguf
+        is installed later, the mapping is stale and version detection falls back to
+        gguf.__version__ which doesn't exist, yielding 'N/A' and crashing version.parse.
+        """
+        import transformers.utils.import_utils as _import_utils
+
+        if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+            try:
+                importlib.metadata.version("gguf")
+                _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+                _import_utils.is_gguf_available.cache_clear()
+            except importlib.metadata.PackageNotFoundError:
+                pass
 
     _VARIANTS = {
         ModelVariant.LLAMA_2_CODER_7B_GGUF: LLMModelConfig(
@@ -67,6 +150,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        self._fix_gguf_version_detection()
+        _apply_model_to_load_compat()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -130,6 +215,8 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
+        self._fix_gguf_version_detection()
+        _apply_model_to_load_compat()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
