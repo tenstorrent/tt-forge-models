@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List
 
 import torch.nn as nn
 from peft import LoraConfig, get_peft_model

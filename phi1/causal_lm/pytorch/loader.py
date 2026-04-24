@@ -19,10 +19,9 @@ from ....config import (
     StrEnum,
 )
 from ....tools.utils import (
-    cast_input_to_type,
     get_static_cache_decode_inputs,
 )
-from ....tools.prefill_inputs import get_prefill_texts_for_batch, PREFILL_TEXTS
+from ....tools.prefill_inputs import PrefillInputsMixin
 
 
 class ModelVariant(StrEnum):
@@ -31,7 +30,7 @@ class ModelVariant(StrEnum):
     PHI1 = "Phi_1"
 
 
-class ModelLoader(ForgeModel):
+class ModelLoader(ForgeModel, PrefillInputsMixin):
     """PHI1 model loader implementation for causal language modeling tasks."""
 
     # Dictionary of available model variants using structured configs
@@ -63,6 +62,7 @@ class ModelLoader(ForgeModel):
         self.num_layers = num_layers
         self.model = None
         self.config = None
+        self.seq_len = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -165,32 +165,6 @@ class ModelLoader(ForgeModel):
             max_cache_len=max_cache_len,
             dtype=dtype_override,
         )
-
-    def load_inputs_prefill(self, dtype_override=None, batch_size=1, seq_len=128):
-        """Load prefill-step inputs padded to seq_len."""
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
-
-        if seq_len not in PREFILL_TEXTS:
-            available = sorted(PREFILL_TEXTS.keys())
-            raise ValueError(
-                f"seq_len={seq_len} is not supported. Available sequence lengths: {available}"
-            )
-        texts = get_prefill_texts_for_batch(seq_len, batch_size)
-
-        inputs = self.tokenizer(
-            texts,
-            return_tensors="pt",
-            padding="max_length",
-            truncation=True,
-            max_length=seq_len,
-        )
-
-        if dtype_override is not None:
-            for key in inputs:
-                inputs[key] = cast_input_to_type(inputs[key], dtype_override)
-
-        return inputs
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the PHI1 model with this instance's variant settings.
