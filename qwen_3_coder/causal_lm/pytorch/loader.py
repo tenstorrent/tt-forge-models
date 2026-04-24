@@ -171,6 +171,7 @@ class ModelLoader(ForgeModel):
         # AWQ variants: load on CPU with quantization_config removed
         # so that weights are loaded as plain tensors.
         is_awq = pretrained_model_name == "stelterlab/Qwen3-Coder-30B-A3B-Instruct-AWQ"
+        is_mlx = "mlx-community" in pretrained_model_name
         if is_awq:
             model_kwargs["device_map"] = "cpu"
             config = AutoConfig.from_pretrained(pretrained_model_name)
@@ -178,16 +179,19 @@ class ModelLoader(ForgeModel):
                 config.num_hidden_layers = self.num_layers
             delattr(config, "quantization_config")
             model_kwargs["config"] = config
-        elif self.num_layers is not None:
+        elif is_mlx or self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
-            if hasattr(config, "text_config"):
-                config.text_config.num_hidden_layers = self.num_layers
-                if hasattr(config.text_config, "layer_types"):
-                    config.text_config.layer_types = config.text_config.layer_types[
-                        : self.num_layers
-                    ]
-            else:
-                config.num_hidden_layers = self.num_layers
+            if self.num_layers is not None:
+                if hasattr(config, "text_config"):
+                    config.text_config.num_hidden_layers = self.num_layers
+                    if hasattr(config.text_config, "layer_types"):
+                        config.text_config.layer_types = config.text_config.layer_types[
+                            : self.num_layers
+                        ]
+                else:
+                    config.num_hidden_layers = self.num_layers
+            if is_mlx and hasattr(config, "quantization_config"):
+                delattr(config, "quantization_config")
             model_kwargs["config"] = config
 
         model_kwargs |= kwargs
