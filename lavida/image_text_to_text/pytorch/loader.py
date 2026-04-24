@@ -85,12 +85,13 @@ class ModelLoader(ForgeModel):
         # transformers 5.x wraps model __init__ in torch.device("meta"), which breaks
         # lavida's vision tower that calls from_pretrained inside __init__. Patch
         # check_and_set_device_map to return "cpu" instead of raising in that case.
-        import transformers.integrations.accelerate as _t_accel
+        # Must patch in modeling_utils (where it's imported by name), not in accelerate.
+        import transformers.modeling_utils as _t_modeling
         from transformers.modeling_utils import (
             get_torch_context_manager_or_global_device,
         )
 
-        _orig_check = _t_accel.check_and_set_device_map
+        _orig_check = _t_modeling.check_and_set_device_map
 
         def _patched_check(device_map):
             if (
@@ -100,13 +101,13 @@ class ModelLoader(ForgeModel):
                 return "cpu"
             return _orig_check(device_map)
 
-        _t_accel.check_and_set_device_map = _patched_check
+        _t_modeling.check_and_set_device_map = _patched_check
         try:
             model = AutoModelForCausalLM.from_pretrained(
                 pretrained_model_name, **model_kwargs
             )
         finally:
-            _t_accel.check_and_set_device_map = _orig_check
+            _t_modeling.check_and_set_device_map = _orig_check
         model.resize_token_embeddings(len(self.tokenizer))
         model.tie_weights()
         model.eval()
