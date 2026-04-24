@@ -7,7 +7,6 @@ Helper functions for loading GGUF-quantized SDXL-based pony models.
 
 import torch
 from diffusers import (
-    GGUFQuantizationConfig,
     StableDiffusionXLPipeline,
     UNet2DConditionModel,
 )
@@ -18,6 +17,68 @@ from huggingface_hub import hf_hub_download
 from typing import Optional, Tuple
 
 SDXL_BASE_REPO = "stabilityai/stable-diffusion-xl-base-1.0"
+ORIG_SHAPE_PREFIX = "comfy.gguf.orig_shape."
+
+
+def _load_comfy_gguf_unet_state_dict(gguf_path: str) -> dict:
+    """Load a ComfyUI-style GGUF UNet checkpoint and return a plain float32 state dict.
+
+    ComfyUI GGUF files store all weights as 2D matrices for block-aligned
+    quantization and record the original multi-dimensional shapes in
+    ``comfy.gguf.orig_shape.*`` metadata.  This function dequantizes Q4_0
+    tensors to float32, reshapes every tensor to its recorded original shape,
+    and returns a dict with the ``model.diffusion_model.`` prefix required by
+    ``convert_ldm_unet_checkpoint`` in diffusers.
+    """
+    try:
+        import gguf as gguf_lib
+        from diffusers.quantizers.gguf.utils import (
+            GGUFParameter,
+            dequantize_gguf_tensor,
+        )
+    except ImportError as e:
+        raise ImportError("Install `gguf>=0.10.0` to load GGUF checkpoints.") from e
+
+    reader = gguf_lib.GGUFReader(gguf_path)
+
+    # Parse original PyTorch shapes stored by ComfyUI.
+    # parts layout: [key_len][key_bytes][kv_type][val_type][ndims][dim0 dim1 ...]
+    orig_shapes = {}
+    for field_name, field in reader.fields.items():
+        if not field_name.startswith(ORIG_SHAPE_PREFIX):
+            continue
+        tensor_name = field_name[len(ORIG_SHAPE_PREFIX) :]
+        n_dims = int(field.parts[4][0])
+        dims = [int(field.parts[5 + i][0]) for i in range(n_dims)]
+        orig_shapes[tensor_name] = tuple(dims)
+
+    float_types = {
+        gguf_lib.GGMLQuantizationType.F32,
+        gguf_lib.GGMLQuantizationType.F16,
+        gguf_lib.GGMLQuantizationType.BF16,
+    }
+
+    state_dict = {}
+    for tensor in reader.tensors:
+        name = tensor.name
+        quant_type = tensor.tensor_type
+
+        raw = torch.from_numpy(tensor.data.copy())
+
+        if quant_type in float_types:
+            data = raw
+        else:
+            # Dequantize to float32 using diffusers' gguf utilities.
+            param = GGUFParameter(raw, quant_type=quant_type)
+            data = dequantize_gguf_tensor(param).to(torch.float32)
+
+        if name in orig_shapes:
+            data = data.reshape(orig_shapes[name])
+
+        # Add the prefix expected by convert_ldm_unet_checkpoint.
+        state_dict["model.diffusion_model." + name] = data
+
+    return state_dict
 
 
 def load_pony_gguf_pipe(repo_id: str, gguf_filename: str):
@@ -32,14 +93,16 @@ def load_pony_gguf_pipe(repo_id: str, gguf_filename: str):
     """
     model_path = hf_hub_download(repo_id=repo_id, filename=gguf_filename)
 
-    quantization_config = GGUFQuantizationConfig(compute_dtype=torch.float32)
+    # Dequantize and reshape all GGUF tensors to their original PyTorch shapes.
+    checkpoint = _load_comfy_gguf_unet_state_dict(model_path)
 
     # GGUF files for SDXL contain only UNet weights; load text encoders and VAE
     # from the base SDXL model.
     unet = UNet2DConditionModel.from_single_file(
-        model_path,
-        quantization_config=quantization_config,
+        checkpoint,
         torch_dtype=torch.float32,
+        config=SDXL_BASE_REPO,
+        subfolder="unet",
     )
 
     pipe = StableDiffusionXLPipeline.from_pretrained(
