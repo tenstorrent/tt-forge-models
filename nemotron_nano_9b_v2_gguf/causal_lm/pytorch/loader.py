@@ -4,8 +4,18 @@
 """
 NVIDIA Nemotron Nano 9B v2 GGUF model loader implementation for causal language modeling.
 """
+import inspect
+
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 from typing import Optional
 
 from ....base import ForgeModel
@@ -18,6 +28,104 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_nemotron_h_support():
+    """Register nemotron_h GGUF architecture to load as NemotronH (hybrid Mamba2+Attention)."""
+    if "nemotron_h" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+    GGUF_SUPPORTED_ARCHITECTURES.append("nemotron_h")
+
+    _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]["nemotron_h"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": None,
+        "embedding_length": "hidden_size",
+        "feed_forward_length": "intermediate_size",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": None,
+        "attention.key_length": "head_dim",
+        "attention.value_length": None,
+        "attention.layer_norm_rms_epsilon": "layer_norm_epsilon",
+        "attention.layer_norm_epsilon": "layer_norm_epsilon",
+        "rope.freq_base": None,
+        "rope.dimension_count": None,
+        "rope.scaling.finetuned": None,
+        "ssm.conv_kernel": "conv_kernel",
+        "ssm.state_size": "ssm_state_size",
+        "ssm.group_count": "n_groups",
+        "ssm.inner_size": None,
+        "ssm.time_step_rank": None,
+        "vocab_size": "vocab_size",
+    }
+
+    if "gpt2" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["nemotron_h"] = GGUF_TO_FAST_CONVERTERS["gpt2"]
+
+
+def _derive_nemotron_h_layer_info(gguf_path):
+    """Scan GGUF tensor names to build layers_block_type and derive num_key_value_heads."""
+    from gguf import GGUFReader
+
+    reader = GGUFReader(gguf_path, "r")
+    layer_keys = {}
+    kv_dim = None
+
+    for tensor in reader.tensors:
+        name = tensor.name
+        if name.startswith("blk."):
+            parts = name.split(".")
+            block_num = int(parts[1])
+            key = parts[2] if len(parts) > 2 else ""
+            if block_num not in layer_keys:
+                layer_keys[block_num] = set()
+            layer_keys[block_num].add(key)
+            if key == "attn_k" and kv_dim is None:
+                # GGUF stores weights transposed: shape=[in, out]; out=kv_dim
+                kv_dim = int(tensor.shape[1])
+
+    layers_block_type = []
+    for block_num in sorted(layer_keys.keys()):
+        keys = layer_keys[block_num]
+        if "ssm_conv1d" in keys or "ssm_a" in keys:
+            layers_block_type.append("mamba")
+        elif "attn_q" in keys and "ffn_gate_inp" not in keys:
+            layers_block_type.append("attention")
+        elif "ffn_gate_inp" in keys or "ffn_down_exps" in keys:
+            layers_block_type.append("moe")
+        else:
+            layers_block_type.append("mlp")
+
+    return layers_block_type, kv_dim
+
+
+def _patched_load_gguf_checkpoint(
+    gguf_path, return_tensors=False, model_to_load=None, torch_dtype=None
+):
+    """Wrap load_gguf_checkpoint to add nemotron_h support."""
+    _patch_nemotron_h_support()
+    kwargs = {"return_tensors": return_tensors, "model_to_load": model_to_load}
+    sig = inspect.signature(_orig_load_gguf_checkpoint)
+    if "torch_dtype" in sig.parameters:
+        kwargs["torch_dtype"] = torch_dtype
+    result = _orig_load_gguf_checkpoint(gguf_path, **kwargs)
+
+    if result.get("config", {}).get("model_type") == "nemotron_h":
+        layers_block_type, kv_dim = _derive_nemotron_h_layer_info(gguf_path)
+        result["config"]["layers_block_type"] = layers_block_type
+        if kv_dim is not None:
+            head_dim = result["config"].get("head_dim", 128)
+            result["config"]["num_key_value_heads"] = kv_dim // head_dim
+
+    return result
+
+
+_patch_nemotron_h_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 
 
 class ModelVariant(StrEnum):
@@ -61,7 +169,15 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _reapply_patches(self):
+        """Re-apply GGUF patches so our function is the active one at call time."""
+        _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
     def _load_tokenizer(self, dtype_override=None):
+        self._reapply_patches()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -76,6 +192,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        self._reapply_patches()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -136,6 +253,7 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
+        self._reapply_patches()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
