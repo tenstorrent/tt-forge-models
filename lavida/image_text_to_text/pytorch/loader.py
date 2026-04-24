@@ -214,9 +214,9 @@ class ModelLoader(ForgeModel):
         image = Image.open(image_file).convert("RGB")
 
         vision_tower = self.model.get_vision_tower()
-        pixel_values = vision_tower.image_processor(images=image, return_tensors="pt")[
-            "pixel_values"
-        ]
+        pixel_values = vision_tower.image_processor.preprocess(
+            images=image, return_tensors="pt"
+        )["pixel_values"]
 
         if dtype_override is not None:
             pixel_values = pixel_values.to(dtype_override)
