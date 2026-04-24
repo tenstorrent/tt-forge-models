@@ -26,10 +26,15 @@ class ModelLoader(_GemmaModelLoader):
         ),
     }
 
-    def load_model(self, **kwargs):
-        model = super().load_model(**kwargs)
+    def load_model(self, *, dtype_override=None, **kwargs):
+        model = super().load_model(dtype_override=dtype_override, **kwargs)
         config = self._LORA_CONFIGS.get(self._variant, _DEFAULT_LORA_CONFIG)
-        return apply_lora_adapters(model, config)
+        model = apply_lora_adapters(model, config)
+        # PEFT initializes lora_A/lora_B as float32 regardless of the base model dtype.
+        # Cast the whole model so all adapters match the requested dtype.
+        if dtype_override is not None:
+            model = model.to(dtype_override)
+        return model
 
     @classmethod
     def _get_model_info(cls, variant=None):
