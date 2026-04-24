@@ -49,11 +49,13 @@ LORA_1_3B_MPS = "Wan2.1-Fun-1.3B-InP-MPS.safetensors"
 LORA_14B_HPS21 = "Wan2.1-Fun-14B-InP-HPS2.1.safetensors"
 LORA_14B_MPS = "Wan2.1-Fun-14B-InP-MPS.safetensors"
 
-# Transformer input dimensions for Wan2.1-T2V base
+# Transformer input dimensions for Wan2.1-T2V base.
+# hidden_states expected shape: (batch, in_channels, num_frames, height, width).
+# patch_size=[1,2,2] so height/width must be even.
 _TRANSFORMER_IN_CHANNELS = 16
+_LATENT_NUM_FRAMES = 2
 _LATENT_HEIGHT = 4
 _LATENT_WIDTH = 4
-_LATENT_DEPTH = 2
 _TEXT_HIDDEN_DIM = 4096
 _TEXT_SEQ_LEN = 8
 
@@ -163,10 +165,14 @@ class ModelLoader(ForgeModel):
         """
         dtype = kwargs.get("dtype_override", torch.bfloat16)
         batch_size = 1
-        seq_len = _LATENT_DEPTH * _LATENT_HEIGHT * _LATENT_WIDTH
 
         hidden_states = torch.randn(
-            batch_size, seq_len, _TRANSFORMER_IN_CHANNELS, dtype=dtype
+            batch_size,
+            _TRANSFORMER_IN_CHANNELS,
+            _LATENT_NUM_FRAMES,
+            _LATENT_HEIGHT,
+            _LATENT_WIDTH,
+            dtype=dtype,
         )
         encoder_hidden_states = torch.randn(
             batch_size, _TEXT_SEQ_LEN, _TEXT_HIDDEN_DIM, dtype=dtype
