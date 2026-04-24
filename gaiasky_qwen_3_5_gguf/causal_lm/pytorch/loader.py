@@ -4,8 +4,19 @@
 """
 Gaiasky Qwen 3.5 GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+import transformers.utils.import_utils as _transformers_import_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 from typing import Optional
 
 from ....base import ForgeModel
@@ -18,6 +29,50 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_qwen35_support():
+    """Register qwen35 architecture as an alias for qwen3 and fix gguf version detection.
+
+    Qwen 3.5 GGUF files declare architecture as 'qwen35' and tokenizer class as
+    'qwen3_5_text', which transformers 5.x does not yet recognise. Also refreshes
+    PACKAGE_DISTRIBUTION_MAPPING so is_gguf_available() works when gguf is installed
+    via RequirementsManager after transformers has already been imported.
+    """
+    # Refresh distribution mapping so gguf installed after transformers import is detected
+    _transformers_import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+        importlib.metadata.packages_distributions()
+    )
+    _transformers_import_utils.is_gguf_available.cache_clear()
+
+    if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "qwen35",
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
+            )
+    if "qwen3" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "qwen3_5_text", GGUF_TO_FAST_CONVERTERS["qwen3"]
+        )
+
+
+def _patched_load_gguf_checkpoint(*args, **kwargs):
+    _patch_qwen35_support()
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
+    if result.get("config", {}).get("model_type") == "qwen35":
+        result["config"]["model_type"] = "qwen3"
+    return result
+
+
+_patch_qwen35_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
