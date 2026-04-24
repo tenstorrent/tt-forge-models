@@ -75,7 +75,78 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    @staticmethod
+    def _find_real_load_gguf_checkpoint(fn, max_depth=100):
+        """Traverse monkey-patch closure chain to find the original transformers function.
+
+        Many GGUF loaders patch load_gguf_checkpoint with a 2-param signature that drops
+        model_to_load. This traverses closures until it finds the real implementation.
+        """
+        seen = set()
+        current = fn
+        for _ in range(max_depth):
+            fn_id = id(current)
+            if fn_id in seen:
+                break
+            seen.add(fn_id)
+            mod = getattr(current, "__module__", "") or ""
+            qualname = getattr(current, "__qualname__", "") or ""
+            if (
+                "modeling_gguf_pytorch_utils" in mod
+                and qualname == "load_gguf_checkpoint"
+            ):
+                return current
+            code = getattr(current, "__code__", None)
+            closure = getattr(current, "__closure__", None)
+            if not code or not closure:
+                break
+            freevars = list(code.co_freevars)
+            next_fn = None
+            for name in ("_orig_load_gguf_checkpoint", "orig_load", "_orig_load"):
+                if name in freevars:
+                    idx = freevars.index(name)
+                    if idx < len(closure):
+                        try:
+                            val = closure[idx].cell_contents
+                            if callable(val):
+                                next_fn = val
+                                break
+                        except ValueError:
+                            pass
+            if next_fn is None:
+                for i, name in enumerate(freevars):
+                    if i >= len(closure):
+                        break
+                    try:
+                        val = closure[i].cell_contents
+                        if callable(val) and not isinstance(val, type):
+                            next_fn = val
+                            break
+                    except ValueError:
+                        pass
+            if next_fn is None:
+                break
+            current = next_fn
+        return current
+
     def load_model(self, *, dtype_override=None, **kwargs):
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+        # Bypass the broken monkey-patch chain (many loaders patch with old 2-param
+        # signature that drops model_to_load); call the real function directly.
+        _real_load = self._find_real_load_gguf_checkpoint(
+            _gguf_utils.load_gguf_checkpoint
+        )
+
+        def _direct_load_gguf_checkpoint(
+            gguf_path, return_tensors=False, model_to_load=None
+        ):
+            return _real_load(
+                gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
+            )
+
+        _gguf_utils.load_gguf_checkpoint = _direct_load_gguf_checkpoint
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
