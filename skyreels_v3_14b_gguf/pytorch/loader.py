@@ -115,9 +115,9 @@ class ModelLoader(ForgeModel):
             GGUFQuantizationConfig,
             WanTransformer3DModel,
         )
-        import diffusers.models.model_loading_utils as _mlu
+        import diffusers.loaders.single_file_model as _sfm
 
-        _orig_load = _mlu.load_model_dict_into_meta
+        _orig_load = _sfm.load_model_dict_into_meta
 
         def _patched_load(model, state_dict, **kwargs):
             # GGUF stores scale_shift_table as [6, dim] but model expects [1, 6, dim]
@@ -126,7 +126,7 @@ class ModelLoader(ForgeModel):
                     state_dict[key] = state_dict[key].unsqueeze(0)
             return _orig_load(model, state_dict, **kwargs)
 
-        _mlu.load_model_dict_into_meta = _patched_load
+        _sfm.load_model_dict_into_meta = _patched_load
         try:
             compute_dtype = (
                 dtype_override if dtype_override is not None else torch.bfloat16
@@ -141,7 +141,7 @@ class ModelLoader(ForgeModel):
                 torch_dtype=compute_dtype,
             )
         finally:
-            _mlu.load_model_dict_into_meta = _orig_load
+            _sfm.load_model_dict_into_meta = _orig_load
 
         return self._transformer
 
