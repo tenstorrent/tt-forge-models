@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import cv2
 import numpy as np
+import soundfile as sf
 import torch
 import torchaudio
 from torchvision import transforms
@@ -17,12 +18,13 @@ def make_list_of_images(x):
     return x
 
 
-if hasattr(torchaudio, "set_audio_backend"):
-    torchaudio.set_audio_backend("soundfile")
-
-
 def torchaudio_loader(path):
-    return torchaudio.load(path)
+    data, sr = sf.read(path, dtype="float32")
+    if data.ndim == 1:
+        data = data.reshape(1, -1)
+    else:
+        data = data.T
+    return torch.from_numpy(data), sr
 
 
 def int16_to_float32_torch(x):
