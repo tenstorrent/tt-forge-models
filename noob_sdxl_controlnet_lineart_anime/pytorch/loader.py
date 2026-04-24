@@ -107,6 +107,8 @@ class ModelLoader(ForgeModel):
             self.pipeline, self.prompt, control_image
         )
 
+        latent_model_input = latent_model_input.float()
+        prompt_embeds = prompt_embeds.float()
         timestep = timesteps[0].float()
 
         if dtype_override:
