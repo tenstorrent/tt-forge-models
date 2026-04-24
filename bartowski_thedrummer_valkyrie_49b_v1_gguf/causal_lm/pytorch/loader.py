@@ -9,6 +9,36 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
+
+
+def _patch_transformers_for_deci():
+    """Register 'deci' model type in transformers AUTO mappings (missing from transformers 5.x).
+
+    DeciLM uses variable GQA where num_attention_heads/num_key_value_heads/intermediate_size
+    are stored as per-layer lists in the GGUF file. DeciConfig normalizes these to scalars.
+    """
+    from transformers.models.auto.configuration_auto import CONFIG_MAPPING
+    from transformers.models.auto.modeling_auto import MODEL_FOR_CAUSAL_LM_MAPPING
+    from transformers.models.llama import LlamaConfig, LlamaForCausalLM
+
+    class DeciConfig(LlamaConfig):
+        model_type = "deci"
+
+        def __init__(self, **kwargs):
+            for key in (
+                "num_attention_heads",
+                "num_key_value_heads",
+                "intermediate_size",
+            ):
+                if isinstance(kwargs.get(key), list):
+                    kwargs[key] = max(kwargs[key])
+            super().__init__(**kwargs)
+
+    CONFIG_MAPPING.register("deci", DeciConfig, exist_ok=True)
+    MODEL_FOR_CAUSAL_LM_MAPPING.register(DeciConfig, LlamaForCausalLM, exist_ok=True)
+
+
+_patch_transformers_for_deci()
 from ....config import (
     LLMModelConfig,
     ModelInfo,
