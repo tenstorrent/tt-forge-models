@@ -4,8 +4,11 @@
 """
 Nemotron Nano 9B v2 Heretic i1 GGUF model loader implementation for causal language modeling.
 
-Note: The nemotron_h architecture is not supported in GGUF format by transformers,
-so this loader uses the base safetensors model from cpagac instead.
+Note: The nemotron_h architecture is not supported in GGUF format by transformers.
+The heretic i1 GGUF quantization is also not directly loadable via transformers, so
+this loader falls back to RedHatAI/NVIDIA-Nemotron-Nano-9B-v2-FP8-dynamic (same base
+architecture). The FP8 quantization config is cleared so the model loads in bfloat16
+on CPU without requiring FP8 hardware support.
 The nemotron_h model requires mamba-ssm (CUDA-only), so we install a pure PyTorch
 stub when the real package is unavailable.
 """
@@ -107,7 +110,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.NEMOTRON_NANO_9B_V2_HERETIC_I1_GGUF: LLMModelConfig(
-            pretrained_model_name="cpagac/Nemotron-Nano-9B-v2-heretic",
+            pretrained_model_name="RedHatAI/NVIDIA-Nemotron-Nano-9B-v2-FP8-dynamic",
             max_length=128,
         ),
     }
@@ -154,17 +157,19 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"trust_remote_code": True}
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        if hasattr(config, "quantization_config"):
+            delattr(config, "quantization_config")
+
+        if self.num_layers is not None:
+            config.num_hidden_layers = self.num_layers
+
+        model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -215,4 +220,6 @@ class ModelLoader(ForgeModel):
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, trust_remote_code=True
         )
+        if hasattr(self.config, "quantization_config"):
+            delattr(self.config, "quantization_config")
         return self.config
