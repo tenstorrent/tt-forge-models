@@ -8,7 +8,7 @@ Repository:
 - https://huggingface.co/unsloth/Qwen-Image-GGUF
 """
 import torch
-from diffusers import QwenImageTransformer2DModel
+from diffusers import GGUFQuantizationConfig, QwenImageTransformer2DModel
 from typing import Optional
 
 from ...base import ForgeModel
@@ -73,22 +73,21 @@ class ModelLoader(ForgeModel):
         gguf_file = self._GGUF_FILES[self._variant]
         gguf_url = f"{GGUF_BASE_URL}/{gguf_file}"
 
-        load_kwargs = {}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
+        compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         # Without an explicit config, from_single_file falls back to inferring the
         # model type from GGUF keys. Qwen Image keys don't match any known pattern so
         # it defaults to stable-diffusion-v1-5/stable-diffusion-v1-5, which fails.
+        # GGUFQuantizationConfig is required to correctly handle BF16 GGUF weights
+        # (stored as raw uint8 bytes), which would otherwise cause a shape mismatch.
         self.transformer = QwenImageTransformer2DModel.from_single_file(
             gguf_url,
+            quantization_config=quantization_config,
+            torch_dtype=compute_dtype,
             config="Qwen/Qwen-Image",
             subfolder="transformer",
-            **load_kwargs,
         )
-
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
 
         return self.transformer
 
