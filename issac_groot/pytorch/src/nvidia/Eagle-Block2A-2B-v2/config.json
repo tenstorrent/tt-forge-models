@@ -1,10 +1,10 @@
 {
-  "_attn_implementation": "flash_attention_2",
+  "_attn_implementation": "sdpa",
   "_commit_hash": "950beaa7db5649958a88c9565837d32e3e6a7543",
   "architectures": [
     "Eagle3_VLForConditionalGeneration"
   ],
-    "auto_map": {
+  "auto_map": {
     "AutoConfig": "configuration_eagle3_vl.Eagle3_VLConfig",
     "AutoModel": "modeling_eagle3_vl.Eagle3_VLForConditionalGeneration",
     "AutoModelForCausalLM": "modeling_eagle3_vl.Eagle3_VLForConditionalGeneration"

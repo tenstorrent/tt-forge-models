@@ -46,6 +46,16 @@ class EagleBackboneN1d6(torch.nn.Module):
             config = AutoConfig.from_pretrained(
                 _EAGLE_MODEL_PATH, trust_remote_code=True
             )
+            # Explicitly override attn implementation on sub-configs so that
+            # Siglip2VisionModel (which declares _supports_flash_attn_2=True)
+            # doesn't auto-select flash_attention_2 in environments where
+            # flash_attn is unavailable.
+            attn_impl = extra_kwargs.get("attn_implementation", "sdpa")
+            for sub_cfg_name in ("vision_config", "text_config"):
+                sub_cfg = getattr(config, sub_cfg_name, None)
+                if sub_cfg is not None:
+                    sub_cfg._attn_implementation = attn_impl
+                    sub_cfg._attn_implementation_autoset = False
             self.model = AutoModel.from_config(
                 config, trust_remote_code=True, **extra_kwargs
             )
