@@ -86,7 +86,7 @@ class ModelLoader(ForgeModel):
         """Load and return sample inputs for the model.
 
         Returns:
-            list: Input tensors for the UNet model.
+            dict: Keyword arguments for the UNet forward pass.
         """
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
@@ -108,4 +108,9 @@ class ModelLoader(ForgeModel):
             t = t.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
 
-        return [latent_model_input, t, prompt_embeds, added_cond_kwargs]
+        return {
+            "sample": latent_model_input,
+            "timestep": t,
+            "encoder_hidden_states": prompt_embeds,
+            "added_cond_kwargs": added_cond_kwargs,
+        }
