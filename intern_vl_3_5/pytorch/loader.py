@@ -211,6 +211,31 @@ class ModelLoader(ForgeModel):
         )
         return self.tokenizer
 
+    def _load_custom_model(self, pretrained_model_name, model_kwargs):
+        """Load a custom trust_remote_code model while avoiding meta tensor issues.
+
+        transformers 5.x unconditionally wraps model __init__ in torch.device("meta") context
+        via get_init_context. Custom InternVL code calls torch.linspace(...).item() during __init__,
+        which fails on meta tensors. We temporarily remove the meta context to allow this.
+        """
+        from transformers import PreTrainedModel
+
+        _orig = PreTrainedModel.get_init_context
+
+        @classmethod
+        def _no_meta_init_context(cls, dtype, is_quantized, _is_ds_init_called):
+            return [
+                c
+                for c in _orig(cls, dtype, is_quantized, _is_ds_init_called)
+                if not (isinstance(c, torch.device) and c.type == "meta")
+            ]
+
+        PreTrainedModel.get_init_context = _no_meta_init_context
+        try:
+            return AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        finally:
+            PreTrainedModel.get_init_context = _orig
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -223,9 +248,6 @@ class ModelLoader(ForgeModel):
             "trust_remote_code": True,
             "attn_implementation": "eager",
         }
-        if not self._is_hf_native:
-            # Disable fast init to avoid meta tensor context that breaks .item() in model __init__
-            model_kwargs["_fast_init"] = False
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -235,7 +257,7 @@ class ModelLoader(ForgeModel):
                 pretrained_model_name, **model_kwargs
             )
         else:
-            model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+            model = self._load_custom_model(pretrained_model_name, model_kwargs)
 
         model.eval()
         self.model = model
