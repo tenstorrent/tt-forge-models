@@ -5,6 +5,7 @@
 MedGemma GGUF model loader implementation for multimodal conditional generation.
 """
 import torch
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import (
     AutoConfig,
     AutoModelForImageTextToText,
@@ -17,6 +18,20 @@ from transformers import (
 from typing import Optional
 
 from ....base import ForgeModel
+
+# Other GGUF loaders patch load_gguf_checkpoint without a model_to_load parameter.
+# Loading a multimodal config triggers the model_to_load code path, so we wrap
+# the current (possibly-patched) function to accept and ignore model_to_load.
+_prev_load_gguf = _gguf_utils.load_gguf_checkpoint
+
+
+def _load_gguf_accept_model(
+    gguf_path, return_tensors=False, model_to_load=None, **kwargs
+):
+    return _prev_load_gguf(gguf_path, return_tensors=return_tensors)
+
+
+_gguf_utils.load_gguf_checkpoint = _load_gguf_accept_model
 from ....config import (
     ModelConfig,
     ModelInfo,
