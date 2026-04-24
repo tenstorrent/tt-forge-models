@@ -4,9 +4,26 @@
 """
 bartowski nvidia Nemotron-3-Nano-4B GGUF model loader implementation for causal language modeling.
 """
+import importlib.util
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+_orig_is_gguf_available = _gguf_utils.is_gguf_available
+
+
+def _safe_is_gguf_available(min_version: str = "0.10.0") -> bool:
+    """Wrap is_gguf_available to handle InvalidVersion when metadata is stale post-install."""
+    try:
+        return _orig_is_gguf_available(min_version)
+    except Exception:
+        return importlib.util.find_spec("gguf") is not None
+
+
+_gguf_utils.is_gguf_available = _safe_is_gguf_available
 
 from ....base import ForgeModel
 from ....config import (
