@@ -58,12 +58,14 @@ def _patch_transformers_qwen35moe_gguf():
                 # ffn_up_exps) but the name map only has combined gate_up_exps.
                 new_entries = {}
                 for key, hf_name in list(result.items()):
-                    m = re.fullmatch(r"(blk\.\d+)\.ffn_gate_up_exps\.weight", key)
+                    # Match combined gate_up_exps with or without .weight suffix
+                    m = re.fullmatch(r"(blk\.\d+)\.ffn_gate_up_exps(\.weight)?", key)
                     if m:
                         bid = m.group(1)
                         new_entries[f"{bid}.ffn_gate_exps"] = hf_name
                         new_entries[f"{bid}.ffn_up_exps"] = hf_name
-                    m2 = re.fullmatch(r"(blk\.\d+\.ffn_down_exps)\.weight", key)
+                    # Match down_exps with or without .weight suffix
+                    m2 = re.fullmatch(r"(blk\.\d+\.ffn_down_exps)(\.weight)?", key)
                     if m2:
                         new_entries[m2.group(1)] = hf_name
                 result.update(new_entries)
@@ -94,16 +96,19 @@ def _patch_transformers_qwen35moe_gguf():
                     w = m["w"]
                     if key not in tensor_key_mapping:
                         if w in ("gate", "up"):
-                            fallback = (
-                                re.sub(r"ffn_(gate|up)_exps$", "ffn_gate_up_exps", key)
-                                + ".weight"
+                            # GGUF stores split tensors; map has combined gate_up_exps.
+                            # Try combined form without .weight first (direct param),
+                            # then with .weight (nn.Linear param).
+                            combined = re.sub(
+                                r"ffn_(gate|up)_exps$", "ffn_gate_up_exps", key
                             )
-                            if fallback in tensor_key_mapping:
-                                key = fallback
+                            if combined in tensor_key_mapping:
+                                key = combined
+                            elif combined + ".weight" in tensor_key_mapping:
+                                key = combined + ".weight"
                         else:
-                            fallback = key + ".weight"
-                            if fallback in tensor_key_mapping:
-                                key = fallback
+                            if key + ".weight" in tensor_key_mapping:
+                                key = key + ".weight"
                     if key in tensor_key_mapping:
                         self._set_moe_expert_tensor(
                             weights, parsed_parameters, tensor_key_mapping[key], w
@@ -286,7 +291,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
