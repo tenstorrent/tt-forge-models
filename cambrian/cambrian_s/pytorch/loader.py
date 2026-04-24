@@ -62,10 +62,39 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _patch_cambrian_init():
+        """Patch CambrianQwenForCausalLM.__init__ to avoid clearing rope_parameters.
+
+        In transformers 5.x, config.rope_scaling is a property that delegates to
+        config.rope_parameters. The cambrian-s code sets config.rope_scaling = None
+        (originally harmless in transformers 4.x), which now clears rope_parameters
+        and breaks Qwen2RotaryEmbedding initialization.
+        """
+        import torch.nn as nn
+        from cambrian.model.language_model.cambrian_qwen2 import (
+            CambrianQwenForCausalLM,
+            CambrianQwenModel,
+        )
+        from transformers.models.qwen2.modeling_qwen2 import Qwen2ForCausalLM
+
+        def patched_init(self, config):
+            rope_params = getattr(config, "rope_parameters", None)
+            Qwen2ForCausalLM.__init__(self, config)
+            config.model_type = "cambrian_qwen"
+            if rope_params is not None:
+                config.rope_parameters = rope_params
+            self.model = CambrianQwenModel(config)
+            self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
+            self.post_init()
+
+        CambrianQwenForCausalLM.__init__ = patched_init
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Cambrian-S model instance."""
         from cambrian.model.builder import load_pretrained_model
 
+        self._patch_cambrian_init()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         self.tokenizer, model, self.image_processor, _ = load_pretrained_model(
