@@ -134,6 +134,9 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
+        # num_patches is used internally by the processor but not accepted by forward()
+        inputs.pop("num_patches", None)
+
         if batch_size > 1:
             for key, value in inputs.items():
                 if hasattr(value, "repeat_interleave"):
