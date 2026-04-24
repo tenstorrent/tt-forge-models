@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright 2025 The HuggingFace Inc. team.
+# SPDX-License-Identifier: Apache-2.0
+# Adapted from gr00t n1.6-release: removed undefined Siglip2Model reference from _init_weights.
 #                🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨
 #           This file was automatically generated from src/transformers/models/siglip2/modular_siglip2.py.
 # Copyright 2025 The HuggingFace Inc. team.
@@ -683,10 +686,12 @@ class Siglip2VisionEmbeddings(nn.Module):
         # Add positional embeddings to patch embeddings
         embeddings = patch_embeds + resized_positional_embeddings
 
-        windows_tensor, win_meta_list, reverse_mapping = (
-            self.split_patch_embeddings_to_windows_with_meta(
-                embeddings, spatial_shapes, self.window_size
-            )
+        (
+            windows_tensor,
+            win_meta_list,
+            reverse_mapping,
+        ) = self.split_patch_embeddings_to_windows_with_meta(
+            embeddings, spatial_shapes, self.window_size
         )
 
         return windows_tensor, win_meta_list, spatial_shapes, reverse_mapping
@@ -920,9 +925,9 @@ class Siglip2Attention(nn.Module):
             if self.config._attn_implementation == "flash_attention_2":
                 from transformers.modeling_utils import AttentionInterface
 
-                AttentionInterface._global_mapping["flash_attention_2_packing"] = (
-                    flash_attention_forward_for_packing
-                )
+                AttentionInterface._global_mapping[
+                    "flash_attention_2_packing"
+                ] = flash_attention_forward_for_packing
                 setattr(
                     AttentionInterface,
                     "flash_attention_2_packing",
@@ -1228,9 +1233,12 @@ class Siglip2VisionTransformer(nn.Module):
             else self.config.output_hidden_states
         )
 
-        windows_tensor, win_meta_list, spatial_shapes, reverse_mapping = (
-            self.embeddings(pixel_values)
-        )
+        (
+            windows_tensor,
+            win_meta_list,
+            spatial_shapes,
+            reverse_mapping,
+        ) = self.embeddings(pixel_values)
 
         encoder_outputs: BaseModelOutput = self.encoder(
             inputs_embeds=windows_tensor,
@@ -1454,10 +1462,6 @@ class Siglip2PreTrainedModel(PreTrainedModel):
             nn.init.xavier_uniform_(module.probe.data)
             nn.init.xavier_uniform_(module.attention.in_proj_weight.data)
             nn.init.zeros_(module.attention.in_proj_bias.data)
-        elif isinstance(module, Siglip2Model):
-            logit_scale_init = torch.log(torch.tensor(1.0))
-            module.logit_scale.data.fill_(logit_scale_init)
-            module.logit_bias.data.zero_()
         elif isinstance(module, Siglip2ForImageClassification):
             nn.init.normal_(
                 module.classifier.weight,
