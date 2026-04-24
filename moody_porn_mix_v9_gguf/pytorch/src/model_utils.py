@@ -59,18 +59,18 @@ def _patched_convert_lumina2_to_diffusers(checkpoint, **kwargs):
         "final_layer.linear": "norm_out.linear_2",
     }
 
-    def convert_lumina_attn_to_diffusers(tensor, diffusers_key):
-        total = tensor.shape[0]
-        # Full attention when total == 3 * hidden_size (q=k=v dims are equal)
-        if total % 3 == 0 and total == 3 * tensor.shape[1]:
-            dim = total // 3
-            q_dim = k_dim = v_dim = dim
-        else:
-            # Default Lumina2 GQA: num_heads=24, num_kv_heads=8, head_dim=96
-            q_dim = 2304
-            k_dim = v_dim = 768
+    # Derive QKV dims from config if available, else fall back to defaults
+    config = kwargs.get("config", {})
+    hidden_size = config.get("hidden_size", 2304)
+    num_attention_heads = config.get("num_attention_heads", 24)
+    num_kv_heads = config.get("num_kv_heads", 8)
+    head_dim = hidden_size // num_attention_heads
+    _q_dim = num_attention_heads * head_dim
+    _k_dim = num_kv_heads * head_dim
+    _v_dim = num_kv_heads * head_dim
 
-        to_q, to_k, to_v = torch.split(tensor, [q_dim, k_dim, v_dim], dim=0)
+    def convert_lumina_attn_to_diffusers(tensor, diffusers_key):
+        to_q, to_k, to_v = torch.split(tensor, [_q_dim, _k_dim, _v_dim], dim=0)
 
         return {
             diffusers_key.replace("qkv", "to_q"): to_q,
