@@ -5,22 +5,87 @@
 GUI-Libra 4B i1 GGUF model loader implementation for image to text.
 """
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_SUPPORTED_ARCHITECTURES,
+    get_gguf_hf_weights_map as _orig_get_gguf_hf_weights_map,
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+)
+
 from transformers import (
-    Qwen3VLForConditionalGeneration,
+    AutoConfig,
     AutoProcessor,
+    Qwen3VLForConditionalGeneration,
 )
 from typing import Optional
 
 from ....base import ForgeModel
 from ....config import (
-    LLMModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
+
+
+def _patch_qwen3vl_gguf_support():
+    """Register qwen3vl GGUF architecture as an alias for qwen3_vl.
+
+    Qwen3-VL GGUF files declare architecture as 'qwen3vl' but transformers 5.x
+    only recognises 'qwen3_vl' as a model type and has no GGUF config mapping
+    for 'qwen3vl'. The text backbone uses the same tensor layout as qwen3.
+    """
+    if "qwen3vl" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vl")
+    config_section = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]
+    if "qwen3vl" not in config_section and "qwen3" in config_section:
+        config_section["qwen3vl"] = config_section["qwen3"]
+    if "qwen3" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("qwen3vl", GGUF_TO_FAST_CONVERTERS["qwen3"])
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    """Wrap load_gguf_checkpoint to add qwen3vl support and fix model_type."""
+    _patch_qwen3vl_gguf_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
+    if result.get("config", {}).get("model_type") == "qwen3vl":
+        result["config"]["model_type"] = "qwen3_vl"
+    return result
+
+
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
+    """Wrap get_gguf_hf_weights_map to map qwen3_vl to gguf-py's qwen3vl arch."""
+    effective_type = hf_model.config.model_type if model_type is None else model_type
+    if effective_type == "qwen3_vl":
+        model_type = "qwen3vl"
+        if num_layers is None:
+            num_layers = hf_model.config.text_config.num_hidden_layers
+    return _orig_get_gguf_hf_weights_map(
+        hf_model,
+        processor,
+        model_type=model_type,
+        num_layers=num_layers,
+        qual_name=qual_name,
+    )
+
+
+_patch_qwen3vl_gguf_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 
 class ModelVariant(StrEnum):
@@ -72,8 +137,13 @@ class ModelLoader(ForgeModel):
         # GGUF repos do not ship a processor; use the base model
         self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-4B-Instruct")
 
+        # Load the full config from official base model so vision_config.out_hidden_size
+        # matches the text model's hidden_size (GGUF parsing only sets text model params)
+        config = AutoConfig.from_pretrained("Qwen/Qwen3-VL-4B-Instruct")
+        model_kwargs["config"] = config
+
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         )
         model.eval()
 
