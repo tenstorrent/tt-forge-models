@@ -1,1 +1,1 @@
-gptqmodel
+gptqmodel>=6.0.0
