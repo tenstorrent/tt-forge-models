@@ -5,13 +5,41 @@
 InternVL3.5 GGUF model loader implementation for image to text.
 """
 
+import inspect
+
 from transformers import (
     AutoConfig,
     AutoProcessor,
     InternVLForConditionalGeneration,
     Qwen3ForCausalLM,
 )
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tok
+import transformers.tokenization_utils_tokenizers as _tok_utils
 from typing import Optional
+
+
+def _make_model_to_load_compat(fn):
+    """Wrap fn to accept the model_to_load kwarg added in transformers 5.x.
+
+    Some other loaders patch load_gguf_checkpoint with a version that lacks
+    this kwarg, causing a TypeError when transformers 5.x passes it.
+    """
+    if "model_to_load" in inspect.signature(fn).parameters:
+        return fn
+
+    def _wrapper(gguf_path, return_tensors=False, model_to_load=None):
+        return fn(gguf_path, return_tensors=return_tensors)
+
+    return _wrapper
+
+
+_gguf_utils.load_gguf_checkpoint = _make_model_to_load_compat(
+    _gguf_utils.load_gguf_checkpoint
+)
+for _mod in (_config_utils, _auto_tok, _tok_utils):
+    _mod.load_gguf_checkpoint = _gguf_utils.load_gguf_checkpoint
 
 from ....base import ForgeModel
 from ....config import (
