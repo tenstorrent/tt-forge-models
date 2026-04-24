@@ -136,6 +136,12 @@ def _patch_transformers_nemotron_h_moe_gguf():
     except Exception:
         pass
 
+    # Register the GGUF tokenizer converter for nemotron_h (gpt2-style tokenizer).
+    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFGPTConverter
+
+    if "nemotron_h" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["nemotron_h"] = GGUFGPTConverter
+
     GGUF_SUPPORTED_ARCHITECTURES.append("nemotron_h_moe")
 
     GGUF_TO_TRANSFORMERS_MAPPING["config"]["nemotron_h_moe"] = {
