@@ -122,6 +122,19 @@ class ModelLoader(ForgeModel):
             GGUFQuantizationConfig,
             HunyuanVideo15Transformer3DModel,
         )
+        from diffusers.loaders.single_file_model import SINGLE_FILE_LOADABLE_CLASSES
+        from diffusers.loaders.single_file_utils import (
+            convert_hunyuan_video_transformer_to_diffusers,
+        )
+
+        # HunyuanVideo15Transformer3DModel is not registered in SINGLE_FILE_LOADABLE_CLASSES
+        # in the current diffusers version. Register it so from_single_file works.
+        # GGUF files already use diffusers key format, so the mapping fn won't be called.
+        if "HunyuanVideo15Transformer3DModel" not in SINGLE_FILE_LOADABLE_CLASSES:
+            SINGLE_FILE_LOADABLE_CLASSES["HunyuanVideo15Transformer3DModel"] = {
+                "checkpoint_mapping_fn": convert_hunyuan_video_transformer_to_diffusers,
+                "default_subfolder": "transformer",
+            }
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
