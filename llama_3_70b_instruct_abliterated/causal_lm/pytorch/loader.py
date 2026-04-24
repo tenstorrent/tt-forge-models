@@ -103,6 +103,16 @@ class ModelLoader(ForgeModel):
         config.use_cache = False
         model_kwargs["config"] = config
 
+        # Purge stale transformers llama modules from sys.modules. In a shared
+        # pytest session another test may have installed transformers==4.x, which
+        # leaves the old LlamaAttention (3-value return) in sys.modules even after
+        # pip rollback. Reloading forces the 5.x version to be used here.
+        import sys
+
+        for key in list(sys.modules.keys()):
+            if "transformers.models.llama" in key:
+                del sys.modules[key]
+
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
