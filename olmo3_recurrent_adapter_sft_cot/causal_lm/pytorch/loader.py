@@ -7,6 +7,8 @@ Olmo3 Recurrent Adapter SFT CoT causal LM model loader implementation.
 
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
+from transformers.modeling_utils import PreTrainedModel as _PreTrainedModel
 from typing import Optional
 
 from ....base import ForgeModel
@@ -84,9 +86,61 @@ class ModelLoader(ForgeModel):
 
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+        # The custom model's __init__ calls AutoModelForCausalLM.from_pretrained for a
+        # sub-model; initialize_weights() then runs inside the outer meta device context
+        # (transformers 5.x). Non-persistent buffers like inv_freq stay meta, and
+        # rope_fn creates more meta tensors, causing "Cannot copy from meta tensor".
+        # Also, RecurrentAdapterModel.__init__ never calls self.post_init(), so
+        # all_tied_weights_keys is unset when _finalize_model_loading runs.
+        # Fix 1: patch get_init_context to skip meta so nested from_pretrained works.
+        # Fix 2: patch __init__ to call post_init() so all_tied_weights_keys is set.
+        _tmp_cfg = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
         )
+        _class_ref = getattr(_tmp_cfg, "auto_map", {}).get("AutoModelForCausalLM")
+        _model_cls = None
+        _orig_gic = None
+        _orig_init = None
+        if _class_ref:
+            _model_cls = get_class_from_dynamic_module(
+                _class_ref, pretrained_model_name
+            )
+            _orig_gic = _model_cls.__dict__.get("get_init_context")
+            _orig_init = _model_cls.__dict__.get("__init__")
+
+            @classmethod
+            def _no_meta_gic(cls, dtype, is_quantized, _is_ds_init_called):
+                ctxs = _PreTrainedModel.get_init_context.__func__(
+                    cls, dtype, is_quantized, _is_ds_init_called
+                )
+                return [
+                    c
+                    for c in ctxs
+                    if not (isinstance(c, torch.device) and c.type == "meta")
+                ]
+
+            def _init_with_post_init(self, config):
+                _orig_init(self, config)
+                if not hasattr(self, "all_tied_weights_keys"):
+                    self.post_init()
+
+            _model_cls.get_init_context = _no_meta_gic
+            _model_cls.__init__ = _init_with_post_init
+
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+        finally:
+            if _model_cls is not None:
+                if _orig_gic is None:
+                    del _model_cls.get_init_context
+                else:
+                    _model_cls.get_init_context = _orig_gic
+                if _orig_init is None:
+                    del _model_cls.__init__
+                else:
+                    _model_cls.__init__ = _orig_init
         model.eval()
 
         self.config = model.config
