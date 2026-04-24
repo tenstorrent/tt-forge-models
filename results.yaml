@@ -27,3 +27,7 @@ results:
   status: "PASS"
   date: "20260424_104629"
   branch: "ip-172-31-23-5-tt-xla-dev/ubuntu/2026-04-23_16-01/hf-bringup-23"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[sentence_transformers/sbert_cased_finnish_paraphrase/pytorch-TurkuNLP/sbert-cased-finnish-paraphrase-single_device-inference]"
+  status: "PASS"
+  date: "20260424_122458"
+  branch: "ip-172-31-23-5-tt-xla-dev/ubuntu/2026-04-23_16-01/hf-bringup-23"
