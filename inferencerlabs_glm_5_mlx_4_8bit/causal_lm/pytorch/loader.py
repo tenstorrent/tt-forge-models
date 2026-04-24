@@ -95,11 +95,12 @@ class ModelLoader(ForgeModel):
         config = AutoConfig.from_pretrained(
             pretrained_model_name, trust_remote_code=True
         )
-        # MLX quantization config lacks quant_method; strip it so transformers can load the model
+        # MLX quantization config lacks quant_method; delete the attribute so transformers
+        # treats the model as unquantized and loads weights in full precision
         if hasattr(config, "quantization_config") and not hasattr(
             config.quantization_config, "quant_method"
         ):
-            config.quantization_config = None
+            delattr(config, "quantization_config")
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
         model_kwargs["config"] = config
