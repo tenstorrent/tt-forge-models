@@ -5,9 +5,23 @@
 NVIDIA Nemotron Nano 12B v2 VL NVFP4-QAD model loader implementation for image to text.
 """
 
-from transformers import AutoModel, AutoProcessor
+from transformers import AutoModel, AutoProcessor, PreTrainedModel
 from PIL import Image
 from typing import Optional
+
+# The model's __init__ does not call post_init(), which in transformers 5.x sets
+# all_tied_weights_keys. Patch _adjust_tied_keys_with_tied_pointers to initialize
+# the attribute if absent so from_pretrained doesn't raise AttributeError.
+_orig_adjust_tied = PreTrainedModel._adjust_tied_keys_with_tied_pointers
+
+
+def _patched_adjust_tied(self, missing_and_mismatched):
+    if not hasattr(self, "all_tied_weights_keys"):
+        self.all_tied_weights_keys = {}
+    return _orig_adjust_tied(self, missing_and_mismatched)
+
+
+PreTrainedModel._adjust_tied_keys_with_tied_pointers = _patched_adjust_tied
 
 from ...tools.utils import get_file
 from ...base import ForgeModel
