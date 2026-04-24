@@ -10,11 +10,75 @@ trust_remote_code=True, and inputs are prepared through the model's custom
 build_conversation_input_ids() method rather than an AutoProcessor.
 """
 
+import sys
+import types
 from typing import Optional
 
 import torch
+import torch.nn.functional as F
 from PIL import Image
 from transformers import AutoModelForCausalLM, AutoTokenizer
+
+
+def _apply_rotary_pytorch(
+    x,
+    cos,
+    sin,
+    seqlen_offsets=0,
+    cu_seqlens=None,
+    max_seqlen=None,
+    interleaved=False,
+    inplace=False,
+    conjugate=False,
+):
+    """Pure PyTorch rotary embedding fallback replacing the triton/CUDA kernel."""
+    batch, nheads, seqlen, headdim = x.shape
+    rotary_dim = cos.shape[-1] * 2
+    cos_b = cos.unsqueeze(1)
+    sin_b = sin.unsqueeze(1)
+    if conjugate:
+        sin_b = -sin_b
+    result = x if inplace else x.clone()
+    x0 = x[..., : rotary_dim // 2].clone()
+    x1 = x[..., rotary_dim // 2 : rotary_dim].clone()
+    result[..., : rotary_dim // 2] = x0 * cos_b - x1 * sin_b
+    result[..., rotary_dim // 2 : rotary_dim] = x0 * sin_b + x1 * cos_b
+    return result
+
+
+def _patch_cogvlm2_rotary_emb():
+    """Patch triton rotary embedding in cogvlm2 util module with pure PyTorch."""
+    for key, module in list(sys.modules.items()):
+        if "cogvlm2" in key.lower() and key.endswith("util"):
+            module.apply_rotary = _apply_rotary_pytorch
+            module.apply_rotary_emb = _apply_rotary_pytorch
+            module.apply_rotary_emb_func = _apply_rotary_pytorch
+            break
+
+
+def _install_xformers_stub():
+    """Inject a minimal xformers stub so cogvlm2's visual.py can be imported.
+
+    The model's vision encoder calls xops.memory_efficient_attention, which we
+    replace with a standard scaled-dot-product attention fallback.
+    """
+    if "xformers" in sys.modules:
+        return
+
+    def _memory_efficient_attention(q, k, v, scale=None, **kwargs):
+        if scale is None:
+            scale = q.shape[-1] ** -0.5
+        attn = torch.matmul(q * scale, k.transpose(-2, -1))
+        attn = F.softmax(attn, dim=-1)
+        return torch.matmul(attn, v)
+
+    xformers = types.ModuleType("xformers")
+    xformers_ops = types.ModuleType("xformers.ops")
+    xformers_ops.memory_efficient_attention = _memory_efficient_attention
+    xformers.ops = xformers_ops
+    sys.modules["xformers"] = xformers
+    sys.modules["xformers.ops"] = xformers_ops
+
 
 from ...base import ForgeModel
 from ...config import (
@@ -67,6 +131,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self):
+        _install_xformers_stub()
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
@@ -74,6 +139,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _install_xformers_stub()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -87,6 +153,7 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
+        _patch_cogvlm2_rotary_emb()
 
         self.model = model
         return model
