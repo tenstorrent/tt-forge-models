@@ -96,9 +96,12 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
 
-        if self.tokenizer.chat_template is None:
-            base_tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-0.6B")
-            self.tokenizer.chat_template = base_tokenizer.chat_template
+        # Fine-tuned Gensyn Swarm checkpoints do not ship a complete tokenizer;
+        # fall back to the base model tokenizer when the vocab is missing.
+        if self.tokenizer.vocab_size <= 1:
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                "Qwen/Qwen3-0.6B", **tokenizer_kwargs
+            )
 
         return self.tokenizer
 
