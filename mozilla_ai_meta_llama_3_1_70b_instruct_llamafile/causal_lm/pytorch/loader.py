@@ -4,6 +4,8 @@
 """
 Mozilla-AI Meta-Llama-3.1-70B-Instruct-llamafile model loader implementation for causal language modeling.
 """
+import struct
+import zipfile
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -18,6 +20,73 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_gguf_reader_for_llamafile():
+    """Monkey-patch GGUFReader to support llamafile (ZIP-wrapped, uncompressed GGUF).
+
+    A llamafile is a ZIP archive where the .gguf is stored uncompressed (ZIP_STORED).
+    GGUFReader uses np.memmap from offset 0 and expects GGUF magic at byte 0, but in
+    a llamafile the GGUF data starts after the ZIP local file header. We patch the
+    reader to memmap from the correct data offset inside the ZIP.
+    """
+    try:
+        import gguf.gguf_reader as _gguf_reader_module
+        from gguf import GGUFReader
+    except ImportError:
+        return
+
+    if getattr(GGUFReader, "_llamafile_patched", False):
+        return
+
+    _orig_init = GGUFReader.__init__
+    _orig_np = _gguf_reader_module.np
+
+    def _find_gguf_offset_in_zip(path_str):
+        if not zipfile.is_zipfile(path_str):
+            return 0
+        try:
+            with zipfile.ZipFile(path_str, "r") as zf:
+                for info in zf.infolist():
+                    if (
+                        info.filename.lower().endswith(".gguf")
+                        and info.compress_type == zipfile.ZIP_STORED
+                    ):
+                        with open(path_str, "rb") as f:
+                            f.seek(info.header_offset)
+                            header = f.read(30)
+                            fname_len, extra_len = struct.unpack_from("<HH", header, 26)
+                            return info.header_offset + 30 + fname_len + extra_len
+        except (zipfile.BadZipFile, struct.error, OSError):
+            pass
+        return 0
+
+    class _OffsetNP:
+        def __init__(self, offset):
+            self._offset = offset
+
+        def __getattr__(self, name):
+            return getattr(_orig_np, name)
+
+        def memmap(self, *args, **kwargs):
+            if self._offset > 0 and kwargs.get("offset", 0) == 0:
+                kwargs["offset"] = self._offset
+            return _orig_np.memmap(*args, **kwargs)
+
+    def _patched_init(self, path, mode="r"):
+        path_str = str(path)
+        offset = _find_gguf_offset_in_zip(path_str)
+        if offset > 0:
+            _gguf_reader_module.np = _OffsetNP(offset)
+            try:
+                _orig_init(self, path, mode)
+            finally:
+                _gguf_reader_module.np = _orig_np
+        else:
+            _orig_init(self, path, mode)
+
+    GGUFReader.__init__ = _patched_init
+    GGUFReader._llamafile_patched = True
 
 
 class ModelVariant(StrEnum):
@@ -64,6 +133,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _patch_gguf_reader_for_llamafile()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -78,6 +148,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _patch_gguf_reader_for_llamafile()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -145,6 +216,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        _patch_gguf_reader_for_llamafile()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
