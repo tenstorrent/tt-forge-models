@@ -7,11 +7,13 @@ Whisper Small GGUF model loader implementation for automatic speech recognition.
 Repository:
 - https://huggingface.co/FL33TW00D-HF/whisper-small
 """
+import numpy as np
 import torch
+from huggingface_hub import hf_hub_download
 from transformers import (
+    WhisperConfig,
     WhisperForConditionalGeneration,
     WhisperProcessor,
-    WhisperConfig,
 )
 from typing import Optional
 
@@ -73,25 +75,29 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from gguf import GGUFReader, dequantize
+
         pretrained_model_name = self._variant_config.pretrained_model_name
         gguf_file = self._GGUF_FILES[self._variant]
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = gguf_file
-
-        # Pre-load config from the base Whisper model so that random-weights
-        # mode does not need to download/parse the GGUF file just for config.
         config = WhisperConfig.from_pretrained("openai/whisper-small")
-        model_kwargs["config"] = config
-
+        config.use_cache = False
         self.processor = WhisperProcessor.from_pretrained("openai/whisper-small")
 
-        model = WhisperForConditionalGeneration.from_pretrained(
-            pretrained_model_name, use_cache=False, **model_kwargs
-        ).eval()
+        model = WhisperForConditionalGeneration(config).eval()
+
+        # FL33TW00D-HF GGUF files are whisper.cpp v2 format with no metadata
+        # (no general.architecture field), so transformers' load_gguf_checkpoint
+        # cannot be used. Load tensors directly via GGUFReader instead.
+        gguf_path = hf_hub_download(repo_id=pretrained_model_name, filename=gguf_file)
+        reader = GGUFReader(gguf_path)
+        state_dict = {}
+        for tensor in reader.tensors:
+            data = np.array(dequantize(tensor.data, tensor.tensor_type))
+            state_dict[tensor.name] = torch.from_numpy(data)
+
+        # proj_out.weight is tied to model.decoder.embed_tokens.weight
+        model.load_state_dict(state_dict, strict=False)
 
         if dtype_override is not None:
             model = model.to(dtype_override)
@@ -123,4 +129,6 @@ class ModelLoader(ForgeModel):
             dtype=torch.long,
             device=device,
         )
-        return [input_features, decoder_input_ids]
+        # WhisperForConditionalGeneration.forward signature:
+        # (input_features, attention_mask, decoder_input_ids, ...)
+        return [input_features, None, decoder_input_ids]
