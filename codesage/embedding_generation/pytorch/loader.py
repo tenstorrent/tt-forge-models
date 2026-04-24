@@ -9,12 +9,25 @@ CodeSage model loader implementation for code embedding generation.
 from typing import Optional
 
 import transformers.modeling_utils as _modeling_utils
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModel, AutoTokenizer, PreTrainedModel
 
 if not hasattr(_modeling_utils, "Conv1D"):
     from transformers.pytorch_utils import Conv1D as _Conv1D
 
     _modeling_utils.Conv1D = _Conv1D
+
+_orig_init_weights = PreTrainedModel.init_weights
+
+
+def _patched_init_weights(self, *args, **kwargs):
+    if not hasattr(self, "all_tied_weights_keys"):
+        self.all_tied_weights_keys = self.get_expanded_tied_weights_keys(
+            all_submodels=False
+        )
+    _orig_init_weights(self, *args, **kwargs)
+
+
+PreTrainedModel.init_weights = _patched_init_weights
 
 from ....base import ForgeModel
 from ....config import (
