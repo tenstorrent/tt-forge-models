@@ -13,7 +13,12 @@ from typing import Optional
 
 
 def _patch_transformers_qwen3vl_gguf():
-    """Monkey-patch transformers to add qwen3vl GGUF architecture support."""
+    """Monkey-patch transformers to add qwen3vl GGUF architecture support.
+
+    Also patches is_gguf_available to use live importlib.metadata lookup,
+    working around the stale PACKAGE_DISTRIBUTION_MAPPING that is populated
+    at import time before RequirementsManager installs gguf at test runtime.
+    """
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
         GGUF_TO_TRANSFORMERS_MAPPING,
@@ -22,6 +27,29 @@ def _patch_transformers_qwen3vl_gguf():
 
     if "qwen3vl" in GGUF_SUPPORTED_ARCHITECTURES:
         return  # Already patched
+
+    # Patch is_gguf_available to use a live metadata lookup so it works when
+    # gguf is installed after transformers is first imported (e.g. by RequirementsManager).
+    import importlib.metadata
+    import transformers.utils.import_utils as import_utils
+
+    _orig_is_gguf_available = import_utils.is_gguf_available
+    _GGUF_MIN_VERSION = import_utils.GGUF_MIN_VERSION
+
+    def _patched_is_gguf_available(min_version: str = _GGUF_MIN_VERSION) -> bool:
+        try:
+            from packaging import version as pkg_version
+
+            gguf_ver = importlib.metadata.version("gguf")
+            return pkg_version.parse(gguf_ver) >= pkg_version.parse(min_version)
+        except Exception:
+            return _orig_is_gguf_available(min_version)
+
+    import_utils.is_gguf_available = _patched_is_gguf_available
+    import transformers.modeling_gguf_pytorch_utils as _gguf_mod
+
+    if hasattr(_gguf_mod, "is_gguf_available"):
+        _gguf_mod.is_gguf_available = _patched_is_gguf_available
 
     GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vl")
 
