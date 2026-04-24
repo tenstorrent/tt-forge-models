@@ -94,6 +94,9 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
         model_kwargs["config"] = config
 
+        # MLX safetensors store quantized-compressed shapes; allow mismatch so the
+        # model structure loads correctly (weights reinitialised from scratch).
+        model_kwargs.setdefault("ignore_mismatched_sizes", True)
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
