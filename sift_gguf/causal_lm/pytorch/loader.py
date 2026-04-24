@@ -94,18 +94,39 @@ def _patch_qwen35_ssm_support():
     TENSOR_PROCESSORS.setdefault("qwen35", MambaTensorProcessor)
 
 
+def _is_qwen35_gguf(gguf_path):
+    """Return True if the GGUF file's general.architecture is 'qwen35'."""
+    try:
+        reader = GGUFReader(gguf_path)
+        arch_field = reader.fields.get("general.architecture")
+        if arch_field is None:
+            return False
+        # STRING fields: parts[data[0]] is a uint8 memmap of the UTF-8 bytes
+        arch = arch_field.parts[arch_field.data[0]].tobytes().decode("utf-8")
+        return arch == "qwen35"
+    except Exception:
+        return False
+
+
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
     """Load GGUF checkpoint with Qwen3.5 SSM hybrid support.
 
     After the standard load, converts the qwen35 config to qwen3_5_text and
     generates layer_types from full_attention_interval stored in the GGUF.
+
+    Reads the GGUF architecture directly to detect qwen35 files even when
+    another loader's patch has already transformed model_type to 'qwen3'.
     """
     _patch_qwen35_ssm_support()
     result = _orig_load_gguf_checkpoint(
         gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
     )
     config = result.get("config", {})
-    if config.get("model_type") != "qwen35":
+
+    # Use GGUF file architecture as ground truth: another loader imported before
+    # us may have already mapped model_type from "qwen35" to "qwen3".
+    is_qwen35 = config.get("model_type") == "qwen35" or _is_qwen35_gguf(gguf_path)
+    if not is_qwen35:
         return result
 
     config["model_type"] = "qwen3_5_text"
