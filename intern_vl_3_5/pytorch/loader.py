@@ -214,27 +214,23 @@ class ModelLoader(ForgeModel):
     def _load_custom_model(self, pretrained_model_name, model_kwargs):
         """Load a custom trust_remote_code model while avoiding meta tensor issues.
 
-        transformers 5.x unconditionally wraps model __init__ in torch.device("meta") context
-        via get_init_context. Custom InternVL code calls torch.linspace(...).item() during __init__,
-        which fails on meta tensors. We temporarily remove the meta context to allow this.
+        transformers 5.x unconditionally wraps model __init__ in torch.device("meta") context.
+        Custom InternVL code calls torch.linspace(...).item() during __init__ to compute drop
+        path rates, which fails on meta tensors. We patch Tensor.item() to return 0.0 for meta
+        tensors — drop path rates are only used during training, so this is safe for inference.
         """
-        from transformers import PreTrainedModel
+        _orig_item = torch.Tensor.item
 
-        _orig = PreTrainedModel.get_init_context
+        def _safe_item(self):
+            if self.is_meta:
+                return 0.0
+            return _orig_item(self)
 
-        @classmethod
-        def _no_meta_init_context(cls, dtype, is_quantized, _is_ds_init_called):
-            return [
-                c
-                for c in _orig.__func__(cls, dtype, is_quantized, _is_ds_init_called)
-                if not (isinstance(c, torch.device) and c.type == "meta")
-            ]
-
-        PreTrainedModel.get_init_context = _no_meta_init_context
+        torch.Tensor.item = _safe_item
         try:
             return AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         finally:
-            PreTrainedModel.get_init_context = _orig
+            torch.Tensor.item = _orig_item
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
