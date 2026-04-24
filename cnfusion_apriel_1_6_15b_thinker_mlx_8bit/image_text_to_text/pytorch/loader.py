@@ -56,15 +56,15 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    # MLX-quantized weights use a packing format incompatible with standard transformers;
+    # load processor and model weights from the base model in bfloat16 instead.
+    _BASE_MODEL = "ServiceNow-AI/Apriel-1.6-15b-Thinker"
+
     def _load_processor(self):
-        self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+        self.processor = AutoProcessor.from_pretrained(self._BASE_MODEL)
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.processor is None:
             self._load_processor()
 
@@ -74,7 +74,7 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         model = AutoModelForImageTextToText.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            self._BASE_MODEL, **model_kwargs
         )
         model.eval()
         return model
