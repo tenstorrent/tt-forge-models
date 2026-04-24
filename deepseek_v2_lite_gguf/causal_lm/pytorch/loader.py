@@ -67,6 +67,8 @@ def _patch_transformers_deepseek2_gguf():
 
     if "deepseek2" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["deepseek2"] = GGUFQwen2Converter
+    if "deepseek_v2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["deepseek_v2"] = GGUFQwen2Converter
 
     # 4. Patch load_gguf_checkpoint to set model_type to deepseek_v2
     orig_load = gguf_utils.load_gguf_checkpoint
@@ -180,6 +182,10 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
+
+        # Resize embeddings to cover any special tokens added beyond base vocab_size
+        if self.tokenizer is not None and len(self.tokenizer) > model.config.vocab_size:
+            model.resize_token_embeddings(len(self.tokenizer))
 
         self.config = model.config
         self.model = model
