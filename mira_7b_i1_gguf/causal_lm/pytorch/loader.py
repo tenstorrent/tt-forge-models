@@ -6,7 +6,9 @@ Mira-7B i1 GGUF model loader implementation for causal language modeling.
 
 Based on Qwen2 architecture, quantized from emrahemrez/mira-7b.
 """
+import numpy as np
 import torch
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -20,6 +22,33 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _load_gguf_weights(model, gguf_path, dtype=None):
+    """Load GGUF weights into model using gguf-py directly.
+
+    Bypasses transformers' load_gguf_checkpoint to avoid compatibility issues
+    with other loaders that monkey-patch that function without forwarding the
+    model_to_load argument required by transformers >= 5.x.
+    """
+    from gguf import GGUFReader, dequantize
+    from transformers.modeling_gguf_pytorch_utils import TensorProcessor
+
+    reader = GGUFReader(gguf_path)
+    processor = TensorProcessor()
+    tensor_key_mapping = _gguf_utils.get_gguf_hf_weights_map(model, processor)
+
+    target_dtype = dtype if dtype is not None else torch.bfloat16
+    tensors_to_load = {}
+
+    for tensor in reader.tensors:
+        if tensor.name not in tensor_key_mapping:
+            continue
+        weights = dequantize(tensor.data, tensor.tensor_type)
+        hf_name = tensor_key_mapping[tensor.name]
+        tensors_to_load[hf_name] = torch.from_numpy(np.copy(weights)).to(target_dtype)
+
+    model.load_state_dict(tensors_to_load, strict=False)
 
 
 class ModelVariant(StrEnum):
@@ -78,28 +107,30 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from huggingface_hub import hf_hub_download
+
         pretrained_model_name = self._variant_config.pretrained_model_name
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        gguf_path = hf_hub_download(
+            repo_id=pretrained_model_name, filename=self.GGUF_FILE
+        )
+
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, gguf_file=self.GGUF_FILE
+        )
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        model = AutoModelForCausalLM.from_config(config).to(dtype)
 
+        _load_gguf_weights(model, gguf_path, dtype=dtype)
+
+        model.eval()
         self.config = model.config
         self.model = model
         return model
