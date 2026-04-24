@@ -5,11 +5,15 @@
 InternVL3 model loader implementation for multimodal visual question answering.
 """
 
+import sys
+
 import torch
+import torch.nn as nn
 import torchvision.transforms as T
 from PIL import Image
 from torchvision.transforms.functional import InterpolationMode
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoConfig, AutoModel, AutoTokenizer
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
 from typing import Optional
 
 from ...tools.utils import get_file
@@ -158,11 +162,58 @@ class ModelLoader(ForgeModel):
         )
         return self.tokenizer
 
+    def _patch_intern_vision_encoder(self, pretrained_model_name):
+        """Patch InternVisionEncoder to work in transformers' meta device init context.
+
+        Transformers always initializes models under torch.device("meta"), but
+        InternVisionEncoder.__init__ calls torch.linspace(...).item() which raises
+        RuntimeError on meta tensors. We force that computation onto CPU instead.
+        """
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        auto_map = getattr(config, "auto_map", {})
+        model_class_ref = auto_map.get("AutoModel") or auto_map.get(
+            "AutoModelForCausalLM"
+        )
+        if model_class_ref:
+            get_class_from_dynamic_module(
+                model_class_ref, pretrained_model_name, trust_remote_code=True
+            )
+
+        for mod_name, mod in list(sys.modules.items()):
+            if "modeling_intern_vit" not in mod_name:
+                continue
+            encoder_cls = getattr(mod, "InternVisionEncoder", None)
+            if encoder_cls is None or getattr(encoder_cls, "_tt_patched", False):
+                continue
+            layer_cls = mod.InternVisionEncoderLayer
+
+            def _patched_init(self, config, _layer_cls=layer_cls):
+                nn.Module.__init__(self)
+                self.config = config
+                dpr = torch.linspace(
+                    0, config.drop_path_rate, config.num_hidden_layers, device="cpu"
+                ).tolist()
+                self.layers = nn.ModuleList(
+                    [
+                        _layer_cls(config, dpr[idx])
+                        for idx in range(config.num_hidden_layers)
+                    ]
+                )
+                self.gradient_checkpointing = True
+
+            encoder_cls.__init__ = _patched_init
+            encoder_cls._tt_patched = True
+            break
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
             self._load_tokenizer()
+
+        self._patch_intern_vision_encoder(pretrained_model_name)
 
         model_kwargs = {
             "trust_remote_code": True,
