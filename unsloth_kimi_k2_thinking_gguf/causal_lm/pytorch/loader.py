@@ -8,9 +8,24 @@ from typing import Optional
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
 GGUF_TO_FAST_CONVERTERS.setdefault("deepseek_v2", GGUF_TO_FAST_CONVERTERS["qwen2_moe"])
+
+if not getattr(_gguf_utils, "_deepseek_v2_weights_map_patched", False):
+    _orig_get_map = _gguf_utils.get_gguf_hf_weights_map
+
+    def _patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        _model_type = hf_model.config.model_type if model_type is None else model_type
+        if _model_type == "deepseek_v2":
+            _model_type = "deepseek2"
+        return _orig_get_map(hf_model, processor, _model_type, num_layers, qual_name)
+
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+    _gguf_utils._deepseek_v2_weights_map_patched = True
 
 from ....base import ForgeModel
 from ....config import (
