@@ -5,7 +5,7 @@
 MedGemma GGUF model loader implementation for multimodal conditional generation.
 """
 import torch
-from transformers import AutoProcessor, AutoModelForImageTextToText, AutoConfig
+from transformers import AutoProcessor, Gemma3ForConditionalGeneration, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -33,15 +33,14 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.MEDGEMMA_1_5_4B_IT_Q4_K_M: ModelConfig(
-            pretrained_model_name="unsloth/medgemma-1.5-4b-it-GGUF",
+            # unsloth/medgemma-1.5-4b-it-GGUF only contains the text model weights;
+            # use the full safetensors repo so Gemma3ForConditionalGeneration can load
+            # the complete multimodal architecture (text + vision projector).
+            pretrained_model_name="unsloth/medgemma-1.5-4b-it",
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.MEDGEMMA_1_5_4B_IT_Q4_K_M
-
-    _GGUF_FILES = {
-        ModelVariant.MEDGEMMA_1_5_4B_IT_Q4_K_M: "medgemma-1.5-4b-it-Q4_K_M.gguf",
-    }
 
     _PROCESSOR_NAME = "unsloth/medgemma-1.5-4b-it"
 
@@ -53,10 +52,6 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.processor = None
         self.config = None
-
-    @property
-    def gguf_file(self):
-        return self._GGUF_FILES[self._variant]
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -72,10 +67,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self, dtype_override=None):
-        kwargs = {}
-        if dtype_override is not None:
-            kwargs["torch_dtype"] = dtype_override
-        self.processor = AutoProcessor.from_pretrained(self._PROCESSOR_NAME, **kwargs)
+        self.processor = AutoProcessor.from_pretrained(self._PROCESSOR_NAME)
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -83,15 +75,14 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.processor is None:
-            self._load_processor(dtype_override=dtype_override)
+            self._load_processor()
 
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.gguf_file
 
-        model = AutoModelForImageTextToText.from_pretrained(
+        model = Gemma3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
 
@@ -101,7 +92,7 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return input tensors for MedGemma GGUF."""
         if self.processor is None:
-            self._load_processor(dtype_override=dtype_override)
+            self._load_processor()
 
         image_file = get_file(self.sample_image_url)
         image = Image.open(image_file).convert("RGB")
@@ -137,6 +128,6 @@ class ModelLoader(ForgeModel):
     def load_config(self):
         """Load and return the model configuration."""
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
+            self._variant_config.pretrained_model_name
         )
         return self.config
