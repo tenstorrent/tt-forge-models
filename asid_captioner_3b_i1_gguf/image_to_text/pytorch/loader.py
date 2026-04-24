@@ -31,11 +31,12 @@ def _find_real_load_gguf_checkpoint():
     Other GGUF loaders monkey-patch load_gguf_checkpoint with wrappers that
     have fixed signatures (gguf_path, return_tensors=False) and cannot handle
     the model_to_load kwarg that transformers passes on the second call.
-    We bypass the entire chain and call the real function directly.
+    The real transformers function has model_to_load in its signature, so we
+    walk the closure chain until we find a function that accepts it.
     """
+    import inspect
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
 
-    target_module = "transformers.modeling_gguf_pytorch_utils"
     fn = gguf_utils.load_gguf_checkpoint
     seen: set = set()
 
@@ -45,8 +46,12 @@ def _find_real_load_gguf_checkpoint():
             break
         seen.add(fn_id)
 
-        if getattr(fn, "__module__", None) == target_module:
-            return fn
+        try:
+            sig = inspect.signature(fn)
+            if "model_to_load" in sig.parameters:
+                return fn
+        except (ValueError, TypeError):
+            pass
 
         closure = getattr(fn, "__closure__", None)
         if not closure:
