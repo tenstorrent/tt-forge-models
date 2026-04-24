@@ -13,10 +13,12 @@ import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
-from transformers.modeling_gguf_pytorch_utils import (
-    GGUF_SUPPORTED_ARCHITECTURES,
-    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
-)
+from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
+
+# Preserve the true original before any prior loader has patched it in a chain.
+if not hasattr(_gguf_utils, "_unpatched_load_gguf_checkpoint"):
+    _gguf_utils._unpatched_load_gguf_checkpoint = _gguf_utils.load_gguf_checkpoint
+_orig_load_gguf_checkpoint = _gguf_utils._unpatched_load_gguf_checkpoint
 
 from ....base import ForgeModel
 from ....config import (
