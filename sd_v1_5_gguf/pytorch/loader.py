@@ -112,6 +112,11 @@ class ModelLoader(ForgeModel):
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         if self._unet is None:
+            from diffusers.quantizers.gguf.utils import (
+                GGUFParameter,
+                dequantize_gguf_tensor,
+            )
+
             gguf_file = _GGUF_FILES[self._variant]
             gguf_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
             quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
@@ -120,6 +125,21 @@ class ModelLoader(ForgeModel):
                 quantization_config=quantization_config,
                 torch_dtype=compute_dtype,
             )
+            # Dequantize GroupNorm weights: diffusers GGUF quantizer only wraps
+            # Linear layers, leaving norm layer parameters as raw GGUFParameter
+            # tensors that group_norm cannot consume.
+            for module in self._unet.modules():
+                if isinstance(module, torch.nn.GroupNorm):
+                    if isinstance(module.weight, GGUFParameter):
+                        module.weight = torch.nn.Parameter(
+                            dequantize_gguf_tensor(module.weight).to(compute_dtype)
+                        )
+                    if module.bias is not None and isinstance(
+                        module.bias, GGUFParameter
+                    ):
+                        module.bias = torch.nn.Parameter(
+                            dequantize_gguf_tensor(module.bias).to(compute_dtype)
+                        )
             self._unet.eval()
         elif dtype_override is not None:
             self._unet = self._unet.to(dtype=dtype_override)
