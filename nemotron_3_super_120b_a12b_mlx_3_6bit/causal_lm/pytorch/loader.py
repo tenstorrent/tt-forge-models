@@ -97,9 +97,16 @@ class ModelLoader(ForgeModel):
         # MLX-quantized weights are incompatible with standard transformers loading
         # (packed bit-width tensors with wrong shapes). Always use from_config to
         # avoid a 50 GB weight download that would yield random weights anyway.
-        model = AutoModelForCausalLM.from_config(config, trust_remote_code=True)
-        if dtype_override is not None:
-            model = model.to(dtype_override)
+        # Set the default dtype before construction so we allocate directly in the
+        # target dtype instead of creating a float32 model and converting (which
+        # would briefly double memory usage to ~724 GB for a 120B parameter model).
+        target_dtype = dtype_override or torch.float32
+        original_dtype = torch.get_default_dtype()
+        torch.set_default_dtype(target_dtype)
+        try:
+            model = AutoModelForCausalLM.from_config(config, trust_remote_code=True)
+        finally:
+            torch.set_default_dtype(original_dtype)
 
         model.eval()
         self.config = model.config
