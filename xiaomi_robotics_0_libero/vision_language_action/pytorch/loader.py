@@ -10,8 +10,25 @@ from typing import Optional
 
 import torch
 import transformers.modeling_rope_utils as _rope_utils
+import transformers.modeling_utils as _modeling_utils
 from PIL import Image
 from transformers import AutoModel, AutoProcessor
+
+# modeling_mibot.py defines _tied_weights_keys as a list (old transformers API),
+# but transformers 5.x get_expanded_tied_weights_keys expects a dict.
+# Patch PreTrainedModel.get_expanded_tied_weights_keys to handle both.
+_orig_get_expanded_tied = _modeling_utils.PreTrainedModel.get_expanded_tied_weights_keys
+
+
+def _compat_get_expanded_tied(self, all_submodels=True):
+    if isinstance(getattr(self, "_tied_weights_keys", None), list):
+        self._tied_weights_keys = None
+    return _orig_get_expanded_tied(self, all_submodels)
+
+
+_modeling_utils.PreTrainedModel.get_expanded_tied_weights_keys = (
+    _compat_get_expanded_tied
+)
 
 from ....base import ForgeModel
 from ....config import (
