@@ -82,6 +82,7 @@ class ModelLoader(ForgeModel):
 
         self.transformer = MochiTransformer3DModel.from_single_file(
             gguf_url,
+            time_embed_dim=110,
             **load_kwargs,
         )
 
