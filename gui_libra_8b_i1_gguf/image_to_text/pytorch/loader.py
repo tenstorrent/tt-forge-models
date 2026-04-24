@@ -7,6 +7,7 @@ GUI-Libra-8B i1 GGUF model loader implementation for image to text.
 
 from transformers import (
     Qwen3VLForConditionalGeneration,
+    AutoConfig,
     AutoProcessor,
 )
 from typing import Optional
@@ -141,6 +142,10 @@ class ModelLoader(ForgeModel):
 
         # GGUF repos do not ship a processor; use the base model
         self.processor = AutoProcessor.from_pretrained("GUI-Libra/GUI-Libra-8B")
+
+        # GGUF config doesn't include vision config; load it from the base model
+        # to get correct vision params (e.g. out_hidden_size=4096 for 8B model).
+        model_kwargs["config"] = AutoConfig.from_pretrained("Qwen/Qwen3-VL-8B-Instruct")
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
