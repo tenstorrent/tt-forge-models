@@ -67,6 +67,8 @@ def _patch_qwen3vlmoe_gguf_support():
             model_type = hf_model.config.model_type
         if model_type == "qwen3_vl_moe":
             model_type = "qwen3vlmoe"
+            if num_layers is None:
+                num_layers = hf_model.config.text_config.num_hidden_layers
         return _prev_get_map(hf_model, processor, model_type, num_layers, qual_name)
 
     _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
