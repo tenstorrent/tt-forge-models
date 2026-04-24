@@ -4,11 +4,33 @@
 """
 mradermacher Blossom-V6-7B i1 GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import transformers.utils.import_utils as _import_utils
 from typing import Optional
 
 from ....base import ForgeModel
+
+
+def _refresh_gguf_distribution_map():
+    """Refresh PACKAGE_DISTRIBUTION_MAPPING for gguf.
+
+    transformers computes PACKAGE_DISTRIBUTION_MAPPING at import time.  When
+    gguf is installed later (via per-model requirements.txt), the stale map
+    causes is_gguf_available() to fall back to getattr(gguf, "__version__",
+    "N/A"), which packaging.version.parse() cannot handle.  Inserting the
+    entry here (after gguf is installed) lets transformers find the real
+    version through importlib.metadata.
+    """
+    if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+        try:
+            importlib.metadata.version("gguf")
+            _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+        except importlib.metadata.PackageNotFoundError:
+            pass
+
+
 from ....config import (
     LLMModelConfig,
     ModelInfo,
@@ -76,6 +98,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _refresh_gguf_distribution_map()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -154,6 +177,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        _refresh_gguf_distribution_map()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
