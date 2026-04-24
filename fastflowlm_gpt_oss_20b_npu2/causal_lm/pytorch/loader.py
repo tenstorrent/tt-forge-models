@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.GPT_OSS_20B_NPU2: LLMModelConfig(
-            pretrained_model_name="FastFlowLM/GPT-OSS-20B-NPU2",
+            pretrained_model_name="openai/gpt-oss-20b",
             max_length=128,
         ),
     }
@@ -65,12 +65,8 @@ class ModelLoader(ForgeModel):
     def _load_tokenizer(self, dtype_override=None):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        tokenizer_kwargs = {"trust_remote_code": True}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name, **tokenizer_kwargs
+            pretrained_model_name, trust_remote_code=True
         )
 
         if self.tokenizer.pad_token is None:
