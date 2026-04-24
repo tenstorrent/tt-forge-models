@@ -14,6 +14,8 @@ Available variants:
 
 from typing import Optional
 
+import torch
+
 from ...base import ForgeModel
 from ...config import (
     Framework,
@@ -75,39 +77,44 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the SDXL pipeline with LEAKCORE LoRA weights applied.
+        """Load the SDXL pipeline with LEAKCORE LoRA weights and return the UNet module.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            StableDiffusionXLPipeline: The pipeline with LoRA weights fused.
+            torch.nn.Module: The UNet module with LoRA weights fused.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         self.pipeline = load_pipe(
             base_model_name=self.BASE_MODEL,
             lora_model_id=pretrained_model_name,
             lora_filename=self.LORA_FILENAME,
             lora_scale=self.LORA_SCALE,
+            dtype=dtype,
         )
 
-        if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+        self.pipeline.unet.eval()
+        for param in self.pipeline.unet.parameters():
+            param.requires_grad = False
 
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the LEAKCORE model.
+        """Load and return sample inputs for the LEAKCORE UNet.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
 
         Returns:
-            list: Input tensors that can be fed to the UNet model.
+            dict: Keyword arguments for the UNet forward method.
         """
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
+
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         (
             latent_model_input,
@@ -118,9 +125,19 @@ class ModelLoader(ForgeModel):
             add_time_ids,
         ) = stable_diffusion_preprocessing_xl(self.pipeline, self.prompt)
 
-        if dtype_override:
-            latent_model_input = latent_model_input.to(dtype_override)
-            timesteps = timesteps.to(dtype_override)
-            prompt_embeds = prompt_embeds.to(dtype_override)
+        timestep = timesteps[0]
 
-        return [latent_model_input, timesteps, prompt_embeds, added_cond_kwargs]
+        latent_model_input = latent_model_input.to(dtype)
+        timestep = timestep.to(dtype)
+        prompt_embeds = prompt_embeds.to(dtype)
+        added_cond_kwargs = {
+            k: v.to(dtype) if isinstance(v, torch.Tensor) else v
+            for k, v in added_cond_kwargs.items()
+        }
+
+        return {
+            "sample": latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "added_cond_kwargs": added_cond_kwargs,
+        }

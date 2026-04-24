@@ -10,7 +10,9 @@ import torch
 from diffusers import StableDiffusionXLPipeline
 
 
-def load_pipe(base_model_name, lora_model_id, lora_filename, lora_scale=1.0):
+def load_pipe(
+    base_model_name, lora_model_id, lora_filename, lora_scale=1.0, dtype=None
+):
     """Load Stable Diffusion XL pipeline with LEAKCORE LoRA weights applied.
 
     Args:
@@ -18,16 +20,20 @@ def load_pipe(base_model_name, lora_model_id, lora_filename, lora_scale=1.0):
         lora_model_id: HuggingFace LoRA model ID
         lora_filename: LoRA weights filename
         lora_scale: LoRA scale factor (default: 1.0)
+        dtype: torch.dtype for the pipeline (default: torch.bfloat16)
 
     Returns:
         StableDiffusionXLPipeline: Loaded pipeline with LoRA weights fused
     """
+    if dtype is None:
+        dtype = torch.bfloat16
+
     pipe = StableDiffusionXLPipeline.from_pretrained(
         base_model_name,
-        torch_dtype=torch.float32,
+        torch_dtype=dtype,
         use_safetensors=True,
     )
-    pipe.to("cpu")
+    pipe.to("cpu", dtype=dtype)
 
     # Load and fuse LoRA weights
     pipe.load_lora_weights(lora_model_id, weight_name=lora_filename)
