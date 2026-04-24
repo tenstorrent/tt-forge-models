@@ -10,7 +10,7 @@ import transformers.cache_utils
 if not hasattr(transformers.cache_utils, "SlidingWindowCache"):
     transformers.cache_utils.SlidingWindowCache = transformers.cache_utils.StaticCache
 
-from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor
 from typing import Optional
 
 from ...base import ForgeModel
@@ -98,7 +98,15 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = "auto"
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+        config = AutoConfig.from_pretrained(model_name, trust_remote_code=True)
+        if hasattr(config, "text_config") and not hasattr(
+            config.text_config, "pad_token_id"
+        ):
+            config.text_config.pad_token_id = None
+
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name, config=config, **model_kwargs
+        )
         model.eval()
 
         if self.processor is None:
