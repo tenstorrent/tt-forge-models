@@ -105,11 +105,12 @@ class ModelLoader(ForgeModel):
             )
             self.tokenizer = get_tokenizer(_TOKENIZER_NAME[self._variant])
 
-        # Load image from HuggingFace dataset
-        from datasets import load_dataset
+        from PIL import Image
+        import numpy as np
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        image = Image.fromarray(
+            np.random.randint(0, 255, (336, 336, 3), dtype=np.uint8)
+        )
 
         self.text_prompts = ["a photo of a cat", "a photo of a dog"]
 
