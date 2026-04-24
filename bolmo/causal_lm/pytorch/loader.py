@@ -9,9 +9,96 @@ byteified from OLMo-2-0425-1B. The upstream repo is published with custom
 modeling code so loading requires `trust_remote_code=True`.
 """
 
+import transformers.utils.generic as _tug
+import transformers.modeling_rope_utils as _rope_utils
+from transformers.modeling_utils import PreTrainedModel as _PreTrainedModel
+from xlstm.xlstm_large.model import mLSTMBackendConfig as _mLSTMBackendConfig
+
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
+
+_orig_check_model_inputs = _tug.check_model_inputs
+
+
+def _check_model_inputs_compat(func=None):
+    # modeling_bolmo.py calls @check_model_inputs() (factory style); patch to
+    # support both @check_model_inputs and @check_model_inputs().
+    if func is None:
+        return _orig_check_model_inputs
+    return _orig_check_model_inputs(func)
+
+
+_tug.check_model_inputs = _check_model_inputs_compat
+
+
+def _default_rope_init(config, device=None, seq_len=None, **kwargs):
+    # modeling_bolmo.py uses rope_type="default" which was removed in newer
+    # transformers; implement the standard (no-scaling) RoPE computation.
+    base = getattr(config, "rope_theta", 10000.0)
+    partial_rotary_factor = getattr(config, "partial_rotary_factor", 1.0)
+    head_dim = getattr(config, "head_dim", None) or (
+        config.hidden_size // config.num_attention_heads
+    )
+    dim = int(head_dim * partial_rotary_factor)
+    inv_freq = 1.0 / (
+        base
+        ** (
+            torch.arange(0, dim, 2, dtype=torch.int64).to(
+                device=device, dtype=torch.float
+            )
+            / dim
+        )
+    )
+    return inv_freq, 1.0
+
+
+_rope_utils.ROPE_INIT_FUNCTIONS["default"] = _default_rope_init
+
+_orig_init_weights = _PreTrainedModel._init_weights
+
+
+def _patched_init_weights(self, module):
+    # transformers._init_weights calls module.compute_default_rope_parameters
+    # when rope_type=="default", but BolmoRotaryEmbedding doesn't define it.
+    # Add it dynamically so the fallback lookup works.
+    if (
+        "RotaryEmbedding" in module.__class__.__name__
+        and hasattr(module, "original_inv_freq")
+        and getattr(module, "rope_type", None) == "default"
+        and not hasattr(module, "compute_default_rope_parameters")
+    ):
+        module.compute_default_rope_parameters = lambda config: _default_rope_init(
+            config
+        )
+    _orig_init_weights(self, module)
+
+
+_PreTrainedModel._init_weights = _patched_init_weights
+
+_orig_mlstm_post_init = _mLSTMBackendConfig.__post_init__
+
+
+def _patched_mlstm_post_init(self):
+    # modeling_bolmo.py hardcodes Triton kernels; replace with native equivalents
+    # when CUDA is unavailable (e.g. compile-only TT systems).
+    if not torch.cuda.is_available():
+        triton_chunkwise = {
+            "chunkwise--triton_limit_chunk",
+            "chunkwise--triton_xl_chunk",
+        }
+        if self.chunkwise_kernel in triton_chunkwise:
+            self.chunkwise_kernel = "chunkwise--native_autograd"
+        if "triton" in (self.sequence_kernel or ""):
+            self.sequence_kernel = "native_sequence__native"
+        if self.step_kernel == "triton":
+            self.step_kernel = "native"
+        self.autocast_kernel_dtype = "bfloat16"
+        self.inference_state_dtype = "bfloat16"
+    _orig_mlstm_post_init(self)
+
+
+_mLSTMBackendConfig.__post_init__ = _patched_mlstm_post_init
 
 from ....base import ForgeModel
 from ....config import (
@@ -94,7 +181,10 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, trust_remote_code=True, **model_kwargs
+            pretrained_model_name,
+            trust_remote_code=True,
+            attn_implementation="eager",
+            **model_kwargs,
         )
         model.config.use_cache = False
         model.eval()
