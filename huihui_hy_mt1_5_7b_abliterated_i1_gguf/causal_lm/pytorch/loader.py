@@ -63,6 +63,11 @@ def _patch_gguf_hunyuan_dense():
 
     tokenization_auto_mod.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
+    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+    if "hunyuan-dense" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["hunyuan-dense"] = GGUF_TO_FAST_CONVERTERS["llama"]
+
 
 class ModelVariant(StrEnum):
     """Available Huihui HY-MT1.5 7B abliterated i1 GGUF model variants for causal language modeling."""
