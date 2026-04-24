@@ -4,9 +4,43 @@
 """
 NVIDIA Nemotron Nano 9B v2 GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+)
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+    """Refresh stale gguf package detection then call through.
+
+    transformers caches importlib.metadata.packages_distributions() at module
+    import time. When gguf is installed at runtime by RequirementsManager the
+    cached mapping doesn't include it, causing is_gguf_available() to raise
+    InvalidVersion. This patch refreshes the mapping and clears the lru_cache
+    so the check re-evaluates with the freshly installed package.
+    """
+    from transformers.utils import import_utils as _import_utils
+
+    _import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+        importlib.metadata.packages_distributions()
+    )
+    if hasattr(_import_utils.is_gguf_available, "cache_clear"):
+        _import_utils.is_gguf_available.cache_clear()
+    return _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+
+
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 from ....base import ForgeModel
 from ....config import (
