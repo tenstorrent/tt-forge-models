@@ -5,9 +5,145 @@
 mradermacher Routangseng Qwen3.5 0.8B Abliterated GGUF model loader implementation
 for causal language modeling.
 """
+import struct
+
+import numpy as np
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+
+def _patch_transformers_qwen35_gguf():
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        TENSOR_PROCESSORS,
+        GGUFReader,
+        GGUFTensor,
+        TensorProcessor,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    class Qwen35TensorProcessor(TensorProcessor):
+        def __init__(self, config=None):
+            super().__init__(config=config)
+
+        def preprocess_name(self, hf_name: str) -> str:
+            return hf_name.replace(".dt_bias", ".dt_proj")
+
+        def process(self, weights, name, **kwargs):
+            if "ssm_conv1d.weight" in name:
+                if weights.ndim == 2:
+                    weights = np.expand_dims(weights, axis=1)
+            if "ssm_a" in name:
+                weights = np.log(-weights)
+            return GGUFTensor(weights, name, {})
+
+    TENSOR_PROCESSORS["qwen35"] = Qwen35TensorProcessor
+
+    if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
+
+        GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen35"] = {
+            "context_length": "max_position_embeddings",
+            "block_count": "num_hidden_layers",
+            "feed_forward_length": "intermediate_size",
+            "embedding_length": "hidden_size",
+            "rope.dimension_count": None,
+            "rope.freq_base": "rope_theta",
+            "attention.head_count": "num_attention_heads",
+            "attention.head_count_kv": "num_key_value_heads",
+            "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+            "attention.key_length": "head_dim",
+            "attention.value_length": None,
+            "ssm.conv_kernel": "linear_conv_kernel_dim",
+            "ssm.state_size": None,
+            "ssm.inner_size": None,
+            "ssm.time_step_rank": None,
+            "ssm.group_count": None,
+            "full_attention_interval": "full_attention_interval",
+            "vocab_size": "vocab_size",
+        }
+
+        from transformers.integrations.ggml import (
+            GGUF_TO_FAST_CONVERTERS,
+            GGUFQwen2Converter,
+        )
+
+        if "qwen35" not in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS["qwen35"] = GGUFQwen2Converter
+
+        orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+        def patched_get_gguf_hf_weights_map(
+            hf_model, processor, model_type=None, num_layers=None, qual_name=""
+        ):
+            if model_type is None and hf_model is not None:
+                model_type = hf_model.config.model_type
+            if model_type in ("qwen3_5_text", "qwen3_5"):
+                model_type = "qwen35"
+            return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+        gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+    # Always wrap load_gguf_checkpoint to fix SSM config dimensions from GGUF metadata.
+    # The base heretic patch leaves ssm.group_count and ssm.state_size unmapped,
+    # causing shape mismatches for models whose SSM dimensions differ from the defaults.
+    if getattr(gguf_utils.load_gguf_checkpoint, "_qwen35_ssm_fixed", False):
+        return
+
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(gguf_checkpoint_path, *args, **kwargs):
+        result = orig_load(gguf_checkpoint_path, *args, **kwargs)
+        if result.get("config", {}).get("model_type") in ("qwen35", "qwen3_5_text"):
+            config = result["config"]
+            config["model_type"] = "qwen3_5_text"
+
+            num_layers = config.get("num_hidden_layers", 32)
+            interval = config.pop("full_attention_interval", 4)
+            layer_types = []
+            for i in range(num_layers):
+                if (i + 1) % interval == 0:
+                    layer_types.append("full_attention")
+                else:
+                    layer_types.append("linear_attention")
+            config["layer_types"] = layer_types
+
+            reader = GGUFReader(gguf_checkpoint_path)
+            fields = {f.name: f for f in reader.fields.values()}
+
+            def read_uint32(field_name):
+                if field_name not in fields:
+                    return None
+                field = fields[field_name]
+                return struct.unpack("<I", bytes(field.parts[field.data[0]]))[0]
+
+            group_count = read_uint32("qwen35.ssm.group_count")
+            state_size = read_uint32("qwen35.ssm.state_size")
+
+            if group_count is not None:
+                config["linear_num_key_heads"] = group_count
+                config["linear_num_value_heads"] = group_count
+            if state_size is not None:
+                config["linear_key_head_dim"] = state_size
+                config["linear_value_head_dim"] = state_size
+
+        return result
+
+    patched_load_gguf_checkpoint._qwen35_ssm_fixed = True
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
+_patch_transformers_qwen35_gguf()
 
 from ....base import ForgeModel
 from ....config import (
