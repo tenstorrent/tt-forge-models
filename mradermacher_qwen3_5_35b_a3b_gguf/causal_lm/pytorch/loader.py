@@ -27,25 +27,35 @@ def _patch_transformers_qwen35moe_gguf():
     )
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
 
+    # Always update the config mapping to ensure all required fields are present.
+    # This may be called after another loader (e.g. momix_44) already registered
+    # qwen35moe, so we must update unconditionally.
+    _qwen35moe_config = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.key_length": "head_dim",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+        "expert_count": "num_experts",
+        "expert_used_count": "num_experts_per_tok",
+        "expert_feed_forward_length": "moe_intermediate_size",
+        "expert_shared_feed_forward_length": "shared_expert_intermediate_size",
+        "ssm.inner_size": "intermediate_size",
+        "ssm.conv_kernel": "linear_conv_kernel_dim",
+        "ssm.group_count": "linear_num_key_heads",
+        "full_attention_interval": "full_attention_interval",
+    }
+    GGUF_TO_TRANSFORMERS_MAPPING["config"].setdefault("qwen35moe", {}).update(
+        _qwen35moe_config
+    )
+
     if "qwen35moe" not in GGUF_SUPPORTED_ARCHITECTURES:
         GGUF_SUPPORTED_ARCHITECTURES.append("qwen35moe")
-
-        GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen35moe"] = {
-            "context_length": "max_position_embeddings",
-            "block_count": "num_hidden_layers",
-            "feed_forward_length": "intermediate_size",
-            "embedding_length": "hidden_size",
-            "rope.dimension_count": None,
-            "rope.freq_base": "rope_theta",
-            "attention.key_length": "head_dim",
-            "attention.head_count": "num_attention_heads",
-            "attention.head_count_kv": "num_key_value_heads",
-            "attention.layer_norm_rms_epsilon": "rms_norm_eps",
-            "vocab_size": "vocab_size",
-            "expert_count": "num_experts",
-            "expert_used_count": "num_experts_per_tok",
-            "full_attention_interval": "full_attention_interval",
-        }
 
         if "qwen3moe" in TENSOR_PROCESSORS:
             TENSOR_PROCESSORS["qwen35moe"] = TENSOR_PROCESSORS["qwen3moe"]
@@ -218,7 +228,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
