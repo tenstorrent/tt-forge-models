@@ -79,24 +79,30 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load the Pyannote speaker diarization pipeline's segmentation model.
+        """Load the Pyannote speaker diarization segmentation model.
 
-        Requires a HuggingFace token with access to the gated model.
-        Set the HF_TOKEN environment variable or pass token as a kwarg.
+        Downloads the pipeline config to locate the segmentation sub-model,
+        then loads only that model directly to avoid gated PLDA dependencies.
         """
-        from pyannote.audio import Pipeline
+        import yaml
+        from huggingface_hub import hf_hub_download
+        from pyannote.audio import Model
 
-        pipeline_kwargs = {}
         token = kwargs.pop("token", None) or os.environ.get("HF_TOKEN")
+        hub_kwargs = {}
         if token:
-            pipeline_kwargs["token"] = token
+            hub_kwargs["token"] = token
 
-        pipeline = Pipeline.from_pretrained(
-            self._variant_config.pretrained_model_name, **pipeline_kwargs
+        config_path = hf_hub_download(
+            self._variant_config.pretrained_model_name,
+            "config.yaml",
+            **hub_kwargs,
         )
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+        segmentation_name = config["pipeline"]["params"]["segmentation"]
 
-        # Extract the segmentation model from the pipeline
-        self._model = pipeline._segmentation.model
+        self._model = Model.from_pretrained(segmentation_name, **hub_kwargs)
         self._model.eval()
         if dtype_override is not None:
             self._model.to(dtype_override)
