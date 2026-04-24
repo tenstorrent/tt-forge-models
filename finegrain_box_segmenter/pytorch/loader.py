@@ -75,9 +75,6 @@ class ModelLoader(ForgeModel):
         segmenter = BoxSegmenter()
         model = segmenter.model.eval()
 
-        if dtype_override is not None:
-            model = model.to(dtype=dtype_override)
-
         if self.transform_image is None:
             self._setup_transforms()
 
@@ -91,9 +88,6 @@ class ModelLoader(ForgeModel):
         self.image = dataset[0]["image"]
 
         inputs = self.transform_image(self.image).unsqueeze(0)
-
-        if dtype_override is not None:
-            inputs = inputs.to(dtype_override)
 
         if batch_size > 1:
             inputs = inputs.repeat(batch_size, 1, 1, 1)
