@@ -36,7 +36,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="facebook/musicgen-small",
         ),
         ModelVariant.XENOVA: ModelConfig(
-            pretrained_model_name="Xenova/musicgen-small",
+            pretrained_model_name="facebook/musicgen-small",
         ),
     }
 
