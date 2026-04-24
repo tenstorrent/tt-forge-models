@@ -6,6 +6,7 @@ WhisperNER model loader implementation
 """
 
 import torch
+from datasets import load_dataset
 from transformers import (
     WhisperProcessor,
     WhisperForConditionalGeneration,
@@ -20,7 +21,6 @@ from ...config import (
     StrEnum,
     ModelConfig,
 )
-from ...tools.utils import get_file
 from ...base import ForgeModel
 from typing import Optional
 
@@ -110,10 +110,11 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name
         )
 
-        # Load audio sample
-        weights_pth = get_file("test_files/pytorch/whisper/1272-128104-0000.pt")
-        sample = torch.load(weights_pth, weights_only=False)
-        sample_audio = sample["audio"]["array"]
+        # Load audio sample from public LibriSpeech dataset
+        ds = load_dataset(
+            "hf-internal-testing/librispeech_asr_dummy", "clean", split="validation"
+        )
+        sample_audio = ds[0]["audio"]["array"]
         model_param = next(self.model.parameters())
         device, dtype = model_param.device, dtype_override or model_param.dtype
 
