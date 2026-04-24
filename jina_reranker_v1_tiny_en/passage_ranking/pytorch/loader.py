@@ -74,13 +74,21 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         # transformers>=5 no longer provides default values for unknown config
-        # attributes; the custom JinaBertSelfAttention reads config.is_decoder,
-        # so we must set it explicitly before the model is instantiated.
+        # attributes; the custom JinaBert model reads several standard BERT
+        # defaults that JinaBertConfig does not declare, so we set them here.
         config = AutoConfig.from_pretrained(
             pretrained_model_name, trust_remote_code=True, num_labels=1
         )
-        if not hasattr(config, "is_decoder"):
-            config.is_decoder = False
+        _bert_defaults = {
+            "is_decoder": False,
+            "add_cross_attention": False,
+            "chunk_size_feed_forward": 0,
+            "output_attentions": False,
+            "output_hidden_states": False,
+        }
+        for attr, default in _bert_defaults.items():
+            if not hasattr(config, attr):
+                object.__setattr__(config, attr, default)
 
         model_kwargs = {
             "config": config,
