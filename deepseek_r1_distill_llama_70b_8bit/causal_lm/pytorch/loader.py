@@ -86,14 +86,13 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         config = AutoConfig.from_pretrained(pretrained_model_name)
-        # MLX quantization configs lack `quant_method` required by newer transformers;
-        # clear it so the model loads without a quantizer applied.
-        if (
-            hasattr(config, "quantization_config")
-            and config.quantization_config is not None
-            and not hasattr(config.quantization_config, "quant_method")
+        # MLX quantization configs lack `quant_method` required by newer transformers.
+        # Fully remove the attribute (not just set to None) so hasattr returns False
+        # and transformers skips the quantizer path entirely.
+        if hasattr(config, "quantization_config") and not hasattr(
+            config.quantization_config, "quant_method"
         ):
-            config.quantization_config = None
+            delattr(config, "quantization_config")
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
         model_kwargs["config"] = config
