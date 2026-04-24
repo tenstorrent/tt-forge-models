@@ -16,7 +16,6 @@ from typing import Any, Optional
 
 import torch
 from diffusers import DiffusionPipeline
-from diffusers.utils import load_image
 
 from ...base import ForgeModel
 from ...config import (
@@ -70,7 +69,7 @@ class ModelLoader(ForgeModel):
         """Load the Qwen-Image-Edit-2511 pipeline with Anime LoRA weights.
 
         Returns:
-            DiffusionPipeline: The pipeline with LoRA adapter applied.
+            torch.nn.Module: The transformer component of the pipeline.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
         self.pipeline = DiffusionPipeline.from_pretrained(
@@ -79,16 +78,59 @@ class ModelLoader(ForgeModel):
             **kwargs,
         )
         self.pipeline.load_lora_weights(LORA_REPO_ID)
-        return self.pipeline
+        return self.pipeline.transformer
 
-    def load_inputs(self, **kwargs) -> Any:
-        """Load sample inputs for the image editing pipeline.
+    def load_inputs(self, dtype_override=None, batch_size=1, **kwargs) -> Any:
+        """Load synthetic tensor inputs for the QwenImageTransformer2DModel.
 
         Returns:
-            dict: A dict with 'image' and 'prompt' keys.
+            dict: Keyword arguments matching the transformer's forward signature.
         """
-        image = load_image(
-            "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/cat.png"
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype_override)
+
+        dtype = dtype_override if dtype_override is not None else torch.float32
+        transformer = self.pipeline.transformer
+
+        # Image dimensions and latent packing for 512x512 input
+        height, width = 512, 512
+        vae_scale_factor = self.pipeline.vae_scale_factor  # 8
+        latent_h = 2 * (height // (vae_scale_factor * 2))  # 64
+        latent_w = 2 * (width // (vae_scale_factor * 2))  # 64
+
+        in_channels = transformer.config.in_channels  # 64
+        joint_attention_dim = transformer.config.joint_attention_dim  # 3584
+
+        # After packing: (batch, (latent_h//2)*(latent_w//2), in_channels)
+        patches_per_image = (latent_h // 2) * (latent_w // 2)  # 1024
+        # Concatenate noise latents + condition image latents
+        hidden_states = torch.randn(
+            batch_size, patches_per_image * 2, in_channels, dtype=dtype
         )
-        prompt = "Transform into anime."
-        return {"image": image, "prompt": prompt}
+
+        text_seq_len = 128
+        encoder_hidden_states = torch.randn(
+            batch_size, text_seq_len, joint_attention_dim, dtype=dtype
+        )
+        encoder_hidden_states_mask = torch.ones(
+            batch_size, text_seq_len, dtype=torch.bool
+        )
+
+        # Timestep in [0, 1] range (pipeline divides raw scheduler timestep by 1000)
+        timestep = torch.full((batch_size,), 0.5, dtype=dtype)
+
+        # img_shapes: one tuple per image segment (noise + condition)
+        img_shape_h = latent_h // 2  # 32
+        img_shape_w = latent_w // 2  # 32
+        img_shapes = [
+            [(1, img_shape_h, img_shape_w), (1, img_shape_h, img_shape_w)]
+        ] * batch_size
+
+        return {
+            "hidden_states": hidden_states,
+            "encoder_hidden_states": encoder_hidden_states,
+            "encoder_hidden_states_mask": encoder_hidden_states_mask,
+            "timestep": timestep,
+            "img_shapes": img_shapes,
+            "return_dict": False,
+        }
