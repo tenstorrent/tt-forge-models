@@ -7,8 +7,16 @@ Fallen Llama 3.3 R1 70B GGUF model loader implementation for causal language mod
 GGUF-quantized release by bartowski of TheDrummer/Fallen-Llama-3.3-R1-70B-v1, a
 Llama 3.3 70B fine-tune. The loader targets the Q4_K_M quantization.
 """
+import os
+
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    AutoConfig,
+    LlamaForCausalLM,
+)
+from transformers import LlamaConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -78,8 +86,32 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    def _llama33_70b_config(self):
+        return LlamaConfig(
+            vocab_size=128256,
+            hidden_size=8192,
+            intermediate_size=28672,
+            num_hidden_layers=self.num_layers if self.num_layers is not None else 80,
+            num_attention_heads=64,
+            num_key_value_heads=8,
+            max_position_embeddings=131072,
+            rms_norm_eps=1e-5,
+            rope_theta=500000.0,
+            tie_word_embeddings=False,
+        )
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            config = self._llama33_70b_config()
+            model = LlamaForCausalLM(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+            model.eval()
+            self.config = model.config
+            self.model = model
+            return model
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
@@ -106,10 +138,16 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
+        max_length = self._variant_config.max_length
+
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            vocab_size = 128256
+            input_ids = torch.randint(0, vocab_size, (batch_size, max_length))
+            attention_mask = torch.ones(batch_size, max_length, dtype=torch.long)
+            return {"input_ids": input_ids, "attention_mask": attention_mask}
+
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
-
-        max_length = self._variant_config.max_length
 
         messages = [
             {
