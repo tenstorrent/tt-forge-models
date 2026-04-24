@@ -91,19 +91,27 @@ class ModelLoader(ForgeModel):
 
         if "config" not in model_kwargs:
             config = AutoConfig.from_pretrained(pretrained_model_name)
-            # MLX quantization configs lack `quant_method` and are incompatible with
-            # transformers' quantizer dispatch; strip them to load in unquantized float.
-            if (
-                hasattr(config, "quantization_config")
-                and config.quantization_config is not None
-                and not hasattr(config.quantization_config, "quant_method")
-            ):
-                config.quantization_config = None
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        config = model_kwargs["config"]
+        quant_cfg = getattr(config, "quantization_config", None)
+        mlx_quant = isinstance(quant_cfg, dict) and "quant_method" not in quant_cfg
+        if mlx_quant:
+            # MLX weights are stored in a group-quantized format incompatible with
+            # PyTorch. Strip the quant config and build the architecture with random
+            # weights so the model graph can be traced for compile-only testing.
+            if hasattr(config, "quantization_config"):
+                delattr(config, "quantization_config")
+            if hasattr(config, "quantization"):
+                delattr(config, "quantization")
+            model = AutoModelForCausalLM.from_config(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+        model = model.eval()
 
         self.config = model.config
         self.model = model
