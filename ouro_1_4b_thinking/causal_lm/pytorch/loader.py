@@ -7,8 +7,11 @@ Ouro-1.4B-Thinking model loader implementation for causal language modeling.
 
 from typing import Optional
 
+import sys
+
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
 
 from ....base import ForgeModel
 from ....config import (
@@ -97,6 +100,23 @@ class ModelLoader(ForgeModel):
         if not hasattr(config, "pad_token_id"):
             config.pad_token_id = None
         model_kwargs["config"] = config
+
+        # Bug in modeling_ouro.py: compute_default_rope_parameters used as bare name but only defined as a static method.
+        try:
+            get_class_from_dynamic_module(
+                "modeling_ouro.OuroForCausalLM",
+                pretrained_model_name,
+                trust_remote_code=True,
+            )
+        except Exception:
+            pass
+        for _mod in sys.modules.values():
+            if hasattr(_mod, "OuroRotaryEmbedding") and not hasattr(
+                _mod, "compute_default_rope_parameters"
+            ):
+                _mod.compute_default_rope_parameters = (
+                    _mod.OuroRotaryEmbedding.compute_default_rope_parameters
+                )
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, trust_remote_code=True, **model_kwargs
