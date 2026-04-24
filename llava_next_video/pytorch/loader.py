@@ -114,18 +114,7 @@ class ModelLoader(ForgeModel):
             text_prompt = "<video>\nWhat is shown in this video?"
             video = np.random.randint(0, 255, (8, 32, 32, 3), dtype=np.uint8)
         else:
-            conversation = [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "video"},
-                        {"type": "text", "text": "What is shown in this video?"},
-                    ],
-                }
-            ]
-            text_prompt = self.processor.apply_chat_template(
-                conversation, add_generation_prompt=True
-            )
+            text_prompt = "<video>\nWhat is shown in this video?"
             # Create a synthetic video (8 frames of 224x224 RGB)
             video = np.random.randint(0, 255, (8, 224, 224, 3), dtype=np.uint8)
 
