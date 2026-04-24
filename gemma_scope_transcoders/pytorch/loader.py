@@ -10,9 +10,15 @@ Reference: https://huggingface.co/mntss/gemma-scope-transcoders
 
 import os
 
+import huggingface_hub.constants as _hf_constants
 import torch
 from transformers import AutoTokenizer
 from typing import Optional
+
+# circuit_tracer 0.5.0 imports HF_HUB_ENABLE_HF_TRANSFER which was removed in
+# huggingface_hub>=1.0.0. Patch the module before circuit_tracer is imported.
+if not hasattr(_hf_constants, "HF_HUB_ENABLE_HF_TRANSFER"):
+    _hf_constants.HF_HUB_ENABLE_HF_TRANSFER = False
 
 from ...config import (
     LLMModelConfig,
