@@ -109,14 +109,10 @@ def _load_gguf_weights(model: torch.nn.Module, gguf_path: str) -> None:
     for tensor in reader.tensors:
         gguf_tensors[tensor.name] = dequantize(tensor.data, tensor.tensor_type)
 
-    def _t(arr):
-        """Transpose a 2D numpy array."""
-        return arr.T if arr.ndim == 2 else arr
-
     name_map = {}
 
     # Global tensors
-    name_map["token_embd.weight"] = ("model.embed_tokens.weight", lambda x: _t(x))
+    name_map["token_embd.weight"] = ("model.embed_tokens.weight", lambda x: x)
     name_map["output_norm.weight"] = ("model.norm.weight", lambda x: x)
 
     layer_types = model.config.layer_types
@@ -128,12 +124,12 @@ def _load_gguf_weights(model: torch.nn.Module, gguf_path: str) -> None:
         # FFN (all layers)
         name_map[f"{b}.ffn_gate.weight"] = (
             f"{hf}.mlp.gate_proj.weight",
-            lambda x: _t(x),
+            lambda x: x,
         )
-        name_map[f"{b}.ffn_up.weight"] = (f"{hf}.mlp.up_proj.weight", lambda x: _t(x))
+        name_map[f"{b}.ffn_up.weight"] = (f"{hf}.mlp.up_proj.weight", lambda x: x)
         name_map[f"{b}.ffn_down.weight"] = (
             f"{hf}.mlp.down_proj.weight",
-            lambda x: _t(x),
+            lambda x: x,
         )
         name_map[f"{b}.attn_norm.weight"] = (
             f"{hf}.input_layernorm.weight",
@@ -148,37 +144,37 @@ def _load_gguf_weights(model: torch.nn.Module, gguf_path: str) -> None:
             la = f"{hf}.linear_attn"
             name_map[f"{b}.attn_qkv.weight"] = (
                 f"{la}.in_proj_qkv.weight",
-                lambda x: _t(x),
+                lambda x: x,
             )
             name_map[f"{b}.attn_gate.weight"] = (
                 f"{la}.in_proj_z.weight",
-                lambda x: _t(x),
+                lambda x: x,
             )
             name_map[f"{b}.ssm_alpha.weight"] = (
                 f"{la}.in_proj_a.weight",
-                lambda x: _t(x),
+                lambda x: x,
             )
             name_map[f"{b}.ssm_beta.weight"] = (
                 f"{la}.in_proj_b.weight",
-                lambda x: _t(x),
+                lambda x: x,
             )
             name_map[f"{b}.ssm_a"] = (f"{la}.A_log", lambda x: x)
             name_map[f"{b}.ssm_dt.bias"] = (f"{la}.dt_bias", lambda x: x)
             name_map[f"{b}.ssm_norm.weight"] = (f"{la}.norm.weight", lambda x: x)
-            name_map[f"{b}.ssm_out.weight"] = (f"{la}.out_proj.weight", lambda x: _t(x))
-            # conv1d: GGUF [kernel, channels] → HF [channels, 1, kernel]
+            name_map[f"{b}.ssm_out.weight"] = (f"{la}.out_proj.weight", lambda x: x)
+            # conv1d: GGUF [channels, kernel] → HF [channels, 1, kernel]
             name_map[f"{b}.ssm_conv1d.weight"] = (
                 f"{la}.conv1d.weight",
-                lambda x: x.T[:, None, :],
+                lambda x: x[:, None, :],
             )
         else:  # full_attention
             sa = f"{hf}.self_attn"
-            name_map[f"{b}.attn_q.weight"] = (f"{sa}.q_proj.weight", lambda x: _t(x))
-            name_map[f"{b}.attn_k.weight"] = (f"{sa}.k_proj.weight", lambda x: _t(x))
-            name_map[f"{b}.attn_v.weight"] = (f"{sa}.v_proj.weight", lambda x: _t(x))
+            name_map[f"{b}.attn_q.weight"] = (f"{sa}.q_proj.weight", lambda x: x)
+            name_map[f"{b}.attn_k.weight"] = (f"{sa}.k_proj.weight", lambda x: x)
+            name_map[f"{b}.attn_v.weight"] = (f"{sa}.v_proj.weight", lambda x: x)
             name_map[f"{b}.attn_output.weight"] = (
                 f"{sa}.o_proj.weight",
-                lambda x: _t(x),
+                lambda x: x,
             )
             name_map[f"{b}.attn_q_norm.weight"] = (f"{sa}.q_norm.weight", lambda x: x)
             name_map[f"{b}.attn_k_norm.weight"] = (f"{sa}.k_norm.weight", lambda x: x)
