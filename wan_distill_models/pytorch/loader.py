@@ -16,12 +16,11 @@ Available variants:
 - WAN22_I2V_LOW_NOISE: Faithful, stable outputs (low noise distillation)
 """
 
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 import torch
 from diffusers import WanImageToVideoPipeline  # type: ignore[import]
 from huggingface_hub import hf_hub_download  # type: ignore[import]
-from PIL import Image  # type: ignore[import]
 from safetensors.torch import load_file  # type: ignore[import]
 
 from ...base import ForgeModel
@@ -41,6 +40,13 @@ DISTILL_REPO = "lightx2v/Wan2.2-Distill-Models"
 # Distilled weight filenames (BF16 variants)
 WEIGHT_HIGH_NOISE = "wan2.2_i2v_A14b_high_noise_lightx2v_4step.safetensors"
 WEIGHT_LOW_NOISE = "wan2.2_i2v_A14b_low_noise_lightx2v_4step.safetensors"
+
+# Small test dimensions for transformer inputs
+# Must be divisible by patch_size (1, 2, 2)
+TRANSFORMER_NUM_FRAMES = 2
+TRANSFORMER_HEIGHT = 4
+TRANSFORMER_WIDTH = 4
+TRANSFORMER_TEXT_SEQ_LEN = 8
 
 
 class ModelVariant(StrEnum):
@@ -92,15 +98,15 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the Wan 2.2 I2V pipeline with distilled transformer weights.
+        """Load the Wan 2.2 I2V transformer with distilled weights.
 
         Downloads the distilled safetensor weights from the HuggingFace repo
         and loads them into the pipeline's transformer component.
 
         Returns:
-            WanImageToVideoPipeline with distilled transformer weights.
+            WanTransformer3DModel with distilled weights.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         self.pipeline = WanImageToVideoPipeline.from_pretrained(
             self._variant_config.pretrained_model_name,
@@ -116,24 +122,35 @@ class ModelLoader(ForgeModel):
         state_dict = load_file(weight_path)
         self.pipeline.transformer.load_state_dict(state_dict, strict=False)
 
-        return self.pipeline
+        return self.pipeline.transformer
+
+    def _load_transformer_inputs(self, dtype: torch.dtype) -> Dict[str, Any]:
+        """Prepare synthetic inputs for the WanTransformer3DModel forward pass."""
+        config = self.pipeline.transformer.config
+        return {
+            "hidden_states": torch.randn(
+                1,
+                config.in_channels,
+                TRANSFORMER_NUM_FRAMES,
+                TRANSFORMER_HEIGHT,
+                TRANSFORMER_WIDTH,
+                dtype=dtype,
+            ),
+            "encoder_hidden_states": torch.randn(
+                1,
+                TRANSFORMER_TEXT_SEQ_LEN,
+                config.text_dim,
+                dtype=dtype,
+            ),
+            "timestep": torch.tensor([500], dtype=torch.long),
+            "return_dict": False,
+        }
 
     def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for image-to-video generation.
+        """Prepare inputs for the transformer forward pass.
 
         Returns:
-            dict with prompt and image keys.
+            dict with tensor inputs for WanTransformer3DModel.
         """
-        if prompt is None:
-            prompt = (
-                "A cat walking gracefully across a sunlit garden, "
-                "detailed fur texture, cinematic lighting"
-            )
-
-        # Create a small test image (RGB)
-        image = Image.new("RGB", (256, 256), color=(128, 128, 200))
-
-        return {
-            "prompt": prompt,
-            "image": image,
-        }
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
+        return self._load_transformer_inputs(dtype)
