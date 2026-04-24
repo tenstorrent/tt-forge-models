@@ -80,7 +80,7 @@ class ModelLoader(ForgeModel):
         if self._variant in self._SINGLE_FILE_VARIANTS:
             repo_id = self._variant_config.pretrained_model_name
             gguf_file = self._GGUF_FILES[self._variant]
-            gguf_url = f"https://huggingface.co/{repo_id}/resolve/main/{gguf_file}"
+            gguf_url = f"https://huggingface.co/{repo_id}/blob/main/{gguf_file}"
             self.transformer = Flux2Transformer2DModel.from_single_file(
                 gguf_url,
                 **load_kwargs,
