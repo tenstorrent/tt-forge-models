@@ -5,7 +5,7 @@
 MediX R1 8B GGUF model loader implementation for image to text.
 """
 
-from transformers import Qwen3VLForConditionalGeneration, AutoProcessor
+from transformers import Qwen3VLForConditionalGeneration, AutoProcessor, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -42,6 +42,8 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.MEDIX_R1_8B_Q4_K_M
 
+    BASE_MODEL = "Qwen/Qwen3-VL-8B-Instruct"
+
     sample_image = (
         "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg"
     )
@@ -74,9 +76,9 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = gguf_file
         model_kwargs |= kwargs
 
-        self.processor = AutoProcessor.from_pretrained(
-            "Qwen/Qwen3-VL-8B-Instruct",
-        )
+        self.processor = AutoProcessor.from_pretrained(self.BASE_MODEL)
+
+        model_kwargs["config"] = AutoConfig.from_pretrained(self.BASE_MODEL)
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
