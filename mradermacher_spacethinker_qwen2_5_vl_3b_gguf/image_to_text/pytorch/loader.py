@@ -70,6 +70,15 @@ class ModelLoader(ForgeModel):
         return self._GGUF_FILES.get(self._variant)
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        # Refresh transformers' package distribution mapping so it picks up
+        # gguf installed dynamically by the test framework's RequirementsManager.
+        import importlib.metadata
+        import transformers.utils.import_utils as _tutils
+
+        _tutils.PACKAGE_DISTRIBUTION_MAPPING = (
+            importlib.metadata.packages_distributions()
+        )
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
