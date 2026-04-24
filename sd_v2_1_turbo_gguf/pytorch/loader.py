@@ -111,10 +111,15 @@ class ModelLoader(ForgeModel):
         from huggingface_hub import hf_hub_download
 
         gguf_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
+        # The GGUF was quantized from the original LDM-format weights which use
+        # Conv2D for proj_in/proj_out (use_linear_projection=False), whereas the
+        # sd-turbo diffusers config has use_linear_projection=True (Linear).
+        # Override to match the GGUF checkpoint's architecture.
         unet = UNet2DConditionModel.from_single_file(
             gguf_path,
             config=BASE_PIPELINE,
             subfolder="unet",
+            use_linear_projection=False,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
