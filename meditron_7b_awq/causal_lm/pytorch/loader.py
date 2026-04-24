@@ -7,6 +7,13 @@ Meditron 7B AWQ model loader implementation for causal language modeling.
 
 from typing import Optional
 
+# Pre-import gptqmodel before transformers enters a meta tensor context, which
+# would break gptqmodel's module-level tensor computations in exllamav3_torch.
+try:
+    import gptqmodel  # noqa: F401
+except ImportError:
+    pass
+
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
@@ -98,17 +105,15 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        messages = [
-            {
-                "role": "user",
-                "content": self.sample_text,
-            }
-        ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
+        if self.tokenizer.chat_template is not None:
+            messages = [{"role": "user", "content": self.sample_text}]
+            text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        else:
+            text = self.sample_text
 
         inputs = self.tokenizer(
             text,
