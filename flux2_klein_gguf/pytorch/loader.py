@@ -5,18 +5,19 @@
 FLUX.2 Klein GGUF model loader implementation for text-to-image generation
 """
 
+from typing import Optional
+
 import torch
 from diffusers.models import Flux2Transformer2DModel
-from typing import Optional
 
 from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 
@@ -47,6 +48,11 @@ class ModelLoader(ForgeModel):
         ModelVariant.LEEJET_KLEIN_9B_Q4_0: "flux-2-klein-9b-Q4_0.gguf",
     }
 
+    # Variants that lack config.json in the HF repo and must use from_single_file
+    _SINGLE_FILE_VARIANTS = {
+        ModelVariant.LEEJET_KLEIN_9B_Q4_0,
+    }
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.transformer = None
@@ -67,14 +73,24 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        load_kwargs = {"gguf_file": self._GGUF_FILES[self._variant]}
+        load_kwargs = {}
         if dtype_override is not None:
             load_kwargs["torch_dtype"] = dtype_override
 
-        self.transformer = Flux2Transformer2DModel.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            **load_kwargs,
-        )
+        if self._variant in self._SINGLE_FILE_VARIANTS:
+            repo_id = self._variant_config.pretrained_model_name
+            gguf_file = self._GGUF_FILES[self._variant]
+            gguf_url = f"https://huggingface.co/{repo_id}/resolve/main/{gguf_file}"
+            self.transformer = Flux2Transformer2DModel.from_single_file(
+                gguf_url,
+                **load_kwargs,
+            )
+        else:
+            load_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
+            self.transformer = Flux2Transformer2DModel.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                **load_kwargs,
+            )
 
         if dtype_override is not None:
             self.transformer = self.transformer.to(dtype_override)
