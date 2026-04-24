@@ -2,12 +2,16 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Prefill input texts for different sequence lengths and batch sizes.
+Prefill input texts for different sequence lengths and batch sizes and getter/mixin utilities.
 
 Dictionary structure: PREFILL_TEXTS[seq_len][batch_idx] = text
 Each text is designed to tokenize to approximately seq_len tokens to minimize padding.
 For batch_size > 1, use multiple texts from the same seq_len bucket.
 """
+
+
+from .utils import cast_input_to_type
+
 
 _TEXT_128_0 = """The history of artificial intelligence began in antiquity, with myths, stories and rumors of artificial beings endowed with intelligence or consciousness by master craftsmen. The seeds of modern AI were planted by classical philosophers who attempted to describe the process of human thinking as the mechanical manipulation of symbols. This work culminated in the invention of the programmable digital computer in the 1940s, a machine based on the abstract essence of mathematical reasoning. This device and the ideas behind it inspired a handful of scientists to begin seriously discussing the possibility of building an electronic brain."""
 
@@ -769,3 +773,50 @@ def get_prefill_texts_for_batch(seq_len: int, batch_size: int) -> list:
         get_prefill_text(seq_len, i % len(PREFILL_TEXTS[seq_len]))
         for i in range(batch_size)
     ]
+
+
+class PrefillInputsMixin:
+    """Mixin providing load_inputs_prefill for causal LM loaders with a HuggingFace tokenizer.
+
+    Requires the host class to have:
+        - self.tokenizer
+        - self._load_tokenizer(dtype_override=None)
+        - self.seq_len (writable)
+    """
+
+    def load_inputs_prefill(self, dtype_override=None, batch_size=1, seq_len=128):
+        """Load prefill-step inputs with texts sized appropriately for the target sequence length.
+
+        Args:
+            dtype_override: Optional torch.dtype to override the model's default dtype.
+            batch_size: Batch size for the inputs.
+            seq_len: Target sequence length. Texts are chosen to minimize padding.
+
+        Returns:
+            dict: Input tensors (input_ids, attention_mask) padded to seq_len.
+        """
+        if self.tokenizer is None:
+            self._load_tokenizer(dtype_override=dtype_override)
+
+        if seq_len not in PREFILL_TEXTS:
+            available = sorted(PREFILL_TEXTS.keys())
+            raise ValueError(
+                f"seq_len={seq_len} is not supported. Available sequence lengths: {available}"
+            )
+        texts = get_prefill_texts_for_batch(seq_len, batch_size)
+
+        inputs = self.tokenizer(
+            texts,
+            return_tensors="pt",
+            padding="max_length",
+            truncation=True,
+            max_length=seq_len,
+        )
+
+        if dtype_override is not None:
+            for key in inputs:
+                inputs[key] = cast_input_to_type(inputs[key], dtype_override)
+
+        self.seq_len = seq_len
+        return inputs
+
