@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.NOUS_HERMES_LLAMA2_LLAMAFILE: LLMModelConfig(
-            pretrained_model_name="jartine/Nous-Hermes-Llama2-llamafile",
+            pretrained_model_name="NousResearch/Nous-Hermes-Llama2-13b",
             max_length=256,
         ),
     }
