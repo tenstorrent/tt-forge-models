@@ -4,7 +4,7 @@
 """
 QoQ-Med-Omni-7B model loader implementation for image to text.
 """
-from transformers import AutoModelForImageTextToText, AutoProcessor, AutoConfig
+from transformers import AutoModelForVision2Seq, AutoProcessor, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -105,7 +105,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, trust_remote_code=True
         )
 
-        model = AutoModelForImageTextToText.from_pretrained(
+        model = AutoModelForVision2Seq.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
 
