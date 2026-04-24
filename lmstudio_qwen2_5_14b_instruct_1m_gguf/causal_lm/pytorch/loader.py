@@ -201,6 +201,9 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            self.config = self._qwen2_5_14b_config()
+            return self.config
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
