@@ -49,7 +49,7 @@ def _extract_gguf_if_llamafile(path: str) -> str:
     return str(gguf_path)
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+def _patched_load_gguf_checkpoint(*args, **kwargs):
     gguf_path = _extract_gguf_if_llamafile(gguf_path)
     return _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
 
