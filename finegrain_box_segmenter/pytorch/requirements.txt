@@ -1,1 +1,1 @@
-refiners
+refiners @ git+https://github.com/finegrain-ai/refiners.git
