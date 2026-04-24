@@ -6,12 +6,8 @@
 Wan 2.1 VACE 14B GGUF model loader implementation.
 
 Loads GGUF-quantized Wan 2.1 VACE transformers from the QuantStack
-VACE GGUF repositories and builds a WanVACEPipeline.
-
-The Wan 2.1 VACE (Video All-in-one Creation Engine) model supports
-versatile video creation and editing tasks including reference-to-video
-generation. This loader uses GGUF-quantized weights for reduced memory
-usage.
+VACE GGUF repositories. Returns the WanVACETransformer3DModel directly
+for compilation testing.
 
 Available variants:
 - WAN21_VACE_Q4_K_M: Q4_K_M quantization
@@ -23,7 +19,6 @@ Available variants:
 from typing import Any, Optional
 
 import torch
-from PIL import Image
 
 from ...base import ForgeModel
 from ...config import (
@@ -38,7 +33,11 @@ from ...config import (
 
 VACE_GGUF_REPO = "QuantStack/Wan2.1_14B_VACE-GGUF"
 FUSIONX_VACE_GGUF_REPO = "QuantStack/Wan2.1_T2V_14B_FusionX_VACE-GGUF"
-BASE_PIPELINE = "Wan-AI/Wan2.1-VACE-14B-diffusers"
+
+TRANSFORMER_NUM_FRAMES = 2
+TRANSFORMER_HEIGHT = 4
+TRANSFORMER_WIDTH = 4
+TRANSFORMER_TEXT_SEQ_LEN = 8
 
 
 class ModelVariant(StrEnum):
@@ -86,7 +85,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline = None
+        self._transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -107,17 +106,22 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the GGUF-quantized Wan 2.1 VACE transformer and build the pipeline.
+        """Load the GGUF-quantized Wan 2.1 VACE transformer.
 
-        Uses diffusers GGUFQuantizationConfig to load the quantized transformer,
-        then constructs the full WanVACEPipeline with the base model's VAE in
-        float32 for numerical stability.
+        Uses diffusers GGUFQuantizationConfig to load the quantized transformer.
+        Returns the transformer nn.Module directly for compilation testing.
         """
+        import diffusers.utils.import_utils as _diffusers_import_utils
+
+        if not _diffusers_import_utils._gguf_available:
+            import importlib.util
+
+            if importlib.util.find_spec("gguf") is not None:
+                _diffusers_import_utils._gguf_available = True
+
         from diffusers import (
-            AutoencoderKLWan,
             GGUFQuantizationConfig,
-            WanTransformer3DModel,
-            WanVACEPipeline,
+            WanVACETransformer3DModel,
         )
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
@@ -126,43 +130,37 @@ class ModelLoader(ForgeModel):
         gguf_repo = _GGUF_REPOS[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
-        transformer = WanTransformer3DModel.from_single_file(
-            f"https://huggingface.co/{gguf_repo}/{gguf_file}",
+        self._transformer = WanVACETransformer3DModel.from_single_file(
+            f"https://huggingface.co/{gguf_repo}/resolve/main/{gguf_file}",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
 
-        vae = AutoencoderKLWan.from_pretrained(
-            BASE_PIPELINE,
-            subfolder="vae",
-            torch_dtype=torch.float32,
-        )
-
-        self.pipeline = WanVACEPipeline.from_pretrained(
-            BASE_PIPELINE,
-            transformer=transformer,
-            vae=vae,
-            torch_dtype=compute_dtype,
-        )
-
-        return self.pipeline
+        return self._transformer
 
     def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for VACE reference-to-video generation."""
-        if prompt is None:
-            prompt = (
-                "A character walking gracefully across a sunlit garden, "
-                "smooth animation, detailed motion, cinematic lighting"
-            )
+        """Prepare tensor inputs for the WanVACETransformer3DModel forward pass."""
+        if self._transformer is None:
+            self.load_model()
 
-        ref_image = Image.new("RGB", (832, 480), color=(128, 128, 200))
+        dtype = torch.bfloat16
+        config = self._transformer.config
 
         return {
-            "prompt": prompt,
-            "reference_images": [ref_image],
-            "height": 480,
-            "width": 832,
-            "num_frames": 9,
-            "num_inference_steps": 2,
-            "guidance_scale": 5.0,
+            "hidden_states": torch.randn(
+                1,
+                config.in_channels,
+                TRANSFORMER_NUM_FRAMES,
+                TRANSFORMER_HEIGHT,
+                TRANSFORMER_WIDTH,
+                dtype=dtype,
+            ),
+            "encoder_hidden_states": torch.randn(
+                1,
+                TRANSFORMER_TEXT_SEQ_LEN,
+                config.text_dim,
+                dtype=dtype,
+            ),
+            "timestep": torch.tensor([500], dtype=torch.long),
+            "return_dict": False,
         }
