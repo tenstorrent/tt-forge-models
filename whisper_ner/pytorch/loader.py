@@ -5,8 +5,8 @@
 WhisperNER model loader implementation
 """
 
+import numpy as np
 import torch
-from datasets import load_dataset
 from transformers import (
     WhisperProcessor,
     WhisperForConditionalGeneration,
@@ -110,11 +110,8 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name
         )
 
-        # Load audio sample from public LibriSpeech dataset
-        ds = load_dataset(
-            "hf-internal-testing/librispeech_asr_dummy", "clean", split="validation"
-        )
-        sample_audio = ds[0]["audio"]["array"]
+        # Use synthetic audio (5 seconds at 16kHz) to avoid external cache dependencies
+        sample_audio = np.zeros(16000 * 5, dtype=np.float32)
         model_param = next(self.model.parameters())
         device, dtype = model_param.device, dtype_override or model_param.dtype
 
