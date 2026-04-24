@@ -283,7 +283,9 @@ class Gr00tN1d6(PreTrainedModel):
 
         return backbone_inputs, action_inputs
 
-    def forward(self, inputs: dict) -> BatchFeature:
+    def forward(self, inputs: Optional[dict] = None, **kwargs) -> BatchFeature:
+        if inputs is None:
+            inputs = kwargs
         backbone_inputs, action_inputs = self.prepare_input(inputs)
         backbone_outputs = self.backbone(backbone_inputs)
         action_outputs = self.action_head(backbone_outputs, action_inputs)
