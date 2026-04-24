@@ -6,11 +6,33 @@ NVIDIA Nemotron Nano 12B v2 VL NVFP4-QAD model loader implementation for image t
 """
 
 import torch
+import torch.distributed
 from transformers import AutoConfig, AutoModel, AutoProcessor
 from PIL import Image
 from typing import Optional
 
 from ...tools.utils import get_file
+
+
+def _stub_distributed_get_rank():
+    """Stub torch.distributed.get_rank to return 0 when not initialized.
+
+    modeling.py calls torch.distributed.get_rank() unconditionally for a debug
+    print even in single-process inference. Patch it to return 0 when the
+    process group has not been initialized.
+    """
+    _original_get_rank = torch.distributed.get_rank
+
+    def _safe_get_rank(group=None):
+        try:
+            return _original_get_rank(group)
+        except ValueError:
+            return 0
+
+    torch.distributed.get_rank = _safe_get_rank
+
+
+_stub_distributed_get_rank()
 from ...base import ForgeModel
 from ...config import (
     LLMModelConfig,
