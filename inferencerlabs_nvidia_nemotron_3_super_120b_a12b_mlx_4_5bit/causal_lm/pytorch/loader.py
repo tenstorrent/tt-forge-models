@@ -108,7 +108,10 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, trust_remote_code=True, **model_kwargs
+            pretrained_model_name,
+            trust_remote_code=True,
+            ignore_mismatched_sizes=True,
+            **model_kwargs,
         ).eval()
 
         self.config = model.config
