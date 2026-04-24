@@ -88,10 +88,8 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = self.gguf_file
         model_kwargs |= kwargs
 
-        # GGUF repos do not ship a processor; use the base model
-        self.processor = AutoProcessor.from_pretrained(
-            "thesby/Qwen3-VL-8B-NSFW-Caption-V4.5"
-        )
+        # GGUF repos do not ship a processor; use the official base model
+        self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-8B-Instruct")
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
