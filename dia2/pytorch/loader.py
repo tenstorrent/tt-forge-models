@@ -5,6 +5,8 @@
 Dia2 1B streaming dialogue text-to-speech model loader implementation.
 """
 
+import sys
+from pathlib import Path
 import torch
 import torch.nn as nn
 from typing import Optional
@@ -73,11 +75,27 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load the Dia2 model backbone on CPU and wrap a single text decode step."""
-        from dia2.assets import resolve_assets
-        from dia2.config import load_config
-        from dia2.core.model import Dia2Model
-        from dia2.core.precision import Precision
-        from dia2.runtime.context import load_file_into_model
+        # The local `dia2/` model namespace shadows the installed `dia2` library.
+        # Temporarily remove shadowing paths and stale cached modules so the
+        # installed package is resolved instead.
+        _project_root = str(Path(__file__).parents[2])
+        _shadow_paths = {"", _project_root}
+        _saved_path = sys.path.copy()
+        _stale_keys = [k for k in sys.modules if k == "dia2" or k.startswith("dia2.")]
+        _saved_modules = {k: sys.modules.pop(k) for k in _stale_keys}
+        sys.path = [p for p in sys.path if p not in _shadow_paths]
+        try:
+            from dia2.assets import resolve_assets
+            from dia2.config import load_config
+            from dia2.core.model import Dia2Model
+            from dia2.core.precision import Precision
+            from dia2.runtime.context import load_file_into_model
+        finally:
+            sys.path = _saved_path
+            # Restore the local dia2 namespace modules (e.g. dia2.pytorch.loader)
+            # but keep the newly imported library submodules so they stay usable.
+            for k, v in _saved_modules.items():
+                sys.modules.setdefault(k, v)
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
