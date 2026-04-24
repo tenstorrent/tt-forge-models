@@ -4,7 +4,13 @@
 """
 RNABERT model loader implementation for masked language modeling on RNA sequences.
 """
-from transformers import AutoTokenizer, AutoModelForMaskedLM
+import transformers.utils.generic as _tug
+
+if not hasattr(_tug, "check_model_inputs"):
+    _tug.check_model_inputs = lambda func: func
+
+from multimolecule import AutoTokenizer
+from transformers import AutoModelForMaskedLM
 from typing import Optional
 
 from ....base import ForgeModel
