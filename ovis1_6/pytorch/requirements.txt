@@ -1,1 +1,1 @@
-transformers<5.0.0
+transformers>=4.43.0,<4.54.0

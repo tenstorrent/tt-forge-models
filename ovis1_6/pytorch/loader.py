@@ -8,7 +8,7 @@ Ovis1.6 model loader implementation for multimodal conditional generation.
 import torch
 from PIL import Image
 from transformers import AutoModelForCausalLM
-from typing import Optional
+from typing import List, Optional
 
 from ...base import ForgeModel
 from ...config import (
@@ -21,6 +21,36 @@ from ...config import (
     StrEnum,
 )
 from ...tools.utils import get_file, cast_input_to_type
+
+
+class _OvisInferenceWrapper(torch.nn.Module):
+    """Wrap Ovis for inference: merge multimodal inputs then run the LLM."""
+
+    def __init__(self, model):
+        super().__init__()
+        self._ovis = model
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        pixel_values: Optional[List[Optional[torch.Tensor]]] = None,
+    ):
+        if pixel_values is None:
+            pixel_values = [None] * input_ids.shape[0]
+        _, inputs_embeds, _, attn_mask = self._ovis.merge_multimodal(
+            text_input_ids=input_ids,
+            text_attention_masks=attention_mask,
+            text_labels=None,
+            pixel_values=pixel_values,
+        )
+        return self._ovis.llm(inputs_embeds=inputs_embeds, attention_mask=attn_mask)
+
+    def __getattr__(self, name):
+        try:
+            return super().__getattr__(name)
+        except AttributeError:
+            return getattr(self._ovis, name)
 
 
 class ModelVariant(StrEnum):
@@ -80,7 +110,7 @@ class ModelLoader(ForgeModel):
         self.text_tokenizer = model.get_text_tokenizer()
         self.visual_tokenizer = model.get_visual_tokenizer()
 
-        return model
+        return _OvisInferenceWrapper(model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.model is None:
