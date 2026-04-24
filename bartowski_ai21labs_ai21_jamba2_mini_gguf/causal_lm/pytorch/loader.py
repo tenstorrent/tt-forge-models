@@ -132,7 +132,6 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs["use_mamba_kernels"] = False
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
@@ -144,6 +143,8 @@ class ModelLoader(ForgeModel):
         )
         if isinstance(config.num_key_value_heads, list):
             config.num_key_value_heads = max(config.num_key_value_heads)
+        # Disable mamba kernels (CUDA-only, not available on TT hardware)
+        config.use_mamba_kernels = False
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
         model_kwargs["config"] = config
