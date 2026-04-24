@@ -150,7 +150,11 @@ class ModelLoader(ForgeModel):
             except Exception:
                 pass
 
-        model_kwargs = {"trust_remote_code": True, "config": config}
+        model_kwargs = {
+            "trust_remote_code": True,
+            "config": config,
+            "attn_implementation": "eager",
+        }
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
