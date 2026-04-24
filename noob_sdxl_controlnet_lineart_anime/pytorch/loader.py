@@ -80,6 +80,12 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             self.pipeline.unet = self.pipeline.unet.to(dtype_override)
 
+        # Ensure GroupNorm always receives float32 input, as mixed-dtype CPU GroupNorm
+        # fails in PyTorch when intermediate tensors are promoted to float64.
+        for module in self.pipeline.unet.modules():
+            if isinstance(module, torch.nn.GroupNorm):
+                module.register_forward_pre_hook(lambda m, args: (args[0].float(),))
+
         return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
