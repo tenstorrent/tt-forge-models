@@ -32,6 +32,10 @@ from ...config import (
 
 GGUF_REPO = "jayn7/HunyuanVideo-1.5_I2V_720p-GGUF"
 
+# HuggingFace repo with diffusers-format config for the 720p distilled variant.
+# Both distilled and non-distilled share the same architecture config.
+CONFIG_REPO = "hunyuanvideo-community/HunyuanVideo-1.5-Diffusers-720p_i2v_distilled"
+
 # Small spatial/temporal dimensions for compile-only testing.
 TRANSFORMER_NUM_FRAMES = 4
 TRANSFORMER_HEIGHT = 8
@@ -74,13 +78,140 @@ _GGUF_FILES = {
 }
 
 
+def _convert_hunyuan_video_1_5_i2v_transformer_to_diffusers(checkpoint, **kwargs):
+    """Convert HunyuanVideo 1.5 I2V original-format GGUF keys to diffusers format.
+
+    The GGUFs from jayn7/HunyuanVideo-1.5_I2V_720p-GGUF use the original
+    Tencent/ComfyUI key conventions.  This function remaps them to the
+    diffusers HunyuanVideo15Transformer3DModel state-dict layout.
+    """
+
+    def remap_norm_scale_shift_(key, state_dict):
+        weight = state_dict.pop(key)
+        shift, scale = weight.chunk(2, dim=0)
+        new_weight = torch.cat([scale, shift], dim=0)
+        state_dict[
+            key.replace("final_layer.adaLN_modulation.1", "norm_out.linear")
+        ] = new_weight
+
+    def remap_txt_in_(key, state_dict):
+        def rename_key(key):
+            new_key = key.replace(
+                "individual_token_refiner.blocks", "token_refiner.refiner_blocks"
+            )
+            new_key = new_key.replace("adaLN_modulation.1", "norm_out.linear")
+            new_key = new_key.replace("txt_in", "context_embedder")
+            new_key = new_key.replace(
+                "t_embedder.mlp.0",
+                "time_text_embed.timestep_embedder.linear_1",
+            )
+            new_key = new_key.replace(
+                "t_embedder.mlp.2",
+                "time_text_embed.timestep_embedder.linear_2",
+            )
+            new_key = new_key.replace("c_embedder", "time_text_embed.text_embedder")
+            new_key = new_key.replace("mlp", "ff")
+            return new_key
+
+        if "self_attn_qkv" in key:
+            weight = state_dict.pop(key)
+            to_q, to_k, to_v = weight.chunk(3, dim=0)
+            state_dict[rename_key(key.replace("self_attn_qkv", "attn.to_q"))] = to_q
+            state_dict[rename_key(key.replace("self_attn_qkv", "attn.to_k"))] = to_k
+            state_dict[rename_key(key.replace("self_attn_qkv", "attn.to_v"))] = to_v
+        else:
+            state_dict[rename_key(key)] = state_dict.pop(key)
+
+    def remap_img_attn_qkv_(key, state_dict):
+        weight = state_dict.pop(key)
+        to_q, to_k, to_v = weight.chunk(3, dim=0)
+        state_dict[key.replace("img_attn_qkv", "attn.to_q")] = to_q
+        state_dict[key.replace("img_attn_qkv", "attn.to_k")] = to_k
+        state_dict[key.replace("img_attn_qkv", "attn.to_v")] = to_v
+
+    def remap_txt_attn_qkv_(key, state_dict):
+        weight = state_dict.pop(key)
+        to_q, to_k, to_v = weight.chunk(3, dim=0)
+        state_dict[key.replace("txt_attn_qkv", "attn.add_q_proj")] = to_q
+        state_dict[key.replace("txt_attn_qkv", "attn.add_k_proj")] = to_k
+        state_dict[key.replace("txt_attn_qkv", "attn.add_v_proj")] = to_v
+
+    TRANSFORMER_KEYS_RENAME_DICT = {
+        "img_in": "x_embedder",
+        # time_in maps to time_embed (flat timestep embedder, no guidance embedder)
+        "time_in.mlp.0": "time_embed.timestep_embedder.linear_1",
+        "time_in.mlp.2": "time_embed.timestep_embedder.linear_2",
+        # ByteT5 secondary text encoder
+        "byt5_in.fc1": "context_embedder_2.linear_1",
+        "byt5_in.fc2": "context_embedder_2.linear_2",
+        "byt5_in.fc3": "context_embedder_2.linear_3",
+        "byt5_in.layernorm": "context_embedder_2.norm",
+        # conditioning type embedding
+        "cond_type_embedding": "cond_type_embed",
+        # vision (image) input projector
+        "vision_in.proj.0": "image_embedder.norm_in",
+        "vision_in.proj.1": "image_embedder.linear_1",
+        "vision_in.proj.3": "image_embedder.linear_2",
+        "vision_in.proj.4": "image_embedder.norm_out",
+        # double blocks → transformer blocks
+        "double_blocks": "transformer_blocks",
+        "img_attn_q_norm": "attn.norm_q",
+        "img_attn_k_norm": "attn.norm_k",
+        "img_attn_proj": "attn.to_out.0",
+        "txt_attn_q_norm": "attn.norm_added_q",
+        "txt_attn_k_norm": "attn.norm_added_k",
+        "txt_attn_proj": "attn.to_add_out",
+        "img_mod.linear": "norm1.linear",
+        "img_norm1": "norm1.norm",
+        "img_norm2": "norm2",
+        "img_mlp": "ff",
+        "txt_mod.linear": "norm1_context.linear",
+        "txt_norm1": "norm1.norm",
+        "txt_norm2": "norm2_context",
+        "txt_mlp": "ff_context",
+        "self_attn_proj": "attn.to_out.0",
+        "modulation.linear": "norm.linear",
+        "pre_norm": "norm.norm",
+        # final layer
+        "final_layer.norm_final": "norm_out.norm",
+        "final_layer.linear": "proj_out",
+        "fc1": "net.0.proj",
+        "fc2": "net.2",
+        "input_embedder": "proj_in",
+    }
+
+    TRANSFORMER_SPECIAL_KEYS_REMAP = {
+        "txt_in": remap_txt_in_,
+        "img_attn_qkv": remap_img_attn_qkv_,
+        "txt_attn_qkv": remap_txt_attn_qkv_,
+        "final_layer.adaLN_modulation.1": remap_norm_scale_shift_,
+    }
+
+    def update_state_dict_(state_dict, old_key, new_key):
+        state_dict[new_key] = state_dict.pop(old_key)
+
+    for key in list(checkpoint.keys()):
+        new_key = key[:]
+        for replace_key, rename_key in TRANSFORMER_KEYS_RENAME_DICT.items():
+            new_key = new_key.replace(replace_key, rename_key)
+        update_state_dict_(checkpoint, key, new_key)
+
+    for key in list(checkpoint.keys()):
+        for special_key, handler_fn_inplace in TRANSFORMER_SPECIAL_KEYS_REMAP.items():
+            if special_key not in key:
+                continue
+            handler_fn_inplace(key, checkpoint)
+
+    return checkpoint
+
+
 class ModelLoader(ForgeModel):
     """HunyuanVideo 1.5 I2V 720p GGUF model loader."""
 
     _VARIANTS = {
         variant: ModelConfig(pretrained_model_name=GGUF_REPO) for variant in _GGUF_FILES
     }
-    DEFAULT_VARIANT = ModelVariant.I2V_720P_Q4_K_S
+    DEFAULT_VARIANT = ModelVariant.I2V_720P_CFG_DISTILLED_Q4_K_S
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -107,8 +238,9 @@ class ModelLoader(ForgeModel):
     ):
         """Load the GGUF-quantized HunyuanVideo 1.5 I2V transformer.
 
-        Uses diffusers GGUFQuantizationConfig to load the quantized transformer.
-        Returns the transformer nn.Module directly for compilation testing.
+        Registers HunyuanVideo15Transformer3DModel with diffusers'
+        SINGLE_FILE_LOADABLE_CLASSES (absent in 0.37.1) so from_single_file
+        accepts it, then loads with GGUFQuantizationConfig.
         """
         import diffusers.utils.import_utils as _diffusers_import_utils
 
@@ -122,6 +254,15 @@ class ModelLoader(ForgeModel):
             GGUFQuantizationConfig,
             HunyuanVideo15Transformer3DModel,
         )
+        from diffusers.loaders.single_file_model import SINGLE_FILE_LOADABLE_CLASSES
+
+        # HunyuanVideo15Transformer3DModel is not in SINGLE_FILE_LOADABLE_CLASSES
+        # in diffusers 0.37.1; register it so from_single_file accepts it.
+        if "HunyuanVideo15Transformer3DModel" not in SINGLE_FILE_LOADABLE_CLASSES:
+            SINGLE_FILE_LOADABLE_CLASSES["HunyuanVideo15Transformer3DModel"] = {
+                "checkpoint_mapping_fn": _convert_hunyuan_video_1_5_i2v_transformer_to_diffusers,
+                "default_subfolder": "transformer",
+            }
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
@@ -132,6 +273,8 @@ class ModelLoader(ForgeModel):
             f"https://huggingface.co/{GGUF_REPO}/resolve/main/{gguf_file}",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
+            config=CONFIG_REPO,
+            subfolder="transformer",
         )
 
         return self._transformer
