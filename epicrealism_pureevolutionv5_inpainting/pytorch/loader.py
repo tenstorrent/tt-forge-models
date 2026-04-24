@@ -5,8 +5,9 @@
 epiCRealism pureEvolution V5 Inpainting model loader implementation
 """
 
+from typing import Any, Optional
+
 import torch
-from typing import Optional
 
 from ...base import ForgeModel
 from ...config import (
@@ -78,7 +79,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             self.pipeline = self.pipeline.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the inpainting model.
@@ -108,3 +109,10 @@ class ModelLoader(ForgeModel):
             prompt_embeds = prompt_embeds.to(dtype_override)
 
         return [latent_model_input, timestep, prompt_embeds]
+
+    def unpack_forward_output(self, fwd_output: Any) -> torch.Tensor:
+        if isinstance(fwd_output, tuple):
+            return fwd_output[0]
+        if hasattr(fwd_output, "sample"):
+            return fwd_output.sample
+        return fwd_output
