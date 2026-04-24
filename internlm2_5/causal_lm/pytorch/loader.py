@@ -78,8 +78,6 @@ class ModelLoader(ForgeModel):
         self._ensure_tokenizer()
 
         model_kwargs = {"use_cache": False, "trust_remote_code": True}
-        if self._variant == ModelVariant.INTERNLM2_5_20B_CHAT_AWQ:
-            model_kwargs["device_map"] = "cpu"
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
