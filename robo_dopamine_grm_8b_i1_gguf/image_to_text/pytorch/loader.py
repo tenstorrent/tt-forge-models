@@ -3,8 +3,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Robo-Dopamine GRM 8B i1 GGUF model loader implementation for image to text.
+
+Note: The qwen2vl GGUF architecture is not yet supported by the transformers
+GGUF loader, so we load from the HF-native checkpoint instead.
 """
-from transformers import AutoModelForImageTextToText, AutoProcessor, AutoConfig
+from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
 from typing import Optional
 
 from ....base import ForgeModel
@@ -26,21 +29,20 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """Robo-Dopamine GRM 8B i1 GGUF model loader implementation for image to text tasks."""
+    """Robo-Dopamine GRM 8B i1 GGUF model loader implementation for image to text tasks.
+
+    Note: Uses the base model (safetensors) instead of GGUF because the
+    qwen2vl GGUF architecture is not yet supported by transformers.
+    """
 
     _VARIANTS = {
         ModelVariant.ROBO_DOPAMINE_GRM_8B_I1_GGUF: LLMModelConfig(
-            pretrained_model_name="mradermacher/Robo-Dopamine-GRM-8B-i1-GGUF",
+            pretrained_model_name="tanhuajie2001/Robo-Dopamine-GRM-8B",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.ROBO_DOPAMINE_GRM_8B_I1_GGUF
-
-    GGUF_FILE = "Robo-Dopamine-GRM-8B.i1-Q4_K_M.gguf"
-
-    # Processor source (the GGUF repo ships only quantized weights).
-    _PROCESSOR_SOURCE = "tanhuajie2001/Robo-Dopamine-GRM-8B"
 
     sample_image = (
         "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg"
@@ -49,7 +51,6 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.processor = None
-        self.config = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -70,16 +71,15 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs["gguf_file"] = self.GGUF_FILE
         model_kwargs |= kwargs
 
-        self.processor = AutoProcessor.from_pretrained(self._PROCESSOR_SOURCE)
+        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
 
-        model = AutoModelForImageTextToText.from_pretrained(
+        model = Qwen2VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
-        ).eval()
+        )
+        model.eval()
 
-        self.config = model.config
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
@@ -104,9 +104,3 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
         return inputs
-
-    def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
-        return self.config
