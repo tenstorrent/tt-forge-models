@@ -137,12 +137,46 @@ class ModelLoader(ForgeModel):
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         gguf_path = hf_hub_download(repo_id=gguf_repo, filename=gguf_file)
-        transformer = WanTransformer3DModel.from_single_file(
-            gguf_path,
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-            low_cpu_mem_usage=False,
-        )
+
+        # Patch dispatch_model to handle meta tensors left by GGUF loading.
+        # Some non-quantized params may not appear in the GGUF state dict and
+        # remain as meta tensors after load_model_dict_into_meta; dispatch_model
+        # then fails when calling model.to(device) on them.
+        import accelerate.big_modeling as _accel
+        import diffusers.loaders.single_file_model as _sfm
+
+        _orig_dispatch = _accel.dispatch_model
+
+        def _patched_dispatch(model, device_map=None, **kwargs):
+            if device_map:
+                device = list(device_map.values())[0]
+                for module in model.modules():
+                    for pname, param in list(module._parameters.items()):
+                        if param is not None and param.is_meta:
+                            module._parameters[pname] = torch.nn.Parameter(
+                                torch.empty(
+                                    param.shape, dtype=param.dtype, device=device
+                                ),
+                                requires_grad=param.requires_grad,
+                            )
+                    for bname, buf in list(module._buffers.items()):
+                        if buf is not None and buf.is_meta:
+                            module._buffers[bname] = torch.empty(
+                                buf.shape, dtype=buf.dtype, device=device
+                            )
+            return _orig_dispatch(model, device_map=device_map, **kwargs)
+
+        _accel.dispatch_model = _patched_dispatch
+        _sfm.dispatch_model = _patched_dispatch
+        try:
+            transformer = WanTransformer3DModel.from_single_file(
+                gguf_path,
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
+            )
+        finally:
+            _accel.dispatch_model = _orig_dispatch
+            _sfm.dispatch_model = _orig_dispatch
 
         is_i2v = _IS_I2V[self._variant]
         base_pipeline = I2V_BASE_PIPELINE if is_i2v else T2V_BASE_PIPELINE
