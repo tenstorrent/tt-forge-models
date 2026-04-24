@@ -141,6 +141,7 @@ class ModelLoader(ForgeModel):
             gguf_path,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
+            device_map=None,
         )
 
         is_i2v = _IS_I2V[self._variant]
