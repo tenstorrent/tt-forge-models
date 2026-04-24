@@ -1462,12 +1462,6 @@ class Siglip2PreTrainedModel(PreTrainedModel):
             nn.init.xavier_uniform_(module.probe.data)
             nn.init.xavier_uniform_(module.attention.in_proj_weight.data)
             nn.init.zeros_(module.attention.in_proj_bias.data)
-        elif isinstance(module, Siglip2ForImageClassification):
-            nn.init.normal_(
-                module.classifier.weight,
-                std=self.config.vision_config.hidden_size**-0.5
-                * self.config.initializer_factor,
-            )
         elif isinstance(module, (nn.Linear, nn.Conv2d)):
             lecun_normal_(module.weight)
             if module.bias is not None:
