@@ -23,14 +23,20 @@ from ....config import (
     StrEnum,
 )
 
-_ROPE_BUG = "rope_init_fn: Callable = compute_default_rope_parameters"
-_ROPE_FIX = (
-    "rope_init_fn: Callable = OuroRotaryEmbedding.compute_default_rope_parameters"
-)
+_PATCHES = [
+    (
+        "rope_init_fn: Callable = compute_default_rope_parameters",
+        "rope_init_fn: Callable = OuroRotaryEmbedding.compute_default_rope_parameters",
+    ),
+    (
+        "query_length = cache_position.shape[0]",
+        "query_length = cache_position if isinstance(cache_position, int) else cache_position.shape[0]",
+    ),
+]
 
 
 def _patch_cached_modeling(pretrained_model_name: str) -> None:
-    """Fix bare-name reference to compute_default_rope_parameters in cached custom code."""
+    """Fix API incompatibilities in cached custom model code for newer transformers versions."""
     try:
         cached = Path(
             get_cached_module_file(
@@ -38,8 +44,11 @@ def _patch_cached_modeling(pretrained_model_name: str) -> None:
             )
         )
         text = cached.read_text()
-        if _ROPE_BUG in text:
-            cached.write_text(text.replace(_ROPE_BUG, _ROPE_FIX))
+        patched = text
+        for bug, fix in _PATCHES:
+            patched = patched.replace(bug, fix)
+        if patched != text:
+            cached.write_text(patched)
             for pyc in cached.parent.glob("__pycache__/modeling_ouro.*.pyc"):
                 pyc.unlink(missing_ok=True)
     except Exception:
