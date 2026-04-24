@@ -233,6 +233,11 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        # transformers>=5.x removed modeling_utils._init_weights; patch it back
+        # for custom model code (e.g. hausa-ultravox) that still references it.
+        if not hasattr(transformers.modeling_utils, "_init_weights"):
+            transformers.modeling_utils._init_weights = True
+
         model = transformers.AutoModel.from_pretrained(
             pretrained_model_name,
             config=config,
