@@ -6,14 +6,13 @@ Helper functions for loading GGUF-quantized SDXL-based pony models.
 """
 
 import torch
-from diffusers import (
-    GGUFQuantizationConfig,
-    StableDiffusionXLPipeline,
-    UNet2DConditionModel,
-)
+from diffusers import StableDiffusionXLPipeline
+from diffusers.loaders.single_file_utils import convert_ldm_unet_checkpoint
+from diffusers.models.model_loading_utils import load_gguf_checkpoint
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
     retrieve_timesteps,
 )
+from diffusers.quantizers.gguf.utils import GGUFParameter, dequantize_gguf_tensor
 from huggingface_hub import hf_hub_download
 from typing import Optional, Tuple
 
@@ -23,8 +22,8 @@ SDXL_BASE_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
 def load_pony_gguf_pipe(repo_id: str, gguf_filename: str):
     """Load an SDXL-based pipeline from a GGUF UNet checkpoint.
 
-    The GGUF file contains only UNet weights; text encoders, VAE, and scheduler
-    are loaded from the base SDXL model.
+    The GGUF file contains UNet weights in ComfyUI format (input_blocks.* keys).
+    Text encoders, VAE, and scheduler are loaded from the base SDXL model.
 
     Args:
         repo_id: HuggingFace repository ID containing the GGUF UNet checkpoint.
@@ -35,19 +34,24 @@ def load_pony_gguf_pipe(repo_id: str, gguf_filename: str):
     """
     model_path = hf_hub_download(repo_id=repo_id, filename=gguf_filename)
 
-    quantization_config = GGUFQuantizationConfig(compute_dtype=torch.float32)
+    # Load raw GGUF tensors (keys are in ComfyUI format: "input_blocks.*.weight")
+    raw_checkpoint = load_gguf_checkpoint(model_path)
 
-    unet = UNet2DConditionModel.from_single_file(
-        model_path,
-        quantization_config=quantization_config,
-        torch_dtype=torch.float32,
-    )
+    # Dequantize GGUFParameter tensors and add "model.diffusion_model." prefix so
+    # convert_ldm_unet_checkpoint can find and process the UNet weights correctly.
+    prefixed_checkpoint = {}
+    for k, v in raw_checkpoint.items():
+        if isinstance(v, GGUFParameter):
+            v = dequantize_gguf_tensor(v).to(torch.float32)
+        prefixed_checkpoint[f"model.diffusion_model.{k}"] = v
 
     pipe = StableDiffusionXLPipeline.from_pretrained(
         SDXL_BASE_MODEL,
-        unet=unet,
         torch_dtype=torch.float32,
     )
+
+    unet_state_dict = convert_ldm_unet_checkpoint(prefixed_checkpoint, pipe.unet.config)
+    pipe.unet.load_state_dict(unet_state_dict, strict=False)
 
     pipe.to("cpu")
 
