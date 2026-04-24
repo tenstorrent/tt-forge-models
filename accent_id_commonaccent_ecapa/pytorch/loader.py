@@ -80,12 +80,9 @@ class ModelLoader(ForgeModel):
         model = AccentClassifierModel(classifier)
         model.eval()
 
-        if dtype_override is not None:
-            model = model.to(dtype_override)
-
         return model
 
-    def load_inputs(self, dtype_override=None):
+    def load_inputs(self):
         """Generate sample Fbank feature input for the ECAPA-TDNN accent classifier.
 
         Returns pre-computed features of shape (batch, time_steps, n_mels)
@@ -94,8 +91,5 @@ class ModelLoader(ForgeModel):
         # ECAPA-TDNN embedding model expects (batch, time_steps, n_mels)
         # 1 second of 16kHz audio produces ~101 frames with 80 Mel filters
         features = torch.randn(1, 101, 80)
-
-        if dtype_override is not None:
-            features = features.to(dtype_override)
 
         return [features]
