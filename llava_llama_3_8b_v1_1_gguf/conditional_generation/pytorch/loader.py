@@ -22,6 +22,11 @@ from ....config import (
 )
 from ....tools.utils import cast_input_to_type
 
+# The GGUF file is ~16 GB (F16 quantisation of 8 B params) and the GGUF
+# architecture is not fully supported by transformers for multimodal models.
+# Load model and config from the non-quantised base repo instead.
+BASE_MODEL = "xtuner/llava-llama-3-8b-v1_1-hf"
+
 
 class ModelVariant(StrEnum):
     """Available LLaVA-Llama-3-8B-v1.1 GGUF model variants."""
@@ -34,17 +39,13 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.LLAVA_LLAMA_3_8B_V1_1_F16: ModelConfig(
-            pretrained_model_name="xtuner/llava-llama-3-8b-v1_1-gguf",
+            pretrained_model_name=BASE_MODEL,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.LLAVA_LLAMA_3_8B_V1_1_F16
 
-    _GGUF_FILES = {
-        ModelVariant.LLAVA_LLAMA_3_8B_V1_1_F16: "llava-llama-3-8b-v1_1-f16.gguf",
-    }
-
-    _PROCESSOR_NAME = "xtuner/llava-llama-3-8b-v1_1-hf"
+    _PROCESSOR_NAME = BASE_MODEL
 
     sample_text = "What's shown in this image?"
 
@@ -53,10 +54,6 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.processor = None
         self.config = None
-
-    @property
-    def gguf_file(self):
-        return self._GGUF_FILES[self._variant]
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -83,7 +80,6 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.gguf_file
 
         model = LlavaForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -140,6 +136,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
+            self._variant_config.pretrained_model_name
         )
         return self.config
