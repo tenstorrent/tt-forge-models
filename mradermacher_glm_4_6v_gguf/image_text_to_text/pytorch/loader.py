@@ -86,6 +86,12 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
+        # The GGUF metadata maps to Glm4MoeConfig (glm4_moe arch) which is not
+        # recognized by AutoModelForImageTextToText. Load the config from the
+        # original vision model repo so the correct Glm46VConfig is used.
+        config = AutoConfig.from_pretrained(self.PROCESSOR_MODEL)
+        model_kwargs["config"] = config
+
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
