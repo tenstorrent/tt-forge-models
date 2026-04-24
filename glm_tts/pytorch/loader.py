@@ -13,6 +13,9 @@ Llama-based LLM backbone, which is stored in the ``llm/`` subfolder of
 the HuggingFace repository alongside the flow-matching and vocoder
 components.
 """
+import os
+import shutil
+import tempfile
 from typing import Optional
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -66,13 +69,42 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    # zai-org/GLM-TTS does not ship tokenization_chatglm.py or tokenizer.model at
+    # the repo root, so AutoTokenizer with trust_remote_code cannot resolve the
+    # ChatGLM4Tokenizer class.  We bootstrap from THUDM/glm-4-9b-chat, which
+    # provides a compatible implementation, then combine it with the GLM-TTS
+    # phoneme tokenizer_config.json so the vocabulary is correct.
+    _FALLBACK_TOKENIZER_REPO = "THUDM/glm-4-9b-chat"
+
     def _load_tokenizer(self):
         if self.tokenizer is None:
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                self._variant_config.pretrained_model_name,
-                subfolder=self._TOKENIZER_SUBFOLDER,
-                trust_remote_code=True,
-            )
+            try:
+                self.tokenizer = AutoTokenizer.from_pretrained(
+                    self._variant_config.pretrained_model_name,
+                    subfolder=self._TOKENIZER_SUBFOLDER,
+                    trust_remote_code=True,
+                )
+            except OSError:
+                from huggingface_hub import hf_hub_download
+
+                tmpdir = tempfile.mkdtemp(prefix="glm_tts_tok_")
+                code_src = hf_hub_download(
+                    self._FALLBACK_TOKENIZER_REPO, "tokenization_chatglm.py"
+                )
+                vocab_src = hf_hub_download(
+                    self._FALLBACK_TOKENIZER_REPO, "tokenizer.model"
+                )
+                config_src = hf_hub_download(
+                    self._variant_config.pretrained_model_name,
+                    "tokenizer_config.json",
+                    subfolder=self._TOKENIZER_SUBFOLDER,
+                )
+                for src in (code_src, vocab_src):
+                    shutil.copy(src, tmpdir)
+                shutil.copy(config_src, os.path.join(tmpdir, "tokenizer_config.json"))
+                self.tokenizer = AutoTokenizer.from_pretrained(
+                    tmpdir, trust_remote_code=True
+                )
             if self.tokenizer.pad_token is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
         return self.tokenizer
@@ -91,5 +123,9 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None):
         tokenizer = self._load_tokenizer()
-        inputs = tokenizer(self.sample_text, return_tensors="pt")
+        # add_special_tokens=False prevents high-ID role/BOS tokens (e.g. >98303)
+        # from being prepended, which would exceed the model's vocab_size.
+        inputs = tokenizer(
+            self.sample_text, return_tensors="pt", add_special_tokens=False
+        )
         return inputs
