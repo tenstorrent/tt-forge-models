@@ -8,6 +8,52 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+
+def _patch_transformers_deepseek_v2_gguf():
+    """Monkey-patch transformers to add deepseek_v2 GGUF support.
+
+    gguf-py uses "deepseek2" as the architecture name, but some GGUF files
+    store the tokenizer/architecture as "deepseek_v2". This patch bridges the gap.
+    """
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "deepseek_v2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["deepseek_v2"] = GGUFQwen2Converter
+
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None and hasattr(hf_model, "config"):
+            model_type = hf_model.config.model_type
+        # gguf-py uses "deepseek2" but transformers uses "deepseek_v2"
+        if model_type == "deepseek_v2":
+            model_type = "deepseek2"
+        return orig_get_map(
+            hf_model,
+            processor,
+            model_type=model_type,
+            num_layers=num_layers,
+            qual_name=qual_name,
+        )
+
+    if gguf_utils.get_gguf_hf_weights_map is not patched_get_gguf_hf_weights_map:
+        gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+    # Patch modules that imported get_gguf_hf_weights_map directly
+    import transformers.modeling_utils as modeling_utils
+
+    if hasattr(modeling_utils, "get_gguf_hf_weights_map"):
+        modeling_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+
+_patch_transformers_deepseek_v2_gguf()
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -97,7 +143,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
