@@ -7,6 +7,7 @@ Unsloth FLUX.1 Kontext Dev GGUF model loader implementation for image-to-image g
 Repository:
 - https://huggingface.co/unsloth/FLUX.1-Kontext-dev-GGUF
 """
+import os
 import torch
 from diffusers import FluxTransformer2DModel
 from typing import Optional
@@ -78,8 +79,14 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             load_kwargs["torch_dtype"] = dtype_override
 
+        # Provide a local config to avoid fetching from the gated black-forest-labs/FLUX.1-Depth-dev
+        # repo. Diffusers detects the Q4_K_M GGUF as "flux-depth" due to the quantized byte-storage
+        # shape doubling (GGUFParameter.shape[1] == 128 instead of the logical 64), but the actual
+        # architecture matches standard FLUX.1-dev with guidance_embeds=True.
+        local_config = os.path.join(os.path.dirname(__file__), "transformer_config")
         self.transformer = FluxTransformer2DModel.from_single_file(
             gguf_url,
+            config=local_config,
             **load_kwargs,
         )
 
