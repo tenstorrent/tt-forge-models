@@ -78,7 +78,7 @@ class ModelLoader(ForgeModel):
         )
 
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
 
         return self.pipeline.unet
 
@@ -113,8 +113,11 @@ class ModelLoader(ForgeModel):
             self.pipeline, self.prompt, control_image
         )
 
+        timestep = timesteps[0]
+
         if dtype_override:
             latent_model_input = latent_model_input.to(dtype_override)
+            timestep = timestep.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
             added_cond_kwargs = {
                 k: v.to(dtype_override) if v.dtype.is_floating_point else v
@@ -129,7 +132,7 @@ class ModelLoader(ForgeModel):
 
         return [
             latent_model_input,
-            timesteps,
+            timestep,
             prompt_embeds,
             added_cond_kwargs,
             down_block_additional_residuals,
