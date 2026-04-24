@@ -105,6 +105,7 @@ class ModelLoader(ForgeModel):
 
         thinker = self._model_wrapper.model.thinker
         model = Qwen3ASRWrapper(thinker)
+        model = model.to(torch.float32)
         model.eval()
 
         return model
