@@ -20,6 +20,7 @@ from typing import Any, Optional
 import torch
 from diffusers import AutoencoderKL
 from huggingface_hub import hf_hub_download
+from safetensors.torch import load_file
 
 from ...base import ForgeModel
 from ...config import (
@@ -82,11 +83,13 @@ class ModelLoader(ForgeModel):
         dtype = dtype_override if dtype_override is not None else torch.float32
         if self._vae is None:
             checkpoint_path = hf_hub_download(REPO_ID, CHECKPOINT_FILENAME)
-            self._vae = AutoencoderKL.from_single_file(
-                checkpoint_path,
-                config=REFERENCE_VAE_CONFIG,
+            self._vae = AutoencoderKL.from_pretrained(
+                REFERENCE_VAE_CONFIG,
                 torch_dtype=dtype,
             )
+            state_dict = load_file(checkpoint_path)
+            self._vae.load_state_dict(state_dict)
+            self._vae = self._vae.to(dtype=dtype)
             self._vae.eval()
         elif dtype_override is not None:
             self._vae = self._vae.to(dtype=dtype_override)
