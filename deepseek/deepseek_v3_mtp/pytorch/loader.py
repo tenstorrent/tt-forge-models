@@ -114,4 +114,4 @@ class ModelLoader(ForgeModel):
         for key in inputs:
             inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
-        return inputs
+        return {**inputs, "use_cache": False}
