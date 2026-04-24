@@ -5,8 +5,19 @@
 Mistral-Nemo-Gutenberg-Vitus-12B imatrix GGUF model loader implementation for causal language modeling.
 """
 import torch
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+_orig_load_gguf_checkpoint = _gguf_utils.load_gguf_checkpoint
+
+
+def _patched_load_gguf_checkpoint(*args, **kwargs):
+    kwargs.pop("model_to_load", None)
+    return _orig_load_gguf_checkpoint(*args, **kwargs)
+
+
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 from ....base import ForgeModel
 from ....config import (
