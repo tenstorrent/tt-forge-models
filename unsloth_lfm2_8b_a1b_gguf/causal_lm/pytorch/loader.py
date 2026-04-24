@@ -5,10 +5,118 @@
 Unsloth LFM2 8B A1B GGUF model loader implementation for causal language modeling.
 """
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+    TENSOR_PROCESSORS,
+    Lfm2TensorProcessor,
+)
+from transformers.integrations.ggml import (
+    GGUF_TO_FAST_CONVERTERS,
+    GGUFGPTConverter,
+)
+
+
+class _Lfm2MoeGGUFConverter(GGUFGPTConverter):
+    """GPT2-BPE converter for lfm2moe that sets bos/eos token strings from vocabulary."""
+
+    def converted(self):
+        tokenizer = super().converted()
+        proto = self.original_tokenizer
+        if getattr(proto, "bos_token_id", None) is not None:
+            self.additional_kwargs["bos_token"] = proto.tokens[proto.bos_token_id]
+        if getattr(proto, "eos_token_id", None) is not None:
+            self.additional_kwargs["eos_token"] = proto.tokens[proto.eos_token_id]
+        if getattr(proto, "pad_token_id", None) is not None:
+            self.additional_kwargs["pad_token"] = proto.tokens[proto.pad_token_id]
+        return tokenizer
+
+
 from typing import Optional
 
 from ....base import ForgeModel
+
+_LFM2MOE_CONFIG_MAPPING = {
+    "context_length": "max_position_embeddings",
+    "block_count": "num_hidden_layers",
+    "feed_forward_length": "intermediate_size",
+    "embedding_length": "hidden_size",
+    "rope.dimension_count": None,
+    "rope.freq_base": "rope_theta",
+    "attention.head_count": "num_attention_heads",
+    "attention.head_count_kv": "num_key_value_heads",
+    "attention.layer_norm_rms_epsilon": "norm_eps",
+    "vocab_size": "vocab_size",
+    "shortconv.l_cache": "conv_L_cache",
+    "expert_count": "num_experts",
+    "expert_used_count": "num_experts_per_tok",
+    "expert_feed_forward_length": "moe_intermediate_size",
+    "leading_dense_block_count": "num_dense_layers",
+}
+
+
+def _patch_lfm2moe_support():
+    """Register lfm2moe GGUF architecture as an alias for lfm2_moe."""
+    if "lfm2moe" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+    GGUF_SUPPORTED_ARCHITECTURES.append("lfm2moe")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "lfm2" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section][
+                "lfm2moe"
+            ] = _LFM2MOE_CONFIG_MAPPING
+    # lfm2moe uses a BPE/GPT2-style tokenizer with explicit special token mapping
+    GGUF_TO_FAST_CONVERTERS["lfm2_moe"] = _Lfm2MoeGGUFConverter
+    GGUF_TO_FAST_CONVERTERS["lfm2moe"] = _Lfm2MoeGGUFConverter
+    # lfm2moe uses the same tensor layout as lfm2
+    TENSOR_PROCESSORS["lfm2moe"] = Lfm2TensorProcessor
+
+    # Patch get_gguf_hf_weights_map to remap lfm2_moe -> lfm2moe for gguf-py lookup
+    _orig_get_map = _gguf_utils.get_gguf_hf_weights_map
+
+    def _patched_get_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None and hf_model is not None:
+            model_type = hf_model.config.model_type
+        if model_type == "lfm2_moe":
+            model_type = "lfm2moe"
+        return _orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_map
+
+
+def _patched_load_gguf_checkpoint(*args, **kwargs):
+    """Wrap load_gguf_checkpoint to add lfm2moe support and fix config post-load."""
+    _patch_lfm2moe_support()
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
+    if result.get("config", {}).get("model_type") == "lfm2moe":
+        result["config"]["model_type"] = "lfm2_moe"
+        kv_heads = result["config"].get("num_key_value_heads")
+        if isinstance(kv_heads, list):
+            result["config"]["num_key_value_heads"] = max(kv_heads)
+            result["config"]["layer_types"] = [
+                "full_attention" if n > 0 else "conv" for n in kv_heads
+            ]
+        rope_theta = result["config"].pop("rope_theta", None)
+        if rope_theta is not None:
+            result["config"]["rope_parameters"] = {
+                "rope_theta": float(rope_theta),
+                "rope_type": "default",
+            }
+    return result
+
+
+_patch_lfm2moe_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 from ....config import (
     LLMModelConfig,
     ModelInfo,
