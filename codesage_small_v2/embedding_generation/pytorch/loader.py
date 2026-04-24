@@ -5,8 +5,16 @@
 CodeSage-Small-v2 model loader implementation for code embedding generation.
 """
 import torch
+import transformers.modeling_utils
 from transformers import AutoModel, AutoTokenizer
 from typing import Optional
+
+# Conv1D moved from transformers.modeling_utils to transformers.pytorch_utils in transformers 5.x;
+# codesage's remote code still imports it from the old location.
+if not hasattr(transformers.modeling_utils, "Conv1D"):
+    from transformers.pytorch_utils import Conv1D
+
+    transformers.modeling_utils.Conv1D = Conv1D
 
 from ....base import ForgeModel
 from ....config import (
