@@ -80,6 +80,13 @@ class ModelLoader(ForgeModel):
             importlib.metadata.packages_distributions()
         )
 
+        # The qwen2vl GGUF architecture tag is not in transformers' supported list;
+        # patch it in so weight loading doesn't abort on the architecture check.
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+        if "qwen2vl" not in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
+            _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("qwen2vl")
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
