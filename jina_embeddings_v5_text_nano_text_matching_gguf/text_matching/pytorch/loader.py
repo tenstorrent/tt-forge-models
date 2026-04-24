@@ -9,6 +9,55 @@ import torch.nn.functional as F
 from transformers import AutoModel, AutoTokenizer
 from typing import Optional
 
+
+def _patch_transformers_eurobert_gguf():
+    """Monkey-patch transformers to add eurobert GGUF architecture support.
+
+    Transformers lacks GGUF loading support for the eurobert architecture.
+    EuroBERT inherits from LlamaConfig/LlamaModel, so we reuse the llama
+    config key mapping and tensor processor.
+    """
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        LlamaTensorProcessor,
+        TENSOR_PROCESSORS,
+    )
+
+    if "eurobert" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    # 1. Add config key mapping for eurobert (llama-style encoder)
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["eurobert"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "attention.key_length": "head_dim",
+        "vocab_size": "vocab_size",
+    }
+
+    # 2. Register eurobert as a supported GGUF architecture
+    GGUF_SUPPORTED_ARCHITECTURES.append("eurobert")
+
+    # 3. Register tokenizer converter (eurobert uses GPT-2-style BPE tokenizer)
+    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFGPTConverter
+
+    if "eurobert" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["eurobert"] = GGUFGPTConverter
+
+    # 4. Register tensor processor (eurobert uses same Q/K weight layout as llama)
+    if "eurobert" not in TENSOR_PROCESSORS:
+        TENSOR_PROCESSORS["eurobert"] = LlamaTensorProcessor
+
+
+_patch_transformers_eurobert_gguf()
+
 from ....base import ForgeModel
 from ....config import (
     ModelConfig,
