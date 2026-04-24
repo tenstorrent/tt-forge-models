@@ -232,6 +232,8 @@ class ModelLoader(ForgeModel):
         timestep = torch.tensor([500.0] * batch_size, dtype=dtype)
         img_ids = torch.zeros(img_seq_len, 3, dtype=dtype)
         txt_ids = torch.zeros(txt_seq_len, 3, dtype=dtype)
+        # guidance_embeds=True requires a guidance scale tensor
+        guidance = torch.tensor([3.5] * batch_size, dtype=dtype)
 
         return {
             "hidden_states": hidden_states,
@@ -241,4 +243,5 @@ class ModelLoader(ForgeModel):
             "timestep": timestep,
             "img_ids": img_ids,
             "txt_ids": txt_ids,
+            "guidance": guidance,
         }
