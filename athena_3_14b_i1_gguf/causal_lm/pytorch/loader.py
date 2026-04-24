@@ -141,6 +141,12 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            max_length = self._variant_config.max_length
+            input_ids = torch.zeros(batch_size, max_length, dtype=torch.long)
+            attention_mask = torch.ones(batch_size, max_length, dtype=torch.long)
+            return {"input_ids": input_ids, "attention_mask": attention_mask}
+
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
