@@ -226,7 +226,7 @@ class ModelLoader(ForgeModel):
         def _no_meta_init_context(cls, dtype, is_quantized, _is_ds_init_called):
             return [
                 c
-                for c in _orig(cls, dtype, is_quantized, _is_ds_init_called)
+                for c in _orig.__func__(cls, dtype, is_quantized, _is_ds_init_called)
                 if not (isinstance(c, torch.device) and c.type == "meta")
             ]
 
