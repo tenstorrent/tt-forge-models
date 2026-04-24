@@ -6,9 +6,6 @@ MM Grounding DINO model loader implementation for zero-shot object detection.
 """
 import torch
 from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
-from transformers.models.mm_grounding_dino.modeling_mm_grounding_dino import (
-    MMGroundingDinoTextEnhancerLayer,
-)
 from datasets import load_dataset
 from typing import Optional
 
@@ -95,12 +92,8 @@ class ModelLoader(ForgeModel):
 
         return self.processor
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         """Load and return the MM Grounding DINO model instance for this instance's variant.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-                           If not provided, the model will use its default dtype (typically float32).
 
         Returns:
             torch.nn.Module: The MM Grounding DINO model instance for zero-shot object detection.
@@ -108,29 +101,19 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {"return_dict": False}
-
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = AutoModelForZeroShotObjectDetection.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
-
-        # gen_sine_position_embeddings hardcodes dtype=float32; cast to match hidden states
-        MMGroundingDinoTextEnhancerLayer.with_pos_embed = lambda self, h, pe: (
-            h if pe is None else h + pe.to(h.dtype)
-        )
-
         model.eval()
 
         return model
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
+    def load_inputs(self, batch_size=1):
         """Load and return sample inputs for the MM Grounding DINO model.
 
         Args:
-            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
             batch_size: Batch size for the inputs.
 
         Returns:
@@ -151,8 +134,5 @@ class ModelLoader(ForgeModel):
         for key in inputs:
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
-
-        if dtype_override is not None:
-            inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
 
         return inputs
