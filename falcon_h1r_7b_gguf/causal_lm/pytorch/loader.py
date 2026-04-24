@@ -8,6 +8,7 @@ import importlib.metadata
 from typing import Optional
 
 import torch
+import transformers.integrations.ggml as _tx_ggml
 import transformers.modeling_gguf_pytorch_utils as _tx_gguf_utils
 import transformers.utils.import_utils as _tx_import_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
@@ -35,6 +36,10 @@ if "falcon-h1" not in _tx_gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]:
         "ssm.group_count": "mamba_n_groups",
     }
     _tx_gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("falcon-h1")
+
+# Register falcon_h1 tokenizer converter (Qwen3.5-derived, uses ChatML/QwenConverter).
+if "falcon_h1" not in _tx_ggml.GGUF_TO_FAST_CONVERTERS:
+    _tx_ggml.GGUF_TO_FAST_CONVERTERS["falcon_h1"] = _tx_ggml.GGUFQwen2Converter
 
 # Patch load_gguf_checkpoint to translate falcon-h1 model_type to falcon_h1
 # (transformers CONFIG_MAPPING uses underscores but GGUF uses hyphens).
