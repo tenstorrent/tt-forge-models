@@ -64,17 +64,23 @@ class ModelLoader(ForgeModel):
 
     @staticmethod
     def _patch_cambrian_init():
-        """Patch CambrianQwenForCausalLM.__init__ to avoid clearing rope_parameters.
+        """Patch cambrian classes for transformers 5.x compatibility.
 
-        In transformers 5.x, config.rope_scaling is a property that delegates to
-        config.rope_parameters. The cambrian-s code sets config.rope_scaling = None
-        (originally harmless in transformers 4.x), which now clears rope_parameters
-        and breaks Qwen2RotaryEmbedding initialization.
+        Two issues fixed:
+        1. In transformers 5.x, config.rope_scaling is a property that delegates to
+           config.rope_parameters. The cambrian-s code sets config.rope_scaling = None
+           (originally harmless in transformers 4.x), which now clears rope_parameters
+           and breaks Qwen2RotaryEmbedding initialization.
+        2. SigLipVisionConfig.from_pretrained calls _set_token_in_kwargs which was
+           removed from PretrainedConfig in transformers 5.x.
         """
         import torch.nn as nn
         from cambrian.model.language_model.cambrian_qwen2 import (
             CambrianQwenForCausalLM,
             CambrianQwenModel,
+        )
+        from cambrian.model.multimodal_encoder.llava_next_siglip_encoder import (
+            SigLipVisionConfig,
         )
         from transformers.models.qwen2.modeling_qwen2 import Qwen2ForCausalLM
 
@@ -89,6 +95,16 @@ class ModelLoader(ForgeModel):
             self.post_init()
 
         CambrianQwenForCausalLM.__init__ = patched_init
+
+        @classmethod
+        def _set_token_in_kwargs(cls, kwargs, token=None):
+            if token is None:
+                token = kwargs.pop("token", None)
+            kwargs.pop("use_auth_token", None)
+            if token is not None:
+                kwargs["token"] = token
+
+        SigLipVisionConfig._set_token_in_kwargs = _set_token_in_kwargs
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Cambrian-S model instance."""
