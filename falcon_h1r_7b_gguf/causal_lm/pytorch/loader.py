@@ -20,6 +20,62 @@ from ....config import (
 )
 
 
+def _patch_transformers_falcon_h1_gguf():
+    """Monkey-patch transformers to add falcon-h1 GGUF architecture support.
+
+    The Falcon H1R model uses the 'falcon-h1' architecture identifier in its
+    GGUF metadata. Transformers has FalconH1ForCausalLM (model_type='falcon_h1')
+    but lacks GGUF loading support for the 'falcon-h1' architecture key. We
+    bridge the gap by registering the config mapping and remapping model_type.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    from transformers.integrations.ggml import GGUF_CONFIG_MAPPING
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "falcon-h1" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_CONFIG_MAPPING["falcon-h1"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+        "ssm.conv_kernel": "mamba_d_conv",
+        "ssm.state_size": "mamba_d_state",
+        "ssm.group_count": "mamba_n_groups",
+        "ssm.inner_size": None,
+        "ssm.time_step_rank": None,
+        "attention.key_length": None,
+        "attention.value_length": None,
+    }
+    GGUF_SUPPORTED_ARCHITECTURES.append("falcon-h1")
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["falcon-h1"] = GGUF_CONFIG_MAPPING[
+        "falcon-h1"
+    ]
+
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "falcon-h1":
+            config["model_type"] = "falcon_h1"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
+_patch_transformers_falcon_h1_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available Falcon H1R 7B GGUF model variants for causal language modeling."""
 
