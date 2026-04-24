@@ -99,6 +99,30 @@ def _patch_transformers_glm4moe_gguf():
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
+    # Also patch get_gguf_hf_weights_map to resolve glm4_moe -> glm4moe for tensor loading.
+    # transformers' MODEL_ARCH_NAMES uses 'glm4moe' but after our remap model_type='glm4_moe'.
+    orig_get_weights_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        effective_type = (
+            model_type
+            if model_type is not None
+            else (hf_model.config.model_type if hf_model is not None else None)
+        )
+        if effective_type == "glm4_moe":
+            model_type = "glm4moe"
+        return orig_get_weights_map(
+            hf_model,
+            processor,
+            model_type=model_type,
+            num_layers=num_layers,
+            qual_name=qual_name,
+        )
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
 
 _patch_transformers_glm4moe_gguf()
 
