@@ -9,6 +9,17 @@ from typing import Optional
 
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 
+try:
+    from fla.models.gla.configuration_gla import GLAConfig
+    from fla.models.gla.modeling_gla import GLAForCausalLM
+
+    # transformers 5.x changed _tied_weights_keys from list to dict format
+    GLAForCausalLM._tied_weights_keys = {"lm_head.weight": "model.embeddings.weight"}
+    AutoConfig.register("gla", GLAConfig, exist_ok=True)
+    AutoModelForCausalLM.register(GLAConfig, GLAForCausalLM, exist_ok=True)
+except ImportError:
+    pass
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
