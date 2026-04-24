@@ -4,7 +4,7 @@
 """
 Qwen 3.5 9B NSFW Captioning v2 i1 GGUF model loader implementation for causal language modeling.
 """
-import gc
+import sys
 from typing import Optional
 
 import torch
@@ -20,7 +20,8 @@ from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURE
 # monkey-patches that lack the model_to_load parameter.  Strategy:
 #  1. If the current module attribute is still the original (first importer), use it.
 #  2. If a previous "smart" loader saved a valid reference, use that.
-#  3. Fall back to gc.get_objects() to locate the live function object.
+#  3. Scan sys.modules for an earlier-imported loader whose _orig still points to
+#     the true original (identifiable by __module__).
 _fn = _gguf_utils.load_gguf_checkpoint
 if getattr(_fn, "__module__", "") == "transformers.modeling_gguf_pytorch_utils":
     _orig_load_gguf_checkpoint = _fn
@@ -36,10 +37,11 @@ elif (
 else:
     _orig_load_gguf_checkpoint = next(
         (
-            obj
-            for obj in gc.get_objects()
-            if getattr(obj, "__name__", "") == "load_gguf_checkpoint"
-            and getattr(obj, "__module__", "")
+            orig
+            for mod in sys.modules.values()
+            for orig in [getattr(mod, "_orig_load_gguf_checkpoint", None)]
+            if orig is not None
+            and getattr(orig, "__module__", "")
             == "transformers.modeling_gguf_pytorch_utils"
         ),
         _fn,
