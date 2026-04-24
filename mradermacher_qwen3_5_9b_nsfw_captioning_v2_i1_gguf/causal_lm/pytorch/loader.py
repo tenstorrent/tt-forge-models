@@ -4,6 +4,7 @@
 """
 Qwen 3.5 9B NSFW Captioning v2 i1 GGUF model loader implementation for causal language modeling.
 """
+import gc
 from typing import Optional
 
 import torch
@@ -15,10 +16,41 @@ from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
 
-# Preserve the true original before any prior loader has patched it in a chain.
-if not hasattr(_gguf_utils, "_unpatched_load_gguf_checkpoint"):
-    _gguf_utils._unpatched_load_gguf_checkpoint = _gguf_utils.load_gguf_checkpoint
-_orig_load_gguf_checkpoint = _gguf_utils._unpatched_load_gguf_checkpoint
+# Find the TRUE original load_gguf_checkpoint, bypassing any prior loader
+# monkey-patches that lack the model_to_load parameter.  Strategy:
+#  1. If the current module attribute is still the original (first importer), use it.
+#  2. If a previous "smart" loader saved a valid reference, use that.
+#  3. Fall back to gc.get_objects() to locate the live function object.
+_fn = _gguf_utils.load_gguf_checkpoint
+if getattr(_fn, "__module__", "") == "transformers.modeling_gguf_pytorch_utils":
+    _orig_load_gguf_checkpoint = _fn
+elif (
+    getattr(
+        getattr(_gguf_utils, "_unpatched_load_gguf_checkpoint", None),
+        "__module__",
+        "",
+    )
+    == "transformers.modeling_gguf_pytorch_utils"
+):
+    _orig_load_gguf_checkpoint = _gguf_utils._unpatched_load_gguf_checkpoint
+else:
+    _orig_load_gguf_checkpoint = next(
+        (
+            obj
+            for obj in gc.get_objects()
+            if getattr(obj, "__name__", "") == "load_gguf_checkpoint"
+            and getattr(obj, "__module__", "")
+            == "transformers.modeling_gguf_pytorch_utils"
+        ),
+        _fn,
+    )
+
+if (
+    not hasattr(_gguf_utils, "_unpatched_load_gguf_checkpoint")
+    and getattr(_orig_load_gguf_checkpoint, "__module__", "")
+    == "transformers.modeling_gguf_pytorch_utils"
+):
+    _gguf_utils._unpatched_load_gguf_checkpoint = _orig_load_gguf_checkpoint
 
 from ....base import ForgeModel
 from ....config import (
@@ -55,7 +87,12 @@ def _patch_qwen35_support():
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
-    """Wrap load_gguf_checkpoint to add qwen35 support and fix model_type."""
+    """Wrap load_gguf_checkpoint to add qwen35 support and fix model_type.
+
+    Calls the TRUE original directly (not the monkey-patch chain) so that
+    model_to_load is not silently dropped by intermediate patched functions
+    from other loaders that were written against older transformers versions.
+    """
     _patch_qwen35_support()
     result = _orig_load_gguf_checkpoint(
         gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
@@ -65,11 +102,21 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load
     return result
 
 
-_patch_qwen35_support()
-_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+def _repatch():
+    """Re-apply patches so this loader's function is the active entry point.
+
+    Other loaders imported after this one may have overwritten the module-level
+    references.  Calling this before each from_pretrained invocation ensures
+    our function (which correctly handles model_to_load) is called first.
+    """
+    _patch_qwen35_support()
+    _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+
+_repatch()
 
 
 class ModelVariant(StrEnum):
@@ -114,6 +161,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _repatch()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -128,6 +176,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _repatch()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -206,6 +255,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        _repatch()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
