@@ -87,9 +87,10 @@ class ModelLoader(ForgeModel):
 
         for name, child in list(model.named_children()):
             if isinstance(child, bnb_nn.Linear4bit):
-                if child.weight.quant_state is not None:
+                quant_state = getattr(child.weight, "quant_state", None)
+                if quant_state is not None:
                     dq_weight = bnb_func.dequantize_4bit(
-                        child.weight.data, child.weight.quant_state
+                        child.weight.data, quant_state
                     ).to(dtype)
                 else:
                     dq_weight = child.weight.data.to(dtype)
