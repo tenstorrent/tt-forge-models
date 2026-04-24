@@ -163,11 +163,12 @@ def controlnet_openpose_sd15_preprocessing(
     )
 
     # 7. Run controlnet to get residuals
+    controlnet_dtype = pipe.controlnet.dtype
     down_block_additional_residuals, mid_block_additional_residual = pipe.controlnet(
-        latent_model_input,
+        latent_model_input.to(controlnet_dtype),
         timesteps[0],
-        encoder_hidden_states=prompt_embeds,
-        controlnet_cond=control_image,
+        encoder_hidden_states=prompt_embeds.to(controlnet_dtype),
+        controlnet_cond=control_image.to(controlnet_dtype),
         conditioning_scale=controlnet_conditioning_scale,
         return_dict=False,
     )
