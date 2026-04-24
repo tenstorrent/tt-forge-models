@@ -66,10 +66,10 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the CyberRealistic pipeline from a single-file checkpoint.
+        """Load and return the CyberRealistic UNet from a single-file checkpoint.
 
         Returns:
-            StableDiffusionPipeline: The loaded pipeline instance.
+            UNet2DConditionModel: The UNet submodule of the loaded pipeline.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
         model_path = hf_hub_download(repo_id=REPO_ID, filename=CHECKPOINT_FILE)
@@ -78,16 +78,42 @@ class ModelLoader(ForgeModel):
             torch_dtype=dtype,
             **kwargs,
         )
-        return self.pipeline
+        self.in_channels = self.pipeline.unet.in_channels
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the model.
+        """Load and return sample inputs for the UNet model.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: Dictionary containing sample, timestep, and encoder_hidden_states.
         """
-        return [
+        dtype = dtype_override if dtype_override is not None else torch.float32
+
+        prompt = [
             "(masterpiece, best quality), ultra-detailed, realistic photo of a "
             "22-year-old woman, natural lighting, depth of field, candid moment, "
             "color graded, RAW photo, soft cinematic bokeh"
         ] * batch_size
+
+        text_input = self.pipeline.tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=self.pipeline.tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        text_embeddings = self.pipeline.text_encoder(text_input.input_ids)[0]
+
+        height, width = 512, 512
+        latents = torch.randn(
+            (batch_size, self.in_channels, height // 8, width // 8), dtype=dtype
+        )
+        self.pipeline.scheduler.set_timesteps(1)
+        latents = latents * self.pipeline.scheduler.init_noise_sigma
+        latent_model_input = self.pipeline.scheduler.scale_model_input(latents, 0)
+
+        return {
+            "sample": latent_model_input.to(dtype),
+            "timestep": torch.tensor(0),
+            "encoder_hidden_states": text_embeddings.to(dtype),
+        }
