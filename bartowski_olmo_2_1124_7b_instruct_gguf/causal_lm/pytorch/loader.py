@@ -59,10 +59,10 @@ def _patch_olmo2_gguf_support():
         GGUF_TO_FAST_CONVERTERS["olmo2"] = GGUFGPTConverter
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+def _patched_load_gguf_checkpoint(*args, **kwargs):
     """Wrap load_gguf_checkpoint to add olmo2 support and fix rope_parameters."""
     _patch_olmo2_gguf_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
     config = result.get("config", {})
     if config.get("model_type") == "olmo2" and "rope_theta" in config:
         rope_theta = config.pop("rope_theta")
