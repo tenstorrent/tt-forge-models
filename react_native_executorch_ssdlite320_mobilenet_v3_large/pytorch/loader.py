@@ -13,7 +13,7 @@ ssdlite320_mobilenet_v3_large model on which the exported variant is based.
 from typing import Optional
 
 import torchvision.models as models
-from datasets import load_dataset
+from PIL import Image
 from torchvision import transforms
 from torchvision.models.detection.anchor_utils import DefaultBoxGenerator
 from torchvision.models.detection.ssd import SSD
@@ -87,8 +87,7 @@ class ModelLoader(ForgeModel):
         return self.model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        image = Image.new("RGB", self.image_sizes)
 
         preprocess = transforms.Compose(
             [
