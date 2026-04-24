@@ -5,7 +5,7 @@
 NVIDIA Nemotron Nano 12B v2 VL NVFP4-QAD model loader implementation for image to text.
 """
 
-from transformers import AutoModel, AutoProcessor
+from transformers import AutoConfig, AutoModel, AutoProcessor
 from PIL import Image
 from typing import Optional
 
@@ -94,10 +94,19 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {"trust_remote_code": True, "attn_implementation": "eager"}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        if hasattr(config, "quantization_config"):
+            del config.quantization_config
+        model_kwargs["config"] = config
+
+        model = AutoModel.from_pretrained(
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
+        )
         model.eval()
 
         return model
