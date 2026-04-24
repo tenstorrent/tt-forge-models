@@ -145,6 +145,7 @@ class ModelLoader(ForgeModel):
             subfolder="transformer",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
+            low_cpu_mem_usage=False,
         )
 
         return self._transformer
