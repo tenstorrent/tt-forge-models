@@ -4,6 +4,30 @@
 """
 ZuzeTt Qwen3.5 4B Heretic GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
+import importlib.util
+
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.utils.import_utils as _import_utils
+
+# transformers caches PACKAGE_DISTRIBUTION_MAPPING at import time; if gguf is
+# installed afterwards (by RequirementsManager), the stale cache causes
+# is_gguf_available() to return version 'N/A' and then crash on version.parse.
+# Use a live importlib.metadata.version() call instead.
+def _live_is_gguf_available(min_version: str = "0.10.0") -> bool:
+    from packaging import version
+
+    try:
+        return version.parse(importlib.metadata.version("gguf")) >= version.parse(
+            min_version
+        )
+    except Exception:
+        return importlib.util.find_spec("gguf") is not None
+
+
+_import_utils.is_gguf_available = _live_is_gguf_available
+_gguf_utils.is_gguf_available = _live_is_gguf_available
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
