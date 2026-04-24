@@ -145,12 +145,12 @@ class ModelLoader(ForgeModel):
         image_tensor_list, _ = process_images(
             [image], self.image_processor, self.model.config
         )
-        # process_images returns [batch, num_patches, C, H, W]; flatten to [batch*num_patches, C, H, W]
-        images = image_tensor_list[0]
-        images = images.view(-1, *images.shape[2:])
+        # process_images returns list of [batch, num_patches, C, H, W] tensors (one per vision tower).
+        # The model's forward expects images as a Python list of such tensors (one per vision tower).
+        images = [image_tensor_list[0]]
 
         if dtype_override is not None:
-            images = images.to(dtype=dtype_override)
+            images = [img.to(dtype=dtype_override) for img in images]
 
         conv = conv_templates["qwen_2"].copy()
         conv.append_message(
@@ -169,7 +169,7 @@ class ModelLoader(ForgeModel):
         if batch_size > 1:
             input_ids = input_ids.repeat(batch_size, 1)
             attention_mask = attention_mask.repeat(batch_size, 1)
-            images = images.repeat(batch_size, 1, 1, 1)
+            images = [img.repeat(batch_size, 1, 1, 1) for img in images]
 
         return {
             "input_ids": input_ids,
