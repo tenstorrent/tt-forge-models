@@ -8,7 +8,13 @@ CodeSage model loader implementation for code embedding generation.
 
 from typing import Optional
 
+import transformers.modeling_utils as _modeling_utils
 from transformers import AutoModel, AutoTokenizer
+
+if not hasattr(_modeling_utils, "Conv1D"):
+    from transformers.pytorch_utils import Conv1D as _Conv1D
+
+    _modeling_utils.Conv1D = _Conv1D
 
 from ....base import ForgeModel
 from ....config import (
