@@ -129,12 +129,17 @@ class ModelLoader(ForgeModel):
             self._load_tokenizer()
 
         text_prompt = "<video>\nWhat is shown in this video?"
-
         inputs = self.tokenizer(text_prompt, return_tensors="pt")
 
         if dtype_override:
             inputs = {
                 k: cast_input_to_type(v, dtype_override) for k, v in inputs.items()
             }
+
+        # Provide dummy video: 4 frames at 448x448 (mm_local_num_frames=4)
+        video_dtype = dtype_override if dtype_override else torch.float32
+        dummy_video = torch.zeros(4, 3, 448, 448, dtype=video_dtype)
+        inputs["images"] = [dummy_video]
+        inputs["modalities"] = ["video"]
 
         return dict(inputs)
