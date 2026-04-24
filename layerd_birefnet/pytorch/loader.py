@@ -6,8 +6,11 @@ cyberagent/layerd-birefnet model loader implementation for image segmentation / 
 """
 
 import torch
+from PIL import Image
 from torchvision import transforms
+from torchvision.ops import deform_conv2d
 from transformers import AutoModelForImageSegmentation
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
 from typing import Optional
 
 from ...base import ForgeModel
@@ -20,7 +23,6 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from datasets import load_dataset
 
 
 class ModelVariant(StrEnum):
@@ -69,8 +71,66 @@ class ModelLoader(ForgeModel):
         )
         return self.transform_image
 
+    def _patch_birefnet_module(self, pretrained_model_name):
+        # transformers 5.x wraps model __init__ in torch.device("meta"), but
+        # SwinTransformer.__init__ calls torch.linspace(...).item() which fails
+        # on meta tensors. Wrap __init__ in torch.device("cpu") to override.
+        SwinTransformer = get_class_from_dynamic_module(
+            "birefnet.SwinTransformer",
+            pretrained_model_name,
+            trust_remote_code=True,
+        )
+        _orig_swin_init = SwinTransformer.__init__
+
+        def _patched_swin_init(self, *args, **kwargs):
+            with torch.device("cpu"):
+                _orig_swin_init(self, *args, **kwargs)
+
+        SwinTransformer.__init__ = _patched_swin_init
+
+        # BiRefNet doesn't call self.post_init(), which transformers 5.x requires
+        # to set up all_tied_weights_keys before weight loading.
+        BiRefNet = get_class_from_dynamic_module(
+            "birefnet.BiRefNet",
+            pretrained_model_name,
+            trust_remote_code=True,
+        )
+        _orig_birefnet_init = BiRefNet.__init__
+
+        def _patched_birefnet_init(self, *args, **kwargs):
+            _orig_birefnet_init(self, *args, **kwargs)
+            self.post_init()
+
+        BiRefNet.__init__ = _patched_birefnet_init
+
+        # torchvision deform_conv2d doesn't support BFloat16; cast to float32.
+        DeformableConv2d = get_class_from_dynamic_module(
+            "birefnet.DeformableConv2d",
+            pretrained_model_name,
+            trust_remote_code=True,
+        )
+
+        def _patched_deformable_forward(self, x):
+            dtype = x.dtype
+            offset = self.offset_conv(x)
+            modulator = 2.0 * torch.sigmoid(self.modulator_conv(x))
+            bias = self.regular_conv.bias
+            return deform_conv2d(
+                input=x.float(),
+                offset=offset.float(),
+                weight=self.regular_conv.weight.float(),
+                bias=bias.float() if bias is not None else None,
+                padding=self.padding,
+                mask=modulator.float(),
+                stride=self.stride,
+            ).to(dtype)
+
+        DeformableConv2d.forward = _patched_deformable_forward
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        self._patch_birefnet_module(pretrained_model_name)
 
         model_kwargs = {}
         model_kwargs["dtype"] = (
@@ -79,7 +139,9 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         model = AutoModelForImageSegmentation.from_pretrained(
-            pretrained_model_name, trust_remote_code=True, **model_kwargs
+            pretrained_model_name,
+            trust_remote_code=True,
+            **model_kwargs,
         )
 
         torch.set_float32_matmul_precision(["high", "highest"][0])
@@ -93,8 +155,7 @@ class ModelLoader(ForgeModel):
         if self.transform_image is None:
             self._setup_transforms()
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        self.image = dataset[0]["image"]
+        self.image = Image.new("RGB", (1024, 1024))
 
         inputs = self.transform_image(self.image).unsqueeze(0)
 
