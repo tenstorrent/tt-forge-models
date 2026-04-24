@@ -30,6 +30,30 @@ _modeling_utils.PreTrainedModel.get_expanded_tied_weights_keys = (
     _compat_get_expanded_tied
 )
 
+# Qwen3VLTextRotaryEmbedding (from modeling_mibot.py) uses rope_type="default" but lacks
+# compute_default_rope_parameters, which transformers 5.x _init_weights expects.
+# Patch _init_weights to inject the method before calling the original.
+_orig_init_weights = _modeling_utils.PreTrainedModel._init_weights
+
+
+def _compat_init_weights(self, module):
+    if (
+        "RotaryEmbedding" in type(module).__name__
+        and hasattr(module, "original_inv_freq")
+        and getattr(module, "rope_type", None) == "default"
+        and not hasattr(module, "compute_default_rope_parameters")
+    ):
+
+        def _compute_default(cfg=None, **kw):
+            cfg = cfg or module.config
+            return _rope_utils.ROPE_INIT_FUNCTIONS["default"](cfg, **kw)
+
+        module.compute_default_rope_parameters = _compute_default
+    return _orig_init_weights(self, module)
+
+
+_modeling_utils.PreTrainedModel._init_weights = _compat_init_weights
+
 from ....base import ForgeModel
 from ....config import (
     Framework,
