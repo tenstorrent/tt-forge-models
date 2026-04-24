@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.BASE_CASED_DISTILLED_SQUAD: LLMModelConfig(
-            pretrained_model_name="Xenova/distilbert-base-cased-distilled-squad",
+            pretrained_model_name="distilbert/distilbert-base-cased-distilled-squad",
             max_length=384,
         ),
     }
