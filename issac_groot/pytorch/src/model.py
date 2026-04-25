@@ -281,7 +281,6 @@ class GR00T_N1_5_Config(PretrainedConfig):
                 "backbone_embedding_dim",
                 "hidden_size",
                 "max_seq_len",
-                "action_dim",
                 "action_horizon",
                 "noise_beta_alpha",
                 "noise_beta_beta",
@@ -304,6 +303,10 @@ class GR00T_N1_5_Config(PretrainedConfig):
             self.action_head_cfg = {
                 k: kwargs[k] for k in action_head_keys if k in kwargs
             }
+            # action_dim uses max_action_dim when not explicitly provided
+            self.action_head_cfg.setdefault(
+                "action_dim", kwargs.get("max_action_dim", 128)
+            )
 
         if not isinstance(getattr(self, "action_dim", None), int):
             self.action_dim = kwargs.get("max_action_dim", 128)

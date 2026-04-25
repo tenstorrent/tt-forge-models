@@ -3909,7 +3909,7 @@ class FlowmatchingActionHead(nn.Module):
         )
         self.vl_self_attention = (
             SelfAttentionTransformer(**config.vl_self_attention_cfg)
-            if config.use_vlln
+            if config.use_vlln and config.vl_self_attention_cfg is not None
             else nn.Identity()
         )
 
