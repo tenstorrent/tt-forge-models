@@ -223,3 +223,7 @@ results:
   status: "PASS"
   date: "20260425_100323"
   branch: "arch-c-36-tt-xla-dev/nsmith/2026-04-22_16-58/hf-bringup-8"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[yanoljanext_rosetta_20b_gguf/causal_lm/pytorch-20B_Q4_K_M-single_device-inference]"
+  status: "PASS"
+  date: "20260425_102621"
+  branch: "arch-c-36-tt-xla-dev/nsmith/2026-04-22_16-58/hf-bringup-8"
