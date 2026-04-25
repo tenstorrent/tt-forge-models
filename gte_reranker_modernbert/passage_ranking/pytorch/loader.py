@@ -109,3 +109,16 @@ class ModelLoader(ForgeModel):
                         inputs[key] = value.to(dtype_override)
 
         return inputs
+
+    def get_mesh_config(self, num_devices: int):
+        mesh_shape = (1, num_devices)
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        shard_specs = {}
+        for layer in model.model.layers:
+            shard_specs[layer.attn.Wqkv.weight] = ("model", "batch")
+            shard_specs[layer.attn.Wo.weight] = ("batch", "model")
+            shard_specs[layer.mlp.Wi.weight] = ("model", "batch")
+            shard_specs[layer.mlp.Wo.weight] = ("batch", "model")
+        return shard_specs
