@@ -23,6 +23,11 @@ from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 # the "qwen35" architecture string.  Map it to "qwen3_5_text" so that
 # Qwen3_5ForCausalLM is used, which correctly sets q_proj output to
 # num_attention_heads * head_dim * 2 (vs Qwen3 which omits the *2 factor).
+#
+# Other loaders (e.g. bartowski_coniccat) may install a qwen35->qwen3 patch first via
+# setdefault.  We use direct assignment to override that mapping, and re-read the GGUF
+# architecture header to correct model_type even if an upstream patch already changed
+# it to "qwen3".
 _QWEN35_CONFIG_MAPPING = {
     "context_length": "max_position_embeddings",
     "block_count": "num_hidden_layers",
@@ -40,12 +45,17 @@ _QWEN35_CONFIG_MAPPING = {
 
 
 def _patch_qwen35_support():
-    """Register qwen35 GGUF architecture as Qwen3.5 hybrid (SSM + full-attention)."""
+    """Register qwen35 GGUF architecture as Qwen3.5 hybrid (SSM + full-attention).
+
+    Uses direct assignment (not setdefault) so this mapping takes precedence over any
+    qwen35->qwen3 alias installed by other loaders (e.g. bartowski_coniccat).
+    """
     if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
         GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
-    _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"].setdefault(
-        "qwen35", _QWEN35_CONFIG_MAPPING
-    )
+    # Direct assignment to override any prior setdefault from other loaders
+    _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"][
+        "qwen35"
+    ] = _QWEN35_CONFIG_MAPPING
     if "qwen3" in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
         GGUF_TO_FAST_CONVERTERS.setdefault(
@@ -53,13 +63,30 @@ def _patch_qwen35_support():
         )
 
 
+def _is_qwen35_gguf(gguf_path):
+    """Return True if the GGUF file declares architecture 'qwen35'."""
+    try:
+        from gguf import GGUFReader
+        from transformers.modeling_gguf_pytorch_utils import read_field
+
+        reader = GGUFReader(gguf_path)
+        arch = read_field(reader, "general.architecture")[0]
+        return arch == "qwen35"
+    except Exception:
+        return False
+
+
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
-    """Wrap load_gguf_checkpoint to add qwen35 support and fix model_type."""
+    """Wrap load_gguf_checkpoint to register qwen35 and fix model_type."""
+    # Override mapping with direct assignment before any chained patched function
+    # can call setdefault (which would be a no-op if already set to the wrong qwen3 mapping).
     _patch_qwen35_support()
     result = _orig_load_gguf_checkpoint(
         gguf_path, return_tensors=return_tensors, **kwargs
     )
-    if result.get("config", {}).get("model_type") == "qwen35":
+    # Upstream patches (e.g. coniccat) may have changed model_type to "qwen3".
+    # Re-read the GGUF architecture directly to correct this.
+    if _is_qwen35_gguf(gguf_path):
         result["config"]["model_type"] = "qwen3_5_text"
     return result
 
