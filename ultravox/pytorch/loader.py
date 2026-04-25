@@ -192,8 +192,51 @@ class ModelLoader(ForgeModel):
                 src = hf_hub_download(pretrained_model_name, fname)
                 shutil.copy2(src, os.path.join(tmpdir, fname))
 
+        self._patch_hf_module_cache()
+
         self._patched_dir = tmpdir
         return tmpdir
+
+    def _patch_hf_module_cache(self):
+        """Patch cached transformers_modules files for transformers>=5.x API changes."""
+        import glob as _glob
+
+        _PATCHES = [
+            # tie_weights gained a recompute_mapping kwarg in transformers>=5.x
+            (
+                "def tie_weights(self):\n        return self.language_model.tie_weights()",
+                "def tie_weights(self, **kwargs):\n        return self.language_model.tie_weights(**kwargs)",
+            ),
+        ]
+
+        search_dirs = [
+            os.path.join(
+                os.path.expanduser("~"),
+                ".cache",
+                "huggingface",
+                "modules",
+                "transformers_modules",
+            ),
+            os.path.join(
+                os.getcwd(),
+                ".cache",
+                "huggingface",
+                "modules",
+                "transformers_modules",
+            ),
+        ]
+        for base in search_dirs:
+            for model_path in _glob.glob(
+                os.path.join(base, "**", "ultravox_model.py"), recursive=True
+            ):
+                with open(model_path) as f:
+                    content = f.read()
+                patched = content
+                for old, new in _PATCHES:
+                    patched = patched.replace(old, new)
+                if patched != content:
+                    with open(model_path, "w") as f:
+                        f.write(patched)
 
     def _cleanup_patched_dir(self):
         if self._patched_dir is not None:
