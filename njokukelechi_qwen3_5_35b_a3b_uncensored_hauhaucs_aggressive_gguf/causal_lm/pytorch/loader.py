@@ -113,24 +113,45 @@ def _patch_transformers_qwen35moe_gguf():
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
-    # 6. Patch get_gguf_hf_weights_map to handle qwen3_5_moe_text -> qwen35moe
-    # and add missing ffn_gate_exps/ffn_up_exps -> gate_up_proj mappings.
+    # 6. Patch get_gguf_hf_weights_map to force qwen35moe arch and add
+    # ffn_gate_exps/ffn_up_exps -> gate_up_proj alias mappings.
+    #
+    # qwen35moe name_map maps gate_up_proj -> ffn_gate_up_exps; other patches
+    # (e.g. 4_5test_gguf) may remap qwen3_5_moe_text -> qwen3moe which lacks
+    # that entry.  We intercept first, recover hf_model from any thread-local
+    # that an inner patch stored it in (e.g. 4_5test_gguf pops model_to_load),
+    # then call orig with model_type="qwen35moe" so the correct name_map is
+    # used, and finally add the separate-gate-tensor aliases.
     import re as _re
+    import sys as _sys
 
     orig_get_map = gguf_utils.get_gguf_hf_weights_map
 
     def patched_get_gguf_hf_weights_map(
         hf_model, processor, model_type=None, num_layers=None, qual_name=""
     ):
+        if hf_model is None:
+            # An inner patch (e.g. 4_5test_gguf) may have saved model_to_load
+            # in a module-level thread-local before popping it from kwargs.
+            for _mod in _sys.modules.values():
+                _ctx = getattr(_mod, "_model_to_load_ctx", None)
+                if _ctx is not None:
+                    _recovered = getattr(_ctx, "model_to_load", None)
+                    if _recovered is not None:
+                        hf_model = _recovered
+                        break
         if model_type is None and hf_model is not None:
             model_type = hf_model.config.model_type
-        if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
+        if model_type in ("qwen3_5_moe_text", "qwen3_5_moe", "qwen35moe"):
+            # Force qwen35moe so gate_up_proj -> ffn_gate_up_exps is in the map.
+            # Passing this explicit type bypasses inner patches that would map
+            # qwen3_5_moe_text -> qwen3moe (which lacks ffn_gate_up_exps).
             model_type = "qwen35moe"
         result = orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
         if model_type == "qwen35moe":
             # Build ffn_gate_exps/ffn_up_exps -> gate_up_proj alias mappings.
-            # The fused ffn_gate_up_exps entry is already in result; derive
-            # the per-tensor entries from it so the MoE processor can merge them.
+            # The fused ffn_gate_up_exps entry is in result; derive the
+            # per-tensor entries so the MoE processor can interleave them.
             gate_up_entries = {
                 k: v
                 for k, v in result.items()
