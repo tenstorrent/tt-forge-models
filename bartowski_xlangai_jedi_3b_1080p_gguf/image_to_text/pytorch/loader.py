@@ -16,6 +16,7 @@ from transformers import (
 )
 from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    get_gguf_hf_weights_map as _orig_get_gguf_hf_weights_map,
     GGUF_SUPPORTED_ARCHITECTURES,
     GGUF_TO_TRANSFORMERS_MAPPING,
 )
@@ -61,9 +62,33 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load
     return result
 
 
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor=None, model_type=None, num_layers=None, qual_name=""
+):
+    """Wrap get_gguf_hf_weights_map to handle qwen2_5_vl VL configs.
+
+    Qwen2_5_VLConfig nests num_hidden_layers inside text_config instead of
+    exposing it at the top level.  The gguf library names the architecture
+    'qwen2vl', while transformers uses 'qwen2_5_vl'.
+    """
+    if model_type is None:
+        cfg_type = getattr(getattr(hf_model, "config", None), "model_type", None)
+        if cfg_type == "qwen2_5_vl":
+            model_type = "qwen2vl"
+    if num_layers is None:
+        cfg = getattr(hf_model, "config", None)
+        text_cfg = getattr(cfg, "text_config", None)
+        if text_cfg is not None:
+            num_layers = getattr(text_cfg, "num_hidden_layers", None)
+    return _orig_get_gguf_hf_weights_map(
+        hf_model, processor, model_type, num_layers, qual_name
+    )
+
+
 _patch_qwen2vl_support()
 _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 
 class ModelVariant(StrEnum):
