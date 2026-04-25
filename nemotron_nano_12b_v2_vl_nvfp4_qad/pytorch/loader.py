@@ -6,11 +6,12 @@ NVIDIA Nemotron Nano 12B v2 VL NVFP4-QAD model loader implementation for image t
 """
 
 from contextlib import contextmanager
+from typing import Optional
 
+import torch
+from PIL import Image
 from transformers import AutoModel, AutoProcessor
 from transformers.modeling_utils import PreTrainedModel
-from PIL import Image
-from typing import Optional
 
 
 @contextmanager
@@ -154,9 +155,15 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
+        # num_patches is returned by the processor but not accepted by forward(); drop it
+        inputs.pop("num_patches", None)
+
+        # image_flags marks which images in the batch are valid (required by forward)
+        inputs["image_flags"] = torch.ones(batch_size, 1, dtype=torch.long)
+
         if batch_size > 1:
             for key, value in inputs.items():
-                if hasattr(value, "repeat_interleave"):
+                if key != "image_flags" and hasattr(value, "repeat_interleave"):
                     inputs[key] = value.repeat_interleave(batch_size, dim=0)
 
         return inputs
