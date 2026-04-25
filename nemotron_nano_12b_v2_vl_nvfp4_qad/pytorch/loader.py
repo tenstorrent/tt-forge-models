@@ -15,7 +15,7 @@ from ...tools.utils import get_file
 # NemotronH_Nano_VL_V2 (trust_remote_code) does not call self.post_init() in its __init__,
 # so transformers 5.x never sets all_tied_weights_keys on the instance. Patch
 # _finalize_model_loading to initialise it when missing.
-_orig_finalize = PreTrainedModel._finalize_model_loading.__func__
+_orig_finalize = PreTrainedModel._finalize_model_loading
 
 
 @staticmethod
