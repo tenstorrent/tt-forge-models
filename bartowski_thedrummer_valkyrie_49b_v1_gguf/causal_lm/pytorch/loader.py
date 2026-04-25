@@ -28,13 +28,13 @@ def _patch_transformers_deci_gguf():
         if config.get("model_type") == "deci":
             config["model_type"] = "llama"
             # DeciLM stores per-layer counts as lists; LlamaConfig needs ints
-            for key in (
-                "num_attention_heads",
-                "num_key_value_heads",
-                "intermediate_size",
-            ):
+            for key in ("num_attention_heads", "num_key_value_heads"):
                 if isinstance(config.get(key), list):
                     config[key] = config[key][0]
+            # DeciLM has variable FFN sizes per layer; use max to match the
+            # largest checkpoint tensors and avoid size-mismatch errors.
+            if isinstance(config.get("intermediate_size"), list):
+                config["intermediate_size"] = max(config["intermediate_size"])
         return result
 
     gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
@@ -137,7 +137,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
