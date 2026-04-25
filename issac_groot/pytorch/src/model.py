@@ -331,6 +331,9 @@ class GR00T_N1_5(PreTrainedModel):
         assert isinstance(config.action_head_cfg, dict)
 
         super().__init__(config)
+        # Ensure all_tied_weights_keys is set for transformers 5.x compatibility.
+        if not hasattr(self, "all_tied_weights_keys"):
+            self.all_tied_weights_keys = {}
         self.local_model_path = local_model_path
 
         self.backbone = EagleBackbone(**config.backbone_cfg)
@@ -506,7 +509,10 @@ class GR00T_N1_5(PreTrainedModel):
             local_model_path = pretrained_model_name_or_path
 
         pretrained_model = super().from_pretrained(
-            local_model_path, local_model_path=local_model_path, **kwargs
+            local_model_path,
+            local_model_path=local_model_path,
+            ignore_mismatched_sizes=True,
+            **kwargs,
         )
 
         pretrained_model.backbone.set_trainable_parameters(
