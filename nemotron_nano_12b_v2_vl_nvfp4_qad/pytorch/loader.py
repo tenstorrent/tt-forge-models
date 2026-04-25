@@ -147,7 +147,13 @@ class ModelLoader(ForgeModel):
             text="<image>\nDescribe this image.",
             return_tensors="pt",
         )
-        inputs.pop("num_patches", None)
+        num_patches = inputs.pop("num_patches", None)
+        if num_patches is not None:
+            import torch
+
+            inputs["image_flags"] = torch.ones(
+                int(num_patches.sum()), 1, dtype=torch.long
+            )
 
         if batch_size > 1:
             for key, value in inputs.items():
