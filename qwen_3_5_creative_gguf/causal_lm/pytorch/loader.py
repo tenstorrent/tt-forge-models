@@ -50,6 +50,53 @@ class ModelLoader(ForgeModel):
 
     sample_text = "Give me a short introduction to large language models."
 
+    @staticmethod
+    def _patch_qwen35moe_tensor_mapping():
+        """Patch GGUF loading to correctly handle qwen35moe architecture.
+
+        The GGUF file declares qwen35moe but transformers only registers qwen3moe
+        tensor processors. This redirects qwen35moe to use qwen3moe mappings so
+        that split ffn_gate_exps/ffn_up_exps tensors are correctly handled.
+        """
+        import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+        _qwen35moe_variants = frozenset(
+            {"qwen3_5_moe_text", "qwen3_5_moe", "qwen35moe"}
+        )
+
+        if "qwen35moe" not in gguf_utils.TENSOR_PROCESSORS:
+            qwen3moe_processor = gguf_utils.TENSOR_PROCESSORS.get("qwen3moe")
+            if qwen3moe_processor is not None:
+                gguf_utils.TENSOR_PROCESSORS["qwen35moe"] = qwen3moe_processor
+
+        if "qwen35moe" not in gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
+            gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("qwen35moe")
+
+        if getattr(gguf_utils.get_gguf_hf_weights_map, "_qwen35moe_patched", False):
+            return
+
+        _orig = gguf_utils.get_gguf_hf_weights_map
+
+        def _patched(
+            hf_model, processor, model_type=None, num_layers=None, qual_name=""
+        ):
+            if model_type is None:
+                model_type = getattr(
+                    getattr(hf_model, "config", None), "model_type", None
+                )
+            if model_type in _qwen35moe_variants:
+                model_type = "qwen3moe"
+            return _orig(
+                hf_model,
+                processor,
+                model_type=model_type,
+                num_layers=num_layers,
+                qual_name=qual_name,
+            )
+
+        _patched._qwen35moe_patched = True
+        gguf_utils.get_gguf_hf_weights_map = _patched
+
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
     ):
@@ -84,6 +131,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        self._patch_qwen35moe_tensor_mapping()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -184,6 +232,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        self._patch_qwen35moe_tensor_mapping()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name,
             gguf_file=self._GGUF_FILES[self._variant],
