@@ -47,9 +47,11 @@ from .utils import (
 from transformers.image_processing_utils import BatchFeature, get_patch_output_size
 from transformers.image_processing_utils_fast import (
     BaseImageProcessorFast,
-    DefaultFastImageProcessorKwargs,
     group_images_by_shape,
     reorder_images,
+)
+from transformers.processing_utils import (
+    ImagesKwargs as DefaultFastImageProcessorKwargs,
 )
 from transformers.image_utils import IMAGENET_STANDARD_MEAN  # 0.5, 0.5, 0.5
 from transformers.image_utils import IMAGENET_STANDARD_STD  # 0.5, 0.5, 0.5
