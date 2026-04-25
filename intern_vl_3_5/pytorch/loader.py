@@ -236,9 +236,14 @@ class ModelLoader(ForgeModel):
             # but InternVisionEncoder calls .item() on a linspace tensor in its
             # __init__, which fails on meta tensors. Patch get_init_context to
             # strip the meta device context for this model family.
+            #
+            # Additionally, InternVLChatModel does not call post_init(), so
+            # all_tied_weights_keys is never set. Patch _adjust_tied_keys_with_tied_pointers
+            # to initialize it lazily.
             from transformers import PreTrainedModel
 
             _orig_get_init_context = PreTrainedModel.get_init_context.__func__
+            _orig_adjust_tied = PreTrainedModel._adjust_tied_keys_with_tied_pointers
 
             @classmethod
             def _no_meta_get_init_context(cls, dtype, is_quantized, _is_ds_init_called):
@@ -250,11 +255,18 @@ class ModelLoader(ForgeModel):
                     if not (isinstance(ctx, torch.device) and ctx.type == "meta")
                 ]
 
+            def _safe_adjust_tied(self, missing_keys):
+                if not hasattr(self, "all_tied_weights_keys"):
+                    self.all_tied_weights_keys = {}
+                return _orig_adjust_tied(self, missing_keys)
+
             PreTrainedModel.get_init_context = _no_meta_get_init_context
+            PreTrainedModel._adjust_tied_keys_with_tied_pointers = _safe_adjust_tied
             try:
                 model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
             finally:
                 PreTrainedModel.get_init_context = classmethod(_orig_get_init_context)
+                PreTrainedModel._adjust_tied_keys_with_tied_pointers = _orig_adjust_tied
 
         model.eval()
         self.model = model
