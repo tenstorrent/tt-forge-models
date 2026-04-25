@@ -8,6 +8,150 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+
+def _patch_transformers_qwen3next_gguf():
+    """Monkey-patch transformers to add qwen3next GGUF architecture support.
+
+    Transformers 5.x has Qwen3NextForCausalLM but lacks GGUF loading support
+    for the qwen3next architecture. We bridge the gap by registering qwen3next
+    config/tensor mappings and converting the model_type to qwen3_next.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        TENSOR_PROCESSORS,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "qwen3next" in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # Already patched
+
+    # 1. Register qwen3next as a supported architecture
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen3next")
+
+    # 2. Add config mapping for qwen3next (hybrid SSM+MoE model)
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen3next"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "attention.key_length": "head_dim",
+        "attention.value_length": None,
+        "expert_count": "num_experts",
+        "expert_used_count": "num_experts_per_tok",
+        "expert_feed_forward_length": "moe_intermediate_size",
+        "expert_shared_feed_forward_length": "shared_expert_intermediate_size",
+        "ssm.conv_kernel": "linear_conv_kernel_dim",
+        "ssm.state_size": "linear_key_head_dim",
+        "ssm.group_count": "linear_num_key_heads",
+        "ssm.inner_size": None,
+        "ssm.time_step_rank": None,
+    }
+
+    # 3. Register a custom tensor processor for qwen3next.
+    # The qwen3next gguf name_map maps gate_up_proj -> ffn_gate_up_exps (fused),
+    # but the actual GGUF file stores gate and up as separate ffn_gate_exps/ffn_up_exps
+    # tensors. We subclass Qwen2MoeTensorProcessor to handle this mismatch.
+    import re as _re
+    import numpy as _np
+
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUFTensor,
+        TensorProcessor,
+    )
+
+    Qwen2MoeTensorProcessorClass = TENSOR_PROCESSORS.get("qwen3moe")
+    if Qwen2MoeTensorProcessorClass is not None:
+
+        class Qwen3NextTensorProcessor(Qwen2MoeTensorProcessorClass):
+            def process(self, weights, name, **kwargs):
+                if m := _re.fullmatch(self.GGUF_MOE_WEIGHTS_PATTERN, name):
+                    tensor_key_mapping = kwargs.get("tensor_key_mapping")
+                    parsed_parameters = kwargs.get("parsed_parameters")
+                    if tensor_key_mapping:
+                        key = m["name"]
+                        if key not in tensor_key_mapping:
+                            # Separate gate/up in GGUF but fused gate_up in HF
+                            fused_key = _re.sub(
+                                r"_gate_exps$|_up_exps$", "_gate_up_exps", key
+                            )
+                            key = fused_key
+                        if key in tensor_key_mapping:
+                            self._set_moe_expert_tensor(
+                                weights,
+                                parsed_parameters,
+                                tensor_key_mapping[key],
+                                m["w"],
+                            )
+                            return GGUFTensor(weights, None, {})
+                if "ffn_gate_inp_shexp" in name:
+                    weights = _np.expand_dims(weights, axis=0)
+                return GGUFTensor(weights, name, {})
+
+        TENSOR_PROCESSORS["qwen3next"] = Qwen3NextTensorProcessor
+    elif "qwen3moe" in TENSOR_PROCESSORS:
+        TENSOR_PROCESSORS["qwen3next"] = TENSOR_PROCESSORS["qwen3moe"]
+
+    # 4. Register tokenizer converter (qwen3next uses qwen3/qwen2 tokenizer format)
+    # Register both the GGUF architecture name and the HF model_type name,
+    # since different code paths may use either form.
+    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+    if "qwen3" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["qwen3next"] = GGUF_TO_FAST_CONVERTERS["qwen3"]
+        GGUF_TO_FAST_CONVERTERS["qwen3_next"] = GGUF_TO_FAST_CONVERTERS["qwen3"]
+
+    # 5. Patch load_gguf_checkpoint to handle qwen3next -> qwen3_next model_type
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        if result.get("config", {}).get("model_type") == "qwen3next":
+            config = result["config"]
+            config["model_type"] = "qwen3_next"
+            # Wrap rope_theta into rope_parameters dict expected by Qwen3NextConfig
+            if "rope_theta" in config:
+                config["rope_parameters"] = {
+                    "rope_theta": config.pop("rope_theta"),
+                    "partial_rotary_factor": 0.25,
+                    "rope_type": "default",
+                }
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    # Also patch modules that imported load_gguf_checkpoint directly
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    # 6. Patch get_gguf_hf_weights_map to convert qwen3_next -> qwen3next for lookup
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type == "qwen3_next":
+            model_type = "qwen3next"
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+
+# Apply the monkey-patch at import time
+_patch_transformers_qwen3next_gguf()
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
