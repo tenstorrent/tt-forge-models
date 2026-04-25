@@ -7,8 +7,10 @@ DeepSeek Janus model loader implementation for multimodal understanding.
 
 from typing import Optional
 
+import janus.models  # registers multi_modality config/model with transformers auto classes
+from janus.models import VLChatProcessor
 from PIL import Image
-from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import AutoConfig, AutoModelForCausalLM
 
 from ....base import ForgeModel
 from ....config import (
@@ -61,8 +63,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
-        self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, trust_remote_code=True
+        self.processor = VLChatProcessor.from_pretrained(
+            self._variant_config.pretrained_model_name
         )
         return self.processor
 
@@ -70,7 +72,10 @@ class ModelLoader(ForgeModel):
         """Load and return the Janus model instance."""
         model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"trust_remote_code": True}
+        config = AutoConfig.from_pretrained(str(model_name))
+        config.language_config._attn_implementation = "eager"
+
+        model_kwargs = {"config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -91,8 +96,17 @@ class ModelLoader(ForgeModel):
         image_file = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
         image = Image.open(image_file)
 
+        conversation = [
+            {
+                "role": "<|User|>",
+                "content": f"<image_placeholder>\n{self.sample_text}",
+                "images": [image],
+            },
+            {"role": "<|Assistant|>", "content": ""},
+        ]
+
         inputs = self.processor(
-            images=image, text=self.sample_text, return_tensors="pt"
+            conversations=conversation, images=[image], force_batchify=True
         )
 
         if dtype_override:
