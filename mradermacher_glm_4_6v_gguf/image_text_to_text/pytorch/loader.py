@@ -63,12 +63,14 @@ def _patch_gguf_for_glm4v_moe():
     def patched_get_gguf_hf_weights_map(
         hf_model, processor, model_type=None, num_layers=None, qual_name=""
     ):
+        # Use thread-local to get the top-level model when hf_model is None.
+        # Only do glm4v_moe fixups when the config belongs to a Glm4vMoeConfig.
         model = (
             hf_model
             if hf_model is not None
             else getattr(_glm4v_ctx, "model_to_load", None)
         )
-        if model is not None:
+        if model is not None and hasattr(model, "config"):
             cfg = model.config
             # Glm4vMoeConfig stores num_hidden_layers in text_config.
             if (
@@ -79,7 +81,7 @@ def _patch_gguf_for_glm4v_moe():
                 num_layers = cfg.text_config.num_hidden_layers
             # Map glm4v_moe to the gguf-py arch name "glm4moe".
             if model_type is None:
-                model_type = cfg.model_type
+                model_type = getattr(cfg, "model_type", None)
             if model_type in ("glm4v_moe", "glm4v_moe_text"):
                 model_type = "glm4moe"
         return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
