@@ -5,6 +5,8 @@
 Mradermacher NaNovel VL i1 GGUF model loader implementation for image to text.
 """
 
+from contextlib import contextmanager
+
 from transformers import (
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
@@ -113,6 +115,44 @@ def _patch_transformers_qwen3vl_gguf():
 _patch_transformers_qwen3vl_gguf()
 
 
+@contextmanager
+def _qwen3vl_weights_map_patch():
+    """Transiently install a get_gguf_hf_weights_map patch as the outermost wrapper.
+
+    Applied inside load_model() to avoid arity conflicts from other loaders that
+    patch the same function without accepting num_layers as a positional argument.
+    For Qwen3VL models the top-level config stores num_hidden_layers inside
+    text_config, so we extract it here before dispatching to the prior chain.
+    """
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    prev = gguf_utils.get_gguf_hf_weights_map
+
+    def patched(hf_model, processor, model_type=None, num_layers=None, qual_name=""):
+        if model_type is None:
+            model_type = getattr(getattr(hf_model, "config", None), "model_type", None)
+        if model_type == "qwen3_vl":
+            model_type = "qwen3vl"
+            if num_layers is None:
+                try:
+                    num_layers = hf_model.config.text_config.num_hidden_layers
+                except AttributeError:
+                    pass
+        return prev(
+            hf_model,
+            processor,
+            model_type=model_type,
+            num_layers=num_layers,
+            qual_name=qual_name,
+        )
+
+    gguf_utils.get_gguf_hf_weights_map = patched
+    try:
+        yield
+    finally:
+        gguf_utils.get_gguf_hf_weights_map = prev
+
+
 class ModelVariant(StrEnum):
     """Available Mradermacher NaNovel VL i1 GGUF model variants for image to text."""
 
@@ -162,9 +202,10 @@ class ModelLoader(ForgeModel):
         # GGUF repos do not ship a processor; use the base model
         self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-32B-Instruct")
 
-        model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
-        )
+        with _qwen3vl_weights_map_patch():
+            model = Qwen3VLForConditionalGeneration.from_pretrained(
+                pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
+            )
         model.eval()
 
         return model
