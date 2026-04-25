@@ -94,7 +94,7 @@ class ModelLoader(ForgeModel):
         )
         # MLX quantization format is not supported in transformers on non-Apple hardware
         if hasattr(config, "quantization_config"):
-            config.quantization_config = None
+            del config.quantization_config
         if self.num_layers is not None:
             if hasattr(config, "text_config"):
                 config.text_config.num_hidden_layers = self.num_layers
