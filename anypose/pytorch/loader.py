@@ -7,6 +7,8 @@ AnyPose model loader implementation
 
 from typing import Optional
 
+import torch
+
 from ...base import ForgeModel
 from ...config import (
     ModelConfig,
@@ -17,11 +19,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from .src.model_utils import (
-    load_anypose_pipe,
-    create_dummy_images,
-    anypose_preprocessing,
-)
+from .src.model_utils import load_anypose_pipe
 
 
 class ModelVariant(StrEnum):
@@ -46,12 +44,6 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.ANYPOSE_QWEN_2511
 
-    prompt = (
-        "Make the person in image 1 do the exact same pose of the person in image 2. "
-        "Changing the style and background of the image of the person in image 1 is "
-        "undesirable, so don't do it. The new pose should be pixel accurate to the pose "
-        "we are trying to copy."
-    )
     base_model = "Qwen/Qwen-Image-Edit-2511"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
@@ -72,39 +64,54 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the AnyPose pipeline.
+        """Load and return the AnyPose diffusion transformer.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            QwenImageEditPlusPipeline: The pipeline instance with LoRA adapters.
+            QwenImageTransformer2DModel: The transformer with LoRA weights fused.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         self.pipeline = load_anypose_pipe(self.base_model, pretrained_model_name)
+        self.pipeline.fuse_lora()
 
+        transformer = self.pipeline.transformer
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            transformer = transformer.to(dtype_override)
 
-        return self.pipeline
+        transformer.eval()
+        return transformer
 
-    def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the AnyPose model.
+    def load_inputs(self, dtype_override=None, **kwargs):
+        """Load and return sample inputs for the AnyPose transformer.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
 
         Returns:
-            dict: Input dictionary for the pipeline containing images and prompt.
+            dict: Keyword arguments for QwenImageTransformer2DModel.forward().
         """
-        if self.pipeline is None:
-            self.load_model(dtype_override=dtype_override)
+        dtype = dtype_override if dtype_override is not None else torch.float32
+        batch_size = 1
 
-        character_image, pose_image = create_dummy_images()
+        # Transformer config: in_channels=64, joint_attention_dim=3584
+        img_dim = 64
+        text_dim = 3584
+        txt_seq_len = 32
 
-        inputs = anypose_preprocessing(
-            self.pipeline, self.prompt, character_image, pose_image
-        )
+        frame, height, width = 1, 8, 8
+        img_seq_len = frame * height * width
 
-        return inputs
+        return {
+            "hidden_states": torch.randn(batch_size, img_seq_len, img_dim, dtype=dtype),
+            "encoder_hidden_states": torch.randn(
+                batch_size, txt_seq_len, text_dim, dtype=dtype
+            ),
+            "encoder_hidden_states_mask": torch.ones(
+                batch_size, txt_seq_len, dtype=dtype
+            ),
+            "timestep": torch.tensor([500.0] * batch_size, dtype=dtype),
+            "img_shapes": [(frame, height, width)] * batch_size,
+        }
