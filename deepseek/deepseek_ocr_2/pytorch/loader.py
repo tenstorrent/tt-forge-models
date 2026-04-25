@@ -4,8 +4,10 @@
 """
 DeepSeek OCR-2 model loader implementation for document OCR tasks.
 """
-from transformers import AutoTokenizer, AutoModel
+import os
+from transformers import AutoTokenizer
 from typing import Optional
+from huggingface_hub import snapshot_download
 
 from ....base import ForgeModel
 from ....config import (
@@ -18,6 +20,8 @@ from ....config import (
     StrEnum,
 )
 from ....tools.utils import get_file
+
+from .src.modeling_deepseekocr2 import DeepseekOCR2ForCausalLM
 
 # Reuse preprocessing utilities from DeepSeek-OCR
 from ...deepseek_ocr.pytorch.src.model_utils import preprocess
@@ -80,10 +84,23 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model = AutoModel.from_pretrained(
-            pretrained_model_name,
-            trust_remote_code=True,
-            use_safetensors=True,
+        model_path = pretrained_model_name.split("/")[-1].replace("-", "_") + "_weights"
+        os.makedirs(model_path, exist_ok=True)
+
+        snapshot_download(
+            repo_id=pretrained_model_name,
+            local_dir=model_path,
+            local_dir_use_symlinks=False,
+            allow_patterns=[
+                "*.safetensors",
+                "config.json",
+                "model.safetensors.index.json",
+            ],
+        )
+
+        model = DeepseekOCR2ForCausalLM.from_pretrained(
+            model_path,
+            local_files_only=True,
             **kwargs,
         )
 
