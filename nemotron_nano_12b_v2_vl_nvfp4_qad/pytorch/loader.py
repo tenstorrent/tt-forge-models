@@ -150,12 +150,13 @@ class ModelLoader(ForgeModel):
         # NemotronHCausalLMOutput uses 'cache_params' instead of standard 'past_key_values'.
         # The VL model's forward accesses outputs.past_key_values on the language model output,
         # so patch NemotronHCausalLMOutput to expose past_key_values as an alias.
-        for mod in sys.modules.values():
+        # Both the Base and VL model have their own copy of this class in separate modules,
+        # so iterate all modules without breaking to patch every copy.
+        for mod in list(sys.modules.values()):
             if hasattr(mod, "NemotronHCausalLMOutput"):
                 cls = mod.NemotronHCausalLMOutput
                 if not hasattr(cls, "past_key_values"):
                     cls.past_key_values = property(lambda self: self.cache_params)
-                break
 
         # summary_idxs is a buffer computed from config during __init__, but gets corrupted
         # when the model is initialized on meta device then moved to CPU without re-initialization.
