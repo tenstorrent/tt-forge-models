@@ -1,0 +1,9 @@
+optimum
+transformers>=5.4.0
+logbar
+device-smi
+pypcre
+tokenicer
+maturin
+defuser
+tomlkit
