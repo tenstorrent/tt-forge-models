@@ -14,6 +14,7 @@ import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    get_gguf_hf_weights_map as _orig_get_gguf_hf_weights_map,
     GGUF_SUPPORTED_ARCHITECTURES,
 )
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFLlamaConverter
@@ -57,6 +58,18 @@ def _patch_falcon_h1_gguf_support():
     GGUF_TO_FAST_CONVERTERS.setdefault(_FALCON_H1_HF_MODEL_TYPE, GGUFLlamaConverter)
 
 
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
+    """Translate falcon_h1 -> falcon-h1 for gguf-py MODEL_ARCH_NAMES lookup."""
+    effective_type = hf_model.config.model_type if model_type is None else model_type
+    if effective_type == _FALCON_H1_HF_MODEL_TYPE:
+        model_type = _FALCON_H1_GGUF_ARCH
+    return _orig_get_gguf_hf_weights_map(
+        hf_model, processor, model_type, num_layers, qual_name
+    )
+
+
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
     """Wrap load_gguf_checkpoint to add falcon-h1 support and fix model_type."""
     _patch_falcon_h1_gguf_support()
@@ -73,6 +86,7 @@ _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 from ....base import ForgeModel
 from ....config import (
