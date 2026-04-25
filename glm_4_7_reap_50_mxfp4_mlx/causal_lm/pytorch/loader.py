@@ -87,7 +87,8 @@ class ModelLoader(ForgeModel):
         # MLX-quantized model has a quantization_config without a quant_method,
         # which transformers 5.2+ rejects. Load without quantization for XLA.
         config = AutoConfig.from_pretrained(pretrained_model_name)
-        config.quantization_config = None
+        if hasattr(config, "quantization_config"):
+            delattr(config, "quantization_config")
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
         model_kwargs["config"] = config
