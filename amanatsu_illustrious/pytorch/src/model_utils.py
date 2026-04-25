@@ -182,9 +182,7 @@ def stable_diffusion_preprocessing_xl(
 
     prompt_embeds = prompt_embeds.to(device)
     add_text_embeds = add_text_embeds.to(device)
-    add_time_ids = add_time_ids.to(device).repeat(
-        batch_size * num_images_per_prompt, 1
-    )
+    add_time_ids = add_time_ids.to(device).repeat(batch_size * num_images_per_prompt, 1)
     ip_adapter_image = None
     ip_adapter_image_embeds = None
     if ip_adapter_image is not None or ip_adapter_image_embeds is not None:
