@@ -4,6 +4,7 @@
 """
 solidrust Llama-3.1-8B-Lexi-Uncensored-V2 AWQ model loader implementation for causal language modeling.
 """
+import gptqmodel  # noqa: F401 — must be imported before transformers uses meta device context
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
