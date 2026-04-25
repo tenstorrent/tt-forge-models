@@ -129,10 +129,14 @@ class ModelLoader(ForgeModel):
             result = _orig_load(*args, **kwargs)
             if result.get("config", {}).get("model_type") == "nemotron_h_moe":
                 result["config"]["model_type"] = "nemotron"
-                # num_key_value_heads may be a per-layer list; NemotronConfig needs a scalar
+                # num_key_value_heads may be a per-layer list; NemotronConfig needs a scalar.
+                # SSM/Mamba layers report 0 KV heads, so take the first non-zero value.
                 kv_heads = result["config"].get("num_key_value_heads")
                 if isinstance(kv_heads, list):
-                    result["config"]["num_key_value_heads"] = kv_heads[0]
+                    non_zero = [h for h in kv_heads if h]
+                    result["config"]["num_key_value_heads"] = (
+                        non_zero[0] if non_zero else 1
+                    )
             return result
 
         _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
