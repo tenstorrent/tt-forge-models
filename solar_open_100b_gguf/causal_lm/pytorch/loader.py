@@ -113,6 +113,8 @@ class ModelLoader(ForgeModel):
 
         if "glm4moe" not in GGUF_TO_FAST_CONVERTERS:
             GGUF_TO_FAST_CONVERTERS["glm4moe"] = GGUFGPTConverter
+        if "solar_open" not in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS["solar_open"] = GGUFGPTConverter
 
         _orig_load = _gguf_utils.load_gguf_checkpoint
 
