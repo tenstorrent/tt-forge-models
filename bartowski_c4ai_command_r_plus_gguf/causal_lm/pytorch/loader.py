@@ -38,7 +38,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.C4AI_COMMAND_R_PLUS_Q4_K_M_GGUF
 
-    GGUF_FILE = "c4ai-command-r-plus-Q4_K_M.gguf"
+    GGUF_FILE = "c4ai-command-r-plus-Q4_K_M.gguf/c4ai-command-r-plus-Q4_K_M-00001-of-00006.gguf"
 
     sample_text = "What is the capital of France?"
 
