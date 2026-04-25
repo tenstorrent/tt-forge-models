@@ -86,6 +86,11 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
+        # The GGUF metadata reports model type as glm4_moe (text-only), but
+        # AutoModelForImageTextToText requires Glm46VConfig. Load config from
+        # the original multimodal repo to get the correct architecture.
+        model_kwargs["config"] = AutoConfig.from_pretrained(self.PROCESSOR_MODEL)
+
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
@@ -126,8 +131,5 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            gguf_file=self.GGUF_FILE,
-        )
+        self.config = AutoConfig.from_pretrained(self.PROCESSOR_MODEL)
         return self.config
