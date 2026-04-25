@@ -4,6 +4,7 @@
 """
 xihc-ucb/Qwen2.5-7B-train-Quasar-1214 model loader implementation for causal language modeling.
 """
+import glob
 import os
 import sys
 
@@ -17,6 +18,50 @@ if _stub_path not in sys.path:
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+
+def _patch_fp8_qwen2_config():
+    """Patch FP8Qwen2Config.from_dict for transformers >= 5.x where super().from_dict()
+    returns (config, unused_kwargs) when called with return_unused_kwargs=True."""
+    hf_home = os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
+    pattern = os.path.join(
+        hf_home,
+        "modules",
+        "transformers_modules",
+        "*",
+        "*",
+        "*",
+        "configuration_fp8_qwen2.py",
+    )
+    for config_path in glob.glob(pattern):
+        with open(config_path) as f:
+            content = f.read()
+        if "return_unused_kwargs" in content:
+            continue
+        content = content.replace(
+            "    @classmethod\n    def from_dict(cls, config_dict, **kwargs):\n"
+            "        config = super().from_dict(config_dict, **kwargs)\n"
+            "        \n"
+            "        fp8_config",
+            "    @classmethod\n    def from_dict(cls, config_dict, **kwargs):\n"
+            '        return_unused_kwargs = kwargs.get("return_unused_kwargs", False)\n'
+            "        result = super().from_dict(config_dict, **kwargs)\n"
+            "        config, unused_kwargs = result if return_unused_kwargs else (result, {})\n"
+            "        \n"
+            "        fp8_config",
+        ).replace(
+            "        config.fp8_config = FP8Config(**fp8_config)\n        return config",
+            "        config.fp8_config = FP8Config(**fp8_config)\n"
+            "        if return_unused_kwargs:\n"
+            "            return config, unused_kwargs\n"
+            "        return config",
+        )
+        with open(config_path, "w") as f:
+            f.write(content)
+        for mod_name in list(sys.modules.keys()):
+            if "configuration_fp8_qwen2" in mod_name:
+                del sys.modules[mod_name]
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -103,9 +148,17 @@ class ModelLoader(ForgeModel):
 
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, trust_remote_code=True, **model_kwargs
-        ).eval()
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, trust_remote_code=True, **model_kwargs
+            ).eval()
+        except AttributeError as e:
+            if "fp8_config" not in str(e):
+                raise
+            _patch_fp8_qwen2_config()
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, trust_remote_code=True, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
@@ -145,7 +198,15 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, trust_remote_code=True
-        )
+        try:
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, trust_remote_code=True
+            )
+        except AttributeError as e:
+            if "fp8_config" not in str(e):
+                raise
+            _patch_fp8_qwen2_config()
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, trust_remote_code=True
+            )
         return self.config
