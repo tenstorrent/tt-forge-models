@@ -4,15 +4,14 @@
 """
 GLM 4.7 Flash Claude Opus Distill GGUF model loader implementation for causal language modeling.
 
-Note: The deepseek2 GGUF tokenizer architecture is not supported by transformers'
-GGUF_TO_FAST_CONVERTERS. Load the tokenizer from the HF-native base model instead.
+Note: The deepseek2/deepseek_v2 GGUF architecture is not fully supported by transformers.
+We load the tokenizer from the HF-native base model and patch get_gguf_hf_weights_map
+to map deepseek_v2 -> deepseek2 so gguf-py can resolve the weight name mapping.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from typing import Optional
-
-# The HF-native base model for tokenizer loading (deepseek2 GGUF arch not supported).
-HF_TOKENIZER_MODEL = "unsloth/GLM-4.7-Flash"
 
 from ....base import ForgeModel
 from ....config import (
@@ -24,6 +23,27 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+# The HF-native base model for tokenizer loading (deepseek2 GGUF tokenizer arch not supported).
+HF_TOKENIZER_MODEL = "unsloth/GLM-4.7-Flash"
+
+_orig_get_gguf_hf_weights_map = _gguf_utils.get_gguf_hf_weights_map
+
+
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
+    if model_type is None:
+        model_type = hf_model.config.model_type
+    # deepseek_v2 HF config model_type maps to deepseek2 in gguf-py MODEL_ARCH_NAMES
+    if model_type == "deepseek_v2":
+        model_type = "deepseek2"
+    return _orig_get_gguf_hf_weights_map(
+        hf_model, processor, model_type, num_layers, qual_name
+    )
+
+
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 
 class ModelVariant(StrEnum):
