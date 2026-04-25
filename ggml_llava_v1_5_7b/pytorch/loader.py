@@ -102,6 +102,14 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        # The GGUF stores a llama backbone (vocab_size=32000), but the LLaVA
+        # processor adds an image token at ID 32000, causing an OOB embedding
+        # lookup. Resize to match the processor vocabulary.
+        processor_vocab_size = len(self.processor.tokenizer)
+        embed_size = model.language_model.model.embed_tokens.weight.shape[0]
+        if embed_size < processor_vocab_size:
+            model.resize_token_embeddings(processor_vocab_size)
+
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
