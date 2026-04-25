@@ -100,6 +100,17 @@ def _patched_load_gguf_checkpoint(*args, **kwargs):
                         for i in range(num_layers)
                     ]
                     config["layer_types"] = layer_types
+
+                # GGUF attention.head_count for qwen35 doesn't match the actual
+                # q_proj tensor shape. Read the true num_attention_heads from the
+                # first attn_q tensor found (only present on full-attention layers).
+                head_dim = config.get("head_dim", 256)
+                for tensor in reader.tensors:
+                    if "attn_q.weight" in tensor.name:
+                        q_out = max(tensor.shape)
+                        if q_out % head_dim == 0:
+                            config["num_attention_heads"] = q_out // head_dim
+                        break
             except Exception:
                 pass
     return result
@@ -191,21 +202,20 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
+        # Always pre-load config explicitly so AutoModelForCausalLM resolves
+        # Qwen3_5ForCausalLM (not Qwen3ForCausalLM from a hub config.json).
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, gguf_file=self.GGUF_FILE
+        )
+        inner_config = getattr(config, "text_config", config)
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
-            if hasattr(config, "text_config"):
-                config.text_config.num_hidden_layers = self.num_layers
-                if hasattr(config.text_config, "layer_types"):
-                    config.text_config.layer_types = config.text_config.layer_types[
-                        : self.num_layers
-                    ]
-            else:
-                config.num_hidden_layers = self.num_layers
-                if hasattr(config, "layer_types") and config.layer_types is not None:
-                    config.layer_types = config.layer_types[: self.num_layers]
-            model_kwargs["config"] = config
+            inner_config.num_hidden_layers = self.num_layers
+            if (
+                hasattr(inner_config, "layer_types")
+                and inner_config.layer_types is not None
+            ):
+                inner_config.layer_types = inner_config.layer_types[: self.num_layers]
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
