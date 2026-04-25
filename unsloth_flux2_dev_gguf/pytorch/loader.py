@@ -27,6 +27,7 @@ from ...config import (
 )
 
 GGUF_REPO = "unsloth/FLUX.2-dev-GGUF"
+GGUF_BASE_URL = f"https://huggingface.co/{GGUF_REPO}/blob/main"
 
 
 class ModelVariant(StrEnum):
@@ -91,7 +92,7 @@ class ModelLoader(ForgeModel):
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         self.transformer = Flux2Transformer2DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/resolve/main/{gguf_file}",
+            f"{GGUF_BASE_URL}/{gguf_file}",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
