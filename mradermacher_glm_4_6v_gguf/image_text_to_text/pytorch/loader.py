@@ -5,7 +5,16 @@
 mradermacher GLM-4.6V GGUF model loader implementation for image-text-to-text tasks.
 """
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.modeling_utils as _modeling_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
 from transformers import AutoProcessor, AutoModelForImageTextToText, AutoConfig
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_SUPPORTED_ARCHITECTURES,
+    get_gguf_hf_weights_map as _orig_get_gguf_hf_weights_map,
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -20,6 +29,66 @@ from ....config import (
 )
 from ....tools.utils import get_file
 from PIL import Image
+
+
+def _patch_transformers_glm4v_moe_gguf():
+    """Register glm4v_moe GGUF architecture support.
+
+    GLM-4.6V GGUF files declare architecture as 'glm4v_moe' but gguf-py 0.18
+    only knows glm4moe (text-only). The language backbone tensor layout is
+    identical to glm4moe; we add the missing alias so get_gguf_hf_weights_map
+    can resolve the architecture and build the tensor-name mapping.
+    """
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    if "glm4v_moe" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("glm4v_moe")
+
+    config_section = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]
+    if "glm4v_moe" not in config_section and "glm4moe" in config_section:
+        config_section["glm4v_moe"] = config_section["glm4moe"]
+
+    for key in ("glm4v_moe", "glm4v_moe_text"):
+        GGUF_TO_FAST_CONVERTERS.setdefault(key, GGUFQwen2Converter)
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    _patch_transformers_glm4v_moe_gguf()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
+    return result
+
+
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
+    """Redirect glm4v_moe → glm4moe and use text_config layer count."""
+    effective_type = hf_model.config.model_type if model_type is None else model_type
+    if effective_type in ("glm4v_moe", "glm4v_moe_text"):
+        model_type = "glm4moe"
+        if num_layers is None:
+            cfg = hf_model.config
+            text_cfg = getattr(cfg, "text_config", cfg)
+            num_layers = text_cfg.num_hidden_layers
+    return _orig_get_gguf_hf_weights_map(
+        hf_model,
+        processor,
+        model_type=model_type,
+        num_layers=num_layers,
+        qual_name=qual_name,
+    )
+
+
+_patch_transformers_glm4v_moe_gguf()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+for _mod in (_config_utils, _auto_tokenizer, _modeling_utils):
+    if hasattr(_mod, "load_gguf_checkpoint"):
+        _mod.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
@@ -87,7 +156,7 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
         # The GGUF metadata reports model type as glm4_moe (text-only), but
-        # AutoModelForImageTextToText requires Glm46VConfig. Load config from
+        # AutoModelForImageTextToText requires Glm4vMoeConfig. Load config from
         # the original multimodal repo to get the correct architecture.
         model_kwargs["config"] = AutoConfig.from_pretrained(self.PROCESSOR_MODEL)
 
