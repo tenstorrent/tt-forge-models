@@ -4,6 +4,8 @@
 """
 Momix-44 Qwen3.5 35B-A3B Claude 4.6 Opus Reasoning Distilled GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -20,6 +22,50 @@ from ....config import (
 )
 
 
+def _patch_qwen35moe_gate_up_split():
+    """Patch get_gguf_hf_weights_map to split ffn_gate_up_exps into separate entries.
+
+    gguf-py's qwen35moe arch maps gate_up_proj -> ffn_gate_up_exps (merged), but
+    actual GGUF files store them separately as ffn_gate_exps + ffn_up_exps (qwen3moe
+    format). Replacing the merged entry lets Qwen2MoeTensorProcessor interleave them
+    into gate_up_proj correctly via its existing fallback path.
+
+    Applied unconditionally (guarded by a marker) so it takes effect even when another
+    loader has already registered the qwen35moe architecture.
+    """
+    import re
+
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if getattr(gguf_utils, "_qwen35moe_gate_split_patched", False):
+        return
+    gguf_utils._qwen35moe_gate_split_patched = True
+
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
+            model_type = "qwen35moe"
+        result = orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+        split_entries = {}
+        remove_keys = []
+        for k, v in result.items():
+            if re.match(r"^blk\.\d+\.ffn_gate_up_exps(\..*)?$", k):
+                split_entries[k.replace("ffn_gate_up_exps", "ffn_gate_exps")] = v
+                split_entries[k.replace("ffn_gate_up_exps", "ffn_up_exps")] = v
+                remove_keys.append(k)
+        for k in remove_keys:
+            del result[k]
+        result.update(split_entries)
+        return result
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+
 def _patch_transformers_qwen35moe_gguf():
     """Monkey-patch transformers to add qwen35moe GGUF architecture support.
 
@@ -27,6 +73,8 @@ def _patch_transformers_qwen35moe_gguf():
     for the qwen35moe architecture. We bridge the gap by registering qwen35moe
     config/tensor mappings and converting the model_type to qwen3_5_moe_text.
     """
+    _patch_qwen35moe_gate_up_split()
+
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
         GGUF_TO_TRANSFORMERS_MAPPING,
@@ -102,20 +150,6 @@ def _patch_transformers_qwen35moe_gguf():
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
-    # 6. Patch get_gguf_hf_weights_map to handle qwen3_5_moe_text -> qwen35moe
-    orig_get_map = gguf_utils.get_gguf_hf_weights_map
-
-    def patched_get_gguf_hf_weights_map(
-        hf_model, processor, model_type=None, num_layers=None, qual_name=""
-    ):
-        if model_type is None:
-            model_type = hf_model.config.model_type
-        if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
-            model_type = "qwen35moe"
-        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
-
-    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
-
 
 # Apply the monkey-patch at import time
 _patch_transformers_qwen35moe_gguf()
@@ -164,7 +198,26 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _fix_gguf_version_detection():
+        """Fix gguf version detection when installed at runtime by RequirementsManager.
+
+        transformers caches PACKAGE_DISTRIBUTION_MAPPING at import time. When gguf
+        is installed later, the mapping is stale and version detection falls back to
+        gguf.__version__ which doesn't exist, yielding 'N/A' and crashing version.parse.
+        """
+        import transformers.utils.import_utils as _import_utils
+
+        if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+            try:
+                importlib.metadata.version("gguf")
+                _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+                _import_utils.is_gguf_available.cache_clear()
+            except importlib.metadata.PackageNotFoundError:
+                pass
+
     def _load_tokenizer(self, dtype_override=None):
+        self._fix_gguf_version_detection()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -268,6 +321,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        self._fix_gguf_version_detection()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
