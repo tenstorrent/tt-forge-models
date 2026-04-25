@@ -6,10 +6,26 @@ NVIDIA Nemotron Nano 12B v2 VL NVFP4-QAD model loader implementation for image t
 """
 
 from transformers import AutoModel, AutoProcessor
+from transformers.modeling_utils import PreTrainedModel
 from PIL import Image
 from typing import Optional
 
 from ...tools.utils import get_file
+
+# NemotronH_Nano_VL_V2 (trust_remote_code) does not call self.post_init() in its __init__,
+# so transformers 5.x never sets all_tied_weights_keys on the instance. Patch
+# _finalize_model_loading to initialise it when missing.
+_orig_finalize = PreTrainedModel._finalize_model_loading.__func__
+
+
+@staticmethod
+def _safe_finalize_model_loading(model, load_config, loading_info):
+    if not hasattr(model, "all_tied_weights_keys"):
+        model.all_tied_weights_keys = {}
+    return _orig_finalize(model, load_config, loading_info)
+
+
+PreTrainedModel._finalize_model_loading = _safe_finalize_model_loading
 from ...base import ForgeModel
 from ...config import (
     LLMModelConfig,
