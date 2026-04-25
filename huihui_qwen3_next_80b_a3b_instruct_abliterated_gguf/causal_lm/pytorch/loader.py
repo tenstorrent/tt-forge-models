@@ -102,7 +102,9 @@ def _patch_transformers_qwen3next_gguf():
             model_type = hf_model.config.model_type
         if model_type == "qwen3_next":
             model_type = "qwen3next"
-        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+        return orig_get_map(
+            hf_model, processor, model_type, num_layers=num_layers, qual_name=qual_name
+        )
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
 
