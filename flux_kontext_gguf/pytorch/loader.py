@@ -7,22 +7,44 @@ FLUX.1 Kontext GGUF model loader implementation for image-to-image generation
 Repository:
 - https://huggingface.co/bullerwins/FLUX.1-Kontext-dev-GGUF
 """
+import json
+import os
+import tempfile
+from typing import Optional
+
 import torch
 from diffusers import FluxTransformer2DModel, GGUFQuantizationConfig
-from typing import Optional
 
 from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 
-GGUF_BASE_URL = "https://huggingface.co/bullerwins/FLUX.1-Kontext-dev-GGUF/resolve/main"
+GGUF_BASE_URL = "https://huggingface.co/bullerwins/FLUX.1-Kontext-dev-GGUF/blob/main"
+
+# FLUX.1-Kontext-dev uses in_channels=64 (standard FLUX.1-dev channel count). We hardcode
+# this config to avoid downloading from gated black-forest-labs repos.
+FLUX_KONTEXT_TRANSFORMER_CONFIG = {
+    "_class_name": "FluxTransformer2DModel",
+    "_diffusers_version": "0.32.0",
+    "attention_head_dim": 128,
+    "axes_dims_rope": [16, 56, 56],
+    "guidance_embeds": True,
+    "in_channels": 64,
+    "out_channels": 16,
+    "joint_attention_dim": 4096,
+    "num_attention_heads": 24,
+    "num_layers": 19,
+    "num_single_layers": 38,
+    "patch_size": 2,
+    "pooled_projection_dim": 768,
+}
 
 
 class ModelVariant(StrEnum):
@@ -72,17 +94,22 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
         gguf_file = self._GGUF_FILES[self._variant]
         gguf_url = f"{GGUF_BASE_URL}/{gguf_file}"
 
-        self.transformer = FluxTransformer2DModel.from_single_file(
-            gguf_url,
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
-        self.transformer.eval()
+        with tempfile.TemporaryDirectory() as config_dir:
+            config_path = os.path.join(config_dir, "config.json")
+            with open(config_path, "w") as f:
+                json.dump(FLUX_KONTEXT_TRANSFORMER_CONFIG, f)
 
+            self.transformer = FluxTransformer2DModel.from_single_file(
+                gguf_url,
+                config=config_dir,
+                torch_dtype=compute_dtype,
+                quantization_config=GGUFQuantizationConfig(compute_dtype=compute_dtype),
+            )
+
+        self.transformer.eval()
         return self.transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
