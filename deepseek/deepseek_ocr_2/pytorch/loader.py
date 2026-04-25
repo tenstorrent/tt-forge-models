@@ -5,6 +5,11 @@
 DeepSeek OCR-2 model loader implementation for document OCR tasks.
 """
 import os
+
+# Disable hf-xet download backend: xet produces sparse files that cause hangs
+# when loading large models via snapshot_download.
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+
 from transformers import AutoTokenizer
 from typing import Optional
 from huggingface_hub import snapshot_download
