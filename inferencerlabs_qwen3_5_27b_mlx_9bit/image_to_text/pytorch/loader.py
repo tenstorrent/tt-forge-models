@@ -5,6 +5,7 @@
 inferencerlabs/Qwen3.5-27B-MLX-9bit model loader implementation for image to text.
 """
 
+import torch.nn as nn
 from transformers import AutoModelForImageTextToText, AutoProcessor, AutoConfig
 from typing import Optional
 
@@ -18,6 +19,25 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _fix_merger_out_hidden_size(model):
+    """Fix vision merger linear_fc2 output dim to match LM hidden_size.
+
+    Qwen3_5VisionConfig.out_hidden_size defaults to 3584, but for this
+    27B model it must equal the LM hidden_size. The MLX repo config may
+    not set this correctly, so we rebuild linear_fc2 post-load.
+    """
+    lm_hidden = model.config.text_config.hidden_size
+    visual = model.model.visual
+    mergers = [visual.merger] + list(getattr(visual, "deepstack_merger_list", []))
+    for merger in mergers:
+        fc2 = merger.linear_fc2
+        if fc2.out_features != lm_hidden:
+            new_fc2 = nn.Linear(fc2.in_features, lm_hidden, bias=fc2.bias is not None)
+            new_fc2.to(device=fc2.weight.device, dtype=fc2.weight.dtype)
+            merger.linear_fc2 = new_fc2
+    model.config.vision_config.out_hidden_size = lm_hidden
 
 
 class ModelVariant(StrEnum):
@@ -76,6 +96,7 @@ class ModelLoader(ForgeModel):
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        _fix_merger_out_hidden_size(model)
         model.eval()
 
         return model
