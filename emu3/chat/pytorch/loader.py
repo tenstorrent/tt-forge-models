@@ -6,6 +6,8 @@ Emu3-Chat model loader implementation for multimodal visual question answering.
 """
 
 import sys
+import types
+import importlib.util
 import torch
 from PIL import Image
 from typing import Optional
@@ -101,16 +103,34 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        # Import the custom Emu3Processor from the model's remote code
+        # Import the custom Emu3Processor from the model's remote code.
+        # processing_emu3.py uses relative imports so we must load it as a
+        # proper package rather than inserting the directory into sys.path.
         model_path = snapshot_download(
             self._variant_config.pretrained_model_name,
-            allow_patterns=["processing_emu3.py"],
+            allow_patterns=["processing_emu3.py", "utils_emu3.py"],
         )
-        sys.path.insert(0, model_path)
-        try:
-            from processing_emu3 import Emu3Processor
-        finally:
-            sys.path.remove(model_path)
+        pkg_name = "_emu3_chat_pkg"
+        if pkg_name not in sys.modules:
+            pkg = types.ModuleType(pkg_name)
+            pkg.__path__ = [model_path]
+            pkg.__package__ = pkg_name
+            sys.modules[pkg_name] = pkg
+
+        def _load_submodule(name):
+            import os
+
+            fpath = os.path.join(model_path, f"{name}.py")
+            spec = importlib.util.spec_from_file_location(f"{pkg_name}.{name}", fpath)
+            mod = importlib.util.module_from_spec(spec)
+            mod.__package__ = pkg_name
+            sys.modules[f"{pkg_name}.{name}"] = mod
+            spec.loader.exec_module(mod)
+            return mod
+
+        _load_submodule("utils_emu3")
+        proc_mod = _load_submodule("processing_emu3")
+        Emu3Processor = proc_mod.Emu3Processor
 
         self.processor = Emu3Processor(
             self.image_processor, self.image_tokenizer, self.tokenizer
