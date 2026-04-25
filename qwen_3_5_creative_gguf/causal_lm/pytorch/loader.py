@@ -9,12 +9,18 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
 
+_PATCH_SENTINEL = "_qwen35moe_split_keys_patched"
+
+
 def _patch_transformers_qwen35moe_gguf():
     """Monkey-patch transformers to add qwen35moe GGUF architecture support.
 
     Transformers 5.x has Qwen3_5MoeForCausalLM but lacks GGUF loading support
     for the qwen35moe architecture. We bridge the gap by registering qwen35moe
     config/tensor mappings and converting the model_type to qwen3_5_moe_text.
+    Also adds separate ffn_gate_exps/ffn_up_exps keys to the tensor key mapping
+    for GGUF files that store expert weights as individual tensors rather than
+    the fused ffn_gate_up_exps format that the gguf library expects.
     """
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
@@ -23,10 +29,13 @@ def _patch_transformers_qwen35moe_gguf():
     )
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
 
-    if "qwen35moe" in GGUF_SUPPORTED_ARCHITECTURES:
-        return  # Already patched
+    if _PATCH_SENTINEL in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # Already patched by this specific loader
 
-    GGUF_SUPPORTED_ARCHITECTURES.append("qwen35moe")
+    GGUF_SUPPORTED_ARCHITECTURES.append(_PATCH_SENTINEL)
+
+    if "qwen35moe" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen35moe")
 
     GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen35moe"] = {
         "context_length": "max_position_embeddings",
