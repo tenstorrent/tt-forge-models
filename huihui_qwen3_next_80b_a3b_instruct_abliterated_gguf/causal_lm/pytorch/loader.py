@@ -75,6 +75,10 @@ def _patch_qwen3next_support():
         GGUF_TO_FAST_CONVERTERS.setdefault(
             "qwen3next", GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
         )
+        # convert_gguf_tokenizer receives model_type ('qwen3_next') not GGUF arch ('qwen3next')
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "qwen3_next", GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
+        )
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **_kwargs):
