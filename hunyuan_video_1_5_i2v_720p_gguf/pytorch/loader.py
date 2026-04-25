@@ -15,6 +15,9 @@ Repository:
 - https://huggingface.co/jayn7/HunyuanVideo-1.5_I2V_720p-GGUF
 """
 
+import json
+import os
+import tempfile
 from typing import Any, Optional
 
 import torch
@@ -31,6 +34,33 @@ from ...config import (
 )
 
 GGUF_REPO = "jayn7/HunyuanVideo-1.5_I2V_720p-GGUF"
+
+# HunyuanVideo 1.5 I2V 720p transformer architecture config (default params from
+# HunyuanVideo15Transformer3DModel.__init__).  Written to a temp dir so
+# from_single_file can resolve the model config without hitting a gated or
+# missing HuggingFace repo.
+_TRANSFORMER_CONFIG = {
+    "_class_name": "HunyuanVideo15Transformer3DModel",
+    "_diffusers_version": "0.37.1",
+    "in_channels": 65,
+    "out_channels": 32,
+    "num_attention_heads": 16,
+    "attention_head_dim": 128,
+    "num_layers": 54,
+    "num_refiner_layers": 2,
+    "mlp_ratio": 4.0,
+    "patch_size": 1,
+    "patch_size_t": 1,
+    "qk_norm": "rms_norm",
+    "text_embed_dim": 3584,
+    "text_embed_2_dim": 1472,
+    "image_embed_dim": 1152,
+    "rope_theta": 256.0,
+    "rope_axes_dim": [16, 56, 56],
+    "target_size": 640,
+    "task_type": "i2v",
+    "use_meanflow": False,
+}
 
 # Small spatial/temporal dimensions for compile-only testing.
 TRANSFORMER_NUM_FRAMES = 4
@@ -99,6 +129,15 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _make_local_config_dir(self):
+        """Write transformer/config.json to a temp dir for from_single_file."""
+        config_dir = tempfile.mkdtemp()
+        transformer_dir = os.path.join(config_dir, "transformer")
+        os.makedirs(transformer_dir, exist_ok=True)
+        with open(os.path.join(transformer_dir, "config.json"), "w") as f:
+            json.dump(_TRANSFORMER_CONFIG, f)
+        return config_dir
+
     def load_model(
         self,
         *,
@@ -122,14 +161,27 @@ class ModelLoader(ForgeModel):
             GGUFQuantizationConfig,
             HunyuanVideo15Transformer3DModel,
         )
+        from diffusers.loaders.single_file_model import SINGLE_FILE_LOADABLE_CLASSES
+
+        # HunyuanVideo15Transformer3DModel is not yet registered for from_single_file
+        # in diffusers 0.37.1.  Register it with a passthrough mapping function so
+        # the GGUF weights (already in diffusers key format) load correctly.
+        if "HunyuanVideo15Transformer3DModel" not in SINGLE_FILE_LOADABLE_CLASSES:
+            SINGLE_FILE_LOADABLE_CLASSES["HunyuanVideo15Transformer3DModel"] = {
+                "checkpoint_mapping_fn": lambda checkpoint, **kw: checkpoint,
+                "default_subfolder": "transformer",
+            }
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+        config_dir = self._make_local_config_dir()
 
         self._transformer = HunyuanVideo15Transformer3DModel.from_single_file(
             f"https://huggingface.co/{GGUF_REPO}/resolve/main/{gguf_file}",
+            config=config_dir,
+            subfolder="transformer",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
