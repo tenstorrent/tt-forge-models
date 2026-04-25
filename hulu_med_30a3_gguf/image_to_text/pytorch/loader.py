@@ -5,6 +5,15 @@
 Hulu-Med 30A3 GGUF model loader implementation for medical image to text.
 """
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 from transformers import (
     Qwen3VLMoeForConditionalGeneration,
     AutoProcessor,
@@ -21,6 +30,45 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_qwen3vlmoe_support():
+    """Register qwen3vlmoe architecture as an alias for qwen3_moe in GGUF loading.
+
+    The GGUF file for Qwen3-VL-MoE models declares architecture 'qwen3vlmoe',
+    which transformers does not yet recognise in its GGUF loader. The text
+    backbone has the same parameter layout as qwen3_moe, so we reuse that
+    mapping and then fix up the model_type to qwen3_vl_moe after loading.
+    """
+    if "qwen3vlmoe" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vlmoe")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen3_moe" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "qwen3vlmoe",
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3_moe"],
+            )
+    if "qwen3_moe" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "qwen3vlmoe", GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
+        )
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
+    _patch_qwen3vlmoe_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
+    )
+    if result.get("config", {}).get("model_type") == "qwen3vlmoe":
+        result["config"]["model_type"] = "qwen3_vl_moe"
+    return result
+
+
+_patch_qwen3vlmoe_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
@@ -67,6 +115,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["ignore_mismatched_sizes"] = True
         model_kwargs |= kwargs
 
         # GGUF repos do not ship a processor; use the base model
