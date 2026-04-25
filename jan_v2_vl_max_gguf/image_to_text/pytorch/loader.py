@@ -8,7 +8,7 @@ Jan v2 VL Max GGUF model loader implementation for image to text.
 import torch
 from transformers import (
     AutoConfig,
-    Qwen3VLMoeForConditionalGeneration,
+    AutoModelForImageTextToText,
     AutoProcessor,
 )
 from typing import Optional
@@ -75,7 +75,7 @@ class ModelLoader(ForgeModel):
         old_default_dtype = torch.get_default_dtype()
         torch.set_default_dtype(target_dtype)
         try:
-            model = Qwen3VLMoeForConditionalGeneration.from_config(config)
+            model = AutoModelForImageTextToText.from_config(config)
         finally:
             torch.set_default_dtype(old_default_dtype)
         model.eval()
