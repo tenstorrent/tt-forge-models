@@ -117,6 +117,20 @@ class ModelLoader(ForgeModel):
 
         Emu3Processor.get_attributes = _get_attributes
 
+        # Transformers 5.2.0 changed batch encode(list) to return List[List[int]]
+        # instead of List[int]. Emu3Processor.build_const_helper encodes a list of
+        # single special tokens and expects flat integer IDs back. Patch the instance
+        # method to flatten one-token-per-string results.
+        _orig_encode = self.tokenizer.encode
+
+        def _flat_encode(text, **kwargs):
+            result = _orig_encode(text, **kwargs)
+            if isinstance(text, list) and result and isinstance(result[0], list):
+                return [ids[0] for ids in result]
+            return result
+
+        self.tokenizer.encode = _flat_encode
+
         self.processor = Emu3Processor(
             self.image_processor, self.image_tokenizer, self.tokenizer
         )
