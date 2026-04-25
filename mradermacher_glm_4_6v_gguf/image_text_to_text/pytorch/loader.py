@@ -4,6 +4,8 @@
 """
 mradermacher GLM-4.6V GGUF model loader implementation for image-text-to-text tasks.
 """
+import threading
+
 import torch
 from transformers import AutoProcessor, AutoModelForImageTextToText, AutoConfig
 from typing import Optional
@@ -21,35 +23,65 @@ from ....config import (
 from ....tools.utils import get_file
 from PIL import Image
 
+_glm4v_ctx = threading.local()
+
 
 def _patch_gguf_for_glm4v_moe():
     """
-    Patch get_gguf_hf_weights_map to handle Glm4vMoeConfig.
+    Patch GGUF loading to handle Glm4vMoeConfig (GLM-4.6V VLM).
 
-    The GGUF metadata uses arch glm4_moe but the model is a VLM with
-    Glm4vMoeConfig. The config has no top-level num_hidden_layers; it lives
-    in text_config. We also need to remap the model_type to the GGUF arch name.
+    Problems:
+    1. load_gguf_checkpoint is called with model_to_load as a keyword arg that
+       gets stripped by other loader patches (e.g. glm_4_5_air_derestricted_gguf),
+       so get_gguf_hf_weights_map receives hf_model=None.
+    2. Glm4vMoeConfig has no top-level num_hidden_layers (it lives in text_config).
+    3. model_type "glm4v_moe" is not in gguf-py MODEL_ARCH_NAMES; must be "glm4moe".
+
+    Fix: wrap load_gguf_checkpoint to capture model_to_load before it gets stripped,
+    then wrap get_gguf_hf_weights_map to inject num_layers and remap model_type.
     """
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
 
-    if getattr(gguf_utils.get_gguf_hf_weights_map, "_glm4v_moe_patched", False):
+    if getattr(gguf_utils.load_gguf_checkpoint, "_glm4v_moe_patched", False):
         return
+
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        # Capture model_to_load before inner patches (e.g. glm_4_5_air) strip it.
+        _glm4v_ctx.model_to_load = kwargs.get("model_to_load", None)
+        try:
+            return orig_load(*args, **kwargs)
+        finally:
+            _glm4v_ctx.model_to_load = None
+
+    patched_load_gguf_checkpoint._glm4v_moe_patched = True
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
     orig_get_map = gguf_utils.get_gguf_hf_weights_map
 
     def patched_get_gguf_hf_weights_map(
         hf_model, processor, model_type=None, num_layers=None, qual_name=""
     ):
-        if hf_model is not None and num_layers is None:
-            cfg = hf_model.config
+        model = (
+            hf_model
+            if hf_model is not None
+            else getattr(_glm4v_ctx, "model_to_load", None)
+        )
+        if model is not None:
+            cfg = model.config
             # Glm4vMoeConfig stores num_hidden_layers in text_config.
-            if not hasattr(cfg, "num_hidden_layers") and hasattr(cfg, "text_config"):
+            if (
+                num_layers is None
+                and not hasattr(cfg, "num_hidden_layers")
+                and hasattr(cfg, "text_config")
+            ):
                 num_layers = cfg.text_config.num_hidden_layers
-        if model_type is None and hf_model is not None:
-            model_type = hf_model.config.model_type
-        # Map glm4v_moe and glm4v_moe_text to the GGUF arch name glm4moe.
-        if model_type in ("glm4v_moe", "glm4v_moe_text"):
-            model_type = "glm4moe"
+            # Map glm4v_moe to the gguf-py arch name "glm4moe".
+            if model_type is None:
+                model_type = cfg.model_type
+            if model_type in ("glm4v_moe", "glm4v_moe_text"):
+                model_type = "glm4moe"
         return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
 
     patched_get_gguf_hf_weights_map._glm4v_moe_patched = True
