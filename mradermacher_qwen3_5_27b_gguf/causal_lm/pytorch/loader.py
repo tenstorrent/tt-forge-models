@@ -42,7 +42,8 @@ def _patch_qwen35_support():
     """Register qwen35 GGUF architecture as Qwen3.5 (qwen3_5_text).
 
     Uses direct assignment (not setdefault) so this mapping takes precedence over any
-    qwen35->qwen3 alias installed by other loaders.
+    qwen35->qwen3 alias installed by other loaders. Also patches get_gguf_hf_weights_map
+    to remap qwen3_5_text -> qwen35 so the GGUF tensor key mapping works.
     """
     if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
         GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
@@ -54,6 +55,23 @@ def _patch_qwen35_support():
         GGUF_TO_FAST_CONVERTERS.setdefault(
             "qwen3_5_text", GGUF_TO_FAST_CONVERTERS["qwen3"]
         )
+
+    # Patch get_gguf_hf_weights_map to remap qwen3_5_text -> qwen35 so gguf-py
+    # can resolve the tensor key mapping (gguf-py knows qwen35 but not qwen3_5_text).
+    _orig_get_weights_map = _gguf_utils.get_gguf_hf_weights_map
+
+    def _patched_get_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = getattr(getattr(hf_model, "config", None), "model_type", None)
+        if model_type in ("qwen3_5_text", "qwen3_5"):
+            model_type = "qwen35"
+        return _orig_get_weights_map(
+            hf_model, processor, model_type, num_layers, qual_name
+        )
+
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_weights_map
 
 
 def _is_qwen35_gguf(gguf_path):
@@ -180,7 +198,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
