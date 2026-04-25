@@ -10,6 +10,9 @@ diffusers' GGUF quantization support.
 Repository:
 - https://huggingface.co/calcuis/flux1-gguf
 """
+import json
+import os
+import tempfile
 import torch
 from diffusers import FluxTransformer2DModel, GGUFQuantizationConfig
 from typing import Optional
@@ -73,6 +76,23 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    # FLUX.1-dev transformer architecture config (calcuis/flux1-gguf has no config.json)
+    _FLUX_DEV_CONFIG = {
+        "_class_name": "FluxTransformer2DModel",
+        "_diffusers_version": "0.30.0",
+        "attention_head_dim": 128,
+        "guidance_embeds": True,
+        "in_channels": 64,
+        "joint_attention_dim": 4096,
+        "num_attention_heads": 24,
+        "num_layers": 19,
+        "num_single_layers": 38,
+        "out_channels": 64,
+        "patch_size": 2,
+        "pooled_projection_dim": 768,
+        "timestep_input_dim": 256,
+    }
+
     def load_model(self, *, dtype_override=None, **kwargs):
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
@@ -80,14 +100,20 @@ class ModelLoader(ForgeModel):
         repo_id = self._variant_config.pretrained_model_name
         gguf_file = self._GGUF_FILES[self._variant]
 
-        self.transformer = FluxTransformer2DModel.from_single_file(
-            f"https://huggingface.co/{repo_id}/blob/main/{gguf_file}",
-            config="city96/FLUX.1-dev-gguf",
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
-        self.transformer.eval()
+        with tempfile.TemporaryDirectory() as config_dir:
+            transformer_dir = os.path.join(config_dir, "transformer")
+            os.makedirs(transformer_dir)
+            with open(os.path.join(transformer_dir, "config.json"), "w") as f:
+                json.dump(self._FLUX_DEV_CONFIG, f)
 
+            self.transformer = FluxTransformer2DModel.from_single_file(
+                f"https://huggingface.co/{repo_id}/blob/main/{gguf_file}",
+                config=config_dir,
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
+            )
+
+        self.transformer.eval()
         return self.transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
