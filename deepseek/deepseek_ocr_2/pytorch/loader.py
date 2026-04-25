@@ -4,8 +4,13 @@
 """
 DeepSeek OCR-2 model loader implementation for document OCR tasks.
 """
+import transformers.models.llama.modeling_llama as _llama_module
 from transformers import AutoTokenizer, AutoModel
 from typing import Optional
+
+# LlamaFlashAttention2 was removed in transformers>=4.48; alias to LlamaAttention for compatibility
+if not hasattr(_llama_module, "LlamaFlashAttention2"):
+    _llama_module.LlamaFlashAttention2 = _llama_module.LlamaAttention
 
 from ....base import ForgeModel
 from ....config import (
