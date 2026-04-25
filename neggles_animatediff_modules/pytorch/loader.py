@@ -108,18 +108,21 @@ class ModelLoader(ForgeModel):
 
         batch_size = 1
         num_frames = 16
-        height = 64
-        width = 64
+        # Latent-space spatial dimensions (512px / 8 VAE factor = 64)
+        latent_height = 64
+        latent_width = 64
         in_channels = 4
         cross_attention_dim = 768
 
         sample = torch.randn(
-            (batch_size, in_channels, num_frames, height // 8, width // 8),
+            (batch_size, in_channels, num_frames, latent_height, latent_width),
             dtype=dtype,
         )
         timestep = torch.randint(0, 1000, (1,))
+        # The AnimateDiffPipeline repeats prompt embeds by num_frames before
+        # calling the UNet, so encoder_hidden_states batch dim = batch * frames.
         encoder_hidden_states = torch.randn(
-            (batch_size, 77, cross_attention_dim),
+            (batch_size * num_frames, 77, cross_attention_dim),
             dtype=dtype,
         )
 
