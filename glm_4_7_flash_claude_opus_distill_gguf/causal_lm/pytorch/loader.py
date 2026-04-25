@@ -3,10 +3,16 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 GLM 4.7 Flash Claude Opus Distill GGUF model loader implementation for causal language modeling.
+
+Note: The deepseek2 GGUF tokenizer architecture is not supported by transformers'
+GGUF_TO_FAST_CONVERTERS. Load the tokenizer from the HF-native base model instead.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+# The HF-native base model for tokenizer loading (deepseek2 GGUF arch not supported).
+HF_TOKENIZER_MODEL = "unsloth/GLM-4.7-Flash"
 
 from ....base import ForgeModel
 from ....config import (
@@ -74,12 +80,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        # Load tokenizer without gguf_file: the deepseek_v2 GGUF tokenizer
-        # architecture is not supported by transformers' GGUF_TO_FAST_CONVERTERS.
-        # The GGUF repo includes standalone tokenizer files that load correctly.
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+        self.tokenizer = AutoTokenizer.from_pretrained(HF_TOKENIZER_MODEL)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
