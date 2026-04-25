@@ -257,7 +257,10 @@ class ModelLoader(ForgeModel):
                 if torch.is_tensor(inputs[key]):
                     inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
-        return dict(inputs)
+        inputs = dict(inputs)
+        # The custom Emu3ForCausalLM.forward() does not accept image_size; remove it.
+        inputs.pop("image_size", None)
+        return inputs
 
     def decode_output(self, outputs, input_length=None):
         if self.tokenizer is None:
