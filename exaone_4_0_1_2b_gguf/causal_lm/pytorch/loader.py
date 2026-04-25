@@ -73,9 +73,13 @@ def _patch_transformers_exaone4_gguf():
             rope_theta = config.pop("rope_theta", None)
             if rope_theta is not None:
                 config.setdefault("rope_parameters", {})["rope_theta"] = rope_theta
-            # 1.2B model has no sliding window; set to None so layer_types
-            # defaults to all full_attention in Exaone4Config.__init__
-            config.setdefault("sliding_window", None)
+            # Exaone4Config.__init__ has a ZeroDivisionError when sliding_window
+            # is None and layer_types is None (uses sliding_window_pattern=0 in
+            # modulo). Provide explicit layer_types to bypass that code path.
+            if "layer_types" not in config and "num_hidden_layers" in config:
+                n = config["num_hidden_layers"]
+                config["layer_types"] = ["full_attention"] * n
+                config["sliding_window"] = None
         return result
 
     gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
