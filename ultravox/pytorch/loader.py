@@ -198,6 +198,56 @@ class ModelLoader(ForgeModel):
             shutil.rmtree(self._patched_dir, ignore_errors=True)
             self._patched_dir = None
 
+    def _patch_cached_ultravox_model(self, pretrained_model_name: str) -> None:
+        """Patch the HuggingFace module cache to fix transformers 5.x incompatibilities.
+
+        The cached ultravox_model.py uses APIs removed/changed in transformers 5.x:
+        - tie_weights(self) must accept **kwargs (transformers now passes recompute_mapping=False)
+        """
+        import glob
+        import sys
+
+        model_slug = pretrained_model_name.replace("/", "_hyphen_").replace(
+            "-", "_hyphen_"
+        )
+        hf_modules_base = os.environ.get(
+            "HF_HOME",
+            os.path.join(
+                os.path.dirname(
+                    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                ),
+                ".cache",
+                "huggingface",
+            ),
+        )
+        search_pattern = os.path.join(
+            hf_modules_base,
+            "modules",
+            "transformers_modules",
+            "*",
+            model_slug,
+            "*",
+            "ultravox_model.py",
+        )
+        for model_file in glob.glob(search_pattern):
+            with open(model_file) as f:
+                content = f.read()
+            patched = content.replace(
+                "def tie_weights(self):",
+                "def tie_weights(self, **kwargs):",
+            )
+            if patched != content:
+                with open(model_file, "w") as f:
+                    f.write(patched)
+                # Clear module cache so the patched version is reimported
+                to_remove = [
+                    k
+                    for k in sys.modules
+                    if "ultravox_model" in k or "transformers_modules" in k
+                ]
+                for key in to_remove:
+                    del sys.modules[key]
+
     def _load_processor(self):
         """Load processor for the current variant."""
         from transformers import AutoProcessor
@@ -233,6 +283,8 @@ class ModelLoader(ForgeModel):
 
         pretrained_model_name = self._variant_config.pretrained_model_name
         patched_dir = self._get_patched_model_dir()
+
+        self._patch_cached_ultravox_model(pretrained_model_name)
 
         config = transformers.AutoConfig.from_pretrained(
             patched_dir, trust_remote_code=True
