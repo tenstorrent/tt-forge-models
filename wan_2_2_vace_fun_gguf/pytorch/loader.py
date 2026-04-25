@@ -19,7 +19,7 @@ from ...config import (
     StrEnum,
 )
 
-GGUF_REPO = "QuantStack/Wan2.2-VACE-Fun-A14B-GGUF"
+GGUF_BASE_URL = "https://huggingface.co/QuantStack/Wan2.2-VACE-Fun-A14B-GGUF/blob/main"
 
 # Small spatial dimensions for compile-only testing
 TRANSFORMER_NUM_FRAMES = 2
@@ -44,7 +44,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.A14B_HIGHNOISE_Q4_K_M: ModelConfig(
-            pretrained_model_name=GGUF_REPO,
+            pretrained_model_name="QuantStack/Wan2.2-VACE-Fun-A14B-GGUF",
         ),
     }
 
@@ -69,23 +69,14 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
-        import diffusers.utils.import_utils as _diffusers_import_utils
-
-        if not _diffusers_import_utils._gguf_available:
-            import importlib.util
-
-            if importlib.util.find_spec("gguf") is not None:
-                _diffusers_import_utils._gguf_available = True
-
-        from diffusers import GGUFQuantizationConfig, WanTransformer3DModel
+        from diffusers import WanTransformer3DModel
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
         gguf_file = _GGUF_FILES[self._variant]
-        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+        gguf_url = f"{GGUF_BASE_URL}/{gguf_file}"
 
         self._transformer = WanTransformer3DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
-            quantization_config=quantization_config,
+            gguf_url,
             torch_dtype=compute_dtype,
         )
 
