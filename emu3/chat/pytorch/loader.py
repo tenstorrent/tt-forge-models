@@ -100,36 +100,15 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        from transformers import ProcessorMixin
-
         Emu3Processor = get_class_from_dynamic_module(
             "processing_emu3.Emu3Processor",
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
         )
-
-        # processing_emu3.py calls super().__init__(image_processor, tokenizer) with only 2
-        # args, but transformers 5.x ProcessorMixin requires all 3 attributes to be passed.
-        def _fixed_init(
-            self,
-            image_processor=None,
-            vision_tokenizer=None,
-            tokenizer=None,
-            chat_template=None,
-            **kwargs
-        ):
-            ProcessorMixin.__init__(
-                self,
-                image_processor,
-                vision_tokenizer,
-                tokenizer,
-                chat_template=chat_template,
-            )
-
-        Emu3Processor.__init__ = _fixed_init
-
         self.processor = Emu3Processor(
-            self.image_processor, self.image_tokenizer, self.tokenizer
+            self.image_processor,
+            vision_tokenizer=self.image_tokenizer,
+            tokenizer=self.tokenizer,
         )
         return self.processor
 
