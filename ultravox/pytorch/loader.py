@@ -243,6 +243,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name,
             config=config,
             trust_remote_code=True,
+            low_cpu_mem_usage=False,
             **model_kwargs,
         )
         model.eval()
