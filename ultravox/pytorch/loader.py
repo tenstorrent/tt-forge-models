@@ -129,8 +129,10 @@ class ModelLoader(ForgeModel):
         # Nullify text_model_id to prevent fetching the gated Llama config.
         # Provide a text_config dict so the custom UltravoxConfig uses it.
         config_dict["text_model_id"] = None
-        if "text_config" not in config_dict or not isinstance(
-            config_dict.get("text_config"), dict
+        if (
+            "text_config" not in config_dict
+            or not isinstance(config_dict.get("text_config"), dict)
+            or not config_dict.get("text_config")
         ):
             # Provide inline text_config to avoid fetching gated Llama configs.
             text_configs = {
@@ -220,6 +222,11 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The Ultravox model instance.
         """
         import transformers
+        import transformers.modeling_utils as _modeling_utils
+
+        # transformers>=5.x removed _init_weights; restore it for older custom model code
+        if not hasattr(_modeling_utils, "_init_weights"):
+            _modeling_utils._init_weights = True
 
         pretrained_model_name = self._variant_config.pretrained_model_name
         patched_dir = self._get_patched_model_dir()
@@ -230,7 +237,7 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = transformers.AutoModel.from_pretrained(
