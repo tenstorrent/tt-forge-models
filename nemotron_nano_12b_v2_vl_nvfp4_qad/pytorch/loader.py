@@ -127,6 +127,19 @@ class ModelLoader(ForgeModel):
 
         with _patch_tied_keys_for_missing_post_init():
             model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+
+        # vision_model.to(dtype) in __init__ corrupts integer index buffers by converting
+        # torch.int64 buffers to bfloat16. Restore buffers whose names indicate they are
+        # indices (e.g. summary_idxs in the RADIO vision encoder).
+        for module in model.modules():
+            for name, buf in list(module.named_buffers(recurse=False)):
+                if (
+                    buf is not None
+                    and buf.is_floating_point()
+                    and ("idx" in name or "ids" in name)
+                ):
+                    module.register_buffer(name, buf.to(torch.long))
+
         model.eval()
 
         return model
