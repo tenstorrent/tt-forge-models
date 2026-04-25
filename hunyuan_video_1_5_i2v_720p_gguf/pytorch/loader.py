@@ -300,6 +300,7 @@ class ModelLoader(ForgeModel):
         self._transformer = HunyuanVideo15Transformer3DModel.from_single_file(
             gguf_path,
             config=DIFFUSERS_CONFIG_REPO,
+            subfolder="transformer",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
