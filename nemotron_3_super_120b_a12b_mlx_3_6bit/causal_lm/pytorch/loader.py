@@ -85,12 +85,17 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        # Load config and strip MLX quantization_config — transformers raises an
+        # error when it encounters a quantization_config with no quant_method (the
+        # MLX format).  The custom remote code handles weight dequantization itself.
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        if hasattr(config, "quantization_config"):
+            del config.quantization_config
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name,
