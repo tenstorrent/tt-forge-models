@@ -221,12 +221,23 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The Ultravox model instance.
         """
+        import torch
         import transformers
         import transformers.modeling_utils as _modeling_utils
 
-        # transformers>=5.x removed _init_weights; restore it for older custom model code
+        # transformers>=5.x removed _init_weights; restore a context-aware sentinel so
+        # older custom model code (ultravox_model.py) correctly skips from_pretrained
+        # calls when already inside an accelerate init_empty_weights() meta context.
         if not hasattr(_modeling_utils, "_init_weights"):
-            _modeling_utils._init_weights = True
+
+            class _InitWeightsSentinel:
+                def __bool__(self):
+                    try:
+                        return str(torch.get_default_device()) != "meta"
+                    except Exception:
+                        return True
+
+            _modeling_utils._init_weights = _InitWeightsSentinel()
 
         pretrained_model_name = self._variant_config.pretrained_model_name
         patched_dir = self._get_patched_model_dir()
