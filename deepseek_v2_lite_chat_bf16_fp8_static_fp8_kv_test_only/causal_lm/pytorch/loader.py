@@ -8,8 +8,14 @@ Loads INC4AI's compressed-tensors quantized variant of deepseek-ai/DeepSeek-V2-L
 which applies BF16 weights with FP8 static activation quantization and FP8 KV cache.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig, DynamicCache
 from typing import Optional
+
+# transformers 5.x removed get_usable_length; add it back for custom model code
+if not hasattr(DynamicCache, "get_usable_length"):
+    DynamicCache.get_usable_length = (
+        lambda self, new_seq_length=None, layer_idx=0: self.get_seq_length(layer_idx)
+    )
 
 from ....base import ForgeModel
 from ....config import (
