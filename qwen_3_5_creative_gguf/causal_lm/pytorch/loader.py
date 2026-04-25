@@ -84,6 +84,10 @@ def _patch_transformers_qwen35moe_gguf():
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
+    import re
+
+    _FUSED_GATE_UP_PATTERN = re.compile(r"(blk\.\d+\.ffn_gate_up_exps)(.*)")
+
     orig_get_map = gguf_utils.get_gguf_hf_weights_map
 
     def patched_get_gguf_hf_weights_map(
@@ -93,7 +97,21 @@ def _patch_transformers_qwen35moe_gguf():
             model_type = hf_model.config.model_type
         if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
             model_type = "qwen35moe"
-        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+        mapping = orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+        # The gguf library maps gate_up_proj -> blk.N.ffn_gate_up_exps (fused),
+        # but some GGUF files store them as separate blk.N.ffn_gate_exps and
+        # blk.N.ffn_up_exps tensors. Add both individual keys so that
+        # Qwen2MoeTensorProcessor._set_moe_expert_tensor can find them.
+        extra = {}
+        for key, val in mapping.items():
+            if m := _FUSED_GATE_UP_PATTERN.fullmatch(key):
+                prefix = m.group(1).replace("ffn_gate_up_exps", "ffn_gate_exps")
+                up_prefix = m.group(1).replace("ffn_gate_up_exps", "ffn_up_exps")
+                suffix = m.group(2)
+                extra[prefix + suffix] = val
+                extra[up_prefix + suffix] = val
+        mapping.update(extra)
+        return mapping
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
 
