@@ -222,10 +222,14 @@ class ModelLoader(ForgeModel):
         import transformers
         import transformers.modeling_utils
 
-        # transformers.modeling_utils._init_weights was removed in transformers 5.x;
-        # the cached model code checks it as a boolean (was True by default in 4.x)
+        # transformers.modeling_utils._init_weights was removed in transformers 5.x.
+        # The cached model checks it as a boolean guard before calling nested from_pretrained
+        # for sub-models inside __init__. In transformers 5.x, __init__ runs inside a
+        # torch.device("meta") context, so nested from_pretrained calls are forbidden.
+        # Setting this to False causes the model to use from_config + empty weights during
+        # __init__, with the outer from_pretrained loading all weights from checkpoint.
         if not hasattr(transformers.modeling_utils, "_init_weights"):
-            transformers.modeling_utils._init_weights = True
+            transformers.modeling_utils._init_weights = False
 
         pretrained_model_name = self._variant_config.pretrained_model_name
         patched_dir = self._get_patched_model_dir()
@@ -243,7 +247,6 @@ class ModelLoader(ForgeModel):
             pretrained_model_name,
             config=config,
             trust_remote_code=True,
-            low_cpu_mem_usage=False,
             **model_kwargs,
         )
         model.eval()
