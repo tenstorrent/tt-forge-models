@@ -201,6 +201,25 @@ class ModelLoader(ForgeModel):
     def _load_processor(self):
         """Load processor for the current variant."""
         from transformers import AutoProcessor
+        from transformers.processing_utils import ProcessorMixin
+
+        # transformers 5.x added strict type-checking in ProcessorMixin.__init__.
+        # Legacy ultravox_processing.py passes a WhisperProcessor (ProcessorMixin subclass)
+        # as audio_processor where FeatureExtractionMixin is expected. Patch to allow this.
+        if not getattr(ProcessorMixin, "_sub_processor_compat_patched", False):
+            _orig_check = ProcessorMixin.check_argument_for_proper_class
+
+            def _lenient_check(self, attribute_name, arg):
+                try:
+                    _orig_check(self, attribute_name, arg)
+                except TypeError:
+                    if isinstance(arg, ProcessorMixin):
+                        pass
+                    else:
+                        raise
+
+            ProcessorMixin.check_argument_for_proper_class = _lenient_check
+            ProcessorMixin._sub_processor_compat_patched = True
 
         patched_dir = self._get_patched_model_dir()
         self.processor = AutoProcessor.from_pretrained(
@@ -219,7 +238,50 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The Ultravox model instance.
         """
+        import inspect
+        import torch
         import transformers
+        import transformers.modeling_utils as _modeling_utils
+        from transformers.modeling_utils import PreTrainedModel
+
+        # Custom ultravox_model.py references transformers.modeling_utils._init_weights,
+        # removed in transformers 5.x. In 4.x this flag was False inside from_pretrained's
+        # init-empty-weights context and True otherwise. Replicate that via a bool proxy.
+        if not hasattr(_modeling_utils, "_init_weights"):
+
+            class _InitWeightsCompat:
+                def __bool__(self):
+                    return torch.empty(1).device.type != "meta"
+
+            _modeling_utils._init_weights = _InitWeightsCompat()
+
+        # transformers 5.x calls tie_weights(recompute_mapping=False) and later
+        # tie_weights(missing_keys=..., recompute_mapping=False), but the legacy custom
+        # model code written for 4.x defines tie_weights(self) without **kwargs.
+        # Patch init_weights once to permanently fix the class's tie_weights signature.
+        if not getattr(PreTrainedModel, "_tie_weights_compat_patched", False):
+            _orig_init_weights = PreTrainedModel.init_weights
+
+            def _compat_init_weights(self):
+                cls = type(self)
+                if not getattr(cls, "_tie_weights_kwarg_patched", False):
+                    orig_cls_tie = cls.tie_weights
+                    sig = inspect.signature(orig_cls_tie)
+                    has_var_kw = any(
+                        p.kind == inspect.Parameter.VAR_KEYWORD
+                        for p in sig.parameters.values()
+                    )
+                    if not has_var_kw and "recompute_mapping" not in sig.parameters:
+
+                        def _kwarg_accepting_tie_weights(self, **kwargs):
+                            return orig_cls_tie(self)
+
+                        cls.tie_weights = _kwarg_accepting_tie_weights
+                    cls._tie_weights_kwarg_patched = True
+                return _orig_init_weights(self)
+
+            PreTrainedModel.init_weights = _compat_init_weights
+            PreTrainedModel._tie_weights_compat_patched = True
 
         pretrained_model_name = self._variant_config.pretrained_model_name
         patched_dir = self._get_patched_model_dir()
