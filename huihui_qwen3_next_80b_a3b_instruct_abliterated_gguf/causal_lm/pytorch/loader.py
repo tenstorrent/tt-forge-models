@@ -7,19 +7,92 @@ Huihui Qwen3-Next-80B-A3B-Instruct abliterated GGUF model loader implementation 
 import importlib.metadata
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_SUPPORTED_ARCHITECTURES,
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+)
 from typing import Optional
 
 from ....base import ForgeModel
 from ....config import (
-    LLMModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
+
+# GGUF config key → transformers Qwen3NextConfig field mapping.
+# Keys match the GGUF metadata suffix (after stripping the "qwen3next." prefix).
+_QWEN3NEXT_CONFIG_MAPPING = {
+    "context_length": "max_position_embeddings",
+    "block_count": "num_hidden_layers",
+    "feed_forward_length": "intermediate_size",
+    "embedding_length": "hidden_size",
+    "rope.dimension_count": None,
+    "rope.freq_base": "rope_theta",
+    "attention.key_length": "head_dim",
+    "attention.value_length": None,
+    "attention.head_count": "num_attention_heads",
+    "attention.head_count_kv": "num_key_value_heads",
+    "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+    "vocab_size": "vocab_size",
+    "expert_count": "num_experts",
+    "expert_used_count": "num_experts_per_tok",
+    "expert_feed_forward_length": "moe_intermediate_size",
+    "expert_shared_feed_forward_length": "shared_expert_intermediate_size",
+    # SSM / linear-attention params — values match config defaults, map to silence warnings
+    "ssm.conv_kernel": "linear_conv_kernel_dim",
+    "ssm.state_size": None,
+    "ssm.group_count": None,
+    "ssm.time_step_rank": None,
+    "ssm.inner_size": None,
+}
+
+
+def _patch_qwen3next_support():
+    """Register qwen3next GGUF architecture so transformers can load it as qwen3_next.
+
+    Transformers 5.2 knows the Qwen3Next model class but the GGUF loading utility
+    does not yet recognise the 'qwen3next' architecture identifier used by llama.cpp.
+    We add it to GGUF_SUPPORTED_ARCHITECTURES and wire up the config-key mapping so
+    that load_gguf_checkpoint can parse the file correctly.
+    """
+    if "qwen3next" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen3next")
+    _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"].setdefault(
+        "qwen3next", _QWEN3NEXT_CONFIG_MAPPING
+    )
+    if "qwen3_moe" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "qwen3next", GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
+        )
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **_kwargs):
+    """Wrap load_gguf_checkpoint to add qwen3next support and fix model_type."""
+    _patch_qwen3next_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **_kwargs
+    )
+    if result.get("config", {}).get("model_type") == "qwen3next":
+        result["config"]["model_type"] = "qwen3_next"
+    return result
+
+
+_patch_qwen3next_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
@@ -182,10 +255,11 @@ class ModelLoader(ForgeModel):
                 shard_specs[mlp.shared_expert.gate_proj.weight] = ("model", "batch")
                 shard_specs[mlp.shared_expert.down_proj.weight] = ("batch", "model")
 
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+            if hasattr(layer, "self_attn"):
+                shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
         shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
 
