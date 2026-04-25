@@ -4,8 +4,10 @@
 """
 H the Eighth 8B LINEAR i1 GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import transformers.utils.import_utils as _import_utils
 from typing import Optional
 
 from ....base import ForgeModel
@@ -61,7 +63,21 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _fix_gguf_detection():
+        """Refresh transformers' package distribution map and clear lru_cache.
+
+        PACKAGE_DISTRIBUTION_MAPPING is frozen at transformers import time, so
+        gguf installed later via requirements.txt won't be found, causing
+        is_gguf_available() to return version 'N/A' and raise InvalidVersion.
+        """
+        _import_utils.PACKAGE_DISTRIBUTION_MAPPING.update(
+            importlib.metadata.packages_distributions()
+        )
+        _import_utils.is_gguf_available.cache_clear()
+
     def _load_tokenizer(self, dtype_override=None):
+        self._fix_gguf_detection()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -153,6 +169,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        self._fix_gguf_detection()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
