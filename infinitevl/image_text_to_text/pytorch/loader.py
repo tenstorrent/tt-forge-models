@@ -6,6 +6,7 @@ InfiniteVL model loader implementation for image-text-to-text tasks.
 """
 
 from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
 from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
 from typing import Optional
 import torch
@@ -102,6 +103,17 @@ class ModelLoader(ForgeModel):
             config.text_config, "pad_token_id"
         ):
             config.text_config.pad_token_id = getattr(config, "eos_token_id", None)
+
+        # transformers 5.x requires _tied_weights_keys as a dict; patch the model
+        # class before instantiation since InfiniteVL was authored against 4.x.
+        model_cls = get_class_from_dynamic_module(
+            config.auto_map["AutoModelForCausalLM"],
+            pretrained_model_name,
+        )
+        if isinstance(getattr(model_cls, "_tied_weights_keys", None), list):
+            model_cls._tied_weights_keys = {
+                "lm_head.weight": "model.language_model.embed_tokens.weight"
+            }
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, config=config, **model_kwargs
