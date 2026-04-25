@@ -5,7 +5,7 @@
 inferencerlabs/Qwen3.5-27B-MLX-9bit model loader implementation for image to text.
 """
 
-from transformers import AutoModelForImageTextToText, AutoProcessor
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -40,7 +40,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.processor = None
+        self.tokenizer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -64,9 +64,9 @@ class ModelLoader(ForgeModel):
 
         model_kwargs |= kwargs
 
-        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
 
-        model = AutoModelForImageTextToText.from_pretrained(
+        model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
         model.eval()
@@ -74,24 +74,6 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None):
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
-                    },
-                    {"type": "text", "text": "Describe this image."},
-                ],
-            }
-        ]
-
-        inputs = self.processor.apply_chat_template(
-            messages,
-            tokenize=True,
-            add_generation_prompt=True,
-            return_dict=True,
-            return_tensors="pt",
-        )
+        prompt = "Describe what you see in an image of a sunny beach."
+        inputs = self.tokenizer(prompt, return_tensors="pt")
         return inputs
