@@ -83,8 +83,8 @@ class ModelLoader(ForgeModel):
         Returns:
             list: Input tensors for the transformer:
                 - latents (torch.Tensor): Latent video input
-                - timestep (torch.Tensor): Timestep tensor
                 - prompt_embeds (torch.Tensor): Encoded prompt embeddings
+                - timestep (torch.Tensor): Timestep tensor
         """
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
@@ -98,4 +98,4 @@ class ModelLoader(ForgeModel):
             timestep = timestep.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
 
-        return [latents, timestep, prompt_embeds]
+        return [latents, prompt_embeds, timestep]
