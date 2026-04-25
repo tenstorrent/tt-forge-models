@@ -96,7 +96,7 @@ class ModelLoader(ForgeModel):
             model = LlavaForConditionalGeneration(config)
         finally:
             torch.set_default_dtype(old_default_dtype)
-        model.eval()
+        model.to(target_dtype).eval()
 
         self.config = model.config
         return model
