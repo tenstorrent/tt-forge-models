@@ -74,7 +74,32 @@ class ModelLoader(ForgeModel):
         Requires the antoni_alpha package:
             pip install git+https://github.com/computationalpathologygroup/ANTONI-Alpha.git
         """
-        from antoni_alpha.models.antoni_pretrained import AntoniAlphaPreTrained
+        import os as _os
+        import sys as _sys
+
+        # The local Antoni_alpha model directory shadows the pip-installed Antoni_alpha
+        # package. Temporarily remove the worktree path so the pip package is found.
+        _worktree_dir = _os.path.dirname(
+            _os.path.dirname(
+                _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+            )
+        )
+        _saved_path = _sys.path[:]
+        _saved_modules = {
+            k: _sys.modules.pop(k)
+            for k in list(_sys.modules)
+            if k.startswith("Antoni_alpha")
+        }
+        _sys.path = [
+            p
+            for p in _sys.path
+            if _os.path.realpath(p) != _os.path.realpath(_worktree_dir)
+        ]
+        try:
+            from antoni_alpha.models.antoni_pretrained import AntoniAlphaPreTrained
+        finally:
+            _sys.path = _saved_path
+            _sys.modules.update(_saved_modules)
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -97,14 +122,14 @@ class ModelLoader(ForgeModel):
         conversation. Synthetic slide latents are produced here to match
         the expected feature dimensions.
         """
-        slide_latents = torch.randn(batch_size, self.num_tiles, self.prism_embedding_dim)
+        slide_latents = torch.randn(
+            batch_size, self.num_tiles, self.prism_embedding_dim
+        )
 
         if dtype_override is not None:
             slide_latents = slide_latents.to(dtype_override)
 
-        conversations = [
-            [{"role": "user", "content": self.sample_prompt}]
-        ] * batch_size
+        conversations = [[{"role": "user", "content": self.sample_prompt}]] * batch_size
 
         return {
             "slide_latents": slide_latents,
