@@ -26,6 +26,38 @@ from ....config import (
 from ....tools.utils import cast_input_to_type, get_file
 
 
+class JanusForwardWrapper(torch.nn.Module):
+    """Wraps MultiModalityCausalLM to expose a standard forward interface.
+
+    MultiModalityCausalLM has no forward(); inference requires calling
+    prepare_inputs_embeds then the inner language_model.
+    """
+
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(
+        self,
+        input_ids,
+        pixel_values,
+        images_seq_mask,
+        images_emb_mask,
+        attention_mask=None,
+        **kwargs,
+    ):
+        inputs_embeds = self.model.prepare_inputs_embeds(
+            input_ids=input_ids,
+            pixel_values=pixel_values,
+            images_seq_mask=images_seq_mask,
+            images_emb_mask=images_emb_mask,
+        )
+        return self.model.language_model(
+            inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+        )
+
+
 class ModelVariant(StrEnum):
     """Available DeepSeek Janus model variants."""
 
@@ -121,7 +153,7 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        return model
+        return JanusForwardWrapper(model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return input tensors for Janus."""
