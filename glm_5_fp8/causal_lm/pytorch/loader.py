@@ -4,20 +4,38 @@
 """
 GLM-5 FP8 model loader implementation for causal language modeling.
 """
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import sys
+import types
 from typing import Optional
+
+import torch
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
-    LLMModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
+
+
+def _stub_triton():
+    """Stub triton so FP8 model loading doesn't fail on CPU (GPU kernels are never called)."""
+    if "triton" not in sys.modules:
+        _tl = types.SimpleNamespace(constexpr=int)
+        _triton = types.SimpleNamespace(
+            jit=lambda fn=None, **kw: (fn if fn else lambda f: f),
+            language=_tl,
+            cdiv=lambda x, y: (x + y - 1) // y,
+            autotune=lambda *a, **kw: (lambda f: f),
+            heuristics=lambda *a, **kw: (lambda f: f),
+        )
+        sys.modules["triton"] = _triton
+        sys.modules["triton.language"] = _tl
 
 
 class ModelVariant(StrEnum):
@@ -71,25 +89,24 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        # Stub triton before transformers imports finegrained_fp8.py (no triton on CPU)
+        _stub_triton()
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
-        # Strip FP8 quantization config to avoid triton dependency (no GPU available)
-        config = AutoConfig.from_pretrained(
-            pretrained_model_name, trust_remote_code=True
-        )
-        config.quantization_config = None
+        model_kwargs = {"trust_remote_code": True}
+        if dtype_override is not None:
+            model_kwargs["dtype"] = dtype_override
 
         if self.num_layers is not None:
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, trust_remote_code=True
+            )
             config.num_hidden_layers = self.num_layers
-
-        model_kwargs = {
-            "trust_remote_code": True,
-            "config": config,
-            "dtype": dtype_override if dtype_override is not None else torch.bfloat16,
-        }
+            model_kwargs["config"] = config
 
         model_kwargs |= kwargs
 
@@ -103,7 +120,7 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
         max_length = self._variant_config.max_length
 
