@@ -120,14 +120,16 @@ def _patch_transformers_glm4moe_gguf():
     # 5. Patch get_gguf_hf_weights_map to handle glm4_moe -> glm4moe arch lookup
     orig_get_weights_map = gguf_utils.get_gguf_hf_weights_map
 
-    def patched_get_gguf_hf_weights_map(hf_model, processor, model_type=None, **kwargs):
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
         effective_type = (
             hf_model.config.model_type if model_type is None else model_type
         )
         if effective_type == "glm4_moe":
             model_type = "glm4moe"
         return orig_get_weights_map(
-            hf_model, processor, model_type=model_type, **kwargs
+            hf_model, processor, model_type, num_layers, qual_name
         )
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
