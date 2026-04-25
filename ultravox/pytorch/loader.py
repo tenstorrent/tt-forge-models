@@ -196,8 +196,6 @@ class ModelLoader(ForgeModel):
 
     def _apply_compat_patches(self, tmpdir: str):
         """Patch remote .py files for transformers 5.x API compatibility."""
-        import re
-
         patches = {
             "ultravox_model.py": [
                 # tie_weights must accept **kwargs (newer transformers calls it with recompute_mapping=)
