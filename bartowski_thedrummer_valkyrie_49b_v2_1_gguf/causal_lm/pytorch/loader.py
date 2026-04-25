@@ -39,6 +39,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.VALKYRIE_49B_V2_1_GGUF
 
     GGUF_FILE = "TheDrummer_Valkyrie-49B-v2.1-Q4_K_M.gguf"
+    ORIGINAL_MODEL_NAME = "TheDrummer/Valkyrie-49B-v2.1"
 
     sample_text = "What is your favorite city?"
 
@@ -89,13 +90,13 @@ class ModelLoader(ForgeModel):
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                self.ORIGINAL_MODEL_NAME, trust_remote_code=True
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, trust_remote_code=True, **model_kwargs
         ).eval()
 
         self.config = model.config
@@ -154,6 +155,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self.ORIGINAL_MODEL_NAME, trust_remote_code=True
         )
         return self.config
