@@ -8,7 +8,16 @@ coder3101 Ministral-3-8B-Reasoning-2512-heretic GGUF model loader for causal lan
 from typing import Optional
 
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFLlamaConverter
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_SUPPORTED_ARCHITECTURES,
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+)
 
 from ....base import ForgeModel
 from ....config import (
@@ -20,6 +29,71 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
+
+
+def _patch_mistral3_support():
+    """Register mistral3 GGUF architecture as an alias for ministral3/mistral.
+
+    The Ministral 8B family uses 'mistral3' as the GGUF architecture tag, but
+    transformers 5.x only supports 'mistral' in its GGUF loader. We register
+    'mistral3' using the same config-key mapping as 'mistral' so that the GGUF
+    weights can be loaded, then fix the resulting model_type to 'ministral3'
+    so that AutoModelForCausalLM resolves to Ministral3ForCausalLM.
+    """
+    if "mistral3" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("mistral3")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "mistral" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "mistral3",
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["mistral"],
+            )
+    GGUF_TO_FAST_CONVERTERS.setdefault("mistral3", GGUFLlamaConverter)
+    GGUF_TO_FAST_CONVERTERS.setdefault("ministral3", GGUFLlamaConverter)
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    """Wrap load_gguf_checkpoint to add mistral3 support and fix model_type."""
+    _patch_mistral3_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
+    if result.get("config", {}).get("model_type") == "mistral3":
+        result["config"]["model_type"] = "ministral3"
+    return result
+
+
+def _patch_ministral3_weights_map():
+    """Remap ministral3 -> mistral3 in get_gguf_hf_weights_map.
+
+    After model_type is remapped from mistral3 to ministral3, the model config
+    carries model_type='ministral3'. But gguf-py only knows 'mistral3', so we
+    intercept the weights-map call and restore the gguf-py name.
+    """
+    _sentinel = "_ministral3_remap_patched"
+    orig = _gguf_utils.get_gguf_hf_weights_map
+    if getattr(orig, _sentinel, False):
+        return
+
+    def _patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = getattr(getattr(hf_model, "config", None), "model_type", None)
+        if model_type == "ministral3":
+            model_type = "mistral3"
+        return orig(hf_model, processor, model_type, num_layers, qual_name)
+
+    setattr(_patched_get_gguf_hf_weights_map, _sentinel, True)
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
+
+_patch_mistral3_support()
+_patch_ministral3_weights_map()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
