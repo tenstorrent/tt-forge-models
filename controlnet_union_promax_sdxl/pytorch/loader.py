@@ -67,13 +67,13 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the ControlNet Union ProMax SDXL pipeline.
+        """Load and return the UNet from the ControlNet Union ProMax SDXL pipeline.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            StableDiffusionXLControlNetUnionPipeline: The pipeline instance.
+            torch.nn.Module: The UNet model instance.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -84,7 +84,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             self.pipeline = self.pipeline.to(dtype_override)
 
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the ControlNet Union ProMax SDXL model.
@@ -117,14 +117,17 @@ class ModelLoader(ForgeModel):
             self.pipeline, self.prompt, control_image
         )
 
+        # UNet expects a single timestep per batch element, not the full scheduler array.
+        timestep = timesteps[0:1].expand(latent_model_input.shape[0])
+
         if dtype_override:
             latent_model_input = latent_model_input.to(dtype_override)
-            timesteps = timesteps.to(dtype_override)
+            timestep = timestep.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
 
         return [
             latent_model_input,
-            timesteps,
+            timestep,
             prompt_embeds,
             added_cond_kwargs,
             down_block_additional_residuals,
