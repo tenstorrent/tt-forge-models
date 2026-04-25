@@ -7,6 +7,7 @@ Qwen 3 VL 32B Thinking GGUF model loader implementation for image to text.
 
 from transformers import (
     Qwen3VLForConditionalGeneration,
+    AutoConfig,
     AutoProcessor,
 )
 from typing import Optional
@@ -80,8 +81,11 @@ class ModelLoader(ForgeModel):
         # GGUF repos do not ship a processor; use the base model
         self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-32B-Thinking")
 
+        # The unsloth GGUF repo ships a config.json sized for a smaller model;
+        # load the correct 32B config explicitly so architecture matches GGUF weights.
+        config = AutoConfig.from_pretrained("Qwen/Qwen3-VL-32B-Thinking")
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
+            pretrained_model_name, config=config, **model_kwargs
         )
         model.eval()
 
