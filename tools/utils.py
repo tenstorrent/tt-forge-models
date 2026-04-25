@@ -48,11 +48,21 @@ def get_file(path):
             file_name = f"{url_hash}_{file_name}"
 
         rel_path = Path("url_cache")
-        cache_dir_fallback = Path.home() / ".cache/url_cache"
+        _base_cache = (
+            Path(os.environ["XDG_CACHE_HOME"])
+            if "XDG_CACHE_HOME" in os.environ
+            else Path.home() / ".cache"
+        )
+        cache_dir_fallback = _base_cache / "url_cache"
     else:
         rel_dir, file_name = os.path.split(path)
         rel_path = Path("models/tt-ci-models-private") / rel_dir
-        cache_dir_fallback = Path.home() / ".cache/lfcache" / rel_dir
+        _base_cache = (
+            Path(os.environ["XDG_CACHE_HOME"])
+            if "XDG_CACHE_HOME" in os.environ
+            else Path.home() / ".cache"
+        )
+        cache_dir_fallback = _base_cache / "lfcache" / rel_dir
 
     # Determine the base cache directory based on environment variables
     if (
