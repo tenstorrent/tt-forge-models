@@ -158,6 +158,10 @@ class ModelLoader(ForgeModel):
         # num_patches is returned by the processor but not accepted by forward(); drop it
         inputs.pop("num_patches", None)
 
+        # pixel_values must match the model dtype (vision encoder is cast to language model dtype)
+        if dtype_override is not None and "pixel_values" in inputs:
+            inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
+
         # image_flags marks which images in the batch are valid (required by forward)
         inputs["image_flags"] = torch.ones(batch_size, 1, dtype=torch.long)
 
