@@ -21,46 +21,74 @@ from typing import Optional
 
 
 def _patch_fp8_qwen2_config():
-    """Patch FP8Qwen2Config.from_dict for transformers >= 5.x where super().from_dict()
-    returns (config, unused_kwargs) when called with return_unused_kwargs=True."""
+    """Patch cached FP8Qwen2 custom code for transformers >= 5.x compatibility.
+
+    Fixes two issues:
+    1. FP8Qwen2Config.from_dict: super().from_dict() returns (config, unused_kwargs)
+       when called with return_unused_kwargs=True.
+    2. modeling_fp8_qwen2.py imports check_model_inputs which no longer exists.
+    """
+    import importlib
+    import shutil
+
     hf_home = os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
-    pattern = os.path.join(
-        hf_home,
-        "modules",
-        "transformers_modules",
-        "*",
-        "*",
-        "*",
-        "configuration_fp8_qwen2.py",
-    )
-    for config_path in glob.glob(pattern):
+    modules_dir = os.path.join(hf_home, "modules", "transformers_modules")
+
+    # Patch configuration_fp8_qwen2.py
+    for config_path in glob.glob(
+        os.path.join(modules_dir, "*", "*", "*", "configuration_fp8_qwen2.py")
+    ):
         with open(config_path) as f:
             content = f.read()
-        if "return_unused_kwargs" in content:
-            continue
-        content = content.replace(
-            "    @classmethod\n    def from_dict(cls, config_dict, **kwargs):\n"
-            "        config = super().from_dict(config_dict, **kwargs)\n"
-            "        \n"
-            "        fp8_config",
-            "    @classmethod\n    def from_dict(cls, config_dict, **kwargs):\n"
-            '        return_unused_kwargs = kwargs.get("return_unused_kwargs", False)\n'
-            "        result = super().from_dict(config_dict, **kwargs)\n"
-            "        config, unused_kwargs = result if return_unused_kwargs else (result, {})\n"
-            "        \n"
-            "        fp8_config",
-        ).replace(
-            "        config.fp8_config = FP8Config(**fp8_config)\n        return config",
-            "        config.fp8_config = FP8Config(**fp8_config)\n"
-            "        if return_unused_kwargs:\n"
-            "            return config, unused_kwargs\n"
-            "        return config",
-        )
-        with open(config_path, "w") as f:
-            f.write(content)
-        for mod_name in list(sys.modules.keys()):
-            if "configuration_fp8_qwen2" in mod_name:
-                del sys.modules[mod_name]
+        if "return_unused_kwargs" not in content:
+            content = content.replace(
+                "    @classmethod\n    def from_dict(cls, config_dict, **kwargs):\n"
+                "        config = super().from_dict(config_dict, **kwargs)\n"
+                "        \n"
+                "        fp8_config",
+                "    @classmethod\n    def from_dict(cls, config_dict, **kwargs):\n"
+                '        return_unused_kwargs = kwargs.get("return_unused_kwargs", False)\n'
+                "        result = super().from_dict(config_dict, **kwargs)\n"
+                "        config, unused_kwargs = result if return_unused_kwargs else (result, {})\n"
+                "        \n"
+                "        fp8_config",
+            ).replace(
+                "        config.fp8_config = FP8Config(**fp8_config)\n        return config",
+                "        config.fp8_config = FP8Config(**fp8_config)\n"
+                "        if return_unused_kwargs:\n"
+                "            return config, unused_kwargs\n"
+                "        return config",
+            )
+            with open(config_path, "w") as f:
+                f.write(content)
+            pycache = os.path.join(os.path.dirname(config_path), "__pycache__")
+            if os.path.isdir(pycache):
+                shutil.rmtree(pycache)
+
+    # Patch modeling_fp8_qwen2.py: check_model_inputs removed in transformers 5.x
+    for model_path in glob.glob(
+        os.path.join(modules_dir, "*", "*", "*", "modeling_fp8_qwen2.py")
+    ):
+        with open(model_path) as f:
+            content = f.read()
+        if "check_model_inputs" in content:
+            content = content.replace(
+                "from transformers.utils.generic import check_model_inputs",
+                "try:\n"
+                "    from transformers.utils.generic import check_model_inputs\n"
+                "except ImportError:\n"
+                "    check_model_inputs = lambda *a, **k: None",
+            )
+            with open(model_path, "w") as f:
+                f.write(content)
+            pycache = os.path.join(os.path.dirname(model_path), "__pycache__")
+            if os.path.isdir(pycache):
+                shutil.rmtree(pycache)
+
+    importlib.invalidate_caches()
+    for mod_name in list(sys.modules.keys()):
+        if "configuration_fp8_qwen2" in mod_name or "modeling_fp8_qwen2" in mod_name:
+            del sys.modules[mod_name]
 
 
 from ....base import ForgeModel
@@ -148,17 +176,24 @@ class ModelLoader(ForgeModel):
 
         model_kwargs |= kwargs
 
-        try:
-            model = AutoModelForCausalLM.from_pretrained(
-                pretrained_model_name, trust_remote_code=True, **model_kwargs
-            ).eval()
-        except AttributeError as e:
-            if "fp8_config" not in str(e):
-                raise
-            _patch_fp8_qwen2_config()
-            model = AutoModelForCausalLM.from_pretrained(
-                pretrained_model_name, trust_remote_code=True, **model_kwargs
-            ).eval()
+        # Retry loop: each iteration patches a compatibility issue and retries.
+        # Attempt 1 may fail with AttributeError (from_dict tuple return).
+        # Attempt 2 may fail with ImportError (check_model_inputs missing).
+        # Both are fixed by _patch_fp8_qwen2_config() which patches cached files.
+        model = None
+        for attempt in range(3):
+            try:
+                model = AutoModelForCausalLM.from_pretrained(
+                    pretrained_model_name, trust_remote_code=True, **model_kwargs
+                ).eval()
+                break
+            except (AttributeError, ImportError) as e:
+                if "fp8_config" not in str(e) and "check_model_inputs" not in str(e):
+                    raise
+                if attempt >= 2:
+                    raise
+                _patch_fp8_qwen2_config()
+        assert model is not None
 
         self.config = model.config
         self.model = model
@@ -198,15 +233,16 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        try:
-            self.config = AutoConfig.from_pretrained(
-                self._variant_config.pretrained_model_name, trust_remote_code=True
-            )
-        except AttributeError as e:
-            if "fp8_config" not in str(e):
-                raise
-            _patch_fp8_qwen2_config()
-            self.config = AutoConfig.from_pretrained(
-                self._variant_config.pretrained_model_name, trust_remote_code=True
-            )
+        for attempt in range(3):
+            try:
+                self.config = AutoConfig.from_pretrained(
+                    self._variant_config.pretrained_model_name, trust_remote_code=True
+                )
+                break
+            except (AttributeError, ImportError) as e:
+                if "fp8_config" not in str(e) and "check_model_inputs" not in str(e):
+                    raise
+                if attempt >= 2:
+                    raise
+                _patch_fp8_qwen2_config()
         return self.config
