@@ -74,13 +74,11 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
-
+        # Load tokenizer without gguf_file: the deepseek_v2 GGUF tokenizer
+        # architecture is not supported by transformers' GGUF_TO_FAST_CONVERTERS.
+        # The GGUF repo includes standalone tokenizer files that load correctly.
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
