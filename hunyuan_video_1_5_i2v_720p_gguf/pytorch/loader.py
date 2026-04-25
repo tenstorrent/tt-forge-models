@@ -179,7 +179,7 @@ class ModelLoader(ForgeModel):
         config_dir = self._make_local_config_dir()
 
         self._transformer = HunyuanVideo15Transformer3DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/resolve/main/{gguf_file}",
+            f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
             config=config_dir,
             subfolder="transformer",
             quantization_config=quantization_config,
