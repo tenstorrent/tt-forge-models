@@ -11,6 +11,48 @@ import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
+
+
+def _apply_gguf_patches():
+    """Register mistral3 GGUF support in transformers.
+
+    The GGUF architecture name 'mistral3' (used by Ministral 3 models) is not
+    recognized by transformers' GGUF loader. This patch maps it to MistralConfig
+    and MistralForCausalLM, which share the same tensor layout.
+    Safe to call multiple times; idempotent thanks to the _PATCHED sentinel.
+    """
+    import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+    if getattr(_gguf_utils, "_mistral3_patched", False):
+        return
+
+    from transformers import MistralConfig
+    from transformers.integrations.ggml import (
+        GGUF_CONFIG_MAPPING,
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFGPTConverter,
+    )
+    from transformers.models.auto.configuration_auto import CONFIG_MAPPING
+    from transformers.models.auto.modeling_auto import MODEL_FOR_CAUSAL_LM_MAPPING_NAMES
+
+    if "mistral3" not in GGUF_CONFIG_MAPPING:
+        GGUF_CONFIG_MAPPING["mistral3"] = GGUF_CONFIG_MAPPING["mistral"].copy()
+
+    if "mistral3" not in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
+        _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("mistral3")
+
+    if "mistral3" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["mistral3"] = GGUFGPTConverter
+
+    if "mistral3" not in CONFIG_MAPPING._extra_content:
+        CONFIG_MAPPING._extra_content["mistral3"] = MistralConfig
+
+    if "mistral3" not in MODEL_FOR_CAUSAL_LM_MAPPING_NAMES:
+        MODEL_FOR_CAUSAL_LM_MAPPING_NAMES["mistral3"] = "MistralForCausalLM"
+
+    _gguf_utils._mistral3_patched = True
+
+
 from ....config import (
     Framework,
     LLMModelConfig,
@@ -66,6 +108,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _apply_gguf_patches()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -80,6 +123,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _apply_gguf_patches()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -157,6 +201,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        _apply_gguf_patches()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
