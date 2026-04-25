@@ -98,6 +98,7 @@ def _patch_nemotron_h_moe_support():
 
     if "nemotron" in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["nemotron_h_moe"] = GGUF_TO_FAST_CONVERTERS["nemotron"]
+        GGUF_TO_FAST_CONVERTERS["nemotron_h"] = GGUF_TO_FAST_CONVERTERS["nemotron"]
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
