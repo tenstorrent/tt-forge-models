@@ -21,7 +21,7 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
-from datasets import load_dataset
+from PIL import Image
 
 
 class ModelVariant(StrEnum):
@@ -70,8 +70,7 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size: int = 1):
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"].convert("RGB")
+        image = Image.new("RGB", (224, 224))
 
         model_for_config = (
             self._cached_model
