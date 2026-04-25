@@ -76,23 +76,26 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        # GPTQ dequantization uses dynamic tensor shapes incompatible with XLA;
+        # load as standard float model using the architecture config only.
+        config.quantization_config = None
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
             if hasattr(config, "text_config"):
                 config.text_config.num_hidden_layers = self.num_layers
             else:
                 config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+
+        model_kwargs = {"config": config}
+        if dtype_override is not None:
+            model_kwargs["torch_dtype"] = dtype_override
 
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        model = AutoModelForCausalLM.from_config(config).eval()
+        if dtype_override is not None:
+            model = model.to(dtype_override)
 
         self.config = model.config
         self.model = model
