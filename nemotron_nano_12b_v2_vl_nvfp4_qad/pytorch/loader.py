@@ -5,27 +5,11 @@
 NVIDIA Nemotron Nano 12B v2 VL NVFP4-QAD model loader implementation for image to text.
 """
 
-from transformers import AutoModel, AutoProcessor
-from transformers.modeling_utils import PreTrainedModel
+from transformers import AutoConfig, AutoModel, AutoProcessor
 from PIL import Image
 from typing import Optional
 
 from ...tools.utils import get_file
-
-# NemotronH_Nano_VL_V2 (trust_remote_code) does not call self.post_init() in its __init__,
-# so transformers 5.x never sets all_tied_weights_keys on the instance. Patch
-# _finalize_model_loading to initialise it when missing.
-_orig_finalize = PreTrainedModel._finalize_model_loading
-
-
-@staticmethod
-def _safe_finalize_model_loading(model, load_config, loading_info):
-    if not hasattr(model, "all_tied_weights_keys"):
-        model.all_tied_weights_keys = {}
-    return _orig_finalize(model, load_config, loading_info)
-
-
-PreTrainedModel._finalize_model_loading = _safe_finalize_model_loading
 from ...base import ForgeModel
 from ...config import (
     LLMModelConfig,
@@ -108,18 +92,18 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        model_kwargs = {
-            "trust_remote_code": True,
-            "attn_implementation": "eager",
-            # NVFP4 weights are packed and cannot load into the BF16 architecture;
-            # allow mismatches so the model loads with valid BF16 shapes for compilation.
-            "ignore_mismatched_sizes": True,
-        }
+        # NVFP4 quantized weights cannot be loaded into the BF16 model architecture
+        # because transformers does not recognise the modelopt quantizer, causing
+        # shape mismatches. Load from config only (random weights) for compilation.
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+            config.torch_dtype = dtype_override
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        model = AutoModel.from_config(config, trust_remote_code=True)
+        if dtype_override is not None:
+            model = model.to(dtype_override)
         model.eval()
 
         return model
