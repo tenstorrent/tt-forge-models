@@ -71,10 +71,8 @@ def _patched_get_gguf_hf_weights_map(
     exposing it at the top level.  The gguf library names the architecture
     'qwen2vl', while transformers uses 'qwen2_5_vl'.
     """
-    if model_type is None:
-        cfg_type = getattr(getattr(hf_model, "config", None), "model_type", None)
-        if cfg_type == "qwen2_5_vl":
-            model_type = "qwen2vl"
+    if model_type is None or model_type == "qwen2_5_vl":
+        model_type = "qwen2vl"
     if num_layers is None:
         cfg = getattr(hf_model, "config", None)
         text_cfg = getattr(cfg, "text_config", None)
