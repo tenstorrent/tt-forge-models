@@ -8,6 +8,77 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+_FALCON_H1_GGUF_ARCH = "falcon-h1"
+_FALCON_H1_MODEL_TYPE = "falcon_h1"
+
+# GGUF key → FalconH1Config attribute mappings for the falcon-h1 GGUF architecture.
+# falcon-h1 is a hybrid mamba2/attention model not yet registered in transformers GGUF
+# support, so we add it here manually.
+_FALCON_H1_CONFIG_MAPPING = {
+    "context_length": "max_position_embeddings",
+    "block_count": "num_hidden_layers",
+    "feed_forward_length": "intermediate_size",
+    "embedding_length": "hidden_size",
+    "rope.freq_base": "rope_theta",
+    "rope.dimension_count": None,
+    "attention.head_count": "num_attention_heads",
+    "attention.head_count_kv": "num_key_value_heads",
+    "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+    "vocab_size": "vocab_size",
+    "ssm.state_size": "mamba_d_state",
+    "ssm.n_heads": "mamba_n_heads",
+    "ssm.inner_size": "mamba_d_ssm",
+    "ssm.conv_kernel": "mamba_d_conv",
+    "ssm.chunk_size": "mamba_chunk_size",
+}
+
+
+def _patch_falcon_h1_support():
+    if _FALCON_H1_GGUF_ARCH not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append(_FALCON_H1_GGUF_ARCH)
+
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        mapping = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]
+        if _FALCON_H1_GGUF_ARCH not in mapping:
+            if section == "config":
+                mapping[_FALCON_H1_GGUF_ARCH] = _FALCON_H1_CONFIG_MAPPING
+            else:
+                mapping.setdefault(_FALCON_H1_GGUF_ARCH, {})
+
+    if _FALCON_H1_MODEL_TYPE not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS[_FALCON_H1_MODEL_TYPE] = GGUF_TO_FAST_CONVERTERS[
+            "llama"
+        ]
+    if _FALCON_H1_GGUF_ARCH not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS[_FALCON_H1_GGUF_ARCH] = GGUF_TO_FAST_CONVERTERS["llama"]
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    _patch_falcon_h1_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
+    if result.get("config", {}).get("model_type") == _FALCON_H1_GGUF_ARCH:
+        result["config"]["model_type"] = _FALCON_H1_MODEL_TYPE
+    return result
+
+
+_patch_falcon_h1_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
