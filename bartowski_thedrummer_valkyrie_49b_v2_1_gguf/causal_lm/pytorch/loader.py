@@ -7,6 +7,7 @@ Valkyrie 49B v2.1 GGUF model loader implementation for causal language modeling.
 import torch
 from huggingface_hub import hf_hub_download
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from typing import Optional
 
 from ....base import ForgeModel
@@ -19,6 +20,26 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+# The GGUF file uses the 'deci' arch for tensor name mapping, but the HF config
+# reports model_type='nemotron-nas' (not registered in gguf-py).  Remap it so
+# get_gguf_hf_weights_map can resolve the correct tensor name map.
+_orig_get_gguf_hf_weights_map = _gguf_utils.get_gguf_hf_weights_map
+
+
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
+    if model_type is None and hf_model is not None:
+        model_type = hf_model.config.model_type
+    if model_type == "nemotron-nas":
+        model_type = "deci"
+    return _orig_get_gguf_hf_weights_map(
+        hf_model, processor, model_type, num_layers, qual_name
+    )
+
+
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 
 class ModelVariant(StrEnum):
