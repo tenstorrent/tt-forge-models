@@ -90,6 +90,15 @@ def _patch_transformers_qwen3vl_gguf():
                 if key in _QWEN3VL_TEXT_CONFIG_KEYS:
                     text_config[key] = config.pop(key)
             if text_config:
+                # Qwen3VLTextRotaryEmbedding calls rope_scaling.get(...) so it
+                # must be a dict with rope_type. GGUF files omit rope_scaling;
+                # supply the 32B defaults (mrope_section matches head_dim/2=64).
+                if "rope_scaling" not in text_config:
+                    text_config["rope_scaling"] = {
+                        "rope_type": "default",
+                        "mrope_section": [24, 20, 20],
+                        "mrope_interleaved": True,
+                    }
                 config["text_config"] = text_config
                 # The GGUF file doesn't include vision config params so
                 # vision_config.out_hidden_size defaults to 3584. We must
@@ -119,16 +128,15 @@ _patch_transformers_qwen3vl_gguf()
 def _qwen3vl_weights_map_patch():
     """Transiently install a get_gguf_hf_weights_map patch as the outermost wrapper.
 
-    Applied inside load_model() to avoid arity conflicts from other loaders that
-    patch the same function without accepting num_layers as a positional argument.
-    For Qwen3VL models the top-level config stores num_hidden_layers inside
-    text_config, so we extract it here before dispatching to the prior chain.
+    Applied inside load_model() so it is always the outermost wrapper regardless
+    of other loaders that patch the same function at import time. For Qwen3VL
+    models the top-level config stores num_hidden_layers inside text_config.
     """
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
 
     prev = gguf_utils.get_gguf_hf_weights_map
 
-    def patched(hf_model, processor, model_type=None, num_layers=None, qual_name=""):
+    def patched(hf_model, model_type=None, num_layers=None, qual_name=""):
         if model_type is None:
             model_type = getattr(getattr(hf_model, "config", None), "model_type", None)
         if model_type == "qwen3_vl":
@@ -140,7 +148,6 @@ def _qwen3vl_weights_map_patch():
                     pass
         return prev(
             hf_model,
-            processor,
             model_type=model_type,
             num_layers=num_layers,
             qual_name=qual_name,
