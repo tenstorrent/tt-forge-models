@@ -20,6 +20,20 @@ from ....config import (
 )
 
 
+def _patch_transformers_deepseek_v2_gguf():
+    """Register deepseek_v2 GGUF tokenizer converter missing from this transformers version."""
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    if "deepseek_v2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["deepseek_v2"] = GGUFQwen2Converter
+
+
+_patch_transformers_deepseek_v2_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available GLM 4.7 Flash Ultimate Uncensored Heretic i1 GGUF model variants for causal language modeling."""
 
