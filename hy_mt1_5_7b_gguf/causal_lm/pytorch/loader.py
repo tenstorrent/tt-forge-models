@@ -70,6 +70,23 @@ def _patched_load_gguf_checkpoint(*args, **kwargs):
 
 _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
+_orig_get_gguf_hf_weights_map = _gguf_utils.get_gguf_hf_weights_map
+
+
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
+    if model_type is None:
+        model_type = hf_model.config.model_type
+    if model_type == "hunyuan_v1_dense":
+        model_type = "hunyuan-dense"
+    return _orig_get_gguf_hf_weights_map(
+        hf_model, processor, model_type, num_layers, qual_name
+    )
+
+
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
