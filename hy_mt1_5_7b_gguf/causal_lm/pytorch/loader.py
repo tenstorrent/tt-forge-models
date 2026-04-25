@@ -4,9 +4,33 @@
 """
 HY-MT1.5 7B GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
+import importlib.util
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+
+def _fixed_is_gguf_available(min_version=None):
+    if importlib.util.find_spec("gguf") is None:
+        return False
+    try:
+        gguf_version = importlib.metadata.version("gguf")
+        if min_version is None:
+            import transformers.utils.import_utils as _iu
+
+            min_version = _iu.GGUF_MIN_VERSION
+        from packaging.version import Version
+
+        return Version(gguf_version) >= Version(min_version)
+    except Exception:
+        return False
+
+
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+_gguf_utils.is_gguf_available = _fixed_is_gguf_available
 
 from ....base import ForgeModel
 from ....config import (
