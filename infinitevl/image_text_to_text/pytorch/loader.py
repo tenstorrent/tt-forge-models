@@ -5,7 +5,10 @@
 InfiniteVL model loader implementation for image-text-to-text tasks.
 """
 
-from transformers import AutoModelForCausalLM, AutoProcessor
+import torch
+from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor
+from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
+from transformers.modeling_utils import PreTrainedModel
 from typing import Optional
 
 from ....base import ForgeModel
@@ -18,6 +21,48 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _compute_default_rope_parameters(
+    config=None, device=None, seq_len=None, **rope_kwargs
+):
+    """Default RoPE init removed from transformers>=5; re-add for model compatibility."""
+    rope_theta = config.rope_theta
+    partial_rotary_factor = getattr(config, "partial_rotary_factor", 1.0)
+    head_dim = (
+        getattr(config, "head_dim", None)
+        or config.hidden_size // config.num_attention_heads
+    )
+    dim = int(head_dim * partial_rotary_factor)
+    inv_freq = 1.0 / (
+        rope_theta
+        ** (torch.arange(0, dim, 2, dtype=torch.int64).float().to(device) / dim)
+    )
+    return inv_freq, 1.0
+
+
+if "default" not in ROPE_INIT_FUNCTIONS:
+    ROPE_INIT_FUNCTIONS["default"] = _compute_default_rope_parameters
+
+_original_init_weights = PreTrainedModel._init_weights
+
+
+def _patched_init_weights(self, module):
+    # Inject compute_default_rope_parameters for RotaryEmbedding modules that use
+    # rope_type="default" but predate the transformers>=5 API requiring this method.
+    if (
+        "RotaryEmbedding" in module.__class__.__name__
+        and hasattr(module, "original_inv_freq")
+        and getattr(module, "rope_type", None) == "default"
+        and not hasattr(module, "compute_default_rope_parameters")
+    ):
+        module.compute_default_rope_parameters = (
+            lambda cfg: _compute_default_rope_parameters(cfg)
+        )
+    return _original_init_weights(self, module)
+
+
+PreTrainedModel._init_weights = _patched_init_weights
 
 
 class ModelVariant(StrEnum):
@@ -68,7 +113,25 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        model_kwargs = {"trust_remote_code": True}
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        # pad_token_id is not set in InfiniteVLTextConfig but accessed in model init
+        if hasattr(config, "text_config") and not hasattr(
+            config.text_config, "pad_token_id"
+        ):
+            config.text_config.pad_token_id = None
+        # _tied_weights_keys is a list in this model but new transformers expects a dict;
+        # disabling tie_word_embeddings bypasses the incompatible code path
+        config.tie_word_embeddings = False
+        if hasattr(config, "text_config"):
+            config.text_config.tie_word_embeddings = False
+
+        model_kwargs = {
+            "trust_remote_code": True,
+            "config": config,
+            "attn_implementation": "eager",
+        }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
