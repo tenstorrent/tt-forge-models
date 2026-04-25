@@ -106,6 +106,8 @@ def _patch_transformers_glm4moe_gguf():
 
     if "glm4moe" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["glm4moe"] = GGUFGlm4MoeConverter
+    if "glm4_moe" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["glm4_moe"] = GGUFGlm4MoeConverter
 
     # 4. Patch load_gguf_checkpoint to remap model_type and compute partial_rotary_factor
     orig_load = gguf_utils.load_gguf_checkpoint
