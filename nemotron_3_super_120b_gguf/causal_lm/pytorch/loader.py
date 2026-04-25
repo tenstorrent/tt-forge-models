@@ -125,18 +125,30 @@ class ModelLoader(ForgeModel):
 
         _orig_load = _gguf_utils.load_gguf_checkpoint
 
+        def _first_nonzero(values, default):
+            """Return the first non-zero element from a list, or default."""
+            if isinstance(values, list):
+                non_zero = [v for v in values if v]
+                return non_zero[0] if non_zero else default
+            return values if values is not None else default
+
         def _patched_load_gguf_checkpoint(*args, **kwargs):
             result = _orig_load(*args, **kwargs)
             if result.get("config", {}).get("model_type") == "nemotron_h_moe":
                 result["config"]["model_type"] = "nemotron"
-                # num_key_value_heads may be a per-layer list; NemotronConfig needs a scalar.
-                # SSM/Mamba layers report 0 KV heads, so take the first non-zero value.
-                kv_heads = result["config"].get("num_key_value_heads")
-                if isinstance(kv_heads, list):
-                    non_zero = [h for h in kv_heads if h]
-                    result["config"]["num_key_value_heads"] = (
-                        non_zero[0] if non_zero else 1
-                    )
+                cfg = result["config"]
+                hidden = cfg.get("hidden_size", 7168)
+                # Per-layer lists arise because hybrid SSM/attention layers differ;
+                # NemotronConfig needs scalar values — pick first non-zero.
+                cfg["num_key_value_heads"] = _first_nonzero(
+                    cfg.get("num_key_value_heads"), 1
+                )
+                cfg["num_attention_heads"] = _first_nonzero(
+                    cfg.get("num_attention_heads"), 64
+                )
+                cfg["intermediate_size"] = _first_nonzero(
+                    cfg.get("intermediate_size"), 4 * hidden
+                )
             return result
 
         _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
