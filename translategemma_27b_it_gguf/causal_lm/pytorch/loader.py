@@ -41,7 +41,9 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "translategemma-27b-it.Q4_K_M.gguf"
 
-    sample_text = "What is your favorite city?"
+    sample_text = "The quick brown fox jumps over the lazy dog."
+    source_lang_code = "en"
+    target_lang_code = "fr"
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -112,7 +114,15 @@ class ModelLoader(ForgeModel):
         messages = [
             {
                 "role": "user",
-                "content": self.sample_text,
+                "content": [
+                    {
+                        "type": "text",
+                        "source_lang_code": self.source_lang_code,
+                        "target_lang_code": self.target_lang_code,
+                        "text": self.sample_text,
+                        "image": None,
+                    }
+                ],
             }
         ]
         text = self.tokenizer.apply_chat_template(
