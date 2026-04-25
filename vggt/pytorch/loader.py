@@ -6,6 +6,7 @@ VGGT (Visual Geometry Grounded Transformer) model loader for image-to-3D
 scene inference (camera pose, depth, point maps).
 """
 
+import os
 import torch
 from typing import Optional
 
@@ -59,7 +60,10 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model = VGGT.from_pretrained(pretrained_model_name)
+        if os.environ.get("TT_RANDOM_WEIGHTS"):
+            model = VGGT()
+        else:
+            model = VGGT.from_pretrained(pretrained_model_name)
 
         if dtype_override is not None:
             model = model.to(dtype_override)
