@@ -6,14 +6,22 @@ NVIDIA Nemotron Nano 12B v2 VL NVFP4-QAD model loader implementation for image t
 """
 
 import os
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from typing import Optional
 
 import torch
+import torch.cuda
 import torch.distributed
 from PIL import Image
 from transformers import AutoModel, AutoProcessor
 from transformers.modeling_utils import PreTrainedModel
+
+# The NemotronH Mamba2 naive fallback wraps all block ops in torch.cuda.stream()
+# purely to avoid multi-GPU NaN issues. In non-CUDA environments the context manager
+# itself raises an AssertionError before running any GPU code. Replace it with a no-op.
+if not torch.cuda.is_available():
+    torch.cuda.default_stream = lambda device=None: None
+    torch.cuda.stream = lambda stream: nullcontext()
 
 
 @contextmanager
