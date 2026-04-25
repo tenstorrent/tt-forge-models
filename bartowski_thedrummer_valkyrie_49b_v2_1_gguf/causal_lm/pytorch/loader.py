@@ -5,6 +5,7 @@
 Valkyrie 49B v2.1 GGUF model loader implementation for causal language modeling.
 """
 import torch
+from huggingface_hub import hf_hub_download
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -76,8 +77,6 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
@@ -85,7 +84,12 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+
+        gguf_local_path = hf_hub_download(
+            repo_id=self._variant_config.pretrained_model_name,
+            filename=self.GGUF_FILE,
+        )
+        model_kwargs["gguf_file"] = gguf_local_path
 
         if self.config is None:
             self.load_config()
@@ -95,7 +99,7 @@ class ModelLoader(ForgeModel):
         model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, trust_remote_code=True, **model_kwargs
+            self.ORIGINAL_MODEL_NAME, trust_remote_code=True, **model_kwargs
         ).eval()
 
         self.config = model.config
