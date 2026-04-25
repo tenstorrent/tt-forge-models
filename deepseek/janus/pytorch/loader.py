@@ -140,12 +140,22 @@ class ModelLoader(ForgeModel):
             {"role": "<|Assistant|>", "content": ""},
         ]
 
-        inputs = self.processor(
+        batch = self.processor(
             conversations=conversation, images=[image], force_batchify=True
         )
 
+        # BatchedVLChatProcessorOutput is a DictOutput (no __iter__); extract
+        # only tensor fields into a plain dict so downstream code can use **inputs.
+        inputs = {
+            key: val
+            for key, val in vars(batch).items()
+            if isinstance(val, torch.Tensor)
+        }
+
         if dtype_override:
-            for key in inputs:
-                inputs[key] = cast_input_to_type(inputs[key], dtype_override)
+            inputs = {
+                key: cast_input_to_type(val, dtype_override)
+                for key, val in inputs.items()
+            }
 
         return inputs
