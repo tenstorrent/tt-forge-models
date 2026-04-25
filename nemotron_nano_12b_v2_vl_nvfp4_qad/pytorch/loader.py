@@ -147,6 +147,7 @@ class ModelLoader(ForgeModel):
             text="<image>\nDescribe this image.",
             return_tensors="pt",
         )
+        inputs.pop("num_patches", None)
 
         if batch_size > 1:
             for key, value in inputs.items():
