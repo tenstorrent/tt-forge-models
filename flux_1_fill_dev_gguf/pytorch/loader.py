@@ -85,6 +85,16 @@ class ModelLoader(ForgeModel):
 
     def _load_pipeline(self, dtype: torch.dtype = torch.bfloat16):
         """Load the FluxFillPipeline with a GGUF-quantized transformer."""
+        import importlib.util
+        import sys
+
+        # diffusers caches gguf availability at import time; after dynamic installation
+        # by RequirementsManager, force-refresh the cached flag so load_gguf_checkpoint works.
+        if importlib.util.find_spec("gguf") is not None:
+            diu = sys.modules.get("diffusers.utils.import_utils")
+            if diu is not None and not diu._gguf_available:
+                diu._gguf_available = True
+
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=dtype)
 
