@@ -31,7 +31,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.JAIS_2_8B_CHAT: LLMModelConfig(
-            pretrained_model_name="inceptionai/Jais-2-8B-Chat",
+            pretrained_model_name="Omaratef3221/jais-2-8b-chat-s1-full-aramed",
             max_length=128,
         ),
     }
