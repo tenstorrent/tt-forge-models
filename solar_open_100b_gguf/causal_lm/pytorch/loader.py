@@ -8,6 +8,18 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    get_gguf_hf_weights_map as _orig_get_gguf_hf_weights_map,
+    GGUF_SUPPORTED_ARCHITECTURES,
+    GGUF_TO_TRANSFORMERS_MAPPING,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -18,6 +30,77 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_glm4moe_gguf_support():
+    """Register glm4moe GGUF architecture for Solar-Open-100B.
+
+    Solar-Open-100B uses the GLM4 MoE architecture (glm4moe in GGUF metadata)
+    which is not natively supported in transformers' GGUF loading. We bridge
+    the gap by registering glm4moe config mappings and remapping model_type to
+    solar_open after loading.
+    """
+    if "glm4moe" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["glm4moe"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "embedding_length": "hidden_size",
+        "expert_feed_forward_length": "moe_intermediate_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "attention.key_length": "head_dim",
+        "vocab_size": "vocab_size",
+        "expert_count": "n_routed_experts",
+        "expert_used_count": "num_experts_per_tok",
+        "expert_shared_count": "n_shared_experts",
+    }
+    GGUF_SUPPORTED_ARCHITECTURES.append("glm4moe")
+
+    from transformers.integrations.ggml import GGUFGPTConverter
+
+    if "glm4moe" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["glm4moe"] = GGUFGPTConverter
+    if "solar_open" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["solar_open"] = GGUFGPTConverter
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    _patch_glm4moe_gguf_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
+    if result.get("config", {}).get("model_type") == "glm4moe":
+        result["config"]["model_type"] = "solar_open"
+    return result
+
+
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
+    if model_type is None:
+        model_type = hf_model.config.model_type
+    if model_type == "solar_open":
+        model_type = "glm4moe"
+    return _orig_get_gguf_hf_weights_map(
+        hf_model,
+        processor,
+        model_type=model_type,
+        num_layers=num_layers,
+        qual_name=qual_name,
+    )
+
+
+_patch_glm4moe_gguf_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 
 class ModelVariant(StrEnum):
