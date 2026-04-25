@@ -48,6 +48,7 @@ def load_pony_gguf_pipe(repo_id: str, gguf_filename: str):
     unet = UNet2DConditionModel.from_single_file(
         checkpoint,
         config=SDXL_BASE_MODEL,
+        subfolder="unet",
         quantization_config=quantization_config,
         torch_dtype=torch.float32,
     )
