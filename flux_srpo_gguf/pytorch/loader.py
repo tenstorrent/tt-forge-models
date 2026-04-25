@@ -7,15 +7,18 @@ FLUX-SRPO GGUF model loader implementation for text-to-image generation.
 This loader uses GGUF-quantized variants of the FLUX-SRPO model published
 in MonsterMMORPG/Wan_GGUF. FLUX-SRPO is a Stepwise Relative Preference
 Optimization fine-tune of FLUX.1-dev. The GGUF transformer is loaded via
-diffusers' FluxTransformer2DModel.from_single_file and plugged into a
-FluxPipeline built from the original black-forest-labs/FLUX.1-dev
-repository.
+diffusers' FluxTransformer2DModel.from_single_file with a locally-materialised
+config to avoid the gated black-forest-labs/FLUX.1-dev and FLUX.1-Depth-dev
+repos. Synthetic inputs are generated from the transformer config.
 """
 
+import json
+import os
+import tempfile
 from typing import Optional
 
 import torch
-from diffusers import FluxPipeline, FluxTransformer2DModel, GGUFQuantizationConfig
+from diffusers import FluxTransformer2DModel, GGUFQuantizationConfig
 from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
@@ -30,7 +33,23 @@ from ...config import (
 )
 
 GGUF_REPO = "MonsterMMORPG/Wan_GGUF"
-BASE_REPO = "black-forest-labs/FLUX.1-dev"
+
+# Standard FLUX.1-dev transformer architecture; FLUX-SRPO is a dev fine-tune
+# so it uses guidance_embeds=True (classifier-free guidance distillation).
+_TRANSFORMER_CONFIG = {
+    "_class_name": "FluxTransformer2DModel",
+    "_diffusers_version": "0.37.1",
+    "attention_head_dim": 128,
+    "axes_dims_rope": [16, 56, 56],
+    "guidance_embeds": True,
+    "in_channels": 64,
+    "joint_attention_dim": 4096,
+    "num_attention_heads": 24,
+    "num_layers": 19,
+    "num_single_layers": 38,
+    "patch_size": 1,
+    "pooled_projection_dim": 768,
+}
 
 
 class ModelVariant(StrEnum):
@@ -61,7 +80,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipe = None
+        self.transformer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -76,26 +95,31 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _make_local_config_dir(self):
+        """Materialise a transformer/config.json so from_single_file can locate it."""
+        config_dir = tempfile.mkdtemp()
+        transformer_dir = os.path.join(config_dir, "transformer")
+        os.makedirs(transformer_dir, exist_ok=True)
+        with open(os.path.join(transformer_dir, "config.json"), "w") as f:
+            json.dump(_TRANSFORMER_CONFIG, f)
+        return config_dir
+
     def _load_pipeline(self, dtype: torch.dtype = torch.bfloat16):
-        """Load the FluxPipeline with a GGUF-quantized transformer."""
+        """Load the GGUF-quantized FluxTransformer2DModel."""
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=dtype)
+        config_dir = self._make_local_config_dir()
 
         gguf_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
-        transformer = FluxTransformer2DModel.from_single_file(
+        self.transformer = FluxTransformer2DModel.from_single_file(
             gguf_path,
+            config=config_dir,
+            subfolder="transformer",
             quantization_config=quantization_config,
             torch_dtype=dtype,
         )
 
-        self.pipe = FluxPipeline.from_pretrained(
-            BASE_REPO,
-            transformer=transformer,
-            torch_dtype=dtype,
-            use_safetensors=True,
-        )
-
-        return self.pipe
+        return self.transformer
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the GGUF-quantized FLUX-SRPO transformer.
@@ -104,78 +128,38 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The FLUX-SRPO transformer model instance.
         """
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        if self.pipe is None:
+        if self.transformer is None:
             self._load_pipeline(dtype)
         elif dtype_override is not None:
-            self.pipe.transformer = self.pipe.transformer.to(dtype=dtype_override)
-        return self.pipe.transformer
+            self.transformer = self.transformer.to(dtype=dtype_override)
+        return self.transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Prepare sample inputs for the FLUX-SRPO transformer.
+        """Prepare synthetic inputs for the FLUX-SRPO transformer.
 
         Returns:
             dict: Input tensors for the transformer model.
         """
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        if self.pipe is None:
+        if self.transformer is None:
             self._load_pipeline(dtype)
 
+        config = self.transformer.config
         max_sequence_length = 256
-        prompt = "A cat sitting on a windowsill"
         height = 128
         width = 128
+        vae_scale_factor = 8
         num_images_per_prompt = 1
 
-        # CLIP text encoding
-        text_inputs_clip = self.pipe.tokenizer(
-            prompt,
-            padding="max_length",
-            max_length=self.pipe.tokenizer_max_length,
-            truncation=True,
-            return_tensors="pt",
-        )
-        pooled_prompt_embeds = self.pipe.text_encoder(
-            text_inputs_clip.input_ids, output_hidden_states=False
-        ).pooler_output
-        pooled_prompt_embeds = pooled_prompt_embeds.to(dtype=dtype)
-        pooled_prompt_embeds = pooled_prompt_embeds.repeat(
-            batch_size, num_images_per_prompt
-        )
-        pooled_prompt_embeds = pooled_prompt_embeds.view(
-            batch_size * num_images_per_prompt, -1
-        )
-
-        # T5 text encoding
-        text_inputs_t5 = self.pipe.tokenizer_2(
-            prompt,
-            padding="max_length",
-            max_length=max_sequence_length,
-            truncation=True,
-            return_length=False,
-            return_overflowing_tokens=False,
-            return_tensors="pt",
-        )
-        prompt_embeds = self.pipe.text_encoder_2(
-            text_inputs_t5.input_ids, output_hidden_states=False
-        )[0]
-        prompt_embeds = prompt_embeds.to(dtype=dtype)
-        _, seq_len_t5, _ = prompt_embeds.shape
-        prompt_embeds = prompt_embeds.repeat(batch_size, num_images_per_prompt, 1)
-        prompt_embeds = prompt_embeds.view(
-            batch_size * num_images_per_prompt, seq_len_t5, -1
-        )
-
-        text_ids = torch.zeros(prompt_embeds.shape[1], 3).to(dtype=dtype)
-
         # Latent dimensions
-        height_latent = 2 * (int(height) // (self.pipe.vae_scale_factor * 2))
-        width_latent = 2 * (int(width) // (self.pipe.vae_scale_factor * 2))
+        height_latent = 2 * (int(height) // (vae_scale_factor * 2))
+        width_latent = 2 * (int(width) // (vae_scale_factor * 2))
         seq_len = (height_latent // 2) * (width_latent // 2)
 
         # FLUX packs 2x2 spatial patches, so the channel dim is
         # num_channels_latents * 4, matching the transformer's in_channels.
-        num_channels_latents = self.pipe.transformer.config.in_channels // 4
+        num_channels_latents = config.in_channels // 4
         latents = torch.randn(
             batch_size * num_images_per_prompt,
             seq_len,
@@ -191,6 +175,20 @@ class ModelLoader(ForgeModel):
             latent_image_ids[..., 2] + torch.arange(width_latent // 2)[None, :]
         )
         latent_image_ids = latent_image_ids.reshape(-1, 3).to(dtype=dtype)
+
+        # Synthetic text embeddings (no text encoders needed for compile-only testing)
+        pooled_prompt_embeds = torch.randn(
+            batch_size * num_images_per_prompt,
+            config.pooled_projection_dim,
+            dtype=dtype,
+        )
+        prompt_embeds = torch.randn(
+            batch_size * num_images_per_prompt,
+            max_sequence_length,
+            config.joint_attention_dim,
+            dtype=dtype,
+        )
+        text_ids = torch.zeros(max_sequence_length, 3, dtype=dtype)
 
         # FLUX.1-dev uses classifier-free guidance distillation
         guidance = torch.tensor([3.5], dtype=dtype).expand(
