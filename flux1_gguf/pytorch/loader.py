@@ -11,6 +11,7 @@ Repository:
 - https://huggingface.co/calcuis/flux1-gguf
 """
 import json
+import os
 import tempfile
 import torch
 from diffusers import FluxTransformer2DModel, GGUFQuantizationConfig
