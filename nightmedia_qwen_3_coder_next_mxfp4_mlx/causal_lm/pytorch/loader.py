@@ -85,17 +85,20 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        # Strip MLX quantization config which lacks the `quant_method` field
-        # that transformers requires; load weights in standard float format instead.
+        # Remove the MLX quantization_config — it lacks `quant_method` so
+        # transformers raises ValueError (pre_quantized=True but no known method).
+        # Deleting the attribute makes hasattr() return False, bypassing the check.
+        # Use ignore_mismatched_sizes so the packed MXFP4 weights in the checkpoint
+        # (different shapes) are skipped and layers fall back to random init.
         config = AutoConfig.from_pretrained(pretrained_model_name)
         if hasattr(config, "quantization_config"):
-            config.quantization_config = None
+            del config.quantization_config
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
         model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
