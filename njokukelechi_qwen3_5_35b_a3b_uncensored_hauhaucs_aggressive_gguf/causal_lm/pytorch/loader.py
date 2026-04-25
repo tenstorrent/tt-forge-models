@@ -21,6 +21,43 @@ from ....config import (
 )
 
 
+def _apply_qwen35moe_weights_map_alias_fix(gguf_utils):
+    """Ensure get_gguf_hf_weights_map adds ffn_gate/up_exps aliases for qwen35moe.
+
+    qwen35moe GGUF files store gate and up projections as separate
+    ffn_gate_exps/ffn_up_exps tensors, but gguf-py's get_tensor_name_map
+    returns ffn_gate_up_exps (packed). This fix adds per-type aliases so the
+    MoE tensor processor can correctly interleave them into gate_up_proj.
+
+    Uses a marker attribute for idempotency so it is safe to call multiple times.
+    """
+    current_fn = gguf_utils.get_gguf_hf_weights_map
+    if getattr(current_fn, "_qwen35moe_alias_fixed", False):
+        return
+    orig_fn = current_fn
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        effective_type = model_type
+        if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
+            effective_type = "qwen35moe"
+        result = orig_fn(hf_model, processor, effective_type, num_layers, qual_name)
+        if effective_type == "qwen35moe":
+            extra = {}
+            for key, val in result.items():
+                if "ffn_gate_up_exps" in key:
+                    extra[key.replace("ffn_gate_up_exps", "ffn_gate_exps")] = val
+                    extra[key.replace("ffn_gate_up_exps", "ffn_up_exps")] = val
+            result.update(extra)
+        return result
+
+    patched_get_gguf_hf_weights_map._qwen35moe_alias_fixed = True
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+
 def _patch_transformers_qwen35moe_gguf():
     """Monkey-patch transformers to add qwen35moe GGUF architecture support.
 
@@ -35,8 +72,12 @@ def _patch_transformers_qwen35moe_gguf():
     )
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
 
+    # Always apply the alias fix regardless of whether qwen35moe was already
+    # registered by another loader — earlier loaders lack this fix.
+    _apply_qwen35moe_weights_map_alias_fix(gguf_utils)
+
     if "qwen35moe" in GGUF_SUPPORTED_ARCHITECTURES:
-        return  # Already patched
+        return  # Architecture already registered by another loader
 
     # 1. Register qwen35moe as a supported architecture
     GGUF_SUPPORTED_ARCHITECTURES.append("qwen35moe")
@@ -102,34 +143,6 @@ def _patch_transformers_qwen35moe_gguf():
     for mod in (tok_auto, config_utils, modeling_utils):
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
-
-    # 6. Patch get_gguf_hf_weights_map to handle qwen3_5_moe_text -> qwen35moe
-    orig_get_map = gguf_utils.get_gguf_hf_weights_map
-
-    def patched_get_gguf_hf_weights_map(
-        hf_model, processor, model_type=None, num_layers=None, qual_name=""
-    ):
-        if model_type is None:
-            model_type = hf_model.config.model_type
-        effective_type = model_type
-        if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
-            effective_type = "qwen35moe"
-        result = orig_get_map(
-            hf_model, processor, effective_type, num_layers, qual_name
-        )
-        if effective_type == "qwen35moe":
-            # qwen35moe GGUF files use separate ffn_gate_exps/ffn_up_exps tensors
-            # but gguf-py's get_tensor_name_map emits ffn_gate_up_exps (packed).
-            # Add aliases so the MoE tensor processor can find gate/up separately.
-            extra = {}
-            for key, val in result.items():
-                if "ffn_gate_up_exps" in key:
-                    extra[key.replace("ffn_gate_up_exps", "ffn_gate_exps")] = val
-                    extra[key.replace("ffn_gate_up_exps", "ffn_up_exps")] = val
-            result.update(extra)
-        return result
-
-    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
 
 
 # Apply the monkey-patch at import time
