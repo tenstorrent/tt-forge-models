@@ -5,6 +5,12 @@
 Mistral Small 4 119B 2603 GGUF model loader implementation for causal language modeling.
 """
 
+import os
+
+# Disable hf-xet download backend: xet produces sparse files that cause tensor
+# reshape errors when loading GGUF models of this size.
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+
 from typing import Optional
 
 import torch
