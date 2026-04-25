@@ -1,0 +1,2 @@
+# torchao is installed via requirements.nodeps.txt to avoid pip resolver hangs
+# quasar is stubbed inline by the loader (proprietary package, not on PyPI)
