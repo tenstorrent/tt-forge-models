@@ -5,9 +5,32 @@
 NVIDIA Nemotron Nano 12B v2 VL NVFP4-QAD model loader implementation for image to text.
 """
 
+from contextlib import contextmanager
+
 from transformers import AutoModel, AutoProcessor
+from transformers.modeling_utils import PreTrainedModel
 from PIL import Image
 from typing import Optional
+
+
+@contextmanager
+def _patch_tied_keys_for_missing_post_init():
+    """Handle trust_remote_code models that don't call post_init(), leaving all_tied_weights_keys unset."""
+    orig = PreTrainedModel._adjust_tied_keys_with_tied_pointers
+
+    def patched(self, *args, **kwargs):
+        if not hasattr(self, "all_tied_weights_keys"):
+            self.all_tied_weights_keys = self.get_expanded_tied_weights_keys(
+                all_submodels=False
+            )
+        return orig(self, *args, **kwargs)
+
+    PreTrainedModel._adjust_tied_keys_with_tied_pointers = patched
+    try:
+        yield
+    finally:
+        PreTrainedModel._adjust_tied_keys_with_tied_pointers = orig
+
 
 from ...tools.utils import get_file
 from ...base import ForgeModel
@@ -101,7 +124,8 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        with _patch_tied_keys_for_missing_post_init():
+            model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
 
         return model
