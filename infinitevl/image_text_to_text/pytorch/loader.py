@@ -5,8 +5,27 @@
 InfiniteVL model loader implementation for image-text-to-text tasks.
 """
 
-from transformers import AutoModelForCausalLM, AutoProcessor
+import torch
+from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor
+from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
 from typing import Optional
+
+
+def _compute_default_rope_parameters(config=None, device=None, seq_len=None, **kwargs):
+    head_dim = (
+        getattr(config, "head_dim", None)
+        or config.hidden_size // config.num_attention_heads
+    )
+    theta = getattr(config, "rope_theta", 10000.0)
+    inv_freq = 1.0 / (
+        theta ** (torch.arange(0, head_dim, 2, dtype=torch.int64).float() / head_dim)
+    )
+    if device is not None:
+        inv_freq = inv_freq.to(device)
+    return inv_freq, 1.0
+
+
+ROPE_INIT_FUNCTIONS.setdefault("default", _compute_default_rope_parameters)
 
 from ....base import ForgeModel
 from ....config import (
@@ -73,8 +92,16 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        if hasattr(config, "text_config") and not hasattr(
+            config.text_config, "pad_token_id"
+        ):
+            config.text_config.pad_token_id = None
+
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, config=config, **model_kwargs
         )
         model.eval()
 
