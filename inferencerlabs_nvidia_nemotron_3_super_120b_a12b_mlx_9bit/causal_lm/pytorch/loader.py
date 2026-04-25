@@ -92,7 +92,7 @@ class ModelLoader(ForgeModel):
         if hasattr(config, "quantization_config") and not hasattr(
             config.quantization_config, "quant_method"
         ):
-            config.quantization_config = None
+            delattr(config, "quantization_config")
 
         if self.num_layers is not None:
             if hasattr(config, "text_config"):
