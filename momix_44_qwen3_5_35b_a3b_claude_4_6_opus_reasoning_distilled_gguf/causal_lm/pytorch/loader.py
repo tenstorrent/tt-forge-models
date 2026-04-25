@@ -176,6 +176,14 @@ class ModelLoader(ForgeModel):
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
+        # GGUF tokenizer conversion may not extract chat_template; fall back to
+        # loading it from the repo's tokenizer_config.json without gguf_file.
+        if self.tokenizer.chat_template is None:
+            fallback = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name
+            )
+            self.tokenizer.chat_template = fallback.chat_template
+
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
