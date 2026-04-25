@@ -23,9 +23,10 @@ BASE_SDXL_PIPELINE = "stabilityai/stable-diffusion-xl-base-1.0"
 def load_pony_gguf_pipe(repo_id: str, gguf_filename: str):
     """Load an SDXL-based pipeline from a GGUF UNet checkpoint.
 
-    The GGUF file contains only the UNet weights; the remaining pipeline
-    components (text encoders, VAE, scheduler) are loaded from the base
-    SDXL-1.0 checkpoint.
+    The GGUF file uses ComfyUI-style key names (input_blocks.*, time_embed.*,
+    etc.) without the model.diffusion_model. prefix that diffusers expects.
+    We add the prefix manually so diffusers' key conversion works, then load
+    the rest of the pipeline from the base SDXL-1.0 checkpoint.
 
     Args:
         repo_id: HuggingFace repository ID for the GGUF UNet.
@@ -34,11 +35,18 @@ def load_pony_gguf_pipe(repo_id: str, gguf_filename: str):
     Returns:
         StableDiffusionXLPipeline: Loaded pipeline with components set to eval mode.
     """
+    from diffusers.models.model_loading_utils import load_gguf_checkpoint
+
     model_path = hf_hub_download(repo_id=repo_id, filename=gguf_filename)
     quantization_config = GGUFQuantizationConfig(compute_dtype=torch.float32)
 
+    raw_ckpt = load_gguf_checkpoint(model_path, return_tensors=True)
+    prefixed_ckpt = {f"model.diffusion_model.{k}": v for k, v in raw_ckpt.items()}
+
     unet = UNet2DConditionModel.from_single_file(
-        model_path,
+        prefixed_ckpt,
+        config=BASE_SDXL_PIPELINE,
+        subfolder="unet",
         quantization_config=quantization_config,
         torch_dtype=torch.float32,
     )
