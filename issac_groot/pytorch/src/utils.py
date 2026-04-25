@@ -3919,7 +3919,8 @@ class FlowmatchingActionHead(nn.Module):
             )
             nn.init.normal_(self.position_embedding.weight, mean=0.0, std=0.02)
 
-        self.beta_dist = Beta(config.noise_beta_alpha, config.noise_beta_beta)
+        self._beta_alpha = config.noise_beta_alpha
+        self._beta_beta = config.noise_beta_beta
         self.num_timestep_buckets = config.num_timestep_buckets
         self.config = config
         self.set_trainable_parameters(
@@ -3968,7 +3969,8 @@ class FlowmatchingActionHead(nn.Module):
                 self.model.eval()
 
     def sample_time(self, batch_size, device, dtype):
-        sample = self.beta_dist.sample([batch_size]).to(dtype=dtype)
+        beta_dist = Beta(self._beta_alpha, self._beta_beta)
+        sample = beta_dist.sample([batch_size]).to(dtype=dtype)
         return (self.config.noise_s - sample) / self.config.noise_s
 
     def prepare_input(self, batch: dict) -> BatchFeature:
