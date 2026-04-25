@@ -4,11 +4,13 @@
 """
 GLM-5 FP8 model loader implementation for causal language modeling.
 """
-import sys
-import types
+import json
+import os
 from typing import Optional
 
 import torch
+from huggingface_hub import snapshot_download
+from safetensors.torch import load_file
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
@@ -23,19 +25,30 @@ from ....config import (
 )
 
 
-def _stub_triton():
-    """Stub triton so FP8 model loading doesn't fail on CPU (GPU kernels are never called)."""
-    if "triton" not in sys.modules:
-        _tl = types.SimpleNamespace(constexpr=int)
-        _triton = types.SimpleNamespace(
-            jit=lambda fn=None, **kw: (fn if fn else lambda f: f),
-            language=_tl,
-            cdiv=lambda x, y: (x + y - 1) // y,
-            autotune=lambda *a, **kw: (lambda f: f),
-            heuristics=lambda *a, **kw: (lambda f: f),
+def _load_fp8_weights(model_dir: str, target_dtype: torch.dtype) -> dict:
+    """Load safetensors shards, converting float8 tensors to target_dtype."""
+    index_file = os.path.join(model_dir, "model.safetensors.index.json")
+    if os.path.exists(index_file):
+        with open(index_file) as f:
+            index = json.load(f)
+        shard_files = sorted(set(index["weight_map"].values()))
+    else:
+        shard_files = sorted(
+            f for f in os.listdir(model_dir) if f.endswith(".safetensors")
         )
-        sys.modules["triton"] = _triton
-        sys.modules["triton.language"] = _tl
+
+    state_dict = {}
+    for fname in shard_files:
+        shard = load_file(os.path.join(model_dir, fname), device="cpu")
+        for key, tensor in shard.items():
+            if tensor.is_floating_point() and tensor.dtype not in (
+                torch.float32,
+                torch.float16,
+                torch.bfloat16,
+            ):
+                tensor = tensor.to(target_dtype)
+            state_dict[key] = tensor
+    return state_dict
 
 
 class ModelVariant(StrEnum):
@@ -89,31 +102,31 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        # Stub triton before transformers imports finegrained_fp8.py (no triton on CPU)
-        _stub_triton()
-
         pretrained_model_name = self._variant_config.pretrained_model_name
+        target_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        model_kwargs = {"trust_remote_code": True}
-        if dtype_override is not None:
-            model_kwargs["dtype"] = dtype_override
+        # Load config and strip FP8 quantization to bypass triton dependency on CPU
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        config.quantization_config = None
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
 
-        model_kwargs |= kwargs
+        # Create model from config with no quantization (random weights)
+        model = AutoModelForCausalLM.from_config(config, trust_remote_code=True)
+        model = model.to(target_dtype)
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        # Download (or find cached) model files and load weights, converting float8 to target_dtype
+        model_dir = snapshot_download(pretrained_model_name)
+        state_dict = _load_fp8_weights(model_dir, target_dtype)
+        model.load_state_dict(state_dict, strict=False)
 
+        model = model.eval()
         self.config = model.config
         self.model = model
         return model
