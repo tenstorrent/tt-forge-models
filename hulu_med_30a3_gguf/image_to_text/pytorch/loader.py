@@ -17,6 +17,7 @@ from transformers.modeling_gguf_pytorch_utils import (
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 from transformers import (
     Qwen3VLMoeForConditionalGeneration,
+    Qwen3VLMoeConfig,
     AutoProcessor,
 )
 from typing import Optional
@@ -121,6 +122,8 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    BASE_MODEL = "ZJU-AI4H/Hulu-Med-30A3"
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -133,11 +136,17 @@ class ModelLoader(ForgeModel):
 
         # GGUF repos do not ship a processor; use the base model
         self.processor = AutoProcessor.from_pretrained(
-            "ZJU-AI4H/Hulu-Med-30A3", trust_remote_code=True
+            self.BASE_MODEL, trust_remote_code=True
+        )
+
+        # Load full config from the base model so that vision_config.out_hidden_size
+        # matches the text model hidden size (GGUF metadata only covers text params).
+        config = Qwen3VLMoeConfig.from_pretrained(
+            self.BASE_MODEL, trust_remote_code=True
         )
 
         model = Qwen3VLMoeForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, config=config, **model_kwargs
         )
         model.eval()
 
