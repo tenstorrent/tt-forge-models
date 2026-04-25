@@ -14,6 +14,7 @@ from diffusers import (
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
     retrieve_timesteps,
 )
+from huggingface_hub import hf_hub_download
 from typing import Optional, Tuple
 
 BASE_SDXL_PIPELINE = "stabilityai/stable-diffusion-xl-base-1.0"
@@ -33,10 +34,11 @@ def load_pony_gguf_pipe(repo_id: str, gguf_filename: str):
     Returns:
         StableDiffusionXLPipeline: Loaded pipeline with components set to eval mode.
     """
+    model_path = hf_hub_download(repo_id=repo_id, filename=gguf_filename)
     quantization_config = GGUFQuantizationConfig(compute_dtype=torch.float32)
 
     unet = UNet2DConditionModel.from_single_file(
-        f"https://huggingface.co/{repo_id}/resolve/main/{gguf_filename}",
+        model_path,
         quantization_config=quantization_config,
         torch_dtype=torch.float32,
     )
