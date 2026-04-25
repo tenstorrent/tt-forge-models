@@ -60,7 +60,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="ali-vilab/text-to-video-ms-1.7b",
         ),
         ModelVariant.CKPT_MODELSCOPE: ModelConfig(
-            pretrained_model_name="ckpt/ModelScope",
+            pretrained_model_name="damo-vilab/modelscope-damo-text-to-video-synthesis",
         ),
     }
 
