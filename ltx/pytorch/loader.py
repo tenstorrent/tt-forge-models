@@ -21,6 +21,7 @@ Available subfolders:
 - audio_vae: AutoencoderKLLTX2Audio
 """
 
+import os
 from typing import Any, Optional
 
 import torch
@@ -120,41 +121,56 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _use_random_weights(self) -> bool:
+        return bool(
+            os.environ.get("TT_RANDOM_WEIGHTS")
+            or os.environ.get("TT_COMPILE_ONLY_SYSTEM_DESC")
+        )
+
     def _load_fp8_transformer(self, dtype: torch.dtype) -> LTX2VideoTransformer3DModel:
         """Load the FP8 transformer directly from a single safetensors file."""
-        self._transformer = LTX2VideoTransformer3DModel.from_single_file(
-            FP8_CHECKPOINT_URL,
-            torch_dtype=dtype,
-            cross_attn_mod=True,
-            audio_cross_attn_mod=True,
-            low_cpu_mem_usage=False,
-        )
+        if self._use_random_weights():
+            self._transformer = LTX2VideoTransformer3DModel().to(dtype)
+        else:
+            self._transformer = LTX2VideoTransformer3DModel.from_single_file(
+                FP8_CHECKPOINT_URL,
+                torch_dtype=dtype,
+                cross_attn_mod=True,
+                audio_cross_attn_mod=True,
+                low_cpu_mem_usage=False,
+            )
         return self._transformer
 
     def _load_nvfp4_transformer(
         self, dtype: torch.dtype
     ) -> LTX2VideoTransformer3DModel:
         """Load the NVFP4 transformer directly from a single safetensors file."""
-        self._transformer = LTX2VideoTransformer3DModel.from_single_file(
-            NVFP4_CHECKPOINT_URL,
-            torch_dtype=dtype,
-            cross_attn_mod=True,
-            audio_cross_attn_mod=True,
-            low_cpu_mem_usage=False,
-        )
+        if self._use_random_weights():
+            self._transformer = LTX2VideoTransformer3DModel().to(dtype)
+        else:
+            self._transformer = LTX2VideoTransformer3DModel.from_single_file(
+                NVFP4_CHECKPOINT_URL,
+                torch_dtype=dtype,
+                cross_attn_mod=True,
+                audio_cross_attn_mod=True,
+                low_cpu_mem_usage=False,
+            )
         return self._transformer
 
     def _load_cosmicvibez_transformer(
         self, dtype: torch.dtype
     ) -> LTX2VideoTransformer3DModel:
         """Load the Cosmicvibez LTX-2.3 distilled transformer from a single safetensors file."""
-        self._transformer = LTX2VideoTransformer3DModel.from_single_file(
-            COSMICVIBEZ_CHECKPOINT_URL,
-            torch_dtype=dtype,
-            cross_attn_mod=True,
-            audio_cross_attn_mod=True,
-            low_cpu_mem_usage=False,
-        )
+        if self._use_random_weights():
+            self._transformer = LTX2VideoTransformer3DModel().to(dtype)
+        else:
+            self._transformer = LTX2VideoTransformer3DModel.from_single_file(
+                COSMICVIBEZ_CHECKPOINT_URL,
+                torch_dtype=dtype,
+                cross_attn_mod=True,
+                audio_cross_attn_mod=True,
+                low_cpu_mem_usage=False,
+            )
         return self._transformer
 
     def _load_pipeline(self, dtype: torch.dtype) -> LTX2Pipeline:
