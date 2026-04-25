@@ -5,7 +5,7 @@
 skkwowee/Qwen3.5-27B-bnb-4bit model loader implementation for image to text.
 """
 
-from transformers import AutoModelForImageTextToText, AutoProcessor
+from transformers import AutoConfig, AutoModelForImageTextToText, AutoProcessor
 from typing import Optional
 
 from ....base import ForgeModel
@@ -61,6 +61,12 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        if hasattr(config, "quantization_config"):
+            delattr(config, "quantization_config")
+        model_kwargs["config"] = config
+        model_kwargs["ignore_mismatched_sizes"] = True
 
         model_kwargs |= kwargs
 
