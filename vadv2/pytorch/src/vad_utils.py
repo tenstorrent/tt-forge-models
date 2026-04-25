@@ -46,10 +46,15 @@ def multi_scale_deformable_attn_pytorch(
     bs, _, num_heads, embed_dims = value.shape
     _, num_queries, num_heads, num_levels, num_points, _ = sampling_locations.shape
 
-    # Use tensor_split with tensor indices to avoid .item() / graph breaks
-    split_sizes = value_spatial_shapes[:, 0] * value_spatial_shapes[:, 1]
-    split_indices = torch.cumsum(split_sizes, 0)[:-1].to(torch.long)
-    value_list = list(torch.tensor_split(value, split_indices, dim=1))
+    # Use tensor_split with tensor indices to avoid .item() / graph breaks.
+    # Single-level case: cumsum[:-1] is empty; tensor_split(..., empty indices)
+    n_spatial_levels = value_spatial_shapes.size(0)
+    if n_spatial_levels <= 1:
+        value_list = [value]
+    else:
+        split_sizes = value_spatial_shapes[:, 0] * value_spatial_shapes[:, 1]
+        split_indices = torch.cumsum(split_sizes, 0)[:-1].to(torch.long)
+        value_list = list(torch.tensor_split(value, split_indices, dim=1))
 
     if spatial_shapes_ints is None:
         # Fallback: convert to ints (causes graph break from .item())

@@ -10,6 +10,7 @@ import inspect
 import os
 import warnings
 from abc import ABC, abstractmethod
+from dataclasses import replace
 from typing import Dict, Optional, Union, Type, Any
 
 from .config import ModelConfig, ModelInfo, StrEnum
@@ -115,16 +116,23 @@ class ForgeModel(ABC):
     def get_model_info(cls, variant: Optional[StrEnum] = None) -> ModelInfo:
         """Get model information for dashboard and metrics reporting.
 
+        Automatically populates model_name_clean from the variant's pretrained_model_name
+        when the loader uses the _VARIANTS system.
+
         Args:
             variant: Optional StrEnum specifying which variant to get info for.
                      If None, DEFAULT_VARIANT is used.
-
 
         Returns:
             ModelInfo: Information about the model and variant
         """
         variant_enum = cls._validate_variant(variant)
-        return cls._get_model_info(variant_enum)
+        info = cls._get_model_info(variant_enum)
+        if info.model_name_clean is None:
+            config = cls.get_variant_config(variant_enum)
+            if config is not None:
+                info = replace(info, model_name_clean=config.model_name_clean)
+        return info
 
     @classmethod
     @abstractmethod
