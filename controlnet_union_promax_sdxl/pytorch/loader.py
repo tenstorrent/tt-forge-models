@@ -67,13 +67,13 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the ControlNet Union ProMax SDXL pipeline.
+        """Load and return the UNet from the ControlNet Union ProMax SDXL pipeline.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            StableDiffusionXLControlNetUnionPipeline: The pipeline instance.
+            torch.nn.Module: The UNet model used for denoising.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -82,24 +82,20 @@ class ModelLoader(ForgeModel):
         )
 
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            self.pipeline.unet = self.pipeline.unet.to(dtype_override)
+        else:
+            self.pipeline.unet = self.pipeline.unet.float()
 
-        return self.pipeline
+        return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the ControlNet Union ProMax SDXL model.
+        """Load and return sample inputs for the ControlNet Union ProMax SDXL UNet.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
 
         Returns:
-            List: Input tensors for the UNet with ControlNet residuals:
-                - latent_model_input (torch.Tensor)
-                - timestep (torch.Tensor)
-                - prompt_embeds (torch.Tensor)
-                - added_cond_kwargs (dict)
-                - down_block_additional_residuals (tuple of torch.Tensor)
-                - mid_block_additional_residual (torch.Tensor)
+            dict: Keyword arguments for the UNet forward method.
         """
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
@@ -117,16 +113,26 @@ class ModelLoader(ForgeModel):
             self.pipeline, self.prompt, control_image
         )
 
-        if dtype_override:
-            latent_model_input = latent_model_input.to(dtype_override)
-            timesteps = timesteps.to(dtype_override)
-            prompt_embeds = prompt_embeds.to(dtype_override)
+        timestep = timesteps[0]
 
-        return [
-            latent_model_input,
-            timesteps,
-            prompt_embeds,
-            added_cond_kwargs,
-            down_block_additional_residuals,
-            mid_block_additional_residual,
-        ]
+        target_dtype = dtype_override if dtype_override else torch.float32
+        latent_model_input = latent_model_input.to(target_dtype)
+        timestep = timestep.to(target_dtype)
+        prompt_embeds = prompt_embeds.to(target_dtype)
+        added_cond_kwargs = {
+            k: v.to(target_dtype) if isinstance(v, torch.Tensor) else v
+            for k, v in added_cond_kwargs.items()
+        }
+        down_block_additional_residuals = tuple(
+            r.to(target_dtype) for r in down_block_additional_residuals
+        )
+        mid_block_additional_residual = mid_block_additional_residual.to(target_dtype)
+
+        return {
+            "sample": latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "added_cond_kwargs": added_cond_kwargs,
+            "down_block_additional_residuals": down_block_additional_residuals,
+            "mid_block_additional_residual": mid_block_additional_residual,
+        }
