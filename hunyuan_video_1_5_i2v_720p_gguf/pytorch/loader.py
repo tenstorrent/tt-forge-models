@@ -155,15 +155,18 @@ class ModelLoader(ForgeModel):
             HunyuanVideo15Transformer3DModel,
         )
         from diffusers.loaders.single_file_model import SINGLE_FILE_LOADABLE_CLASSES
-        from diffusers.loaders.single_file_utils import (
-            convert_hunyuan_video_transformer_to_diffusers,
-        )
 
         # HunyuanVideo15Transformer3DModel is not yet in SINGLE_FILE_LOADABLE_CLASSES
         # in diffusers 0.37.x; patch it in so from_single_file works.
+        # The GGUF file uses diffusers-format keys (quantized from the
+        # hunyuanvideo-community diffusers repo), so a pass-through mapping
+        # is correct.  The v1.0 convert_hunyuan_video_transformer_to_diffusers
+        # function would silently drop v1.5 I2V-specific params (image_embedder,
+        # cond_type_embed, context_embedder_2), leaving them on meta and
+        # causing dispatch_model to fail.
         if "HunyuanVideo15Transformer3DModel" not in SINGLE_FILE_LOADABLE_CLASSES:
             SINGLE_FILE_LOADABLE_CLASSES["HunyuanVideo15Transformer3DModel"] = {
-                "checkpoint_mapping_fn": convert_hunyuan_video_transformer_to_diffusers,
+                "checkpoint_mapping_fn": lambda checkpoint, **kwargs: checkpoint,
                 "default_subfolder": "transformer",
             }
 
