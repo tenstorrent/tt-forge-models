@@ -131,6 +131,21 @@ try:
 except Exception:
     pass
 
+# patched_load_gguf_checkpoint renames config["model_type"] from "deepseek2" to
+# "deepseek_v2", but GGUF_TO_FAST_CONVERTERS only has "deepseek2".
+# tokenization_utils_tokenizers.py uses config["model_type"] as the converter
+# key, so we must register "deepseek_v2" unconditionally (the early-return guard
+# in _patch_transformers_deepseek2_gguf may have prevented this registration).
+try:
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    GGUF_TO_FAST_CONVERTERS.setdefault("deepseek_v2", GGUFQwen2Converter)
+except Exception:
+    pass
+
 
 class ModelVariant(StrEnum):
     """Available GLM-4.7-Flash Uncensored Heretic NEO-CODE Imatrix MAX GGUF variants."""
