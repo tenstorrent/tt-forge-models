@@ -32,6 +32,9 @@ from ...config import (
 
 GGUF_REPO = "jayn7/HunyuanVideo-1.5_I2V_720p-GGUF"
 
+# Config repo for the HunyuanVideo 1.5 I2V transformer architecture.
+HUNYUAN_VIDEO15_CONFIG_REPO = "hunyuanvideo-community/HunyuanVideo-1.5-480p_i2v"
+
 # Small spatial/temporal dimensions for compile-only testing.
 TRANSFORMER_NUM_FRAMES = 4
 TRANSFORMER_HEIGHT = 8
@@ -72,6 +75,117 @@ _GGUF_FILES = {
     ModelVariant.I2V_720P_CFG_DISTILLED_Q6_K: "720p_distilled/hunyuanvideo1.5_720p_i2v_cfg_distilled-Q6_K.gguf",
     ModelVariant.I2V_720P_CFG_DISTILLED_Q8_0: "720p_distilled/hunyuanvideo1.5_720p_i2v_cfg_distilled-Q8_0.gguf",
 }
+
+
+def _convert_hunyuan_video15_transformer_to_diffusers(checkpoint, **kwargs):
+    """Convert original HunyuanVideo 1.5 checkpoint keys to diffusers format.
+
+    Adapted from convert_hunyuan_video_transformer_to_diffusers for the v1.5 I2V
+    architecture which omits single_blocks/guidance_in and adds img_emb/mlp_t5.
+    """
+
+    def remap_norm_scale_shift_(key, state_dict):
+        weight = state_dict.pop(key)
+        shift, scale = weight.chunk(2, dim=0)
+        new_weight = torch.cat([scale, shift], dim=0)
+        state_dict[
+            key.replace("final_layer.adaLN_modulation.1", "norm_out.linear")
+        ] = new_weight
+
+    def remap_txt_in_(key, state_dict):
+        def rename_key(key):
+            new_key = key.replace(
+                "individual_token_refiner.blocks", "token_refiner.refiner_blocks"
+            )
+            new_key = new_key.replace("adaLN_modulation.1", "norm_out.linear")
+            new_key = new_key.replace("txt_in", "context_embedder")
+            new_key = new_key.replace(
+                "t_embedder.mlp.0", "time_text_embed.timestep_embedder.linear_1"
+            )
+            new_key = new_key.replace(
+                "t_embedder.mlp.2", "time_text_embed.timestep_embedder.linear_2"
+            )
+            new_key = new_key.replace("c_embedder", "time_text_embed.text_embedder")
+            new_key = new_key.replace("mlp", "ff")
+            return new_key
+
+        if "self_attn_qkv" in key:
+            weight = state_dict.pop(key)
+            to_q, to_k, to_v = weight.chunk(3, dim=0)
+            state_dict[rename_key(key.replace("self_attn_qkv", "attn.to_q"))] = to_q
+            state_dict[rename_key(key.replace("self_attn_qkv", "attn.to_k"))] = to_k
+            state_dict[rename_key(key.replace("self_attn_qkv", "attn.to_v"))] = to_v
+        else:
+            state_dict[rename_key(key)] = state_dict.pop(key)
+
+    def remap_img_attn_qkv_(key, state_dict):
+        weight = state_dict.pop(key)
+        to_q, to_k, to_v = weight.chunk(3, dim=0)
+        state_dict[key.replace("img_attn_qkv", "attn.to_q")] = to_q
+        state_dict[key.replace("img_attn_qkv", "attn.to_k")] = to_k
+        state_dict[key.replace("img_attn_qkv", "attn.to_v")] = to_v
+
+    def remap_txt_attn_qkv_(key, state_dict):
+        weight = state_dict.pop(key)
+        to_q, to_k, to_v = weight.chunk(3, dim=0)
+        state_dict[key.replace("txt_attn_qkv", "attn.add_q_proj")] = to_q
+        state_dict[key.replace("txt_attn_qkv", "attn.add_k_proj")] = to_k
+        state_dict[key.replace("txt_attn_qkv", "attn.add_v_proj")] = to_v
+
+    TRANSFORMER_KEYS_RENAME_DICT = {
+        "img_in": "x_embedder",
+        "img_emb": "image_embedder",
+        "mlp_t5": "context_embedder_2",
+        "time_in.mlp.0": "time_embed.timestep_embedder.linear_1",
+        "time_in.mlp.2": "time_embed.timestep_embedder.linear_2",
+        "double_blocks": "transformer_blocks",
+        "img_attn_q_norm": "attn.norm_q",
+        "img_attn_k_norm": "attn.norm_k",
+        "img_attn_proj": "attn.to_out.0",
+        "txt_attn_q_norm": "attn.norm_added_q",
+        "txt_attn_k_norm": "attn.norm_added_k",
+        "txt_attn_proj": "attn.to_add_out",
+        "img_mod.linear": "norm1.linear",
+        "img_norm1": "norm1.norm",
+        "img_norm2": "norm2",
+        "img_mlp": "ff",
+        "txt_mod.linear": "norm1_context.linear",
+        "txt_norm1": "norm1.norm",
+        "txt_norm2": "norm2_context",
+        "txt_mlp": "ff_context",
+        "self_attn_proj": "attn.to_out.0",
+        "modulation.linear": "norm.linear",
+        "pre_norm": "norm.norm",
+        "final_layer.norm_final": "norm_out.norm",
+        "final_layer.linear": "proj_out",
+        "fc1": "net.0.proj",
+        "fc2": "net.2",
+        "input_embedder": "proj_in",
+    }
+
+    TRANSFORMER_SPECIAL_KEYS_REMAP = {
+        "txt_in": remap_txt_in_,
+        "img_attn_qkv": remap_img_attn_qkv_,
+        "txt_attn_qkv": remap_txt_attn_qkv_,
+        "final_layer.adaLN_modulation.1": remap_norm_scale_shift_,
+    }
+
+    def update_state_dict_(state_dict, old_key, new_key):
+        state_dict[new_key] = state_dict.pop(old_key)
+
+    for key in list(checkpoint.keys()):
+        new_key = key[:]
+        for replace_key, rename_key in TRANSFORMER_KEYS_RENAME_DICT.items():
+            new_key = new_key.replace(replace_key, rename_key)
+        update_state_dict_(checkpoint, key, new_key)
+
+    for key in list(checkpoint.keys()):
+        for special_key, handler_fn_inplace in TRANSFORMER_SPECIAL_KEYS_REMAP.items():
+            if special_key not in key:
+                continue
+            handler_fn_inplace(key, checkpoint)
+
+    return checkpoint
 
 
 class ModelLoader(ForgeModel):
@@ -123,13 +237,25 @@ class ModelLoader(ForgeModel):
             HunyuanVideo15Transformer3DModel,
         )
 
+        # HunyuanVideo15Transformer3DModel is not yet in SINGLE_FILE_LOADABLE_CLASSES
+        # in diffusers 0.37.1. Patch it in with the v1.5-specific mapping function.
+        import diffusers.loaders.single_file_model as _sfm
+
+        if "HunyuanVideo15Transformer3DModel" not in _sfm.SINGLE_FILE_LOADABLE_CLASSES:
+            _sfm.SINGLE_FILE_LOADABLE_CLASSES["HunyuanVideo15Transformer3DModel"] = {
+                "checkpoint_mapping_fn": _convert_hunyuan_video15_transformer_to_diffusers,
+                "default_subfolder": "transformer",
+            }
+
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         self._transformer = HunyuanVideo15Transformer3DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/resolve/main/{gguf_file}",
+            f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
+            config=HUNYUAN_VIDEO15_CONFIG_REPO,
+            subfolder="transformer",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
