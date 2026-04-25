@@ -8,14 +8,6 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
-# Disable xet-based downloads — the xet client deadlocks on large GGUF files.
-try:
-    import huggingface_hub.constants as _hf_constants
-
-    _hf_constants.HF_HUB_DISABLE_XET = True
-except Exception:
-    pass
-
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
