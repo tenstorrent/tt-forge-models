@@ -33,7 +33,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.QWEN_3_CODER_NEXT_MXFP4_MLX: LLMModelConfig(
-            pretrained_model_name="nightmedia/Qwen3-Coder-Next-mxfp4-mlx",
+            pretrained_model_name="Qwen/Qwen3-Coder-Next",
             max_length=128,
         ),
     }
