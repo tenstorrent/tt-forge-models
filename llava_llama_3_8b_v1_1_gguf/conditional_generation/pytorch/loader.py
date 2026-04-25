@@ -8,7 +8,7 @@ LLaVA-Llama-3-8B-v1.1 GGUF model loader implementation for multimodal conditiona
 from typing import Optional
 
 import torch
-from datasets import load_dataset
+from PIL import Image
 from transformers import LlavaForConditionalGeneration, AutoProcessor, AutoConfig
 
 from ....base import ForgeModel
@@ -121,9 +121,7 @@ class ModelLoader(ForgeModel):
             conversation, padding=True, add_generation_prompt=True
         )
 
-        # Load dataset
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        image = Image.new("RGB", (336, 336), (128, 128, 128))
 
         # Preprocess
         inputs = self.processor(images=image, text=text_prompt, return_tensors="pt")
