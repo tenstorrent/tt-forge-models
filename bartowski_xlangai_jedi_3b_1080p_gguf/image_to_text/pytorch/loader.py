@@ -7,10 +7,17 @@ Bartowski xlangai Jedi-3B-1080p GGUF model loader implementation for image to te
 
 import importlib.metadata
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.utils.import_utils as _import_utils
 from transformers import (
     Qwen2_5_VLForConditionalGeneration,
     AutoProcessor,
+)
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+    GGUF_TO_TRANSFORMERS_MAPPING,
 )
 from typing import Optional
 
@@ -24,6 +31,39 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_qwen2vl_support():
+    """Register qwen2vl GGUF architecture as an alias for qwen2_5_vl.
+
+    Qwen2.5-VL GGUF files declare architecture 'qwen2vl', which transformers
+    does not recognise.  Map its config keys to the qwen2 set (same text
+    backbone) and rewrite model_type to 'qwen2_5_vl' after loading.
+    """
+    if "qwen2vl" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen2vl")
+    for section in GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen2" in GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "qwen2vl",
+                GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen2"],
+            )
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
+    """Wrap load_gguf_checkpoint to add qwen2vl support and fix model_type."""
+    _patch_qwen2vl_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
+    )
+    if result.get("config", {}).get("model_type") == "qwen2vl":
+        result["config"]["model_type"] = "qwen2_5_vl"
+    return result
+
+
+_patch_qwen2vl_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
