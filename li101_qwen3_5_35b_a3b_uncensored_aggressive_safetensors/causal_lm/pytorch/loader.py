@@ -9,6 +9,18 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+try:
+    import transformers.integrations.moe as _moe_module
+
+    _orig_grouped_mm = _moe_module._grouped_mm
+
+    def _patched_grouped_mm(input, weight, offs=None):
+        return _orig_grouped_mm(input.contiguous(), weight.contiguous(), offs=offs)
+
+    _moe_module._grouped_mm = _patched_grouped_mm
+except (ImportError, AttributeError):
+    pass
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
