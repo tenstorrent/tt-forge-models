@@ -256,6 +256,32 @@ class ModelLoader(ForgeModel):
                 except Exception:
                     pass
 
+        # gguf_quantizer.py conditionally imports its utils only when gguf is
+        # available at diffusers import time. Since gguf is installed after
+        # diffusers in this env, those symbols are missing. Inject them now.
+        import diffusers.quantizers.gguf.gguf_quantizer as _gguf_quantizer_mod
+
+        if not hasattr(_gguf_quantizer_mod, "_replace_with_gguf_linear"):
+            import torch as _torch
+            from diffusers.quantizers.gguf.utils import (
+                GGML_QUANT_SIZES,
+                GGUFParameter,
+                _dequantize_gguf_and_restore_linear,
+                _quant_shape_from_byte_shape,
+                _replace_with_gguf_linear,
+            )
+
+            _gguf_quantizer_mod.torch = _torch
+            _gguf_quantizer_mod.GGML_QUANT_SIZES = GGML_QUANT_SIZES
+            _gguf_quantizer_mod.GGUFParameter = GGUFParameter
+            _gguf_quantizer_mod._dequantize_gguf_and_restore_linear = (
+                _dequantize_gguf_and_restore_linear
+            )
+            _gguf_quantizer_mod._quant_shape_from_byte_shape = (
+                _quant_shape_from_byte_shape
+            )
+            _gguf_quantizer_mod._replace_with_gguf_linear = _replace_with_gguf_linear
+
         from diffusers import (
             GGUFQuantizationConfig,
             HunyuanVideo15Transformer3DModel,
