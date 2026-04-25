@@ -75,6 +75,7 @@ def _fix_gguf_version_detection():
     transformers caches PACKAGE_DISTRIBUTION_MAPPING at import time. When gguf
     is installed later, the mapping is stale and version detection falls back to
     gguf.__version__ which doesn't exist, yielding 'N/A' and crashing version.parse.
+    Always clear the is_gguf_available cache so it re-checks after install.
     """
     import transformers.utils.import_utils as _import_utils
 
@@ -82,9 +83,9 @@ def _fix_gguf_version_detection():
         try:
             importlib.metadata.version("gguf")
             _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
-            _import_utils.is_gguf_available.cache_clear()
         except importlib.metadata.PackageNotFoundError:
             pass
+    _import_utils.is_gguf_available.cache_clear()
 
 
 class ModelVariant(StrEnum):
