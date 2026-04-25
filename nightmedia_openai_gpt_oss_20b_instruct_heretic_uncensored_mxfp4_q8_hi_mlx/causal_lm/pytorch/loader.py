@@ -112,11 +112,16 @@ def _load_mlx_weights(model_dir, quant_cfg):
 
     def get_layer_quant(base_name):
         cfg = quant_cfg.get(base_name, {})
-        return (
-            cfg.get("bits", default_bits),
-            cfg.get("mode", default_mode),
-            cfg.get("group_size", default_group_size),
-        )
+        bits = cfg.get("bits", default_bits)
+        group_size = cfg.get("group_size", default_group_size)
+        # MLX omits mode for 8-bit layers; detect from biases tensor presence
+        if "mode" in cfg:
+            mode = cfg["mode"]
+        elif bits == 8 or f"{base_name}.biases" in raw:
+            mode = "affine"
+        else:
+            mode = default_mode
+        return bits, mode, group_size
 
     def dequantize(base_name, weight):
         bits, mode, group_size = get_layer_quant(base_name)
