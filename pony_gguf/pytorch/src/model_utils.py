@@ -5,29 +5,84 @@
 Helper functions for loading GGUF-quantized SDXL-based pony models.
 """
 
+import os
+
 import torch
 from diffusers import (
-    GGUFQuantizationConfig,
     StableDiffusionXLPipeline,
     UNet2DConditionModel,
 )
+from diffusers.loaders.single_file_utils import convert_ldm_unet_checkpoint
 from diffusers.models.model_loading_utils import load_gguf_checkpoint
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
     retrieve_timesteps,
 )
+from diffusers.quantizers.gguf.utils import dequantize_gguf_tensor
 from huggingface_hub import hf_hub_download
 from typing import Optional, Tuple
 
 SDXL_BASE_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
 
+# Shared HF hub cache derived from HF_BRINGUP_ROOT env var.
+# Falls back to None (use HF_HOME default) if not set.
+_HF_BRINGUP_ROOT = os.path.normpath(os.environ.get("HF_BRINGUP_ROOT", ""))
+_SHARED_HF_HUB_CACHE = (
+    os.path.join(_HF_BRINGUP_ROOT, "tt-xla", ".cache", "huggingface", "hub")
+    if _HF_BRINGUP_ROOT and _HF_BRINGUP_ROOT != "."
+    else None
+)
+
+
+def _load_and_fix_gguf_weights(
+    gguf_path: str, unet_config: dict
+) -> dict[str, torch.Tensor]:
+    """Load a ComfyUI-format GGUF checkpoint and return float32 diffusers-key weights.
+
+    GGUF conversion tools from ComfyUI reshape tensors so the innermost dimension
+    is 256 for Q4_0 block alignment, even for F16 tensors.  This function:
+      1. Adds the 'model.diffusion_model.' LDM prefix to ComfyUI keys.
+      2. Converts to diffusers key names via convert_ldm_unet_checkpoint.
+      3. Dequantizes GGUFParameter (Q4_0) tensors to float32.
+      4. Reshapes any tensor whose shape doesn't match the UNet config expectation
+         (pure reshape is safe because both shapes share the same flat data order).
+    """
+    raw = load_gguf_checkpoint(gguf_path)
+    checkpoint = {f"model.diffusion_model.{k}": v for k, v in raw.items()}
+    diffusers_ckpt = convert_ldm_unet_checkpoint(checkpoint, unet_config)
+
+    # Build a reference state dict for expected shapes without downloading weights.
+    with torch.device("meta"):
+        ref_unet = UNet2DConditionModel.from_config(unet_config)
+    ref_sd = ref_unet.state_dict()
+
+    fixed: dict[str, torch.Tensor] = {}
+    for k, v in diffusers_ckpt.items():
+        if k not in ref_sd:
+            continue
+        expected_shape = ref_sd[k].shape
+
+        if hasattr(v, "quant_type"):
+            # GGUFParameter (Q4_0 etc.) – dequantize to float32
+            v_fp = dequantize_gguf_tensor(v).to(torch.float32)
+        else:
+            v_fp = v.to(torch.float32)
+
+        # Fix GGML alignment reshaping: same element count, different layout.
+        if v_fp.shape != expected_shape and v_fp.numel() == expected_shape.numel():
+            v_fp = v_fp.contiguous().view(expected_shape)
+
+        fixed[k] = v_fp
+
+    return fixed
+
 
 def load_pony_gguf_pipe(repo_id: str, gguf_filename: str):
     """Load an SDXL-based pipeline from a GGUF checkpoint.
 
-    The GGUF file uses ComfyUI-style keys (input_blocks.*). We prepend the
-    model.diffusion_model. prefix so that convert_ldm_unet_checkpoint can map
-    them to diffusers format, then inject the quantized UNet into a base SDXL
-    pipeline that provides the text encoders and VAE.
+    The GGUF file uses ComfyUI-style keys (input_blocks.*) and may have tensors
+    reshaped for Q4_0 block alignment.  We manually dequantize and reshape all
+    weights before loading them into a freshly initialised UNet, then attach the
+    UNet to the SDXL base pipeline (which provides text encoders and VAE).
 
     Args:
         repo_id: HuggingFace repository ID.
@@ -38,30 +93,36 @@ def load_pony_gguf_pipe(repo_id: str, gguf_filename: str):
     """
     model_path = hf_hub_download(repo_id=repo_id, filename=gguf_filename)
 
-    # The GGUF uses ComfyUI-style keys without the A1111 prefix.
-    # convert_ldm_unet_checkpoint expects "model.diffusion_model." prefix, so we add it.
-    raw_checkpoint = load_gguf_checkpoint(model_path)
-    checkpoint = {f"model.diffusion_model.{k}": v for k, v in raw_checkpoint.items()}
+    # UNet config is a small JSON – already in the worktree's local cache.
+    unet_config = UNet2DConditionModel.load_config(SDXL_BASE_MODEL, subfolder="unet")
 
-    quantization_config = GGUFQuantizationConfig(compute_dtype=torch.float32)
+    # Dequantize GGUF weights and fix GGML alignment reshaping.
+    fixed_sd = _load_and_fix_gguf_weights(model_path, unet_config)
 
-    unet = UNet2DConditionModel.from_single_file(
-        checkpoint,
-        config=SDXL_BASE_MODEL,
-        subfolder="unet",
-        quantization_config=quantization_config,
-        torch_dtype=torch.float32,
+    unet = UNet2DConditionModel.from_config(unet_config)
+    unet.load_state_dict(fixed_sd, strict=False)
+    unet = unet.to(torch.float32).eval()
+    for param in unet.parameters():
+        param.requires_grad = False
+
+    # Load text encoders, VAE and scheduler from SDXL base.  The UNet is
+    # provided so it won't be re-downloaded.  Use the shared hub cache when
+    # available to avoid re-downloading the large SDXL model files.
+    cache_dir = (
+        _SHARED_HF_HUB_CACHE
+        if _SHARED_HF_HUB_CACHE and os.path.isdir(_SHARED_HF_HUB_CACHE)
+        else None
     )
-
     pipe = StableDiffusionXLPipeline.from_pretrained(
         SDXL_BASE_MODEL,
         unet=unet,
         torch_dtype=torch.float32,
+        cache_dir=cache_dir,
     )
 
     pipe.to("cpu")
 
-    for module in [pipe.unet, pipe.text_encoder, pipe.text_encoder_2, pipe.vae]:
+    for module in [pipe.text_encoder, pipe.text_encoder_2, pipe.vae]:
         if module is not None:
             module.eval()
             for param in module.parameters():
