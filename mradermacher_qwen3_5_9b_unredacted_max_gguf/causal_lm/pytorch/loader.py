@@ -56,7 +56,7 @@ def _patch_qwen35_support():
 
 
 def _find_real_load_gguf_checkpoint():
-    """Walk the patch-chain closures to find the original transformers load_gguf_checkpoint."""
+    """Walk the patch-chain (closures + globals) to find the original transformers load_gguf_checkpoint."""
 
     def _is_real(fn):
         return (
@@ -81,6 +81,13 @@ def _find_real_load_gguf_checkpoint():
                         stack.append(val)
                 except ValueError:
                     continue
+        if hasattr(fn, "__code__") and hasattr(fn, "__globals__"):
+            for name in fn.__code__.co_names:
+                if not any(k in name.lower() for k in ("orig", "real", "load", "gguf")):
+                    continue
+                val = fn.__globals__.get(name)
+                if val is not None and callable(val) and id(val) not in visited:
+                    stack.append(val)
     return None
 
 
