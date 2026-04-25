@@ -173,16 +173,20 @@ class ModelLoader(ForgeModel):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
 
-        # GGUF tokenizer conversion may not extract chat_template; fall back to
-        # loading it from the repo's tokenizer_config.json without gguf_file.
-        if self.tokenizer.chat_template is None:
+        # GGUF tokenizer conversion may not extract chat_template or special
+        # tokens; fall back to repo's tokenizer_config.json without gguf_file.
+        if self.tokenizer.chat_template is None or self.tokenizer.pad_token is None:
             fallback = AutoTokenizer.from_pretrained(
                 self._variant_config.pretrained_model_name
             )
-            self.tokenizer.chat_template = fallback.chat_template
+            if self.tokenizer.chat_template is None:
+                self.tokenizer.chat_template = fallback.chat_template
+            if self.tokenizer.pad_token is None:
+                self.tokenizer.pad_token = fallback.eos_token or "<|endoftext|>"
+
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
 
         return self.tokenizer
 
