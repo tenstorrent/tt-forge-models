@@ -21,7 +21,13 @@ from ....config import (
 
 
 def _patch_transformers_deepseek_v2_gguf():
-    """Register deepseek_v2 GGUF tokenizer converter missing from this transformers version."""
+    """Register deepseek_v2 GGUF support missing from this transformers version.
+
+    The mradermacher GGUF for this model uses deepseek2 as the GGUF architecture, but
+    the glm_4_7_flash_gguf loader's patch rewrites model_type to deepseek_v2. This patch
+    registers deepseek_v2 in the tokenizer converter table and in get_gguf_hf_weights_map
+    so that both the tokenizer and weight-loading paths work correctly.
+    """
     from transformers.integrations.ggml import (
         GGUF_TO_FAST_CONVERTERS,
         GGUFQwen2Converter,
@@ -29,6 +35,21 @@ def _patch_transformers_deepseek_v2_gguf():
 
     if "deepseek_v2" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["deepseek_v2"] = GGUFQwen2Converter
+
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type == "deepseek_v2":
+            model_type = "deepseek2"
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
 
 
 _patch_transformers_deepseek_v2_gguf()
