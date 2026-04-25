@@ -1,0 +1,1 @@
+auto-round>=0.5
