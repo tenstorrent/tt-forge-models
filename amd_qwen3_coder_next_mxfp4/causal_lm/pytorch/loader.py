@@ -24,6 +24,10 @@ from ....config import (
     StrEnum,
 )
 
+# AMD Quark MXFP4 weights are incompatible with standard transformers (requires quark
+# package). Load with random weights via from_config; limit layers for faster init.
+_DEFAULT_NUM_LAYERS = 4
+
 
 class ModelVariant(StrEnum):
     """Available AMD Qwen3-Coder-Next MXFP4 model variants for causal language modeling."""
@@ -51,7 +55,7 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.tokenizer = None
         self.config = None
-        self.num_layers = num_layers
+        self.num_layers = num_layers if num_layers is not None else _DEFAULT_NUM_LAYERS
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -83,22 +87,28 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"trust_remote_code": True}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        # AMD Quark MXFP4 quantization_config requires the quark package which is not
+        # available; strip it and load with random weights via from_config instead.
+        if hasattr(config, "quantization_config"):
+            del config.quantization_config
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+            if hasattr(config, "text_config"):
+                config.text_config.num_hidden_layers = self.num_layers
+                if hasattr(config.text_config, "layer_types"):
+                    config.text_config.layer_types = config.text_config.layer_types[
+                        : self.num_layers
+                    ]
+            else:
+                config.num_hidden_layers = self.num_layers
+                if hasattr(config, "layer_types"):
+                    config.layer_types = config.layer_types[: self.num_layers]
 
-        model_kwargs |= kwargs
-
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        model = AutoModelForCausalLM.from_config(config, torch_dtype=dtype).eval()
 
         self.config = model.config
         self.model = model
