@@ -7,7 +7,7 @@ Meditron 7B AWQ model loader implementation for causal language modeling.
 
 from typing import Optional
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
@@ -57,36 +57,32 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
-            **tokenizer_kwargs,
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import torch
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {
-            "trust_remote_code": True,
-            "device_map": "cpu",
-        }
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+        # Load config and strip AWQ quantization so the model can be initialized
+        # on CPU without requiring a GPU-dependent quantization backend (gptqmodel).
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        if hasattr(config, "quantization_config"):
+            del config.quantization_config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        model = AutoModelForCausalLM.from_config(config).to(dtype=dtype).eval()
 
         self.config = model.config
         self.model = model
