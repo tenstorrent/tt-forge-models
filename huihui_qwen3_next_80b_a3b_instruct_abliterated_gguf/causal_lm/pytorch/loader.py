@@ -81,6 +81,16 @@ def _patch_transformers_qwen3next_gguf():
                 "linear_attention" if (i + 1) % interval else "full_attention"
                 for i in range(num_layers)
             ]
+            # GGUF stores conv1d.weight as [out_channels, kernel_size] but
+            # PyTorch Conv1d expects [out_channels, in_channels, kernel_size].
+            tensors = result.get("tensors", {})
+            for key in list(tensors.keys()):
+                if (
+                    "conv1d.weight" in key
+                    and hasattr(tensors[key], "dim")
+                    and tensors[key].dim() == 2
+                ):
+                    tensors[key] = tensors[key].unsqueeze(1)
         return result
 
     gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
