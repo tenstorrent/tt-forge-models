@@ -105,12 +105,21 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name,
         )
 
-        # The model's Emu3Processor.__init__ was written for older transformers and calls
-        # super().__init__(image_processor, tokenizer) with 2 args. Transformers 5.2.0's
-        # ProcessorMixin.get_attributes() now introspects __init__ and finds 3 modality
-        # args (image_processor, vision_tokenizer, tokenizer), causing a mismatch.
-        # Fix: rename the vision model parameter to avoid modality keyword matching.
+        # The model's Emu3Processor was written for older transformers; two fixes needed:
+        # 1. ProcessorMixin.get_attributes() now introspects __init__ and "vision_tokenizer"
+        #    matches "tokenizer" modality keyword, making it expect 3 components. Rename
+        #    to "vq_model" to avoid modality matching.
+        # 2. tokenizer.encode(list_of_strings) now returns [[id], [id], ...] instead of
+        #    flat integers, so build_const_helper() fails in range(vis_start, vis_end+1).
+        #    Override to use convert_tokens_to_ids() which returns flat integers.
+        import sys as _sys
+        from functools import partial as _partial
         from transformers.processing_utils import ProcessorMixin as _ProcessorMixin
+
+        _proc_module = _sys.modules[Emu3ProcessorBase.__module__]
+        _Emu3PrefixConstrainedLogitsHelper = (
+            _proc_module.Emu3PrefixConstrainedLogitsHelper
+        )
 
         class _FixedEmu3Processor(Emu3ProcessorBase):
             def __init__(
@@ -137,6 +146,41 @@ class ModelLoader(ForgeModel):
                     self, image_processor, tokenizer, chat_template=chat_template
                 )
                 self.const_helper = self.build_const_helper()
+
+            def build_const_helper(self):
+                (
+                    img_token,
+                    eoi_token,
+                    eos_token,
+                    eol_token,
+                    eof_token,
+                    pad_token,
+                    vis_start,
+                    vis_end,
+                ) = self.tokenizer.convert_tokens_to_ids(
+                    [
+                        self.tokenizer.img_token,
+                        self.tokenizer.eoi_token,
+                        self.tokenizer.eos_token,
+                        self.tokenizer.eol_token,
+                        self.tokenizer.eof_token,
+                        self.tokenizer.pad_token,
+                        self.visual_template[0].format(token_id=0),
+                        self.visual_template[0].format(
+                            token_id=self.vision_tokenizer.config.codebook_size - 1
+                        ),
+                    ]
+                )
+                return _partial(
+                    _Emu3PrefixConstrainedLogitsHelper,
+                    img_token=img_token,
+                    eoi_token=eoi_token,
+                    eos_token=eos_token,
+                    eol_token=eol_token,
+                    eof_token=eof_token,
+                    pad_token=pad_token,
+                    visual_tokens=list(range(vis_start, vis_end + 1)),
+                )
 
         self.processor = _FixedEmu3Processor(
             image_processor=self.image_processor,
