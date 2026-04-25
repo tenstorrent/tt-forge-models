@@ -5,7 +5,7 @@
 GLM-4.6V NVFP4 model loader implementation for multimodal conditional generation.
 """
 import torch
-from transformers import AutoProcessor, Glm4vMoeForConditionalGeneration
+from transformers import AutoConfig, AutoProcessor, Glm4vMoeForConditionalGeneration
 from typing import Optional
 
 from ....base import ForgeModel
@@ -70,18 +70,19 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
+        target_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
-        model = Glm4vMoeForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+        # Strip NVFP4 quantization config to avoid compressed-tensors dependency on CPU
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
         )
+        config.quantization_config = None
+
+        model = Glm4vMoeForConditionalGeneration(config)
+        model = model.to(target_dtype)
         model.eval()
         self.model = model
         self.config = model.config
