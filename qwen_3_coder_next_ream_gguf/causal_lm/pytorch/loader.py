@@ -37,16 +37,27 @@ def _patch_qwen3next_support():
 
     Qwen3 Coder Next uses the same model architecture as Qwen 3 but the GGUF
     file declares architecture as 'qwen3next', which transformers 5.x does not
-    yet recognise.
+    yet recognise. The REAM variant stores a non-default head_dim via
+    attention.key_length, which requires its own mapping entry.
     """
     if "qwen3next" not in GGUF_SUPPORTED_ARCHITECTURES:
         GGUF_SUPPORTED_ARCHITECTURES.append("qwen3next")
     for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
         if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
-            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
-                "qwen3next",
-                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
-            )
+            if "qwen3next" not in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+                qwen3_entry = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"]
+                entry = (
+                    dict(qwen3_entry) if isinstance(qwen3_entry, dict) else qwen3_entry
+                )
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3next"] = entry
+    # Map attention.key_length to head_dim so the non-default head_dim (256) is
+    # correctly read from GGUF metadata instead of using the default (128).
+    config_map = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING.get("config", {})
+    if (
+        "qwen3next" in config_map
+        and "attention.key_length" not in config_map["qwen3next"]
+    ):
+        config_map["qwen3next"]["attention.key_length"] = "head_dim"
     if "qwen3" in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS.setdefault(
             "qwen3next", GGUF_TO_FAST_CONVERTERS["qwen3"]
