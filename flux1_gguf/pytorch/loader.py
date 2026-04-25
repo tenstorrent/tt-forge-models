@@ -87,7 +87,7 @@ class ModelLoader(ForgeModel):
         "num_attention_heads": 24,
         "num_layers": 19,
         "num_single_layers": 38,
-        "out_channels": 64,
+        "out_channels": 16,
         "patch_size": 2,
         "pooled_projection_dim": 768,
         "timestep_input_dim": 256,
