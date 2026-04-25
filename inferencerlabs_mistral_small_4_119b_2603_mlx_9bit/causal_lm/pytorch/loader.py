@@ -5,7 +5,7 @@
 Mistral-Small-4-119B-2603 MLX 9-bit model loader for causal language modeling.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoConfig, AutoTokenizer, Mistral4ForCausalLM
 from typing import Optional
 
 from ....base import ForgeModel
@@ -83,26 +83,25 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+        outer_config = AutoConfig.from_pretrained(pretrained_model_name)
+        # Extract text-only config from the multimodal Mistral3 wrapper
+        config = outer_config.text_config
+        # MLX quantization format is not supported by PyTorch transformers
+        if hasattr(config, "quantization_config"):
+            del config.quantization_config
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            if hasattr(config, "text_config"):
-                config.text_config.num_hidden_layers = self.num_layers
-                if hasattr(config.text_config, "layer_types"):
-                    config.text_config.layer_types = config.text_config.layer_types[
-                        : self.num_layers
-                    ]
-            else:
-                config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+            config.num_hidden_layers = self.num_layers
 
+        model_kwargs = {"config": config}
+        if dtype_override is not None:
+            model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+        model = Mistral4ForCausalLM.from_pretrained(
+            pretrained_model_name,
+            ignore_mismatched_sizes=True,
+            **model_kwargs,
         ).eval()
 
         self.config = model.config
@@ -144,19 +143,36 @@ class ModelLoader(ForgeModel):
     def load_shard_spec(self, model):
         shard_specs = {}
         for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+            mlp = layer.mlp
+            # MoE layers (Mistral4MoE)
+            if hasattr(mlp, "experts"):
+                shard_specs[mlp.experts.gate_up_proj] = (None, "model", "batch")
+                shard_specs[mlp.experts.down_proj] = (None, "batch", "model")
+            if hasattr(mlp, "shared_experts"):
+                shard_specs[mlp.shared_experts.up_proj.weight] = ("model", "batch")
+                shard_specs[mlp.shared_experts.gate_proj.weight] = ("model", "batch")
+                shard_specs[mlp.shared_experts.down_proj.weight] = ("batch", "model")
+            # Dense MLP fallback
+            if hasattr(mlp, "up_proj"):
+                shard_specs[mlp.up_proj.weight] = ("model", "batch")
+                shard_specs[mlp.gate_proj.weight] = ("model", "batch")
+                shard_specs[mlp.down_proj.weight] = ("batch", "model")
 
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+            attn = layer.self_attn
+            # MLA attention (Mistral4Attention uses q_b_proj/kv_b_proj instead of q/k/v proj)
+            if hasattr(attn, "q_b_proj"):
+                shard_specs[attn.q_b_proj.weight] = ("model", "batch")
+            elif hasattr(attn, "q_proj"):
+                shard_specs[attn.q_proj.weight] = ("model", "batch")
+            if hasattr(attn, "kv_b_proj"):
+                shard_specs[attn.kv_b_proj.weight] = ("model", "batch")
+            shard_specs[attn.o_proj.weight] = ("batch", "model")
         shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
+        outer_config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name
         )
+        self.config = outer_config.text_config
         return self.config
