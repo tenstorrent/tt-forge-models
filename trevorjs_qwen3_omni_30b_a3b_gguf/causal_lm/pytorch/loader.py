@@ -20,6 +20,90 @@ from ....config import (
 )
 
 
+def _patch_transformers_qwen3omnimoe_gguf():
+    """Monkey-patch transformers to add qwen3omnimoe GGUF architecture support.
+
+    Transformers 5.x has Qwen3OmniMoeThinkerForConditionalGeneration but lacks GGUF
+    loading support for the qwen3omnimoe architecture. We bridge the gap by registering
+    qwen3omnimoe config/tensor mappings and converting model_type to qwen3_moe so that
+    AutoModelForCausalLM can load the thinker text weights.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        TENSOR_PROCESSORS,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "qwen3omnimoe" in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # Already patched
+
+    # 1. Register qwen3omnimoe as a supported architecture
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen3omnimoe")
+
+    # 2. Add config mapping for qwen3omnimoe (same fields as qwen3_moe)
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen3omnimoe"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.key_length": "head_dim",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+        "expert_count": "num_experts",
+        "expert_used_count": "num_experts_per_tok",
+    }
+
+    # 3. Reuse qwen3moe tensor processor for qwen3omnimoe
+    if "qwen3moe" in TENSOR_PROCESSORS:
+        TENSOR_PROCESSORS["qwen3omnimoe"] = TENSOR_PROCESSORS["qwen3moe"]
+
+    # 4. Register tokenizer converter
+    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+    if "qwen3_moe" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["qwen3omnimoe"] = GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
+
+    # 5. Patch load_gguf_checkpoint to remap qwen3omnimoe -> qwen3_moe
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        if result.get("config", {}).get("model_type") == "qwen3omnimoe":
+            result["config"]["model_type"] = "qwen3_moe"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    # 6. Patch get_gguf_hf_weights_map to handle qwen3_moe -> qwen3omnimoe reverse lookup
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+
+# Apply the monkey-patch at import time
+_patch_transformers_qwen3omnimoe_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available TrevorJS Qwen3-Omni-30B-A3B GGUF model variants for causal language modeling."""
 
