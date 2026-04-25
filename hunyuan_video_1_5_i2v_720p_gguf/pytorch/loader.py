@@ -127,12 +127,51 @@ class ModelLoader(ForgeModel):
             convert_hunyuan_video_transformer_to_diffusers,
         )
 
+        def _convert_hunyuan_video_1_5_i2v_to_diffusers(checkpoint, **kw):
+            # Apply the base T2V conversion to handle double_blocks, txt_in, etc.
+            state_dict = convert_hunyuan_video_transformer_to_diffusers(
+                checkpoint, **kw
+            )
+            # Remap I2V-specific keys not handled by the T2V conversion.
+            # byt5_in (ByteT5 text encoder) → context_embedder_2
+            for old, new in [
+                ("byt5_in.net.0.proj", "context_embedder_2.linear_1"),
+                ("byt5_in.net.2", "context_embedder_2.linear_2"),
+                ("byt5_in.fc3", "context_embedder_2.linear_3"),
+                ("byt5_in.layernorm", "context_embedder_2.norm"),
+            ]:
+                for suffix in (".weight", ".bias"):
+                    if old + suffix in state_dict:
+                        state_dict[new + suffix] = state_dict.pop(old + suffix)
+            # time_in → time_embed (I2V uses different prefix than T2V)
+            for suffix in (".weight", ".bias"):
+                for sub in ("linear_1", "linear_2"):
+                    old_k = f"time_text_embed.timestep_embedder.{sub}{suffix}"
+                    new_k = f"time_embed.timestep_embedder.{sub}{suffix}"
+                    if old_k in state_dict:
+                        state_dict[new_k] = state_dict.pop(old_k)
+            # cond_type_embedding → cond_type_embed
+            if "cond_type_embedding.weight" in state_dict:
+                state_dict["cond_type_embed.weight"] = state_dict.pop(
+                    "cond_type_embedding.weight"
+                )
+            # vision_in (image conditioning) → image_embedder
+            for old, new in [
+                ("vision_in.proj.0", "image_embedder.norm_in"),
+                ("vision_in.proj.1", "image_embedder.linear_1"),
+                ("vision_in.proj.3", "image_embedder.linear_2"),
+                ("vision_in.proj.4", "image_embedder.norm_out"),
+            ]:
+                for suffix in (".weight", ".bias"):
+                    if old + suffix in state_dict:
+                        state_dict[new + suffix] = state_dict.pop(old + suffix)
+            return state_dict
+
         # HunyuanVideo15Transformer3DModel is not registered in SINGLE_FILE_LOADABLE_CLASSES
-        # in the current diffusers version. Register it so from_single_file works.
-        # GGUF files already use diffusers key format, so the mapping fn won't be called.
+        # in diffusers 0.37.1. Register it with the I2V-specific conversion function.
         if "HunyuanVideo15Transformer3DModel" not in SINGLE_FILE_LOADABLE_CLASSES:
             SINGLE_FILE_LOADABLE_CLASSES["HunyuanVideo15Transformer3DModel"] = {
-                "checkpoint_mapping_fn": convert_hunyuan_video_transformer_to_diffusers,
+                "checkpoint_mapping_fn": _convert_hunyuan_video_1_5_i2v_to_diffusers,
                 "default_subfolder": "transformer",
             }
 
@@ -141,10 +180,15 @@ class ModelLoader(ForgeModel):
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
+        # The GGUF checkpoint has hidden_size=2048 but diffusers infers the wrong
+        # config (hunyuanvideo-community/HunyuanVideo with hidden_size=3072).
+        # Pass the I2V repo config explicitly so the model is initialized correctly.
         self._transformer = HunyuanVideo15Transformer3DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/resolve/main/{gguf_file}",
+            f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
+            config="hunyuanvideo-community/HunyuanVideo-1.5-Diffusers-480p_i2v",
+            subfolder="transformer",
         )
 
         return self._transformer
@@ -190,7 +234,7 @@ class ModelLoader(ForgeModel):
             config.image_embed_dim,
             dtype=dtype,
         )
-        timestep = torch.tensor([500], dtype=torch.long).expand(batch_size)
+        timestep = torch.tensor([500.0], dtype=dtype).expand(batch_size)
 
         return {
             "hidden_states": hidden_states,
