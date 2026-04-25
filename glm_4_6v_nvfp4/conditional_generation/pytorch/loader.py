@@ -83,6 +83,13 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
         model.eval()
+
+        # Disable compressed_tensors fake quantization: some layers have input
+        # dimensions not divisible by the NVFP4 group_size, causing shape errors
+        for module in model.modules():
+            if hasattr(module, "quantization_scheme"):
+                module.quantization_enabled = False
+
         self.model = model
         self.config = model.config
         return model
