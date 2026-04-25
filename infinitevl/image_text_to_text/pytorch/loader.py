@@ -73,7 +73,7 @@ def _compat_init_weights(self, module):
         and getattr(module, "rope_type", None) == "default"
         and not hasattr(module, "compute_default_rope_parameters")
     ):
-        from torch.nn import init
+        from transformers import initialization as init
 
         buffer_value, _ = ROPE_INIT_FUNCTIONS["default"](module.config)
         init.copy_(module.inv_freq, buffer_value)
