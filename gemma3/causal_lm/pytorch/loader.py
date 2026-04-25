@@ -248,6 +248,8 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             input_ids = cast_input_to_type(input_ids, dtype_override)
             attn_mask = cast_input_to_type(attn_mask, dtype_override)
+        if self._variant == ModelVariant.GEMMA_3_4B_IT_MAMAYLM_V1:
+            return {"input_ids": input_ids, "attention_mask": attn_mask}
         return [input_ids, attn_mask]
 
     def get_mesh_config(self, num_devices: int):
