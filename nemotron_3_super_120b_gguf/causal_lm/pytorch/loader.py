@@ -5,6 +5,7 @@
 Nemotron 3 Super 120B GGUF model loader implementation for causal language modeling.
 """
 import importlib.metadata
+import os
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -72,6 +73,69 @@ class ModelLoader(ForgeModel):
             except importlib.metadata.PackageNotFoundError:
                 pass
 
+    @staticmethod
+    def _patch_nemotron_h_moe_gguf_support():
+        """Register nemotron_h_moe GGUF architecture and map it to transformers nemotron model type.
+
+        The Nemotron Super 120B GGUF file declares architecture 'nemotron_h_moe' (hybrid
+        SSM+MoE). Transformers 5.2.0 does not include NemotronH, so we register the arch
+        with standard nemotron config fields and remap model_type to 'nemotron' so that
+        NemotronForCausalLM can be instantiated with random weights in compile-only mode.
+        """
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+        import transformers.configuration_utils as _config_utils
+        import transformers.models.auto.tokenization_auto as _auto_tokenizer
+        import transformers.tokenization_utils_tokenizers as _tok_utils
+        from transformers.modeling_gguf_pytorch_utils import (
+            GGUF_SUPPORTED_ARCHITECTURES,
+        )
+        from transformers.integrations.ggml import (
+            GGUF_TO_FAST_CONVERTERS,
+            GGUFGPTConverter,
+        )
+
+        if "nemotron_h_moe" in GGUF_SUPPORTED_ARCHITECTURES:
+            return
+
+        GGUF_SUPPORTED_ARCHITECTURES.append("nemotron_h_moe")
+
+        _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]["nemotron_h_moe"] = {
+            "context_length": "max_position_embeddings",
+            "block_count": "num_hidden_layers",
+            "embedding_length": "hidden_size",
+            "feed_forward_length": "intermediate_size",
+            "attention.head_count": "num_attention_heads",
+            "attention.head_count_kv": "num_key_value_heads",
+            "attention.layer_norm_rms_epsilon": "norm_eps",
+            "attention.key_length": "head_dim",
+            "vocab_size": "vocab_size",
+            "rope.freq_base": None,
+            "rope.dimension_count": None,
+            "expert_count": None,
+            "expert_used_count": None,
+            "expert_feed_forward_length": None,
+            "ssm.conv_kernel": None,
+            "ssm.inner_size": None,
+            "ssm.state_size": None,
+            "ssm.time_step_rank": None,
+        }
+
+        if "nemotron_h_moe" not in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS["nemotron_h_moe"] = GGUFGPTConverter
+
+        _orig_load = _gguf_utils.load_gguf_checkpoint
+
+        def _patched_load_gguf_checkpoint(*args, **kwargs):
+            result = _orig_load(*args, **kwargs)
+            if result.get("config", {}).get("model_type") == "nemotron_h_moe":
+                result["config"]["model_type"] = "nemotron"
+            return result
+
+        _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
     @property
     def gguf_file(self):
         return self._GGUF_FILES[self._variant]
@@ -97,6 +161,7 @@ class ModelLoader(ForgeModel):
 
     def _load_tokenizer(self, dtype_override=None):
         self._fix_gguf_version_detection()
+        self._patch_nemotron_h_moe_gguf_support()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -116,23 +181,38 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.gguf_file
+        if os.environ.get("TT_COMPILE_ONLY_SYSTEM_DESC") or os.environ.get(
+            "TT_RANDOM_WEIGHTS"
+        ):
+            from transformers import NemotronForCausalLM
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
+            config = self.config or AutoConfig.from_pretrained(
                 pretrained_model_name, gguf_file=self.gguf_file
             )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+            if self.num_layers is not None:
+                config.num_hidden_layers = self.num_layers
+            model = NemotronForCausalLM(config)
+            if dtype_override is not None:
+                model = model.to(dtype_override)
+        else:
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+            model_kwargs["gguf_file"] = self.gguf_file
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+            if self.num_layers is not None:
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name, gguf_file=self.gguf_file
+                )
+                config.num_hidden_layers = self.num_layers
+                model_kwargs["config"] = config
 
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+
+        model.eval()
         self.config = model.config
         self.model = model
         return model
@@ -167,6 +247,7 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self._fix_gguf_version_detection()
+        self._patch_nemotron_h_moe_gguf_support()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
         )
