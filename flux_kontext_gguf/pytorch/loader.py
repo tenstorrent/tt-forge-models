@@ -9,6 +9,7 @@ Repository:
 """
 import torch
 from diffusers import FluxTransformer2DModel
+from diffusers.quantizers.quantization_config import GGUFQuantizationConfig
 from typing import Optional
 
 from ...base import ForgeModel
@@ -21,8 +22,6 @@ from ...config import (
     Framework,
     StrEnum,
 )
-
-GGUF_BASE_URL = "https://huggingface.co/bullerwins/FLUX.1-Kontext-dev-GGUF/blob/main"
 
 
 class ModelVariant(StrEnum):
@@ -72,19 +71,16 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         gguf_file = self._GGUF_FILES[self._variant]
-        gguf_url = f"{GGUF_BASE_URL}/{gguf_file}"
+        pretrained_model_name = self._config.pretrained_model_name
 
-        load_kwargs = {}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
+        compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
-        self.transformer = FluxTransformer2DModel.from_single_file(
-            gguf_url,
-            **load_kwargs,
+        self.transformer = FluxTransformer2DModel.from_pretrained(
+            pretrained_model_name,
+            gguf_file=gguf_file,
+            quantization_config=quantization_config,
         )
-
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
 
         return self.transformer
 
