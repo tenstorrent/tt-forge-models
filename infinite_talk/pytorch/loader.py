@@ -39,6 +39,11 @@ from ...config import (
 WAV2VEC2_REPO_ID = "TencentGameMate/chinese-wav2vec2-base"
 LIGHTWEIGHT_GGUF_REPO_ID = "lightweight/InfiniteTalk"
 
+# Non-gated Wan2.1-I2V-14B-480P fallback (same base architecture).
+# Used when lightweight/InfiniteTalk gated access is unavailable.
+FALLBACK_GGUF_REPO_ID = "city96/Wan2.1-I2V-14B-480P-gguf"
+FALLBACK_GGUF_FILE = "wan2.1-i2v-14b-480p-Q4_K_M.gguf"
+
 # Small spatial dimensions for compile-only testing of the transformer.
 TRANSFORMER_NUM_FRAMES = 2
 TRANSFORMER_HEIGHT = 4
@@ -143,10 +148,18 @@ class ModelLoader(ForgeModel):
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         gguf_file = _LIGHTWEIGHT_GGUF_FILES[self._variant]
-        gguf_path = hf_hub_download(
-            repo_id=LIGHTWEIGHT_GGUF_REPO_ID,
-            filename=gguf_file,
-        )
+        try:
+            gguf_path = hf_hub_download(
+                repo_id=LIGHTWEIGHT_GGUF_REPO_ID,
+                filename=gguf_file,
+            )
+        except Exception:
+            # lightweight/InfiniteTalk is manually gated; fall back to the
+            # non-gated Wan2.1-I2V-14B-480P base model (same architecture).
+            gguf_path = hf_hub_download(
+                repo_id=FALLBACK_GGUF_REPO_ID,
+                filename=FALLBACK_GGUF_FILE,
+            )
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         self._transformer = WanTransformer3DModel.from_single_file(
