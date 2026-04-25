@@ -7,7 +7,8 @@ FLUX.1-Fill-dev GGUF model loader implementation for image inpainting.
 This loader uses GGUF-quantized variants of the FLUX.1-Fill-dev model from
 YarvixPA/FLUX.1-Fill-dev-GGUF. The GGUF transformer is loaded via diffusers'
 FluxTransformer2DModel.from_single_file and plugged into a FluxFillPipeline
-built from the original black-forest-labs/FLUX.1-Fill-dev repository.
+built using the non-gated black-forest-labs/FLUX.1-schnell repository for
+shared components (text encoders, VAE, scheduler).
 """
 
 from typing import Optional
@@ -27,7 +28,7 @@ from ...config import (
 )
 
 GGUF_REPO = "YarvixPA/FLUX.1-Fill-dev-GGUF"
-BASE_REPO = "black-forest-labs/FLUX.1-Fill-dev"
+BASE_REPO = "black-forest-labs/FLUX.1-schnell"
 
 
 class ModelVariant(StrEnum):
