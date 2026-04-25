@@ -104,10 +104,10 @@ class ModelLoader(ForgeModel):
         # since pretrained weights overwrite any initialization anyway.
         _orig_normal_ = torch.Tensor.normal_
 
-        def _safe_normal_(self, mean=0, std=1):
+        def _safe_normal_(self, mean=0, std=1, **kwargs):
             if self.dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
                 return self
-            return _orig_normal_(self, mean=mean, std=std)
+            return _orig_normal_(self, mean=mean, std=std, **kwargs)
 
         torch.Tensor.normal_ = _safe_normal_
         try:
