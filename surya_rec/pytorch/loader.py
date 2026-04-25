@@ -117,6 +117,14 @@ class ModelLoader(ForgeModel):
 
         SuryaModel.__init__ = _patched_surya_init
 
+        # transformers 5.2+ moved pad_token_id to GenerationConfig; SuryaDecoderConfig
+        # (which extends PretrainedConfig) no longer has it automatically.
+        # SuryaDecoderModel.__init__ reads config.pad_token_id, so add it if absent.
+        from surya.common.surya.decoder.config import SuryaDecoderConfig
+
+        if not hasattr(SuryaDecoderConfig, "pad_token_id"):
+            SuryaDecoderConfig.pad_token_id = None
+
     def load_model(self, *, dtype_override=None, **kwargs):
         from surya.foundation import FoundationPredictor
         from surya.recognition import RecognitionPredictor
@@ -185,4 +193,5 @@ class ModelLoader(ForgeModel):
             "attention_mask": attention_mask,
             "position_ids": position_ids,
             "cache_position": cache_position,
+            "logits_to_keep": 1,
         }
