@@ -20,6 +20,47 @@ from ....config import (
 )
 
 
+def _patch_qwen35moe_exps_map(gguf_utils):
+    """Wrap get_gguf_hf_weights_map to add ffn_gate_exps/ffn_up_exps entries.
+
+    GGUF files that use the QWEN3MOE tensor format store expert gate and up
+    projections as separate ffn_gate_exps/ffn_up_exps tensors, not as the
+    merged ffn_gate_up_exps that QWEN35MOE arch expects. This wrapper adds
+    those separate-tensor entries so the Qwen2MoeTensorProcessor can load them
+    into the HF model's gate_up_proj parameter.
+    """
+    if getattr(gguf_utils.get_gguf_hf_weights_map, "_qwen35moe_exps_patched", False):
+        return
+
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
+            model_type = "qwen35moe"
+        result = orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+        if model_type == "qwen35moe":
+            n_layers = (
+                num_layers
+                if num_layers is not None
+                else hf_model.config.num_hidden_layers
+            )
+            for layer_idx in range(n_layers):
+                gate_up_key = f"{qual_name}blk.{layer_idx}.ffn_gate_up_exps"
+                gate_key = f"{qual_name}blk.{layer_idx}.ffn_gate_exps"
+                up_key = f"{qual_name}blk.{layer_idx}.ffn_up_exps"
+                if gate_up_key in result and gate_key not in result:
+                    result[gate_key] = result[gate_up_key]
+                    result[up_key] = result[gate_up_key]
+        return result
+
+    patched_get_gguf_hf_weights_map._qwen35moe_exps_patched = True
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+
 def _patch_transformers_qwen35moe_gguf():
     """Monkey-patch transformers to add qwen35moe GGUF architecture support.
 
@@ -35,7 +76,10 @@ def _patch_transformers_qwen35moe_gguf():
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
 
     if "qwen35moe" in GGUF_SUPPORTED_ARCHITECTURES:
-        return  # Already patched
+        # Architecture already registered by another loader; still ensure the
+        # ffn_gate_exps/ffn_up_exps fix is applied for this GGUF format.
+        _patch_qwen35moe_exps_map(gguf_utils)
+        return
 
     # 1. Register qwen35moe as a supported architecture
     GGUF_SUPPORTED_ARCHITECTURES.append("qwen35moe")
@@ -102,19 +146,9 @@ def _patch_transformers_qwen35moe_gguf():
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
-    # 6. Patch get_gguf_hf_weights_map to handle qwen3_5_moe_text -> qwen35moe
-    orig_get_map = gguf_utils.get_gguf_hf_weights_map
-
-    def patched_get_gguf_hf_weights_map(
-        hf_model, processor, model_type=None, num_layers=None, qual_name=""
-    ):
-        if model_type is None:
-            model_type = hf_model.config.model_type
-        if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
-            model_type = "qwen35moe"
-        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
-
-    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+    # 6. Patch get_gguf_hf_weights_map to add ffn_gate_exps/ffn_up_exps entries
+    # for GGUF files that store expert projections separately.
+    _patch_qwen35moe_exps_map(gguf_utils)
 
 
 # Apply the monkey-patch at import time
@@ -209,7 +243,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
