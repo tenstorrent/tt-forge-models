@@ -65,7 +65,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
+    def _refresh_gguf_caches(self):
         # Refresh importlib.metadata and transformers availability caches after
         # dynamic gguf installation to avoid InvalidVersion('N/A') from stale
         # FastPath mtime cache on filesystems with 1-second mtime resolution.
@@ -81,6 +81,9 @@ class ModelLoader(ForgeModel):
             is_gguf_available.cache_clear()
         except Exception:
             pass
+
+    def _load_tokenizer(self, dtype_override=None):
+        self._refresh_gguf_caches()
 
         tokenizer_kwargs = {}
         if dtype_override is not None:
@@ -174,6 +177,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        self._refresh_gguf_caches()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
