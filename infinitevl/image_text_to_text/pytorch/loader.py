@@ -5,8 +5,35 @@
 InfiniteVL model loader implementation for image-text-to-text tasks.
 """
 
+import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor
+from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
 from typing import Optional
+
+
+def _rope_default_init(config=None, device=None, seq_len=None, **rope_kwargs):
+    """Compatibility shim: transformers 5.x removed 'default' from ROPE_INIT_FUNCTIONS."""
+    if config is not None:
+        base = config.rope_theta
+        partial_rotary_factor = getattr(config, "partial_rotary_factor", 1.0)
+        head_dim = getattr(
+            config, "head_dim", config.hidden_size // config.num_attention_heads
+        )
+        dim = int(head_dim * partial_rotary_factor)
+    else:
+        base = rope_kwargs["base"]
+        dim = rope_kwargs["dim"]
+    inv_freq = 1.0 / (
+        base
+        ** (
+            torch.arange(0, dim, 2, dtype=torch.int64).float().to(device or "cpu") / dim
+        )
+    )
+    return inv_freq, 1.0
+
+
+if "default" not in ROPE_INIT_FUNCTIONS:
+    ROPE_INIT_FUNCTIONS["default"] = _rope_default_init
 
 from ....base import ForgeModel
 from ....config import (
