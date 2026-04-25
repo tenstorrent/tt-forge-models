@@ -32,6 +32,53 @@ from ...config import (
 
 GGUF_REPO = "calcuis/wan2-gguf"
 
+
+def _from_single_file_safe(model_cls, url, torch_dtype=None, **kwargs):
+    """Load a diffusers model from a GGUF single file, materializing any meta tensors left over from
+    shape mismatches between the GGUF checkpoint and the inferred model config before dispatch."""
+    import diffusers.loaders.single_file_model as _sfm
+
+    _orig_dispatch = _sfm.dispatch_model
+    fallback_dtype = torch_dtype or torch.float32
+
+    def _dispatch_materializing_meta(model, **dispatch_kwargs):
+        device_map = dispatch_kwargs.get("device_map", {})
+        target_device = next(iter(device_map.values())) if device_map else "cpu"
+        for name, param in list(model.named_parameters()):
+            if param.is_meta:
+                parts = name.split(".")
+                parent = model
+                for part in parts[:-1]:
+                    parent = getattr(parent, part)
+                setattr(
+                    parent,
+                    parts[-1],
+                    torch.nn.Parameter(
+                        torch.empty(
+                            param.shape, dtype=fallback_dtype, device=target_device
+                        ),
+                        requires_grad=param.requires_grad,
+                    ),
+                )
+        for name, buf in list(model.named_buffers()):
+            if buf is not None and buf.is_meta:
+                parts = name.split(".")
+                parent = model
+                for part in parts[:-1]:
+                    parent = getattr(parent, part)
+                parent.register_buffer(
+                    parts[-1],
+                    torch.empty(buf.shape, dtype=fallback_dtype, device=target_device),
+                )
+        return _orig_dispatch(model, **dispatch_kwargs)
+
+    _sfm.dispatch_model = _dispatch_materializing_meta
+    try:
+        return model_cls.from_single_file(url, torch_dtype=torch_dtype, **kwargs)
+    finally:
+        _sfm.dispatch_model = _orig_dispatch
+
+
 # Small spatial dimensions for compile-only testing
 TRANSFORMER_NUM_FRAMES = 2
 TRANSFORMER_HEIGHT = 4
@@ -116,10 +163,11 @@ class ModelLoader(ForgeModel):
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
-        self._transformer = WanTransformer3DModel.from_single_file(
+        self._transformer = _from_single_file_safe(
+            WanTransformer3DModel,
             f"https://huggingface.co/{GGUF_REPO}/{gguf_file}",
-            quantization_config=quantization_config,
             torch_dtype=compute_dtype,
+            quantization_config=quantization_config,
         )
 
         return self._transformer
