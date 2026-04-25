@@ -7,7 +7,6 @@ Helper functions for loading GGUF-quantized SDXL-based pony models.
 
 import torch
 from diffusers import (
-    GGUFQuantizationConfig,
     StableDiffusionXLPipeline,
     UNet2DConditionModel,
 )
@@ -24,9 +23,12 @@ def load_pony_gguf_pipe(repo_id: str, gguf_filename: str):
     """Load an SDXL-based pipeline from a GGUF UNet checkpoint.
 
     The GGUF file uses ComfyUI-style key names (input_blocks.*, time_embed.*,
-    etc.) without the model.diffusion_model. prefix that diffusers expects.
-    We add the prefix manually so diffusers' key conversion works, then load
-    the rest of the pipeline from the base SDXL-1.0 checkpoint.
+    etc.) and stores F16 tensors in non-standard shapes (same element count,
+    different dimensions). We load a standard SDXL UNet, convert keys via
+    diffusers' LDM->diffusers mapping, then reshape each F16 tensor to the
+    expected PyTorch shape before loading. Q4_0 GGUFParameter tensors are
+    skipped so the UNet retains its random-initialized float32 weights for
+    those parameters (acceptable for compile-only usage).
 
     Args:
         repo_id: HuggingFace repository ID for the GGUF UNet.
@@ -35,21 +37,34 @@ def load_pony_gguf_pipe(repo_id: str, gguf_filename: str):
     Returns:
         StableDiffusionXLPipeline: Loaded pipeline with components set to eval mode.
     """
+    from diffusers.loaders.single_file_utils import convert_ldm_unet_checkpoint
     from diffusers.models.model_loading_utils import load_gguf_checkpoint
+    from diffusers.quantizers.gguf.utils import GGUFParameter
 
     model_path = hf_hub_download(repo_id=repo_id, filename=gguf_filename)
-    quantization_config = GGUFQuantizationConfig(compute_dtype=torch.float32)
 
     raw_ckpt = load_gguf_checkpoint(model_path, return_tensors=True)
     prefixed_ckpt = {f"model.diffusion_model.{k}": v for k, v in raw_ckpt.items()}
 
-    unet = UNet2DConditionModel.from_single_file(
-        prefixed_ckpt,
-        config=BASE_SDXL_PIPELINE,
+    unet = UNet2DConditionModel.from_pretrained(
+        BASE_SDXL_PIPELINE,
         subfolder="unet",
-        quantization_config=quantization_config,
         torch_dtype=torch.float32,
     )
+    unet_config = dict(unet.config)
+    model_state = unet.state_dict()
+
+    converted_ckpt = convert_ldm_unet_checkpoint(prefixed_ckpt, config=unet_config)
+
+    compatible_state = {}
+    for key, tensor in converted_ckpt.items():
+        if key not in model_state or isinstance(tensor, GGUFParameter):
+            continue
+        expected = model_state[key]
+        if tensor.numel() == expected.numel():
+            compatible_state[key] = tensor.reshape(expected.shape).float()
+
+    unet.load_state_dict(compatible_state, strict=False)
 
     pipe = StableDiffusionXLPipeline.from_pretrained(
         BASE_SDXL_PIPELINE,
