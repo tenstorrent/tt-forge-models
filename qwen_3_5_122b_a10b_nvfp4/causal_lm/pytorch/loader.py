@@ -96,7 +96,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
@@ -143,7 +143,7 @@ class ModelLoader(ForgeModel):
 
     def load_shard_spec(self, model):
         shard_specs = {}
-        for layer in model.model.layers:
+        for layer in model.model.language_model.layers:
             mlp = layer.mlp
             if hasattr(mlp, "experts"):
                 shard_specs[mlp.experts.gate_up_proj] = (None, "model", "batch")
