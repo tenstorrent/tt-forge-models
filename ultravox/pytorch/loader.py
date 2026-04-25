@@ -190,8 +190,41 @@ class ModelLoader(ForgeModel):
                 src = hf_hub_download(pretrained_model_name, fname)
                 shutil.copy2(src, os.path.join(tmpdir, fname))
 
+        self._apply_compat_patches(tmpdir)
         self._patched_dir = tmpdir
         return tmpdir
+
+    def _apply_compat_patches(self, tmpdir: str):
+        """Patch remote .py files for transformers 5.x API compatibility."""
+        import re
+
+        patches = {
+            "ultravox_model.py": [
+                # tie_weights must accept **kwargs (newer transformers calls it with recompute_mapping=)
+                ("def tie_weights(self):", "def tie_weights(self, **kwargs):"),
+            ],
+            "ultravox_processing.py": [
+                # Newer transformers requires FeatureExtractionMixin for audio_processor,
+                # but AutoProcessor returns WhisperProcessor (a ProcessorMixin). Unwrap it.
+                (
+                    "super().__init__(audio_processor=audio_processor, tokenizer=tokenizer)",
+                    "if hasattr(audio_processor, 'feature_extractor'):\n"
+                    "            audio_processor = audio_processor.feature_extractor\n"
+                    "        super().__init__(audio_processor=audio_processor, tokenizer=tokenizer)",
+                ),
+            ],
+        }
+
+        for fname, replacements in patches.items():
+            fpath = os.path.join(tmpdir, fname)
+            if not os.path.exists(fpath):
+                continue
+            with open(fpath) as f:
+                content = f.read()
+            for old, new in replacements:
+                content = content.replace(old, new)
+            with open(fpath, "w") as f:
+                f.write(content)
 
     def _cleanup_patched_dir(self):
         if self._patched_dir is not None:
