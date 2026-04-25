@@ -33,7 +33,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.LARGE: ModelConfig(
-            pretrained_model_name="facebook/dinov3-convnext-large-pretrain-lvd1689m",
+            pretrained_model_name="facebook/convnext-large-224-22k-1k",
         ),
     }
 
