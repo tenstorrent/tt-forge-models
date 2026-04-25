@@ -11,8 +11,9 @@ import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.utils.import_utils as _import_utils
 from transformers import (
-    Qwen2_5_VLForConditionalGeneration,
+    AutoConfig,
     AutoProcessor,
+    Qwen2_5_VLForConditionalGeneration,
 )
 from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
