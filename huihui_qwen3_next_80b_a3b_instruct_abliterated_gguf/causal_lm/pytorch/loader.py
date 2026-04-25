@@ -4,6 +4,8 @@
 """
 Huihui Qwen3-Next-80B-A3B-Instruct abliterated GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -18,6 +20,94 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_transformers_qwen3next_gguf():
+    """Monkey-patch transformers to add qwen3next GGUF architecture support.
+
+    Transformers 5.x has Qwen3NextForCausalLM but lacks GGUF loading support
+    for the qwen3next architecture. We bridge the gap by registering qwen3next
+    config/tensor mappings and converting the model_type to qwen3_next.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        TENSOR_PROCESSORS,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "qwen3next" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen3next")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen3next"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.key_length": "head_dim",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+        "expert_count": "num_experts",
+        "expert_used_count": "num_experts_per_tok",
+        "expert_feed_forward_length": "moe_intermediate_size",
+        "full_attention_interval": "full_attention_interval",
+    }
+
+    if "qwen3moe" in TENSOR_PROCESSORS:
+        TENSOR_PROCESSORS["qwen3next"] = TENSOR_PROCESSORS["qwen3moe"]
+
+    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+    if "qwen3_moe" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["qwen3next"] = GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
+        GGUF_TO_FAST_CONVERTERS["qwen3_next"] = GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
+
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def _patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        if result.get("config", {}).get("model_type") == "qwen3next":
+            result["config"]["model_type"] = "qwen3_next"
+            config = result["config"]
+            num_layers = config.get("num_hidden_layers", 94)
+            interval = config.pop("full_attention_interval", 4)
+            config["layer_types"] = [
+                "linear_attention" if (i + 1) % interval else "full_attention"
+                for i in range(num_layers)
+            ]
+        return result
+
+    gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+    import transformers.configuration_utils as config_utils
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type == "qwen3_next":
+            model_type = "qwen3next"
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+
+_patch_transformers_qwen3next_gguf()
 
 
 class ModelVariant(StrEnum):
@@ -46,6 +136,19 @@ class ModelLoader(ForgeModel):
 
     sample_text = "Give me a short introduction to large language models."
 
+    @staticmethod
+    def _fix_gguf_version_detection():
+        """Fix gguf version detection when installed at runtime by RequirementsManager."""
+        import transformers.utils.import_utils as _import_utils
+
+        if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+            try:
+                importlib.metadata.version("gguf")
+                _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+                _import_utils.is_gguf_available.cache_clear()
+            except importlib.metadata.PackageNotFoundError:
+                pass
+
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
     ):
@@ -71,6 +174,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        self._fix_gguf_version_detection()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -85,6 +189,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        self._fix_gguf_version_detection()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -101,6 +206,8 @@ class ModelLoader(ForgeModel):
                 pretrained_model_name, gguf_file=self._gguf_file
             )
             config.num_hidden_layers = self.num_layers
+            if hasattr(config, "layer_types"):
+                config.layer_types = config.layer_types[: self.num_layers]
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
@@ -160,14 +267,16 @@ class ModelLoader(ForgeModel):
                 shard_specs[mlp.shared_expert.gate_proj.weight] = ("model", "batch")
                 shard_specs[mlp.shared_expert.down_proj.weight] = ("batch", "model")
 
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+            if hasattr(layer, "self_attn"):
+                shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
         shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
 
     def load_config(self):
+        self._fix_gguf_version_detection()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self._gguf_file
         )
