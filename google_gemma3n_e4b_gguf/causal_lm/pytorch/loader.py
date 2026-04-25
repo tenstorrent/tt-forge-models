@@ -10,6 +10,77 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
+
+
+def _patch_transformers_gemma3n_gguf():
+    """Monkey-patch transformers to add gemma3n GGUF architecture support.
+
+    Transformers 5.x has Gemma3nForCausalLM but lacks GGUF loading support for
+    the gemma3n architecture. We bridge the gap by registering the config mapping
+    and remapping model_type to gemma3n_text (matching the gemma3/gemma3_text pattern).
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "gemma3n" in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # Already patched
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("gemma3n")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["gemma3n"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": None,
+        "attention.key_length": "head_dim",
+        "attention.value_length": None,
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "attention.sliding_window": "sliding_window",
+        "attention.sliding_window_pattern": None,
+        "attention.shared_kv_layers": "num_kv_shared_layers",
+        "embedding_length_per_layer_input": "hidden_size_per_layer_input",
+        "altup.active_idx": "altup_active_idx",
+        "altup.num_inputs": "altup_num_inputs",
+        "activation_sparsity_scale": None,
+        "vocab_size": "vocab_size",
+    }
+
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFGemmaConverter,
+    )
+
+    if "gemma3n_text" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["gemma3n_text"] = GGUFGemmaConverter
+
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "gemma3n":
+            config["model_type"] = "gemma3n_text"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
+_patch_transformers_gemma3n_gguf()
 from ....config import (
     LLMModelConfig,
     ModelInfo,
