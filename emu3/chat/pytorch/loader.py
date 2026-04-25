@@ -5,6 +5,9 @@
 Emu3-Chat model loader implementation for multimodal visual question answering.
 """
 
+import sys
+from functools import partial
+
 import torch
 from PIL import Image
 from typing import Optional
@@ -143,6 +146,50 @@ class ModelLoader(ForgeModel):
             self.const_helper = self.build_const_helper()
 
         Emu3Processor.__init__ = _fixed_init
+
+        # transformers 5.x: tokenizer.encode(list_of_strings) returns list-of-lists instead of
+        # a flat list of ints, causing build_const_helper to receive a list where it expects int.
+        _proc_module = sys.modules.get(Emu3Processor.__module__)
+        _Emu3PrefixHelper = _proc_module.Emu3PrefixConstrainedLogitsHelper
+
+        def _fixed_build_const_helper(self):
+            raw = self.tokenizer.encode(
+                [
+                    self.tokenizer.img_token,
+                    self.tokenizer.eoi_token,
+                    self.tokenizer.eos_token,
+                    self.tokenizer.eol_token,
+                    self.tokenizer.eof_token,
+                    self.tokenizer.pad_token,
+                    self.visual_template[0].format(token_id=0),
+                    self.visual_template[0].format(
+                        token_id=self.vision_tokenizer.config.codebook_size - 1
+                    ),
+                ]
+            )
+            flat = [t[0] if isinstance(t, list) else t for t in raw]
+            (
+                img_token,
+                eoi_token,
+                eos_token,
+                eol_token,
+                eof_token,
+                pad_token,
+                vis_start,
+                vis_end,
+            ) = flat
+            return partial(
+                _Emu3PrefixHelper,
+                img_token=img_token,
+                eoi_token=eoi_token,
+                eos_token=eos_token,
+                eol_token=eol_token,
+                eof_token=eof_token,
+                pad_token=pad_token,
+                visual_tokens=list(range(vis_start, vis_end + 1)),
+            )
+
+        Emu3Processor.build_const_helper = _fixed_build_const_helper
 
         self.processor = Emu3Processor(
             self.image_processor,
