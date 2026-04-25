@@ -42,6 +42,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.HUIHUI_QWEN3_NEXT_80B_A3B_INSTRUCT_ABLITERATED_MLX_4BIT
     )
 
+    # One full pattern unit (3 linear_attention + 1 full_attention)
+    DEFAULT_NUM_LAYERS = 4
+
     sample_text = "Give me a short introduction to large language model."
 
     def __init__(
@@ -50,7 +53,9 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.tokenizer = None
         self.config = None
-        self.num_layers = num_layers
+        self.num_layers = (
+            num_layers if num_layers is not None else self.DEFAULT_NUM_LAYERS
+        )
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -64,14 +69,9 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name
         )
-
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -80,23 +80,23 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
+        # MLX quantization weights are incompatible with PyTorch; build the
+        # model from the config with random weights instead.
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        if hasattr(config, "quantization_config"):
+            delattr(config, "quantization_config")
+
+        # Truncate to DEFAULT_NUM_LAYERS, keeping the layer_types list in sync.
+        config.num_hidden_layers = self.num_layers
+        if hasattr(config, "layer_types") and config.layer_types:
+            config.layer_types = config.layer_types[: self.num_layers]
+
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            if hasattr(config, "text_config"):
-                config.text_config.num_hidden_layers = self.num_layers
-            else:
-                config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        model = AutoModelForCausalLM.from_config(config, **model_kwargs).eval()
 
         self.config = model.config
         self.model = model
