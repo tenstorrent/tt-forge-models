@@ -74,6 +74,28 @@ class ModelLoader(ForgeModel):
         Requires the antoni_alpha package:
             pip install git+https://github.com/computationalpathologygroup/ANTONI-Alpha.git
         """
+        import importlib.util
+        import os
+        import sys
+
+        # The local antoni_alpha model directory may shadow the pip-installed
+        # antoni_alpha package. Force-load the installed package if needed.
+        _pkg = sys.modules.get("antoni_alpha")
+        if _pkg is None or not hasattr(_pkg, "models"):
+            for sp in sys.path:
+                init = os.path.join(sp, "antoni_alpha", "__init__.py")
+                models_dir = os.path.join(sp, "antoni_alpha", "models")
+                if os.path.isfile(init) and os.path.isdir(models_dir):
+                    spec = importlib.util.spec_from_file_location(
+                        "antoni_alpha",
+                        init,
+                        submodule_search_locations=[os.path.dirname(init)],
+                    )
+                    mod = importlib.util.module_from_spec(spec)
+                    sys.modules["antoni_alpha"] = mod
+                    spec.loader.exec_module(mod)
+                    break
+
         from antoni_alpha.models.antoni_pretrained import AntoniAlphaPreTrained
 
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -97,14 +119,14 @@ class ModelLoader(ForgeModel):
         conversation. Synthetic slide latents are produced here to match
         the expected feature dimensions.
         """
-        slide_latents = torch.randn(batch_size, self.num_tiles, self.prism_embedding_dim)
+        slide_latents = torch.randn(
+            batch_size, self.num_tiles, self.prism_embedding_dim
+        )
 
         if dtype_override is not None:
             slide_latents = slide_latents.to(dtype_override)
 
-        conversations = [
-            [{"role": "user", "content": self.sample_prompt}]
-        ] * batch_size
+        conversations = [[{"role": "user", "content": self.sample_prompt}]] * batch_size
 
         return {
             "slide_latents": slide_latents,
