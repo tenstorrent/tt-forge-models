@@ -219,10 +219,11 @@ def _convert_hunyuan_video15_transformer_to_diffusers(checkpoint, **kwargs):
             new_checkpoint[new_key] = value
 
         # vision_in -> image_embedder (image conditioning for I2V)
+        # Sequential: [LayerNorm(0), Linear(1), GELU(2), Linear(3), LayerNorm(4)]
         elif key.startswith("vision_in."):
             new_key = key
-            new_key = new_key.replace("vision_in.proj.0.", "image_embedder.linear_1.")
-            new_key = new_key.replace("vision_in.proj.1.", "image_embedder.norm_in.")
+            new_key = new_key.replace("vision_in.proj.0.", "image_embedder.norm_in.")
+            new_key = new_key.replace("vision_in.proj.1.", "image_embedder.linear_1.")
             new_key = new_key.replace("vision_in.proj.3.", "image_embedder.linear_2.")
             new_key = new_key.replace("vision_in.proj.4.", "image_embedder.norm_out.")
             new_checkpoint[new_key] = value
