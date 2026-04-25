@@ -106,8 +106,7 @@ class ModelLoader(ForgeModel):
         # processor adds an image token at ID 32000, causing an OOB embedding
         # lookup. Resize to match the processor vocabulary.
         processor_vocab_size = len(self.processor.tokenizer)
-        embed_size = model.language_model.model.embed_tokens.weight.shape[0]
-        if embed_size < processor_vocab_size:
+        if model.config.text_config.vocab_size < processor_vocab_size:
             model.resize_token_embeddings(processor_vocab_size)
 
         return model
