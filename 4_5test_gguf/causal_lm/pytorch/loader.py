@@ -9,6 +9,14 @@ from typing import Optional
 
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.models.glm4v_moe import (
+    Glm4vMoeConfig,
+    Glm4vMoeForConditionalGeneration,
+)
+
+# glm4v_moe is a vision-language architecture; register it so AutoModelForCausalLM
+# can resolve it to Glm4vMoeForConditionalGeneration, which also supports text-only inputs.
+AutoModelForCausalLM.register(Glm4vMoeConfig, Glm4vMoeForConditionalGeneration)
 
 from ....base import ForgeModel
 from ....config import (
