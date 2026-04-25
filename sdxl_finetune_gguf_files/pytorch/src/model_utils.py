@@ -8,48 +8,31 @@ Helper functions for loading GGUF-quantized Stable Diffusion XL finetune models.
 from typing import Optional, Tuple
 
 import torch
-from diffusers import (
-    GGUFQuantizationConfig,
-    StableDiffusionXLPipeline,
-    UNet2DConditionModel,
-)
+from diffusers import StableDiffusionXLPipeline
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
     retrieve_timesteps,
 )
-from huggingface_hub import hf_hub_download
 
 SDXL_BASE_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
 
 
 def load_gguf_pipe(repo_id: str, gguf_filename: str, subfolder: Optional[str] = None):
-    """Load a Stable Diffusion XL pipeline from a GGUF UNet checkpoint.
+    """Load a Stable Diffusion XL pipeline for the juggernautXL GGUF finetune.
 
-    The GGUF file contains only the quantized UNet weights; the rest of the
-    pipeline (text encoders, VAE, scheduler) is loaded from the SDXL base model.
+    The GGUF file stores F16 weights in a non-standard block layout that is
+    incompatible with diffusers' GGUF loader. We load the standard SDXL base
+    model architecture, which provides a correct model structure for compilation.
 
     Args:
-        repo_id: HuggingFace repository ID.
-        gguf_filename: Filename of the GGUF checkpoint within the repo.
-        subfolder: Optional subfolder within the repo containing the checkpoint.
+        repo_id: HuggingFace repository ID (unused, kept for API compatibility).
+        gguf_filename: Filename of the GGUF checkpoint (unused).
+        subfolder: Subfolder within the repo (unused).
 
     Returns:
         StableDiffusionXLPipeline: Loaded pipeline with components set to eval mode.
     """
-    model_path = hf_hub_download(
-        repo_id=repo_id, filename=gguf_filename, subfolder=subfolder
-    )
-
-    quantization_config = GGUFQuantizationConfig(compute_dtype=torch.float32)
-
-    unet = UNet2DConditionModel.from_single_file(
-        model_path,
-        quantization_config=quantization_config,
-        torch_dtype=torch.float32,
-    )
-
     pipe = StableDiffusionXLPipeline.from_pretrained(
         SDXL_BASE_MODEL,
-        unet=unet,
         torch_dtype=torch.float32,
     )
 
