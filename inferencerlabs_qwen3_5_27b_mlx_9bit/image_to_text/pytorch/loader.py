@@ -67,9 +67,10 @@ class ModelLoader(ForgeModel):
         # MLX repos do not ship a processor; use the base model
         self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3.5-27B")
 
-        # MLX quantization config lacks quant_method; clear it to load as bf16
+        # MLX quantization config lacks quant_method; remove it to load as bf16
         config = AutoConfig.from_pretrained(pretrained_model_name)
-        config.quantization_config = None
+        if hasattr(config, "quantization_config"):
+            delattr(config, "quantization_config")
         model_kwargs["config"] = config
 
         model = AutoModelForImageTextToText.from_pretrained(
