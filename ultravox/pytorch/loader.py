@@ -220,6 +220,12 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The Ultravox model instance.
         """
         import transformers
+        import transformers.modeling_utils
+
+        # transformers.modeling_utils._init_weights was removed in transformers 5.x;
+        # the cached model code checks it as a boolean (was True by default in 4.x)
+        if not hasattr(transformers.modeling_utils, "_init_weights"):
+            transformers.modeling_utils._init_weights = True
 
         pretrained_model_name = self._variant_config.pretrained_model_name
         patched_dir = self._get_patched_model_dir()
