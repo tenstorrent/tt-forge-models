@@ -97,10 +97,7 @@ class ModelLoader(ForgeModel):
         # The second-state GGUF repo has vocab_size=32000 but the llava-hf processor
         # uses image token ID 32000, so resize embeddings to cover all special tokens.
         processor_vocab_size = len(self.processor.tokenizer)
-        if (
-            model.language_model.model.embed_tokens.num_embeddings
-            < processor_vocab_size
-        ):
+        if model.get_input_embeddings().num_embeddings < processor_vocab_size:
             model.resize_token_embeddings(processor_vocab_size)
 
         return model
