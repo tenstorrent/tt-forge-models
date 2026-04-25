@@ -69,13 +69,12 @@ class ModelLoader(ForgeModel):
         """Load and return the mlx-community Qwen3.5-27B-6bit model instance."""
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["dtype"] = dtype_override
-        model_kwargs |= kwargs
-
-        # MLX quantization configs are plain dicts lacking `quant_method` required by
-        # transformers 5.2+. Delete the attribute so the model loads as float weights.
+        # MLX-community models store weights in MLX's packed-integer format (uint32 +
+        # bfloat16 scales/biases), which is incompatible with standard safetensors
+        # loading. For compile-only targets we only need the correct architecture, so
+        # we load the config (stripping the MLX quantization_config which lacks the
+        # `quant_method` key required by transformers 5.2+) and initialise fresh
+        # float weights via from_config.
         config = AutoConfig.from_pretrained(
             pretrained_model_name, trust_remote_code=True
         )
@@ -84,9 +83,9 @@ class ModelLoader(ForgeModel):
         ):
             del config.quantization_config
 
-        model = AutoModelForImageTextToText.from_pretrained(
-            pretrained_model_name, config=config, **model_kwargs
-        )
+        model = AutoModelForImageTextToText.from_config(config)
+        if dtype_override is not None:
+            model = model.to(dtype_override)
         model.eval()
 
         if self.processor is None:
