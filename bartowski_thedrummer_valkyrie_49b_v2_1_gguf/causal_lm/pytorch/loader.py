@@ -87,12 +87,12 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
+        if self.config is None:
+            self.load_config()
+        config = self.config
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                self.ORIGINAL_MODEL_NAME, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, trust_remote_code=True, **model_kwargs
