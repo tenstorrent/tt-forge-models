@@ -89,6 +89,16 @@ def _patch_transformers_qwen35moe_gguf():
                 else:
                     layer_types.append("linear_attention")
             config["layer_types"] = layer_types
+            # GGUF stores conv1d.weight as 2D [out, kernel] but HF Conv1d
+            # expects 3D [out, in/groups, kernel]; insert the groups dim.
+            if "tensors" in result:
+                import torch as _torch
+
+                for key in list(result["tensors"].keys()):
+                    if key.endswith("conv1d.weight"):
+                        t = result["tensors"][key]
+                        if t.ndim == 2:
+                            result["tensors"][key] = t.unsqueeze(1)
         return result
 
     gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
