@@ -776,6 +776,17 @@ class Gr00tPolicy(BasePolicy):
         """Load the transforms for the model."""
         # Load metadata for normalization stats
         metadata_path = exp_cfg_dir / "metadata.json"
+        if not metadata_path.exists():
+            # experiment_cfg/metadata.json is not included in all HuggingFace releases
+            # (e.g. nvidia/GR00T-N1.6-DROID). Skip metadata loading; transforms will
+            # use unnormalized values when metadata is absent.
+            print(
+                f"Warning: metadata.json not found at {metadata_path}. "
+                "Skipping metadata loading; normalization transforms will be disabled."
+            )
+            self.metadata = None
+            return
+
         with open(metadata_path, "r") as f:
             metadatas = json.load(f)
 
@@ -1185,6 +1196,8 @@ class Eagle2_5_VLImageProcessorFast(BaseImageProcessorFast):
         do_pad: bool,
         disable_grouping: Optional[bool],
         return_tensors: Optional[Union[str, TensorType]],
+        image_seq_length: Optional[int] = None,
+        **kwargs,
     ) -> BatchFeature:
         processed_images = []
         image_sizes = []
@@ -2107,38 +2120,41 @@ def build_eagle_processor() -> ProcessorMixin:
     """
     from transformers import Qwen2TokenizerFast
 
-    # Compute base path for eagle model files
-    # Path to local eagle model files (relative to this file)
-
-    # Load tokenizer with specific file paths (not directory)
-    vocab_file = get_file("test_files/pytorch/Issac_groot/vocab.json")
-    merges_file = get_file("test_files/pytorch/Issac_groot/merges.txt")
+    # Load tokenizer from directory — from_pretrained reads tokenizer_config.json
+    # which provides the regex/BPE config needed for correct tokenization.
+    # Constructing directly from vocab_file+merges_file alone produces a broken
+    # tokenizer that returns 0 tokens for every input.
+    tokenizer_dir = os.path.dirname(
+        get_file("test_files/pytorch/Issac_groot/vocab.json")
+    )
     tokenizer_config_file = get_file(
         "test_files/pytorch/Issac_groot/tokenizer_config.json"
     )
 
-    tokenizer = Qwen2TokenizerFast(vocab_file=vocab_file, merges_file=merges_file)
+    tokenizer = Qwen2TokenizerFast.from_pretrained(tokenizer_dir, local_files_only=True)
     tokenizer.padding_side = "left"
 
-    # Load and apply tokenizer config
+    # Load tokenizer config for chat template lookup
     with open(tokenizer_config_file, "r") as f:
         tokenizer_config = json.load(f)
-        if "model_max_length" in tokenizer_config:
-            tokenizer.model_max_length = tokenizer_config["model_max_length"]
 
     # Add custom attributes needed by Eagle processor
     tokenizer.image_token = "<IMG_CONTEXT>"
     tokenizer.video_token = "<IMG_CONTEXT>"
 
-    # Load chat template if exists
+    # Load chat template: prefer chat_template.json, fall back to tokenizer_config.json
     chat_template = None
     chat_template_file = get_file("test_files/pytorch/Issac_groot/chat_template.json")
     if os.path.exists(chat_template_file):
         with open(chat_template_file, "r") as f:
             chat_data = json.load(f)
-            chat_template = chat_data.get("chat_template")
-            if chat_template:
-                tokenizer.chat_template = chat_template
+            if isinstance(chat_data, dict):
+                chat_template = chat_data.get("chat_template")
+    if not chat_template:
+        # Fall back to chat_template embedded in tokenizer_config.json
+        chat_template = tokenizer_config.get("chat_template")
+    if chat_template:
+        tokenizer.chat_template = chat_template
 
     # Load processor config
     processor_config_file = get_file(
@@ -2712,25 +2728,32 @@ class Gr00tPolicyModule(nn.Module):
             >>> # Get raw action tensor (no postprocessing)
             >>> raw_action = policy_module(observations, return_raw=True)
         """
-        device = kwargs["state"].device
         if observations is None:
             observations = kwargs
         elif kwargs:
             # Merge kwargs into observations if both are provided
             observations = {**observations, **kwargs}
 
-        if preprocessed:
+        # Auto-detect preprocessed inputs by presence of eagle_* keys
+        is_already_preprocessed = any(
+            key.startswith("eagle_") for key in observations.keys()
+        )
+        if preprocessed or is_already_preprocessed:
             return self.forward_from_normalized(observations, return_raw=return_raw)
-        else:
-            # Preprocess
-            normalized_input = self.preprocess(observations)
-            # Forward
 
-            for k, v in normalized_input.items():
-                if isinstance(v, np.ndarray):
-                    normalized_input[k] = torch.from_numpy(v).to(device)
+        device = next(
+            (v.device for v in observations.values() if isinstance(v, torch.Tensor)),
+            torch.device("cpu"),
+        )
+        # Preprocess
+        normalized_input = self.preprocess(observations)
+        # Forward
 
-            return self.forward_from_normalized(normalized_input, return_raw=return_raw)
+        for k, v in normalized_input.items():
+            if isinstance(v, np.ndarray):
+                normalized_input[k] = torch.from_numpy(v).to(device)
+
+        return self.forward_from_normalized(normalized_input, return_raw=return_raw)
 
     def get_action(self, observations: Dict[str, Any]) -> Dict[str, Any]:
         """

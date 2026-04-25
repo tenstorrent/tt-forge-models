@@ -3163,11 +3163,11 @@ class Eagle2_5_VLForConditionalGeneration(Eagle2_5_VLPreTrainedModel, Generation
     def pixel_shuffle(self, x, scale_factor=0.5):
         n, w, h, c = x.size()
         # N, W, H, C --> N, W, H * scale, C // scale
-        x = x.view(n, w, int(h * scale_factor), int(c / scale_factor))
+        x = x.reshape(n, w, int(h * scale_factor), int(c / scale_factor))
         # N, W, H * scale, C // scale --> N, H * scale, W, C // scale
         x = x.permute(0, 2, 1, 3).contiguous()
         # N, H * scale, W, C // scale --> N, H * scale, W * scale, C // (scale ** 2)
-        x = x.view(
+        x = x.reshape(
             n,
             int(h * scale_factor),
             int(w * scale_factor),
@@ -3180,14 +3180,20 @@ class Eagle2_5_VLForConditionalGeneration(Eagle2_5_VLPreTrainedModel, Generation
     def extract_feature(self, pixel_values):
         if self.select_layer == -1:
             vit_embeds = self.vision_model(
-                pixel_values=pixel_values, output_hidden_states=False, return_dict=True
+                pixel_values=pixel_values,
+                output_hidden_states=False,
+                return_dict=True,
+                interpolate_pos_encoding=True,
             )
             if hasattr(vit_embeds, "last_hidden_state"):
                 vit_embeds = vit_embeds.last_hidden_state
 
         else:
             vit_embeds = self.vision_model(
-                pixel_values=pixel_values, output_hidden_states=True, return_dict=True
+                pixel_values=pixel_values,
+                output_hidden_states=True,
+                return_dict=True,
+                interpolate_pos_encoding=True,
             ).hidden_states[self.select_layer]
 
         if self.use_pixel_shuffle:

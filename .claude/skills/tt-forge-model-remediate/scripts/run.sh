@@ -10,12 +10,17 @@ if [ ! -f $TT_XLA_ROOT/.env ]; then
   exit 1
 fi
 
+WORKTREE_DIR=$PWD
 export XDG_CACHE_HOME="$PWD/.cache"
 export TT_METAL_CACHE="$PWD/.cache"
 export HF_HOME="$PWD/.cache/huggingface"
 export TTMLIR_VENV_DIR=$PWD/.local_venv
 
 source $TT_XLA_ROOT/.env
+
+# Override TT_FORGE_MODELS_ROOT so the test uses this worktree's model files
+# instead of whatever the shared .env may have set (set by other parallel jobs).
+export TT_FORGE_MODELS_ROOT=$WORKTREE_DIR
 
 cd $TT_XLA_ROOT
 source venv/activate
