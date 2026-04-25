@@ -260,6 +260,8 @@ class ModelLoader(ForgeModel):
         inputs = dict(inputs)
         # The custom Emu3ForCausalLM.forward() does not accept image_size; remove it.
         inputs.pop("image_size", None)
+        # DynamicCache.get_usable_length was removed in newer transformers; disable cache.
+        inputs["use_cache"] = False
         return inputs
 
     def decode_output(self, outputs, input_length=None):
