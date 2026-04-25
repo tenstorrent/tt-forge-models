@@ -100,12 +100,48 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        Emu3Processor = get_class_from_dynamic_module(
+        Emu3ProcessorBase = get_class_from_dynamic_module(
             "processing_emu3.Emu3Processor",
             self._variant_config.pretrained_model_name,
         )
-        self.processor = Emu3Processor(
-            self.image_processor, self.image_tokenizer, self.tokenizer
+
+        # The model's Emu3Processor.__init__ was written for older transformers and calls
+        # super().__init__(image_processor, tokenizer) with 2 args. Transformers 5.2.0's
+        # ProcessorMixin.get_attributes() now introspects __init__ and finds 3 modality
+        # args (image_processor, vision_tokenizer, tokenizer), causing a mismatch.
+        # Fix: rename the vision model parameter to avoid modality keyword matching.
+        from transformers.processing_utils import ProcessorMixin as _ProcessorMixin
+
+        class _FixedEmu3Processor(Emu3ProcessorBase):
+            def __init__(
+                self,
+                image_processor=None,
+                vq_model=None,
+                tokenizer=None,
+                chat_template="You are a helpful assistant. USER: {image_prompt}{text_prompt}. ASSISTANT:",
+                prefix_template="{H}*{W}",
+                visual_template=(
+                    "<|visual token {token_id:0>6d}|>",
+                    r"<\|visual token (\d+)\|>",
+                ),
+                **kwargs,
+            ):
+                assert vq_model is not None, "image tokenizer can not be None"
+                self.vision_tokenizer = vq_model
+                self.prefix_template = prefix_template
+                self.visual_template = visual_template
+                self.vis_tok_spatial_factor = 2 ** (
+                    len(self.vision_tokenizer.config.ch_mult) - 1
+                )
+                _ProcessorMixin.__init__(
+                    self, image_processor, tokenizer, chat_template=chat_template
+                )
+                self.const_helper = self.build_const_helper()
+
+        self.processor = _FixedEmu3Processor(
+            image_processor=self.image_processor,
+            vq_model=self.image_tokenizer,
+            tokenizer=self.tokenizer,
         )
         return self.processor
 
