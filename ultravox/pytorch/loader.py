@@ -204,13 +204,15 @@ class ModelLoader(ForgeModel):
                 ("def tie_weights(self):", "def tie_weights(self, **kwargs):"),
             ],
             "ultravox_processing.py": [
-                # Newer transformers requires FeatureExtractionMixin for audio_processor,
-                # but AutoProcessor returns WhisperProcessor (a ProcessorMixin). Unwrap it.
+                # Newer transformers requires FeatureExtractionMixin for audio_processor in
+                # super().__init__, but AutoProcessor returns WhisperProcessor (ProcessorMixin).
+                # Pass the unwrapped feature_extractor to super(), then restore the full
+                # processor so that code accessing .audio_processor.feature_extractor still works.
                 (
                     "super().__init__(audio_processor=audio_processor, tokenizer=tokenizer)",
-                    "if hasattr(audio_processor, 'feature_extractor'):\n"
-                    "            audio_processor = audio_processor.feature_extractor\n"
-                    "        super().__init__(audio_processor=audio_processor, tokenizer=tokenizer)",
+                    "_feature_extractor = getattr(audio_processor, 'feature_extractor', audio_processor)\n"
+                    "        super().__init__(audio_processor=_feature_extractor, tokenizer=tokenizer)\n"
+                    "        self.audio_processor = audio_processor",
                 ),
             ],
         }
