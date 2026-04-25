@@ -6,8 +6,8 @@ Qwen 3 Omni MoE model loader implementation for multimodal tasks.
 """
 import torch
 from transformers import (
-    Qwen3OmniMoeForConditionalGeneration,
     Qwen3OmniMoeProcessor,
+    Qwen3OmniMoeThinkerForConditionalGeneration,
 )
 from typing import Optional
 
@@ -101,7 +101,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
 
-        model = Qwen3OmniMoeForConditionalGeneration.from_pretrained(
+        model = Qwen3OmniMoeThinkerForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
         model.config.use_cache = False
