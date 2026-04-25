@@ -137,6 +137,15 @@ class ModelLoader(ForgeModel):
 
         Emu3Processor = proc_mod.Emu3Processor
 
+        # Newer transformers inspects __init__ signature and treats any parameter
+        # containing a modality keyword (e.g. "tokenizer") as a required component.
+        # vision_tokenizer matches "tokenizer", causing ProcessorMixin.__init__ to
+        # expect 3 args but processing_emu3.py only passes 2 to super(). Patch
+        # get_attributes() to return only the 2 components the super().__init__ receives.
+        Emu3Processor.get_attributes = classmethod(
+            lambda cls: ["image_processor", "tokenizer"]
+        )
+
         self.processor = Emu3Processor(
             self.image_processor, self.image_tokenizer, self.tokenizer
         )
