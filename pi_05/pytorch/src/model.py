@@ -41,9 +41,7 @@ def preprocess_for_sampling(self, batch: dict[str, Tensor]):
     lang_tokens = batch["observation.language.tokens"]
     lang_masks = batch["observation.language.attention_mask"]
 
-    state = self.prepare_state(batch)
-
-    return images, img_masks, lang_tokens, lang_masks, state
+    return images, img_masks, lang_tokens, lang_masks
 
 
 @torch.no_grad()
@@ -103,7 +101,7 @@ def forward(
         torch.cumsum = _safe_cumsum
         try:
             actions = self.model.sample_actions(
-                images, img_masks, lang_tokens, lang_masks, state, noise=noise, **kwargs
+                images, img_masks, lang_tokens, lang_masks, noise=noise, **kwargs
             )
         finally:
             torch.cumsum = original_cumsum

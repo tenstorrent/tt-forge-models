@@ -90,31 +90,36 @@ class ModelLoader(ForgeModel):
         Load and preprocess inputs for action sampling.
         Returns images, image masks, language tokens, language masks, state,
         and a pre-generated noise tensor for deterministic diffusion sampling.
+        Uses synthetic inputs to avoid downloading gated HF models.
         """
-        from lerobot.policies.factory import make_pre_post_processors
-        from lerobot.datasets.lerobot_dataset import LeRobotDataset
+        import torch
 
-        self.preprocess, self.postprocess_fn = make_pre_post_processors(
-            self.pi_05.config,
-            self.pretrained_model_name,
-            preprocessor_overrides={"device_processor": {"device": "cpu"}},
-        )
-        dataset = LeRobotDataset("lerobot/libero")
-        frame_index = dataset.meta.episodes["dataset_from_index"][episode_index]
-        frame = dict(dataset[frame_index])
-        batch = self.preprocess(frame)
-        (
-            images,
-            img_masks,
-            lang_tokens,
-            lang_masks,
-            state,
-        ) = self.pi_05.preprocess_for_sampling(batch)
+        batch_size = 1
+        max_length = 200  # From policy_preprocessor.json tokenizer_processor config
 
-        bsize = state.shape[0]
+        # Create synthetic batch with the image keys expected by the pi05 model
+        batch = {
+            "observation.images.image": torch.zeros(batch_size, 3, 256, 256),
+            "observation.images.image2": torch.zeros(batch_size, 3, 256, 256),
+        }
+
+        # Use the model's own image preprocessing (resizes to image_resolution and normalizes)
+        images, img_masks = self.pi_05._preprocess_images(batch)
+
+        # Synthetic language tokens — pi05 uses the paligemma tokenizer (vocab size 256k)
+        lang_tokens = torch.zeros(batch_size, max_length, dtype=torch.long)
+        lang_masks = torch.ones(batch_size, max_length, dtype=torch.bool)
+
+        # Pi05 does not use state for action sampling; include a dummy to match forward signature
+        state = torch.zeros(batch_size, self.pi_05.config.max_state_dim)
+
         noise = self.pi_05.model.sample_noise(
-            (bsize, self.pi_05.config.chunk_size, self.pi_05.config.max_action_dim),
-            device=state.device,
+            (
+                batch_size,
+                self.pi_05.config.chunk_size,
+                self.pi_05.config.max_action_dim,
+            ),
+            device=lang_tokens.device,
         )
 
         return images, img_masks, lang_tokens, lang_masks, state, noise
