@@ -201,11 +201,30 @@ class ModelLoader(ForgeModel):
         """Patch cached transformers_modules files for transformers>=5.x API changes."""
         import glob as _glob
 
-        _PATCHES = [
+        _MODEL_PATCHES = [
             # tie_weights gained a recompute_mapping kwarg in transformers>=5.x
             (
                 "def tie_weights(self):\n        return self.language_model.tie_weights()",
                 "def tie_weights(self, **kwargs):\n        return self.language_model.tie_weights(**kwargs)",
+            ),
+        ]
+
+        # transformers>=5.x requires FeatureExtractionMixin (not ProcessorMixin) for
+        # audio_processor. UltravoxProcessor wraps WhisperProcessor; unwrap to its
+        # feature_extractor so the base class type check passes, and fix the
+        # downstream .feature_extractor.hop_length access accordingly.
+        _PROCESSING_PATCHES = [
+            (
+                'audio_processor_class = ("WhisperProcessor",)',
+                'audio_processor_class = ("WhisperFeatureExtractor",)',
+            ),
+            (
+                "super().__init__(audio_processor=audio_processor, tokenizer=tokenizer)",
+                "_ap = audio_processor.feature_extractor if hasattr(audio_processor, 'feature_extractor') else audio_processor\n        super().__init__(audio_processor=_ap, tokenizer=tokenizer)",
+            ),
+            (
+                "hop_length = self.audio_processor.feature_extractor.hop_length",
+                "hop_length = getattr(self.audio_processor, 'hop_length', None) or self.audio_processor.feature_extractor.hop_length",
             ),
         ]
 
@@ -243,10 +262,21 @@ class ModelLoader(ForgeModel):
                 with open(model_path) as f:
                     content = f.read()
                 patched = content
-                for old, new in _PATCHES:
+                for old, new in _MODEL_PATCHES:
                     patched = patched.replace(old, new)
                 if patched != content:
                     with open(model_path, "w") as f:
+                        f.write(patched)
+            for proc_path in _glob.glob(
+                os.path.join(base, "**", "ultravox_processing.py"), recursive=True
+            ):
+                with open(proc_path) as f:
+                    content = f.read()
+                patched = content
+                for old, new in _PROCESSING_PATCHES:
+                    patched = patched.replace(old, new)
+                if patched != content:
+                    with open(proc_path, "w") as f:
                         f.write(patched)
 
     def _cleanup_patched_dir(self):
