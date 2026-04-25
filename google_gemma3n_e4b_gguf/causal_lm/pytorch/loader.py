@@ -67,6 +67,8 @@ def _patch_transformers_gemma3n_gguf():
         config = result.get("config", {})
         if config.get("model_type") == "gemma3n":
             config["model_type"] = "gemma3n_text"
+            if "num_kv_shared_layers" in config:
+                config["num_kv_shared_layers"] = int(config["num_kv_shared_layers"])
         return result
 
     gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
