@@ -89,8 +89,11 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = self.gguf_file
 
         # The concedo repo has an outdated config; use the original full model config
-        # so the architecture matches the Llama 3.1-based GGUF weights
+        # so the architecture matches the Llama 3.1-based GGUF weights.
+        # Also expose num_hidden_layers at the top level because get_gguf_hf_weights_map
+        # requires it but LlavaConfig nests it inside text_config.
         config = AutoConfig.from_pretrained(self._PROCESSOR_NAME)
+        config.num_hidden_layers = config.text_config.num_hidden_layers
         model = LlavaForConditionalGeneration.from_pretrained(
             pretrained_model_name,
             config=config,
