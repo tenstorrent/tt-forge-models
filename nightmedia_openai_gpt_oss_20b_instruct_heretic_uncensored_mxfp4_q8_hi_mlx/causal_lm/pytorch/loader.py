@@ -6,6 +6,7 @@ nightmedia/OpenAI-gpt-oss-20B-INSTRUCT-Heretic-Uncensored-MXFP4-q8-hi-mlx model 
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.utils.quantization_config import Mxfp4Config
 from typing import Optional
 
 from ....base import ForgeModel
@@ -88,16 +89,20 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"trust_remote_code": True}
+        self.load_config()
+
+        model_kwargs = {
+            "config": self.config,
+            "low_cpu_mem_usage": True,
+            "trust_remote_code": True,
+            "attn_implementation": "eager",
+            "quantization_config": Mxfp4Config(dequantize=True),
+        }
+
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        else:
+            model_kwargs["torch_dtype"] = torch.bfloat16
 
         model_kwargs |= kwargs
 
@@ -140,4 +145,6 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
         )
+        if self.num_layers is not None:
+            self.config.num_hidden_layers = self.num_layers
         return self.config
