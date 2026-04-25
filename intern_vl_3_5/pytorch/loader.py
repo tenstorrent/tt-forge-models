@@ -6,6 +6,7 @@ InternVL3.5 model loader implementation for multimodal visual question answering
 """
 
 import torch
+import torch.nn as nn
 import torchvision.transforms as T
 from PIL import Image
 from torch.overrides import TorchFunctionMode
@@ -29,6 +30,23 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+# Monkey-patch nn.Module.__getattr__ to handle transformers 5.x post_init() skipping.
+# InternVLChatModel.__init__ doesn't call self.post_init(), which is where transformers 5.x
+# sets all_tied_weights_keys. Returning {} is safe since InternVLChatModel has no tied weights.
+_original_nn_module_getattr = nn.Module.__getattr__
+
+
+def _patched_nn_module_getattr(self, name):
+    if (
+        name == "all_tied_weights_keys"
+        and self.__class__.__name__ == "InternVLChatModel"
+    ):
+        return {}
+    return _original_nn_module_getattr(self, name)
+
+
+nn.Module.__getattr__ = _patched_nn_module_getattr
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
