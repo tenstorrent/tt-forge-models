@@ -100,9 +100,22 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        # Float8 tensors can't be initialized with normal_() on CPU; skip it for them
+        # since pretrained weights overwrite any initialization anyway.
+        _orig_normal_ = torch.Tensor.normal_
+
+        def _safe_normal_(self, mean=0, std=1):
+            if self.dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
+                return self
+            return _orig_normal_(self, mean=mean, std=std)
+
+        torch.Tensor.normal_ = _safe_normal_
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            torch.Tensor.normal_ = _orig_normal_
 
         self.config = model.config
         self.model = model
