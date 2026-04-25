@@ -1,1 +1,1 @@
-amd-quark
+amd-quark==0.10
