@@ -235,3 +235,7 @@ results:
   status: "PASS"
   date: "20260425_062024"
   branch: "arch-c-36-tt-xla-dev/nsmith/2026-04-22_16-58/hf-bringup-49"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[bartowski_thedrummer_cydonia_redux_22b_v1_1_gguf/causal_lm/pytorch-Cydonia_Redux_22B_v1_1_GGUF-single_device-inference]"
+  status: "PASS"
+  date: "20260425_064437"
+  branch: "arch-c-36-tt-xla-dev/nsmith/2026-04-22_16-58/hf-bringup-49"
