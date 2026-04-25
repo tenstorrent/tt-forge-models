@@ -74,15 +74,15 @@ class ModelLoader(ForgeModel):
             model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        # MLX quantization configs lack `quant_method` required by transformers 5.2+;
-        # strip it so the model loads as standard float weights.
+        # MLX quantization configs are plain dicts lacking `quant_method` required by
+        # transformers 5.2+. Delete the attribute so the model loads as float weights.
         config = AutoConfig.from_pretrained(
             pretrained_model_name, trust_remote_code=True
         )
-        if hasattr(config, "quantization_config") and not hasattr(
-            config.quantization_config, "quant_method"
+        if hasattr(config, "quantization_config") and isinstance(
+            config.quantization_config, dict
         ):
-            config.quantization_config = None
+            del config.quantization_config
 
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, config=config, **model_kwargs
