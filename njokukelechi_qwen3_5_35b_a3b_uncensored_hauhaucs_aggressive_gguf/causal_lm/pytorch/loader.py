@@ -179,6 +179,52 @@ def _patch_transformers_qwen35moe_gguf():
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
 
+    # 7. Patch Qwen2MoeTensorProcessor.process to handle tensor_key_mapping key
+    # mismatches for qwen35moe GGUF files.
+    #
+    # get_gguf_hf_weights_map adds keys WITH ".weight" suffix (e.g.
+    # "blk.0.ffn_gate_exps.weight"), but process() looks up m["name"] which is
+    # WITHOUT ".weight" (captured by GGUF_MOE_WEIGHTS_PATTERN). Additionally,
+    # qwen35moe GGUF stores separate ffn_gate_exps/ffn_up_exps tensors while the
+    # HF model uses a fused gate_up_proj, so the tensor_key_mapping only has the
+    # fused ffn_gate_up_exps key. This patch handles both mismatches at the point
+    # of failure so the fix works regardless of the get_gguf_hf_weights_map chain.
+    try:
+        from transformers.modeling_gguf_pytorch_utils import Qwen2MoeTensorProcessor
+
+        _orig_process = Qwen2MoeTensorProcessor.process
+
+        if not getattr(_orig_process, "_qwen35moe_patched", False):
+
+            def _patched_process(self, weights, name, **kwargs):
+                if m := _re.fullmatch(self.GGUF_MOE_WEIGHTS_PATTERN, name):
+                    tkm = kwargs.get("tensor_key_mapping")
+                    if tkm is not None and m["name"] not in tkm:
+                        # Try key WITH .weight suffix (get_gguf_hf_weights_map
+                        # adds .weight to all GGUF tensor keys)
+                        key_w = m["name"] + ".weight"
+                        if key_w in tkm:
+                            tkm[m["name"]] = tkm[key_w]
+                        elif m["w"] in ("gate", "up"):
+                            # Try fused ffn_gate_up_exps key (HF model has merged
+                            # gate_up_proj; qwen35moe GGUF has separate tensors)
+                            for suffix in ("", ".weight"):
+                                fused = (
+                                    m["name"].replace(
+                                        f"ffn_{m['w']}_exps", "ffn_gate_up_exps"
+                                    )
+                                    + suffix
+                                )
+                                if fused in tkm:
+                                    tkm[m["name"]] = tkm[fused]
+                                    break
+                return _orig_process(self, weights, name, **kwargs)
+
+            _patched_process._qwen35moe_patched = True
+            Qwen2MoeTensorProcessor.process = _patched_process
+    except (ImportError, AttributeError):
+        pass
+
 
 # Apply the monkey-patch at import time
 _patch_transformers_qwen35moe_gguf()
