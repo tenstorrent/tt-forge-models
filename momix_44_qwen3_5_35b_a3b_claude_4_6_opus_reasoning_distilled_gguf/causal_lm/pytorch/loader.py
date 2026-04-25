@@ -116,6 +116,28 @@ def _patch_transformers_qwen35moe_gguf():
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
 
+    # 7. Patch is_gguf_available to handle 'N/A' version string.
+    # gguf has no __version__ and may be installed after transformers'
+    # PACKAGE_DISTRIBUTION_MAPPING was computed, causing version.parse('N/A') to raise
+    # InvalidVersion. Wrap the function to fall back to direct importlib.metadata query.
+    _orig_is_gguf_available = gguf_utils.is_gguf_available
+
+    def _patched_is_gguf_available(*args, **kwargs):
+        try:
+            return _orig_is_gguf_available(*args, **kwargs)
+        except Exception:
+            try:
+                import importlib.metadata
+                from packaging.version import Version
+
+                gguf_ver = importlib.metadata.version("gguf")
+                min_ver = args[0] if args else kwargs.get("min_version", "0.10.0")
+                return Version(gguf_ver) >= Version(min_ver)
+            except Exception:
+                return False
+
+    gguf_utils.is_gguf_available = _patched_is_gguf_available
+
 
 # Apply the monkey-patch at import time
 _patch_transformers_qwen35moe_gguf()
