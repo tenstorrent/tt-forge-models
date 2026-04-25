@@ -136,6 +136,7 @@ class ModelLoader(ForgeModel):
         proc_spec.loader.exec_module(proc_mod)
 
         Emu3Processor = proc_mod.Emu3Processor
+        Emu3PrefixConstrainedLogitsHelper = utils_mod.Emu3PrefixConstrainedLogitsHelper
 
         # Newer transformers inspects __init__ signature and treats any parameter
         # containing a modality keyword (e.g. "tokenizer") as a required component.
@@ -145,6 +146,48 @@ class ModelLoader(ForgeModel):
         Emu3Processor.get_attributes = classmethod(
             lambda cls: ["image_processor", "tokenizer"]
         )
+
+        # Newer transformers tokenizer.encode(list) returns list-of-lists rather than
+        # a flat list of ints. Patch build_const_helper to use convert_tokens_to_ids
+        # which always returns a flat list of ints.
+        def _patched_build_const_helper(self):
+            from functools import partial
+
+            tokens = [
+                self.tokenizer.img_token,
+                self.tokenizer.eoi_token,
+                self.tokenizer.eos_token,
+                self.tokenizer.eol_token,
+                self.tokenizer.eof_token,
+                self.tokenizer.pad_token,
+                self.visual_template[0].format(token_id=0),
+                self.visual_template[0].format(
+                    token_id=self.vision_tokenizer.config.codebook_size - 1
+                ),
+            ]
+            ids = self.tokenizer.convert_tokens_to_ids(tokens)
+            (
+                img_token,
+                eoi_token,
+                eos_token,
+                eol_token,
+                eof_token,
+                pad_token,
+                vis_start,
+                vis_end,
+            ) = ids
+            return partial(
+                Emu3PrefixConstrainedLogitsHelper,
+                img_token=img_token,
+                eoi_token=eoi_token,
+                eos_token=eos_token,
+                eol_token=eol_token,
+                eof_token=eof_token,
+                pad_token=pad_token,
+                visual_tokens=list(range(vis_start, vis_end + 1)),
+            )
+
+        Emu3Processor.build_const_helper = _patched_build_const_helper
 
         self.processor = Emu3Processor(
             self.image_processor, self.image_tokenizer, self.tokenizer
