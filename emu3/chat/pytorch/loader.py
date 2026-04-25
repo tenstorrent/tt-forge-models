@@ -106,6 +106,17 @@ class ModelLoader(ForgeModel):
             trust_remote_code=True,
         )
 
+        # Transformers 5.2.0 changed get_attributes() to inspect __init__ signatures,
+        # treating vision_tokenizer as a processor component. But Emu3's vision_tokenizer
+        # is a VQ model (AutoModel), not a tokenizer, so ProcessorMixin validation fails.
+        # Patch get_attributes to return only the two real processor attributes so that
+        # ProcessorMixin.__init__ receives the correct 2-arg call from the remote code.
+        @classmethod  # type: ignore[misc]
+        def _get_attributes(cls):
+            return ["image_processor", "tokenizer"]
+
+        Emu3Processor.get_attributes = _get_attributes
+
         self.processor = Emu3Processor(
             self.image_processor, self.image_tokenizer, self.tokenizer
         )
