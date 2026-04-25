@@ -178,17 +178,107 @@ class ModelLoader(ForgeModel):
         with open(os.path.join(tmpdir, "config.json"), "w") as f:
             json.dump(config_dict, f)
 
-        # Copy all .py and tokenizer files from the repo
+        # Copy .py and tokenizer files; symlink only model weight files from the
+        # HF cache so we can load from patched_dir directly (with patched code).
+        # Exclude training artifacts (optimizer states, FSDP checkpoints, etc.)
+        # to avoid accidentally downloading huge files we don't need.
+        _WEIGHT_EXTS = {".safetensors", ".bin", ".pt", ".pth"}
+        _TRAINING_ARTIFACTS = {
+            "optimizer.bin",
+            "pytorch_model_fsdp.bin",
+            "trainer_state.json",
+            "training_args.bin",
+            "scheduler.pt",
+        }
         info = model_info(pretrained_model_name)
         for sibling in info.siblings:
             fname = sibling.rfilename
+            if fname == "config.json":
+                # Already wrote the patched version above.
+                continue
+            if fname in _TRAINING_ARTIFACTS or fname.startswith("rng_state"):
+                # Skip large training-only artifacts.
+                continue
+            src = hf_hub_download(pretrained_model_name, fname)
             if (
                 fname.endswith(".py")
                 or "tokenizer" in fname
                 or fname.endswith(".model")
             ):
-                src = hf_hub_download(pretrained_model_name, fname)
                 shutil.copy2(src, os.path.join(tmpdir, fname))
+            elif any(fname.endswith(ext) for ext in _WEIGHT_EXTS):
+                # Symlink weight files to avoid copying large files.
+                os.symlink(src, os.path.join(tmpdir, fname))
+            # Skip other files (preprocessor_config, gitattributes, etc.)
+
+        # Patch ultravox_model.py for transformers >= 5.x:
+        # tie_weights() is now called with recompute_mapping=False.
+        _model_py = os.path.join(tmpdir, "ultravox_model.py")
+        if os.path.exists(_model_py):
+            with open(_model_py) as f:
+                _code = f.read()
+            _code = _code.replace(
+                "def tie_weights(self):",
+                "def tie_weights(self, **kwargs):",
+            )
+            with open(_model_py, "w") as f:
+                f.write(_code)
+
+        # Patch ultravox_processing.py for transformers >= 5.x:
+        # ProcessorMixin.__init__ now requires audio_processor to be a
+        # FeatureExtractionMixin, not a full WhisperProcessor.
+        _proc_py = os.path.join(tmpdir, "ultravox_processing.py")
+        if os.path.exists(_proc_py):
+            with open(_proc_py) as f:
+                _code = f.read()
+            # Update the accepted class to FeatureExtractionMixin subclass.
+            _code = _code.replace(
+                'audio_processor_class = ("WhisperProcessor",)',
+                'audio_processor_class = ("WhisperFeatureExtractor",)',
+            )
+            # Extract feature_extractor from WhisperProcessor after loading.
+            _code = _code.replace(
+                "        if audio_processor is None:\n"
+                "            audio_processor = transformers.AutoProcessor.from_pretrained(\n"
+                '                "openai/whisper-tiny"\n'
+                "            )\n"
+                "\n"
+                "        super().__init__(audio_processor=audio_processor, tokenizer=tokenizer)",
+                "        if audio_processor is None:\n"
+                "            audio_processor = transformers.AutoProcessor.from_pretrained(\n"
+                '                "openai/whisper-tiny"\n'
+                "            )\n"
+                "        if hasattr(audio_processor, 'feature_extractor'):\n"
+                "            audio_processor = audio_processor.feature_extractor\n"
+                "\n"
+                "        super().__init__(audio_processor=audio_processor, tokenizer=tokenizer)",
+            )
+            # Also extract feature_extractor in from_pretrained before passing to cls().
+            _code = _code.replace(
+                "        audio_processor = transformers.AutoProcessor.from_pretrained(\n"
+                "            config.audio_model_id\n"
+                "            or config.audio_config._name_or_path\n"
+                '            or "openai/whisper-tiny"\n'
+                "        )\n"
+                "\n"
+                "        tokenizer = transformers.AutoTokenizer.from_pretrained(",
+                "        audio_processor = transformers.AutoProcessor.from_pretrained(\n"
+                "            config.audio_model_id\n"
+                "            or config.audio_config._name_or_path\n"
+                '            or "openai/whisper-tiny"\n'
+                "        )\n"
+                "        if hasattr(audio_processor, 'feature_extractor'):\n"
+                "            audio_processor = audio_processor.feature_extractor\n"
+                "\n"
+                "        tokenizer = transformers.AutoTokenizer.from_pretrained(",
+            )
+            # Update hop_length access: audio_processor is now the feature extractor.
+            _code = _code.replace(
+                "self.audio_processor.feature_extractor.hop_length",
+                "self.audio_processor.hop_length",
+            )
+            with open(_proc_py, "w") as f:
+                f.write(_code)
 
         self._patched_dir = tmpdir
         return tmpdir
@@ -220,8 +310,25 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The Ultravox model instance.
         """
         import transformers
+        import transformers.modeling_utils
 
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        # transformers >= 5.x removed _init_weights; the custom ultravox_model.py
+        # uses it to decide whether to load from pretrained (True) vs create with
+        # empty/meta weights (False). We emulate the old behavior: return False when
+        # inside a meta-device context (set by low_cpu_mem_usage from_pretrained).
+        if not hasattr(transformers.modeling_utils, "_init_weights"):
+
+            class _InitWeightsSentinel:
+                def __bool__(self):
+                    try:
+                        import torch
+
+                        return torch.get_default_device().type != "meta"
+                    except Exception:
+                        return True
+
+            transformers.modeling_utils._init_weights = _InitWeightsSentinel()
+
         patched_dir = self._get_patched_model_dir()
 
         config = transformers.AutoConfig.from_pretrained(
@@ -233,8 +340,10 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        # Load from patched_dir so the patched ultravox_model.py code is used.
+        # patched_dir has symlinks to the HF-cached weights, so weights load correctly.
         model = transformers.AutoModel.from_pretrained(
-            pretrained_model_name,
+            patched_dir,
             config=config,
             trust_remote_code=True,
             **model_kwargs,
