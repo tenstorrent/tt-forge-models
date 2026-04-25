@@ -90,7 +90,7 @@ class ModelLoader(ForgeModel):
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
 
-        model = AutoModelForCausalLM.from_config(config).eval()
+        model = AutoModelForCausalLM.from_config(config, trust_remote_code=True).eval()
         if dtype_override is not None:
             model = model.to(dtype_override)
 
