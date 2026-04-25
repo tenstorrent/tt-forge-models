@@ -87,7 +87,7 @@ class ModelLoader(ForgeModel):
         # length; image inputs expand to much longer sequences, causing shape mismatches.
         # Switch all activation quantization to dynamic so scales are computed at runtime.
         for module in model.modules():
-            scheme = getattr(module, "scheme", None)
+            scheme = getattr(module, "quantization_scheme", None)
             if scheme is not None:
                 for attr in ("input_activations", "output_activations"):
                     quant_args = getattr(scheme, attr, None)
