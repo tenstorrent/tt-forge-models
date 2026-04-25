@@ -58,6 +58,32 @@ def _compat_get_expanded(self, all_submodels=False):
 
 PreTrainedModel.get_expanded_tied_weights_keys = _compat_get_expanded
 
+
+# Transformers 5.x _init_weights calls module.compute_default_rope_parameters
+# for rope_type='default', but custom RotaryEmbedding classes may not have it.
+# Fall back to ROPE_INIT_FUNCTIONS["default"] in that case.
+_orig_init_weights = PreTrainedModel._init_weights
+
+
+@torch.no_grad()
+def _compat_init_weights(self, module):
+    if (
+        "RotaryEmbedding" in module.__class__.__name__
+        and hasattr(module, "original_inv_freq")
+        and getattr(module, "rope_type", None) == "default"
+        and not hasattr(module, "compute_default_rope_parameters")
+    ):
+        from torch.nn import init
+
+        buffer_value, _ = ROPE_INIT_FUNCTIONS["default"](module.config)
+        init.copy_(module.inv_freq, buffer_value)
+        init.copy_(module.original_inv_freq, buffer_value)
+        return
+    return _orig_init_weights(self, module)
+
+
+PreTrainedModel._init_weights = _compat_init_weights
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
