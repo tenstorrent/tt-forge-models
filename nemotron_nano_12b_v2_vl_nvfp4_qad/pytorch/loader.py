@@ -205,6 +205,10 @@ class ModelLoader(ForgeModel):
         )
         inputs["image_flags"] = torch.ones(total_tiles, 1, dtype=torch.long)
 
+        # forward() tries outputs.past_key_values but the LM returns cache_params;
+        # return_dict=False makes the model return a plain tuple instead.
+        inputs["return_dict"] = False
+
         if batch_size > 1:
             for key, value in inputs.items():
                 if key != "image_flags" and hasattr(value, "repeat_interleave"):
