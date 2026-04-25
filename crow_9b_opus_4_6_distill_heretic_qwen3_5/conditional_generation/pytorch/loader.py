@@ -110,6 +110,7 @@ class ModelLoader(ForgeModel):
             add_generation_prompt=True,
             return_dict=True,
             return_tensors="pt",
+            truncation=False,
         )
 
         for key in inputs:
