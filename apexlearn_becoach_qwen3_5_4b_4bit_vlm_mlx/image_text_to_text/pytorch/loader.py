@@ -3,10 +3,16 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Apexlearn BECoach-Qwen3.5-4B 4-bit VLM MLX model loader implementation for image-text-to-text generation.
+
+Note: The MLX 4-bit quantization format is not supported by the standard transformers
+loader (quantization_config lacks a quant_method attribute). We fall back to the
+HF-native base checkpoint Qwen/Qwen3.5-4B which has the same architecture.
 """
 
 from transformers import AutoModelForImageTextToText, AutoProcessor
 from typing import Optional
+
+BASE_MODEL = "Qwen/Qwen3.5-4B"
 
 from ....base import ForgeModel
 from ....config import (
@@ -31,7 +37,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.BECOACH_QWEN3_5_4B_4BIT_VLM_MLX: LLMModelConfig(
-            pretrained_model_name="apexlearn/BECoach-Qwen3.5-4B-4bit-vlm-mlx",
+            pretrained_model_name=BASE_MODEL,
             max_length=128,
         ),
     }
