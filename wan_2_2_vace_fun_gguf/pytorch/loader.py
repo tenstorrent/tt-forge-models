@@ -95,6 +95,8 @@ class ModelLoader(ForgeModel):
         # Dequantize GGUFLinear layers to regular Linear with float weights so
         # that TorchFunctionMode does not see quantized byte tensors at runtime.
         _dequantize_gguf_and_restore_linear(self._transformer)
+        # Clear quantization markers so .to(dtype) is not blocked.
+        self._transformer.quantization_method = None
         self._transformer = self._transformer.to(compute_dtype)
 
         return self._transformer
