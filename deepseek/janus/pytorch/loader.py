@@ -7,10 +7,11 @@ DeepSeek Janus model loader implementation for multimodal understanding.
 
 from typing import Optional
 
+import torch
 import janus.models  # registers multi_modality config/model with transformers auto classes
 from janus.models import VLChatProcessor
 from PIL import Image
-from transformers import AutoConfig, AutoModelForCausalLM
+from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel
 
 from ....base import ForgeModel
 from ....config import (
@@ -75,12 +76,46 @@ class ModelLoader(ForgeModel):
         config = AutoConfig.from_pretrained(str(model_name))
         config.language_config._attn_implementation = "eager"
 
-        model_kwargs = {"config": config, "low_cpu_mem_usage": False}
+        model_kwargs = {"config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(str(model_name), **model_kwargs)
+        # transformers 5.2+ always uses torch.device("meta") during __init__,
+        # but janus VisionTransformer calls .item() on a linspace tensor in its
+        # __init__, which fails on meta tensors. Patch get_init_context to
+        # strip the meta device context for this model family.
+        #
+        # Additionally, patch _adjust_tied_keys_with_tied_pointers to handle
+        # models that do not call post_init() and lack all_tied_weights_keys.
+        _orig_get_init_context = PreTrainedModel.get_init_context.__func__
+        _orig_adjust_tied = PreTrainedModel._adjust_tied_keys_with_tied_pointers
+
+        @classmethod
+        def _no_meta_get_init_context(cls, dtype, is_quantized, _is_ds_init_called):
+            return [
+                ctx
+                for ctx in _orig_get_init_context(
+                    cls, dtype, is_quantized, _is_ds_init_called
+                )
+                if not (isinstance(ctx, torch.device) and ctx.type == "meta")
+            ]
+
+        def _safe_adjust_tied(self, missing_keys):
+            if not hasattr(self, "all_tied_weights_keys"):
+                self.all_tied_weights_keys = {}
+            return _orig_adjust_tied(self, missing_keys)
+
+        PreTrainedModel.get_init_context = _no_meta_get_init_context
+        PreTrainedModel._adjust_tied_keys_with_tied_pointers = _safe_adjust_tied
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                str(model_name), **model_kwargs
+            )
+        finally:
+            PreTrainedModel.get_init_context = classmethod(_orig_get_init_context)
+            PreTrainedModel._adjust_tied_keys_with_tied_pointers = _orig_adjust_tied
+
         model.eval()
 
         if self.processor is None:
