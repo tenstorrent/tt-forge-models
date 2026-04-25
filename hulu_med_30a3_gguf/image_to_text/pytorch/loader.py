@@ -65,16 +65,14 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load
     return result
 
 
-def _patched_get_gguf_hf_weights_map(
-    hf_model, processor, model_type=None, num_layers=None, qual_name=""
-):
+def _patched_get_gguf_hf_weights_map(hf_model, processor, model_type=None, **kwargs):
     if model_type is None:
         model_type = hf_model.config.model_type
     # gguf-py uses 'qwen3vlmoe' but transformers uses 'qwen3_vl_moe'
     if model_type == "qwen3_vl_moe":
         model_type = "qwen3vlmoe"
     return _orig_get_gguf_hf_weights_map(
-        hf_model, processor, model_type, num_layers, qual_name
+        hf_model, processor, model_type=model_type, **kwargs
     )
 
 
