@@ -209,7 +209,18 @@ class ModelLoader(ForgeModel):
             ),
         ]
 
+        # Derive worktree root from this loader's __file__ path
+        # (__file__ = <worktree>/ultravox/pytorch/loader.py → go up 3 levels)
+        _worktree = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+
         search_dirs = [
+            os.path.join(
+                _worktree,
+                ".cache",
+                "huggingface",
+                "modules",
+                "transformers_modules",
+            ),
             os.path.join(
                 os.path.expanduser("~"),
                 ".cache",
@@ -217,14 +228,14 @@ class ModelLoader(ForgeModel):
                 "modules",
                 "transformers_modules",
             ),
-            os.path.join(
-                os.getcwd(),
-                ".cache",
-                "huggingface",
-                "modules",
-                "transformers_modules",
-            ),
         ]
+        # Also honour HF_MODULES_CACHE / HF_HOME if set
+        try:
+            from huggingface_hub.constants import HF_MODULES_CACHE as _hf_modules
+
+            search_dirs.insert(0, _hf_modules)
+        except Exception:
+            pass
         for base in search_dirs:
             for model_path in _glob.glob(
                 os.path.join(base, "**", "ultravox_model.py"), recursive=True
