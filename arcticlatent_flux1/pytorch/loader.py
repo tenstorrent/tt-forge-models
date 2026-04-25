@@ -15,10 +15,11 @@ Repository:
 import json
 import os
 import tempfile
+from typing import Optional
 
 import torch
 from diffusers.models import FluxTransformer2DModel
-from typing import Optional
+from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -32,7 +33,6 @@ from ...config import (
 )
 
 REPO_ID = "arcticlatent/flux1"
-_REPO_BASE_URL = f"https://huggingface.co/{REPO_ID}/resolve/main"
 
 # Standard FLUX.1 transformer architecture (shared by Dev, Schnell and Kontext).
 _TRANSFORMER_CONFIG = {
@@ -117,10 +117,13 @@ class ModelLoader(ForgeModel):
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
         config_dir = self._make_local_config_dir()
 
-        safetensor_url = f"{_REPO_BASE_URL}/{self._SAFETENSOR_PATHS[self._variant]}"
+        safetensor_path = hf_hub_download(
+            repo_id=REPO_ID,
+            filename=self._SAFETENSOR_PATHS[self._variant],
+        )
 
         self._transformer = FluxTransformer2DModel.from_single_file(
-            safetensor_url,
+            safetensor_path,
             config=config_dir,
             subfolder="transformer",
             torch_dtype=dtype,
