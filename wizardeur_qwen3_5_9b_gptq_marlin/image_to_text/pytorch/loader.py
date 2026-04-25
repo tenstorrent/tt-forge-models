@@ -6,8 +6,9 @@ Wizardeur Qwen3.5-9B GPTQ-marlin model loader implementation for image to text.
 """
 
 from transformers import (
-    Qwen3_5ForConditionalGeneration,
+    AutoConfig,
     AutoProcessor,
+    Qwen3_5ForConditionalGeneration,
 )
 from typing import Optional
 
@@ -61,16 +62,20 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"device_map": "cpu"}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
         self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
 
-        model = Qwen3_5ForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        # Strip GPTQ quantization config — GPTQ kernels require CUDA and are
+        # incompatible with CPU/compile-only environments. Instantiate from
+        # config with random weights so the model architecture is preserved.
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        if hasattr(config, "quantization_config"):
+            del config.quantization_config
+
+        model = Qwen3_5ForConditionalGeneration(config)
+
+        if dtype_override is not None:
+            model = model.to(dtype_override)
+
         model.eval()
 
         return model
