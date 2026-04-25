@@ -107,8 +107,10 @@ class ModelLoader(ForgeModel):
     ):
         """Load the GGUF-quantized HunyuanVideo 1.5 I2V transformer.
 
-        Uses diffusers GGUFQuantizationConfig to load the quantized transformer.
-        Returns the transformer nn.Module directly for compilation testing.
+        HunyuanVideo15Transformer3DModel uses 16 attention heads (inner_dim=2048)
+        but diffusers' from_single_file infers the wrong config from HunyuanVideo
+        T2V (24 heads, inner_dim=3072). We work around this by downloading the
+        GGUF and loading weights directly with the correct model architecture.
         """
         import diffusers.utils.import_utils as _diffusers_import_utils
 
@@ -118,34 +120,47 @@ class ModelLoader(ForgeModel):
             if importlib.util.find_spec("gguf") is not None:
                 _diffusers_import_utils._gguf_available = True
 
-        from diffusers import (
-            GGUFQuantizationConfig,
-            HunyuanVideo15Transformer3DModel,
-        )
-        from diffusers.loaders.single_file_model import SINGLE_FILE_LOADABLE_CLASSES
-        from diffusers.loaders.single_file_utils import (
-            convert_hunyuan_video_transformer_to_diffusers,
-        )
+        from huggingface_hub import hf_hub_download
 
-        # HunyuanVideo15Transformer3DModel is not yet registered in
-        # SINGLE_FILE_LOADABLE_CLASSES in diffusers 0.37.x; register it here.
-        if "HunyuanVideo15Transformer3DModel" not in SINGLE_FILE_LOADABLE_CLASSES:
-            SINGLE_FILE_LOADABLE_CLASSES["HunyuanVideo15Transformer3DModel"] = {
-                "checkpoint_mapping_fn": convert_hunyuan_video_transformer_to_diffusers,
-                "default_subfolder": "transformer",
-            }
+        from diffusers import GGUFQuantizationConfig, HunyuanVideo15Transformer3DModel
+        from diffusers.models.model_loading_utils import (
+            load_gguf_checkpoint,
+            load_model_dict_into_meta,
+        )
+        from diffusers.quantizers import DiffusersAutoQuantizer
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         gguf_file = _GGUF_FILES[self._variant]
+        gguf_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
+
+        checkpoint = load_gguf_checkpoint(gguf_path)
+
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+        hf_quantizer = DiffusersAutoQuantizer.from_config(quantization_config)
+        hf_quantizer.validate_environment()
 
-        self._transformer = HunyuanVideo15Transformer3DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
+        # Instantiate with class defaults: num_attention_heads=16, num_layers=54.
+        # This avoids from_single_file inferring the wrong config from the
+        # HunyuanVideo T2V repo (24 heads).
+        model = HunyuanVideo15Transformer3DModel()
+        hf_quantizer.preprocess_model(
+            model=model, device_map=None, state_dict=checkpoint, keep_in_fp32_modules=[]
         )
+        load_model_dict_into_meta(
+            model,
+            checkpoint,
+            dtype=compute_dtype,
+            device_map={"": "cpu"},
+            hf_quantizer=hf_quantizer,
+        )
+        hf_quantizer.postprocess_model(model)
+        model.hf_quantizer = hf_quantizer
 
+        if compute_dtype is not None:
+            model = model.to(compute_dtype)
+
+        self._transformer = model
         return self._transformer
 
     def load_inputs(self, **kwargs) -> Any:
