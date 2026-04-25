@@ -9,6 +9,9 @@ unsloth/FLUX.2-dev-GGUF. The GGUF transformer is loaded via diffusers'
 Flux2Transformer2DModel.from_single_file.
 """
 
+import json
+import os
+import tempfile
 from typing import Optional
 
 import torch
@@ -28,6 +31,27 @@ from ...config import (
 )
 
 GGUF_REPO = "unsloth/FLUX.2-dev-GGUF"
+
+# FLUX.2-dev transformer architecture config. Mirrors the defaults in
+# Flux2Transformer2DModel.__init__ so we don't need the gated
+# black-forest-labs/FLUX.2-dev repo when loading from GGUF.
+_TRANSFORMER_CONFIG = {
+    "_class_name": "Flux2Transformer2DModel",
+    "_diffusers_version": "0.34.0",
+    "attention_head_dim": 128,
+    "axes_dims_rope": [32, 32, 32, 32],
+    "eps": 1e-6,
+    "guidance_embeds": True,
+    "in_channels": 128,
+    "joint_attention_dim": 15360,
+    "mlp_ratio": 3.0,
+    "num_attention_heads": 48,
+    "num_layers": 8,
+    "num_single_layers": 48,
+    "patch_size": 1,
+    "rope_theta": 2000,
+    "timestep_guidance_channels": 256,
+}
 
 
 class ModelVariant(StrEnum):
@@ -81,6 +105,14 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _make_local_config_dir(self):
+        config_dir = tempfile.mkdtemp()
+        transformer_dir = os.path.join(config_dir, "transformer")
+        os.makedirs(transformer_dir, exist_ok=True)
+        with open(os.path.join(transformer_dir, "config.json"), "w") as f:
+            json.dump(_TRANSFORMER_CONFIG, f)
+        return config_dir
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the GGUF-quantized FLUX.2-dev transformer.
 
@@ -92,8 +124,11 @@ class ModelLoader(ForgeModel):
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         gguf_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
+        config_dir = self._make_local_config_dir()
         self.transformer = Flux2Transformer2DModel.from_single_file(
             gguf_path,
+            config=config_dir,
+            subfolder="transformer",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
@@ -129,7 +164,7 @@ class ModelLoader(ForgeModel):
             batch_size, num_channels_latents * 4, h_packed, w_packed, dtype=dtype
         )
 
-        # Prepare latent image IDs (B, H*W, 4)
+        # Prepare latent image IDs (B, H*W, 4) matching axes_dims_rope of length 4
         t = torch.arange(1)
         h = torch.arange(h_packed)
         w = torch.arange(w_packed)
