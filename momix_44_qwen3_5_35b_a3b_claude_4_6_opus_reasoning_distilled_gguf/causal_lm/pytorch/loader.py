@@ -27,15 +27,52 @@ def _patch_transformers_qwen35moe_gguf():
     for the qwen35moe architecture. We bridge the gap by registering qwen35moe
     config/tensor mappings and converting the model_type to qwen3_5_moe_text.
     """
+    import numpy as np
+    import re as _re
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
         GGUF_TO_TRANSFORMERS_MAPPING,
         TENSOR_PROCESSORS,
+        Qwen2MoeTensorProcessor,
     )
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
 
+    class Qwen35MoeTensorProcessor(Qwen2MoeTensorProcessor):
+        """Processor for qwen35moe GGUF expert weight tensors.
+
+        qwen35moe GGUF files store stacked expert weights as
+        [input_dim, output_dim, num_experts], while the HF model's
+        Qwen3_5MoeExperts uses nn.Parameter shaped [num_experts, output_dim,
+        input_dim].  This processor applies permute(2,1,0) before placing
+        weights, and interleaves gate/up into the fused gate_up_proj tensor.
+        """
+
+        def _set_moe_expert_tensor(self, weights, parsed_parameters, hf_name, w):
+            # Permute [input_dim, output_dim, num_experts] -> [num_experts, output_dim, input_dim]
+            torch_weights = (
+                torch.from_numpy(np.copy(weights)).permute(2, 1, 0).contiguous()
+            )
+            if w == "down":
+                parsed_parameters["tensors"][hf_name] = torch_weights
+            else:
+                num_experts, out_dim, in_dim = torch_weights.shape
+                shape = [num_experts, out_dim * 2, in_dim]
+                if hf_name not in parsed_parameters["tensors"]:
+                    parsed_parameters["tensors"][hf_name] = torch.zeros(
+                        shape, dtype=torch_weights.dtype
+                    )
+                out = parsed_parameters["tensors"][hf_name]
+                if w == "gate":
+                    out[:, :out_dim, :].copy_(torch_weights)
+                else:
+                    out[:, out_dim:, :].copy_(torch_weights)
+
+    # Always register our custom processor (even if another loader already
+    # registered a generic one for qwen35moe).
+    TENSOR_PROCESSORS["qwen35moe"] = Qwen35MoeTensorProcessor
+
     if "qwen35moe" in GGUF_SUPPORTED_ARCHITECTURES:
-        return  # Already patched
+        return  # Architecture registration already done; processor updated above
 
     # 1. Register qwen35moe as a supported architecture
     GGUF_SUPPORTED_ARCHITECTURES.append("qwen35moe")
@@ -55,14 +92,11 @@ def _patch_transformers_qwen35moe_gguf():
         "vocab_size": "vocab_size",
         "expert_count": "num_experts",
         "expert_used_count": "num_experts_per_tok",
+        "expert_feed_forward_length": "moe_intermediate_size",
         "full_attention_interval": "full_attention_interval",
     }
 
-    # 3. Reuse qwen3moe tensor processor for qwen35moe
-    if "qwen3moe" in TENSOR_PROCESSORS:
-        TENSOR_PROCESSORS["qwen35moe"] = TENSOR_PROCESSORS["qwen3moe"]
-
-    # 4. Register tokenizer converter
+    # 3. Register tokenizer converter
     from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
     if "qwen3_moe" in GGUF_TO_FAST_CONVERTERS:
@@ -71,7 +105,7 @@ def _patch_transformers_qwen35moe_gguf():
             "qwen3_moe"
         ]
 
-    # 5. Patch load_gguf_checkpoint to handle qwen35moe -> qwen3_5_moe_text
+    # 4. Patch load_gguf_checkpoint to handle qwen35moe -> qwen3_5_moe_text
     orig_load = gguf_utils.load_gguf_checkpoint
 
     def patched_load_gguf_checkpoint(*args, **kwargs):
@@ -102,8 +136,19 @@ def _patch_transformers_qwen35moe_gguf():
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
-    # 6. Patch get_gguf_hf_weights_map to handle qwen3_5_moe_text -> qwen35moe
+    # 5. Patch get_gguf_hf_weights_map to handle qwen3_5_moe_text -> qwen35moe
+    # and fix MoE expert tensor lookup.
+    #
+    # qwen35moe GGUF files store separate ffn_gate_exps/ffn_up_exps tensors, but
+    # the HF model uses fused gate_up_proj (mapped to ffn_gate_up_exps in the
+    # gguf-py name map).  Qwen35MoeTensorProcessor.process() strips the .weight
+    # suffix before looking up tensor_key_mapping, so we must add no-suffix
+    # entries pointing to the fused HF tensor name.
     orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    # Qwen3_5MoeExperts uses nn.Parameter (not nn.Linear), so state_dict keys
+    # have no .weight suffix: "blk.N.ffn_gate_up_exps" -> "...gate_up_proj".
+    _FUSED_EXP_RE = _re.compile(r"^blk\.(\d+)\.ffn_gate_up_exps$")
 
     def patched_get_gguf_hf_weights_map(
         hf_model, processor, model_type=None, num_layers=None, qual_name=""
@@ -112,7 +157,17 @@ def _patch_transformers_qwen35moe_gguf():
             model_type = hf_model.config.model_type
         if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
             model_type = "qwen35moe"
-        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+        result = orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+        if model_type == "qwen35moe":
+            extra = {}
+            for key, hf_name in result.items():
+                m = _FUSED_EXP_RE.match(key)
+                if m:
+                    bid = m.group(1)
+                    extra[f"blk.{bid}.ffn_gate_exps"] = hf_name
+                    extra[f"blk.{bid}.ffn_up_exps"] = hf_name
+            result.update(extra)
+        return result
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
 
