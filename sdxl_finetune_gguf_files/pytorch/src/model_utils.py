@@ -8,17 +8,68 @@ Helper functions for loading GGUF-quantized Stable Diffusion XL finetune models.
 from typing import Optional, Tuple
 
 import torch
+import gguf as gguf_lib
+
 from diffusers import (
-    GGUFQuantizationConfig,
     StableDiffusionXLPipeline,
     UNet2DConditionModel,
 )
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
     retrieve_timesteps,
 )
+from diffusers.quantizers.gguf.utils import GGUFParameter, dequantize_gguf_tensor
 from huggingface_hub import hf_hub_download
 
 BASE_SDXL_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
+
+_GGUF_UNQUANTIZED_TYPES = {
+    gguf_lib.GGMLQuantizationType.F32,
+    gguf_lib.GGMLQuantizationType.F16,
+}
+
+
+def _load_comfy_gguf_as_ldm_checkpoint(path: str) -> dict:
+    """Load a ComfyUI-format GGUF file into an LDM-format state dict.
+
+    ComfyUI GGUF files store tensors with ComfyUI naming (no 'model.diffusion_model.'
+    prefix) and use 'comfy.gguf.orig_shape.*' metadata to record the original tensor
+    shapes before quantization reshape. Diffusers 0.37.x does not read this metadata,
+    causing shape mismatches for conv weights stored as 2-D matrices.
+
+    This function dequantizes all tensors, restores their orig_shapes, and adds the
+    LDM prefix so the result can be passed to UNet2DConditionModel.from_single_file.
+    """
+    reader = gguf_lib.GGUFReader(path)
+
+    # Collect orig_shape metadata (stored as ARRAY of INT32)
+    orig_shapes = {}
+    for key, field in reader.fields.items():
+        if key.startswith("comfy.gguf.orig_shape."):
+            tensor_name = key[len("comfy.gguf.orig_shape.") :]
+            n_dims = int(field.parts[4][0])
+            shape = tuple(int(field.parts[5 + i][0]) for i in range(n_dims))
+            orig_shapes[tensor_name] = shape
+
+    checkpoint = {}
+    for tensor in reader.tensors:
+        name = tensor.name
+        quant_type = tensor.tensor_type
+        weights = torch.from_numpy(tensor.data.copy())
+
+        if quant_type not in _GGUF_UNQUANTIZED_TYPES:
+            # Dequantize quantized tensors (Q4_K, Q5_K, etc.) to float32.
+            # diffusers' GGUFParameter only handles nn.Linear layers and does not
+            # support conv weights stored with a different shape than orig_shape.
+            param = GGUFParameter(weights, quant_type=quant_type)
+            weights = dequantize_gguf_tensor(param).to(torch.float32)
+
+        if name in orig_shapes:
+            weights = weights.reshape(orig_shapes[name])
+
+        # Convert ComfyUI naming to LDM format expected by from_single_file
+        checkpoint[f"model.diffusion_model.{name}"] = weights
+
+    return checkpoint
 
 
 def load_gguf_pipe(repo_id: str, gguf_filename: str, subfolder: Optional[str] = None):
@@ -36,12 +87,13 @@ def load_gguf_pipe(repo_id: str, gguf_filename: str, subfolder: Optional[str] = 
         repo_id=repo_id, filename=gguf_filename, subfolder=subfolder
     )
 
-    quantization_config = GGUFQuantizationConfig(compute_dtype=torch.float32)
+    ldm_checkpoint = _load_comfy_gguf_as_ldm_checkpoint(model_path)
 
     unet = UNet2DConditionModel.from_single_file(
-        model_path,
-        quantization_config=quantization_config,
+        ldm_checkpoint,
         torch_dtype=torch.float32,
+        config=BASE_SDXL_MODEL,
+        subfolder="unet",
     )
 
     pipe = StableDiffusionXLPipeline.from_pretrained(
