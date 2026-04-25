@@ -207,10 +207,7 @@ class ModelLoader(ForgeModel):
         import glob
         import sys
 
-        model_slug = pretrained_model_name.replace("/", "_hyphen_").replace(
-            "-", "_hyphen_"
-        )
-        hf_modules_base = os.environ.get(
+        hf_home = os.environ.get(
             "HF_HOME",
             os.path.join(
                 os.path.dirname(
@@ -220,16 +217,12 @@ class ModelLoader(ForgeModel):
                 "huggingface",
             ),
         )
+        # Use recursive glob to find all ultravox_model.py under the modules cache
         search_pattern = os.path.join(
-            hf_modules_base,
-            "modules",
-            "transformers_modules",
-            "*",
-            model_slug,
-            "*",
-            "ultravox_model.py",
+            hf_home, "modules", "transformers_modules", "**", "ultravox_model.py"
         )
-        for model_file in glob.glob(search_pattern):
+        patched_any = False
+        for model_file in glob.glob(search_pattern, recursive=True):
             with open(model_file) as f:
                 content = f.read()
             patched = content.replace(
@@ -239,14 +232,16 @@ class ModelLoader(ForgeModel):
             if patched != content:
                 with open(model_file, "w") as f:
                     f.write(patched)
-                # Clear module cache so the patched version is reimported
-                to_remove = [
-                    k
-                    for k in sys.modules
-                    if "ultravox_model" in k or "transformers_modules" in k
-                ]
-                for key in to_remove:
-                    del sys.modules[key]
+                patched_any = True
+        if patched_any:
+            # Clear module cache so the patched version is reimported
+            to_remove = [
+                k
+                for k in sys.modules
+                if "ultravox_model" in k or "transformers_modules" in k
+            ]
+            for key in to_remove:
+                del sys.modules[key]
 
     def _load_processor(self):
         """Load processor for the current variant."""
