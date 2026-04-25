@@ -4,7 +4,10 @@
 """
 QoQ-Med-Omni-7B model loader implementation for image to text.
 """
-from transformers import AutoModelForImageTextToText, AutoProcessor, AutoConfig
+import sys
+import torch
+from torch.overrides import TorchFunctionMode
+from transformers import AutoModel, AutoProcessor, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -17,6 +20,46 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+class _VisualWrapper:
+    """Wraps Qwen2_5_VisionTransformerPretrainedModel for transformers 5.x compatibility.
+
+    In transformers 5.x, the visual model returns BaseModelOutputWithPooling, but
+    the custom TimeSeriesQwen2_5_VL forward code expects a raw tensor (pooler_output).
+    """
+
+    def __init__(self, visual):
+        self._visual = visual
+
+    @property
+    def dtype(self):
+        return self._visual.dtype
+
+    def __call__(self, pixel_values, **kwargs):
+        output = self._visual(pixel_values, **kwargs)
+        if hasattr(output, "pooler_output"):
+            return output.pooler_output
+        return output
+
+    def __getattr__(self, name):
+        return getattr(self._visual, name)
+
+
+class _LinspaceCpuMode(TorchFunctionMode):
+    """Force torch.linspace to CPU device during model init on meta device.
+
+    Transformers 5.x always initializes models on the meta device. The custom
+    TimeSeriesQwen2_5_VL code calls torch.linspace(...).item() during __init__,
+    which fails on meta tensors. This mode overrides device='cpu' for linspace
+    calls so .item() succeeds while the rest of the model initializes on meta.
+    """
+
+    def __torch_function__(self, func, types, args=(), kwargs=None):
+        kwargs = kwargs or {}
+        if func is torch.linspace:
+            kwargs["device"] = "cpu"
+        return func(*args, **kwargs)
 
 
 class ModelVariant(StrEnum):
@@ -89,25 +132,41 @@ class ModelLoader(ForgeModel):
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"trust_remote_code": True}
+        model_kwargs = {
+            "trust_remote_code": True,
+            "low_cpu_mem_usage": False,
+            "device_map": None,
+        }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        # The custom TimeSeriesQwen2_5_VL model code accesses config.hidden_size directly,
+        # but Qwen2_5_VLConfig stores it on text_config. Patch it here as a workaround.
+        if not hasattr(config, "hidden_size"):
+            config.hidden_size = config.get_text_config().hidden_size
+        model_kwargs["config"] = config
 
         self.processor = AutoProcessor.from_pretrained(
             pretrained_model_name, trust_remote_code=True
         )
 
-        model = AutoModelForImageTextToText.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        with _LinspaceCpuMode():
+            model = AutoModel.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+
+        # Patch the custom model class to fix transformers 5.x API changes:
+        # 1. self.visual moved from ForConditionalGeneration to self.model.visual
+        # 2. self.visual() now returns BaseModelOutputWithPooling instead of a tensor
+        if hasattr(model, "model") and hasattr(model.model, "visual"):
+            visual_wrapper = _VisualWrapper(model.model.visual)
+            type(model).visual = property(lambda self, _w=visual_wrapper: _w)
 
         self.config = model.config
         return model
