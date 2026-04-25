@@ -222,7 +222,6 @@ class ModelLoader(ForgeModel):
         model_kwargs = {
             "trust_remote_code": True,
             "attn_implementation": "eager",
-            "low_cpu_mem_usage": False,
         }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
@@ -233,7 +232,29 @@ class ModelLoader(ForgeModel):
                 pretrained_model_name, **model_kwargs
             )
         else:
-            model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+            # transformers 5.2+ always uses torch.device("meta") during __init__,
+            # but InternVisionEncoder calls .item() on a linspace tensor in its
+            # __init__, which fails on meta tensors. Patch get_init_context to
+            # strip the meta device context for this model family.
+            from transformers import PreTrainedModel
+
+            _orig_get_init_context = PreTrainedModel.get_init_context.__func__
+
+            @classmethod
+            def _no_meta_get_init_context(cls, dtype, is_quantized, _is_ds_init_called):
+                return [
+                    ctx
+                    for ctx in _orig_get_init_context(
+                        cls, dtype, is_quantized, _is_ds_init_called
+                    )
+                    if not (isinstance(ctx, torch.device) and ctx.type == "meta")
+                ]
+
+            PreTrainedModel.get_init_context = _no_meta_get_init_context
+            try:
+                model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+            finally:
+                PreTrainedModel.get_init_context = classmethod(_orig_get_init_context)
 
         model.eval()
         self.model = model
