@@ -55,21 +55,52 @@ def _patch_qwen35_support():
         )
 
 
+def _find_real_load_gguf_checkpoint():
+    """Walk the patch-chain closures to find the original transformers load_gguf_checkpoint."""
+
+    def _is_real(fn):
+        return (
+            getattr(fn, "__module__", "") == "transformers.modeling_gguf_pytorch_utils"
+            and getattr(fn, "__qualname__", "") == "load_gguf_checkpoint"
+        )
+
+    visited = set()
+    stack = [_orig_load_gguf_checkpoint]
+    while stack:
+        fn = stack.pop()
+        if fn is None or id(fn) in visited or not callable(fn):
+            continue
+        visited.add(id(fn))
+        if _is_real(fn):
+            return fn
+        if hasattr(fn, "__closure__") and fn.__closure__:
+            for cell in fn.__closure__:
+                try:
+                    val = cell.cell_contents
+                    if callable(val):
+                        stack.append(val)
+                except ValueError:
+                    continue
+    return None
+
+
+_real_load_gguf_checkpoint = _find_real_load_gguf_checkpoint()
+
+
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
-    """Wrap load_gguf_checkpoint to add qwen35 support, fix model_type, and model_to_load compat."""
+    """Bypass patch chain to call real transformers load_gguf_checkpoint with qwen35 support."""
     _patch_qwen35_support()
+    base = _real_load_gguf_checkpoint or _orig_load_gguf_checkpoint
     try:
-        sig = inspect.signature(_orig_load_gguf_checkpoint)
+        sig = inspect.signature(base)
         if "model_to_load" in sig.parameters:
-            result = _orig_load_gguf_checkpoint(
+            result = base(
                 gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
             )
         else:
-            result = _orig_load_gguf_checkpoint(
-                gguf_path, return_tensors=return_tensors
-            )
+            result = base(gguf_path, return_tensors=return_tensors)
     except TypeError:
-        result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+        result = base(gguf_path, return_tensors=return_tensors)
     if (
         isinstance(result, dict)
         and result.get("config", {}).get("model_type") == "qwen35"
