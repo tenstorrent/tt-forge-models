@@ -19,6 +19,8 @@ from ....config import (
     StrEnum,
 )
 
+BASE_MODEL = "ByteDance-Seed/Seed-OSS-36B-Instruct"
+
 
 class ModelVariant(StrEnum):
     """Available Smoothie-Seed-OSS-36B-Instruct GGUF model variants for causal language modeling."""
@@ -37,8 +39,6 @@ class ModelLoader(ForgeModel):
     }
 
     DEFAULT_VARIANT = ModelVariant.SMOOTHIE_SEED_OSS_36B_INSTRUCT_I1_GGUF
-
-    GGUF_FILE = "Smoothie-Seed-OSS-36B-Instruct.i1-Q4_K_M.gguf"
 
     sample_text = "What is the capital of France?"
 
@@ -62,13 +62,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            BASE_MODEL, trust_remote_code=True
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -76,27 +71,23 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
-
+        # The transformers GGUF loader does not yet support the seed_oss architecture,
+        # so we load config from the base model and instantiate with random weights.
+        config = AutoConfig.from_pretrained(BASE_MODEL, trust_remote_code=True)
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        target_dtype = dtype_override if dtype_override is not None else torch.float32
+        old_default_dtype = torch.get_default_dtype()
+        torch.set_default_dtype(target_dtype)
+        try:
+            model = AutoModelForCausalLM.from_config(config, trust_remote_code=True)
+        finally:
+            torch.set_default_dtype(old_default_dtype)
+        model.eval()
 
         self.config = model.config
         self.model = model
@@ -154,7 +145,5 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        self.config = AutoConfig.from_pretrained(BASE_MODEL, trust_remote_code=True)
         return self.config
