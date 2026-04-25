@@ -33,7 +33,9 @@ from ...config import (
 GGUF_REPO = "jayn7/HunyuanVideo-1.5_I2V_720p-GGUF"
 
 # Config repo for the HunyuanVideo 1.5 I2V transformer architecture.
-HUNYUAN_VIDEO15_CONFIG_REPO = "hunyuanvideo-community/HunyuanVideo-1.5-480p_i2v"
+HUNYUAN_VIDEO15_CONFIG_REPO = (
+    "hunyuanvideo-community/HunyuanVideo-1.5-Diffusers-720p_i2v"
+)
 
 # Small spatial/temporal dimensions for compile-only testing.
 TRANSFORMER_NUM_FRAMES = 4
@@ -230,7 +232,15 @@ class ModelLoader(ForgeModel):
             import importlib.util
 
             if importlib.util.find_spec("gguf") is not None:
+                import importlib.metadata as _importlib_metadata
+
                 _diffusers_import_utils._gguf_available = True
+                try:
+                    _diffusers_import_utils._gguf_version = _importlib_metadata.version(
+                        "gguf"
+                    )
+                except Exception:
+                    _diffusers_import_utils._gguf_version = "0.10.0"
 
         from diffusers import (
             GGUFQuantizationConfig,
