@@ -91,6 +91,9 @@ class ModelLoader(ForgeModel):
 
         transformer = FluxTransformer2DModel.from_single_file(
             f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
+            config="black-forest-labs/FLUX.1-schnell",
+            subfolder="transformer",
+            in_channels=384,
             quantization_config=quantization_config,
             torch_dtype=dtype,
         )
