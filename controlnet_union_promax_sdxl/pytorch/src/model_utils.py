@@ -6,12 +6,20 @@
 Helper functions for ControlNet Union ProMax SDXL model loading and processing.
 """
 
+import os
 from typing import Optional, Tuple
 import torch
-from diffusers import StableDiffusionXLControlNetUnionPipeline, ControlNetUnionModel
+from diffusers import (
+    StableDiffusionXLControlNetUnionPipeline,
+    ControlNetUnionModel,
+    AutoencoderKL,
+    UNet2DConditionModel,
+    EulerDiscreteScheduler,
+)
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
     retrieve_timesteps,
 )
+from transformers import CLIPTextModel, CLIPTextModelWithProjection, CLIPTokenizer
 from PIL import Image
 import numpy as np
 
@@ -26,12 +34,52 @@ def load_controlnet_union_promax_sdxl_pipe(controlnet_model_name, base_model_nam
     Returns:
         StableDiffusionXLControlNetUnionPipeline: Loaded pipeline with components set to eval mode
     """
-    controlnet = ControlNetUnionModel.from_pretrained(
-        controlnet_model_name, torch_dtype=torch.float32
-    )
-    pipe = StableDiffusionXLControlNetUnionPipeline.from_pretrained(
-        base_model_name, controlnet=controlnet, torch_dtype=torch.float32
-    )
+    if os.environ.get("TT_RANDOM_WEIGHTS"):
+        controlnet = ControlNetUnionModel.from_config(
+            ControlNetUnionModel.load_config(controlnet_model_name)
+        )
+        unet = UNet2DConditionModel.from_config(
+            UNet2DConditionModel.load_config(base_model_name, subfolder="unet")
+        )
+        vae = AutoencoderKL.from_config(
+            AutoencoderKL.load_config(base_model_name, subfolder="vae")
+        )
+        text_encoder = CLIPTextModel(
+            CLIPTextModel.config_class.from_pretrained(
+                base_model_name, subfolder="text_encoder"
+            )
+        )
+        text_encoder_2 = CLIPTextModelWithProjection(
+            CLIPTextModelWithProjection.config_class.from_pretrained(
+                base_model_name, subfolder="text_encoder_2"
+            )
+        )
+        tokenizer = CLIPTokenizer.from_pretrained(
+            base_model_name, subfolder="tokenizer"
+        )
+        tokenizer_2 = CLIPTokenizer.from_pretrained(
+            base_model_name, subfolder="tokenizer_2"
+        )
+        scheduler = EulerDiscreteScheduler.from_pretrained(
+            base_model_name, subfolder="scheduler"
+        )
+        pipe = StableDiffusionXLControlNetUnionPipeline(
+            vae=vae,
+            text_encoder=text_encoder,
+            text_encoder_2=text_encoder_2,
+            tokenizer=tokenizer,
+            tokenizer_2=tokenizer_2,
+            unet=unet,
+            controlnet=controlnet,
+            scheduler=scheduler,
+        )
+    else:
+        controlnet = ControlNetUnionModel.from_pretrained(
+            controlnet_model_name, torch_dtype=torch.float32
+        )
+        pipe = StableDiffusionXLControlNetUnionPipeline.from_pretrained(
+            base_model_name, controlnet=controlnet, torch_dtype=torch.float32
+        )
 
     pipe.to("cpu")
 
@@ -240,16 +288,22 @@ def controlnet_union_promax_sdxl_preprocessing(
     control_type[:, control_mode] = 1.0
 
     # 8. Run controlnet to get residuals
+    # Cast all inputs to match the controlnet's dtype to avoid dtype mismatches
+    # when the pipeline has been converted (e.g. to bfloat16).
+    cn_dtype = pipe.controlnet.dtype
     controlnet_cond_scale = controlnet_conditioning_scale
     down_block_additional_residuals, mid_block_additional_residual = pipe.controlnet(
-        latent_model_input,
+        latent_model_input.to(cn_dtype),
         timesteps[0],
-        encoder_hidden_states=prompt_embeds,
-        controlnet_cond=[control_image],
+        encoder_hidden_states=prompt_embeds.to(cn_dtype),
+        controlnet_cond=[control_image.to(cn_dtype)],
         conditioning_scale=controlnet_cond_scale,
-        control_type=control_type,
+        control_type=control_type.to(cn_dtype),
         control_type_idx=[control_mode],
-        added_cond_kwargs=added_cond_kwargs,
+        added_cond_kwargs={
+            k: v.to(cn_dtype) if isinstance(v, torch.Tensor) else v
+            for k, v in added_cond_kwargs.items()
+        },
         return_dict=False,
     )
 
