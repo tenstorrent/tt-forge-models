@@ -6,6 +6,7 @@ QuantTrio Qwen3-VL-30B-A3B-Thinking AWQ model loader implementation for image to
 """
 
 import gptqmodel  # noqa: F401 — must import before from_pretrained enters meta-device context
+import gptqmodel.nn_modules.qlinear.gemm_hf_kernel_awq as _awq_hf_kernel
 import gptqmodel.quantization.awq.utils.packing_utils as _awq_packing
 from gptqmodel.nn_modules.qlinear.gemm_hf_kernel_awq import HFKernelAwqLinear
 
@@ -35,6 +36,7 @@ def _dequantize_gemm_padded(qweight, qzeros, scales, bits, group_size):
 
 
 _awq_packing.dequantize_gemm = _dequantize_gemm_padded
+_awq_hf_kernel.dequantize_gemm = _dequantize_gemm_padded
 
 from ...base import ForgeModel
 from ...config import (
