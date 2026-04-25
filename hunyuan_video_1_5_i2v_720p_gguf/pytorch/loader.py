@@ -157,6 +157,16 @@ class ModelLoader(ForgeModel):
         hf_quantizer.postprocess_model(model)
         model.hf_quantizer = hf_quantizer
 
+        from diffusers.quantizers.gguf.utils import GGUFParameter
+
+        for param in model.parameters():
+            if (
+                not isinstance(param, GGUFParameter)
+                and param.is_floating_point()
+                and param.dtype != compute_dtype
+            ):
+                param.data = param.data.to(compute_dtype)
+
         self._transformer = model
         return self._transformer
 
