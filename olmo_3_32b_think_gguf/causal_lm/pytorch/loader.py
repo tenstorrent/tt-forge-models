@@ -6,7 +6,23 @@ OLMo 3 32B Think GGUF model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.convert_slow_tokenizer import GPT2Converter as _GPT2Converter
+from transformers.integrations.ggml import GGUFGPTConverter as _GGUFGPTConverter
 from typing import Optional
+
+
+def _patched_gpt_converted(self):
+    """Filter merges where any part or merged result is not in the vocabulary."""
+    vocab = {word: i for i, word in enumerate(self.original_tokenizer.tokens)}
+    merges = [
+        m
+        for m in self.original_tokenizer.merges
+        if all(tok in vocab for tok in m) and (m[0] + m[1]) in vocab
+    ]
+    return _GPT2Converter.converted(self, vocab, merges)
+
+
+_GGUFGPTConverter.converted = _patched_gpt_converted
 
 from ....base import ForgeModel
 from ....config import (
