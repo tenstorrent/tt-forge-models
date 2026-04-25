@@ -7,6 +7,7 @@ InfiniteVL model loader implementation for image-text-to-text tasks.
 
 import contextlib
 import torch
+import torch.nn.functional as F
 from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor
 from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
 from transformers.modeling_utils import PreTrainedModel
@@ -16,6 +17,12 @@ from typing import Optional
 # fla.utils.custom_device_ctx calls torch.cpu.device(index) on CPU, but
 # torch.cpu has no .device attribute. Patch it to return nullcontext on CPU.
 import fla.utils as _fla_utils
+import fla.modules.conv.causal_conv1d as _fla_conv1d
+import fla.ops.gated_delta_rule as _fla_gdr
+from fla.ops.gated_delta_rule.naive import (
+    naive_chunk_gated_delta_rule as _naive_chunk,
+    naive_recurrent_gated_delta_rule as _naive_recurrent,
+)
 
 if getattr(_fla_utils, "device_torch_lib", None) is torch.cpu:
 
@@ -23,6 +30,95 @@ if getattr(_fla_utils, "device_torch_lib", None) is torch.cpu:
         return contextlib.nullcontext()
 
     _fla_utils.custom_device_ctx = _cpu_device_ctx
+
+    # CPU fallback for causal_conv1d (triton kernel not available on CPU)
+    def _cpu_causal_conv1d(
+        x,
+        weight,
+        bias=None,
+        residual=None,
+        initial_state=None,
+        output_final_state=False,
+        activation=None,
+        backend="triton",
+        **kwargs,
+    ):
+        B, T, D = x.shape
+        W = weight.shape[1]
+        x_t = x.transpose(1, 2)  # [B, D, T]
+        if initial_state is not None:
+            x_padded = torch.cat([initial_state.to(x_t.dtype), x_t], dim=2)
+        else:
+            x_padded = F.pad(x_t, (W - 1, 0))
+        w = weight.unsqueeze(1)  # [D, 1, W]
+        out = F.conv1d(x_padded, w, bias=bias, groups=D)  # [B, D, T]
+        if residual is not None:
+            out = out + residual.transpose(1, 2)
+        if activation in ("silu", "swish"):
+            out = F.silu(out)
+        out = out.transpose(1, 2)  # [B, T, D]
+        final_state = (
+            x_padded[:, :, -(W - 1) :].clone() if output_final_state and W > 1 else None
+        )
+        return out, final_state
+
+    _fla_conv1d.causal_conv1d = _cpu_causal_conv1d
+
+    # CPU fallbacks for gated delta rule ops (triton kernels not available on CPU)
+    def _cpu_chunk_gated_delta_rule(
+        q,
+        k,
+        v,
+        g,
+        beta,
+        scale=None,
+        initial_state=None,
+        output_final_state=False,
+        use_qk_l2norm_in_kernel=False,
+        **kwargs,
+    ):
+        if use_qk_l2norm_in_kernel:
+            q = F.normalize(q.float(), dim=-1).to(q.dtype)
+            k = F.normalize(k.float(), dim=-1).to(k.dtype)
+        return _naive_chunk(
+            q,
+            k,
+            v,
+            g,
+            beta,
+            scale=scale,
+            initial_state=initial_state,
+            output_final_state=output_final_state,
+        )
+
+    def _cpu_fused_recurrent_gated_delta_rule(
+        q,
+        k,
+        v,
+        g,
+        beta,
+        scale=None,
+        initial_state=None,
+        output_final_state=False,
+        use_qk_l2norm_in_kernel=False,
+        **kwargs,
+    ):
+        if use_qk_l2norm_in_kernel:
+            q = F.normalize(q.float(), dim=-1).to(q.dtype)
+            k = F.normalize(k.float(), dim=-1).to(k.dtype)
+        return _naive_recurrent(
+            q,
+            k,
+            v,
+            beta,
+            g,
+            scale=scale,
+            initial_state=initial_state,
+            output_final_state=output_final_state,
+        )
+
+    _fla_gdr.chunk_gated_delta_rule = _cpu_chunk_gated_delta_rule
+    _fla_gdr.fused_recurrent_gated_delta_rule = _cpu_fused_recurrent_gated_delta_rule
 
 
 def _rope_default_init(config=None, device=None, seq_len=None, **rope_kwargs):
