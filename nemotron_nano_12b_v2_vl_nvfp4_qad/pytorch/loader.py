@@ -5,10 +5,12 @@
 NVIDIA Nemotron Nano 12B v2 VL NVFP4-QAD model loader implementation for image to text.
 """
 
+import os
 from contextlib import contextmanager
 from typing import Optional
 
 import torch
+import torch.distributed
 from PIL import Image
 from transformers import AutoModel, AutoProcessor
 from transformers.modeling_utils import PreTrainedModel
@@ -144,6 +146,13 @@ class ModelLoader(ForgeModel):
                     dtype=torch.long,
                 )
                 rm.register_buffer("summary_idxs", correct_idxs)
+
+        # model.forward() calls torch.distributed.get_rank() unconditionally; initialize
+        # a single-process group so it doesn't raise when running without distributed setup.
+        if not torch.distributed.is_initialized():
+            os.environ.setdefault("MASTER_ADDR", "localhost")
+            os.environ.setdefault("MASTER_PORT", "29500")
+            torch.distributed.init_process_group(backend="gloo", world_size=1, rank=0)
 
         model.eval()
 
