@@ -131,6 +131,19 @@ class ModelLoader(ForgeModel):
             config.torch_dtype = dtype_override
 
         model = AutoModel.from_config(config, trust_remote_code=True)
+
+        # NemotronHCausalLMOutput uses cache_params (Mamba/SSM state) instead of
+        # past_key_values, but the VL wrapper's forward() accesses outputs.past_key_values.
+        import sys
+
+        for _mod in sys.modules.values():
+            _cls = getattr(_mod, "NemotronHCausalLMOutput", None)
+            if _cls is not None and not hasattr(_cls, "past_key_values"):
+                _cls.past_key_values = property(
+                    lambda self: getattr(self, "cache_params", None)
+                )
+                break
+
         if dtype_override is not None:
             model = model.to(dtype_override)
         model.eval()
