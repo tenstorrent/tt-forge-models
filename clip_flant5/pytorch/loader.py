@@ -96,10 +96,14 @@ class ModelLoader(ForgeModel):
         question = "Does this image show 'two cats on a couch'? Answer yes or no."
         text_inputs = self.tokenizer(question, return_tensors="pt", padding=True)
 
+        # T5-based decoder needs decoder_start_token_id (pad_token=0) as initial input
+        decoder_input_ids = torch.zeros((1, 1), dtype=torch.long)
+
         inputs = {
             "input_ids": text_inputs["input_ids"],
             "attention_mask": text_inputs["attention_mask"],
             "images": pixel_values,
+            "decoder_input_ids": decoder_input_ids,
         }
 
         # Replicate tensors for batch size
