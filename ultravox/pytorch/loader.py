@@ -233,6 +233,34 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        # Older ultravox_model.py remote code references transformers.modeling_utils._init_weights
+        # which was removed in newer transformers. Setting it to False makes the code take the
+        # else branch (init_empty_weights + from_config), which is correct: newer transformers
+        # calls __init__ inside an init_empty_weights context during from_pretrained, so nested
+        # from_pretrained calls inside __init__ would fail. The outer from_pretrained loads all
+        # weights (including the audio tower) from the checkpoint after __init__ returns.
+        if not hasattr(transformers.modeling_utils, "_init_weights"):
+            transformers.modeling_utils._init_weights = False
+
+        # Newer transformers calls tie_weights(recompute_mapping=False) but the remote
+        # UltravoxModel.tie_weights() doesn't accept **kwargs. Patch any loaded copy in sys.modules.
+        import sys
+
+        for _mod in list(sys.modules.values()):
+            _cls = getattr(_mod, "UltravoxModel", None)
+            if not isinstance(_cls, type):
+                continue
+            _tw = getattr(_cls, "tie_weights", None)
+            if _tw is None or getattr(_tw, "_kwargs_patched", False):
+                continue
+            _orig_tw = _tw
+
+            def _tie_weights_compat(self, **_kw):
+                return _orig_tw(self)
+
+            _tie_weights_compat._kwargs_patched = True
+            _cls.tie_weights = _tie_weights_compat
+
         model = transformers.AutoModel.from_pretrained(
             pretrained_model_name,
             config=config,
