@@ -46,7 +46,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.ADD_DETAIL_XL
 
     # Base SDXL model that the LoRA is applied to
-    BASE_MODEL = "LyliaEngine/Pony_Diffusion_V6_XL"
+    BASE_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
     LORA_FILENAME = "add-detail-xl.safetensors"
     LORA_SCALE = 1.5
 
