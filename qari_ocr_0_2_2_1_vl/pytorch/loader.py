@@ -6,6 +6,7 @@ Qari-OCR 0.2.2.1 VL model loader implementation for Arabic document OCR tasks.
 """
 import torch
 from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
+from peft import PeftModel
 from typing import Optional
 
 
@@ -40,6 +41,9 @@ class ModelLoader(ForgeModel):
 
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.QARI_OCR_0_2_2_1_VL_2B_INSTRUCT
+
+    # Non-quantized base model for the LoRA adapter
+    BASE_MODEL_NAME = "Qwen/Qwen2-VL-2B-Instruct"
 
     # Shared configuration parameters
     messages = [
@@ -119,7 +123,7 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The Wrapped Qari-OCR 0.2.2.1 VL model instance for Arabic document OCR tasks.
         """
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        adapter_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {"low_cpu_mem_usage": True}
 
@@ -129,9 +133,15 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
 
-        model = Qwen2VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+        # Load non-quantized base model, then apply the LoRA adapter and merge weights.
+        # The adapter's base model is the bnb-4bit quantized variant which requires CUDA;
+        # using the fp16/bf16 Qwen2-VL-2B-Instruct base avoids that dependency.
+        base_model = Qwen2VLForConditionalGeneration.from_pretrained(
+            self.BASE_MODEL_NAME, **model_kwargs
         )
+        model = PeftModel.from_pretrained(base_model, adapter_name)
+        model = model.merge_and_unload()
+
         model.eval()
         model = Wrapper(model)
 
