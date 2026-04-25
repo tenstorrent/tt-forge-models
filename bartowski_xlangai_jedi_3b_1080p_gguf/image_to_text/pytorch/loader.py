@@ -5,6 +5,9 @@
 Bartowski xlangai Jedi-3B-1080p GGUF model loader implementation for image to text.
 """
 
+import importlib.metadata
+
+import transformers.utils.import_utils as _import_utils
 from transformers import (
     Qwen2_5_VLForConditionalGeneration,
     AutoProcessor,
@@ -61,6 +64,12 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        # Refresh the stale distribution mapping so transformers can resolve the
+        # dynamically-installed gguf package version in is_gguf_available().
+        _import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+            importlib.metadata.packages_distributions()
+        )
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
