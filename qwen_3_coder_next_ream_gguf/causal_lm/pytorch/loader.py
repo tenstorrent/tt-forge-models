@@ -165,7 +165,7 @@ def _load_qwen3next_from_gguf(gguf_path, dtype=torch.bfloat16):
         return out
 
     state = {}
-    # Global tensors (no transpose for embeddings, transpose for output projection).
+    # GGUF dequantize returns tensors already in PyTorch [out, in] convention.
     state["model.embed_tokens.weight"] = t("token_embd.weight")
     state["model.norm.weight"] = t("output_norm.weight")
     state["lm_head.weight"] = t("output.weight")
@@ -182,77 +182,61 @@ def _load_qwen3next_from_gguf(gguf_path, dtype=torch.bfloat16):
         )
 
         # ── MoE FFN (present in all layers) ──────────────────────────────────
-        state[f"{lpfx}.mlp.gate.weight"] = t(f"{pfx}.ffn_gate_inp.weight", True)
+        state[f"{lpfx}.mlp.gate.weight"] = t(f"{pfx}.ffn_gate_inp.weight")
         state[f"{lpfx}.mlp.shared_expert_gate.weight"] = t(
-            f"{pfx}.ffn_gate_inp_shexp.weight", True
+            f"{pfx}.ffn_gate_inp_shexp.weight"
         )
         state[f"{lpfx}.mlp.shared_expert.gate_proj.weight"] = t(
-            f"{pfx}.ffn_gate_shexp.weight", True
+            f"{pfx}.ffn_gate_shexp.weight"
         )
         state[f"{lpfx}.mlp.shared_expert.up_proj.weight"] = t(
-            f"{pfx}.ffn_up_shexp.weight", True
+            f"{pfx}.ffn_up_shexp.weight"
         )
         state[f"{lpfx}.mlp.shared_expert.down_proj.weight"] = t(
-            f"{pfx}.ffn_down_shexp.weight", True
+            f"{pfx}.ffn_down_shexp.weight"
         )
 
-        # Expert tensors – GGUF stores as [hidden, intermediate, num_experts] for
-        # gate/up and [intermediate, hidden, num_experts] for down.
+        # Expert tensors – GGUF stores as [num_experts, intermediate, hidden] for
+        # gate/up and [num_experts, hidden, intermediate] for down.
         if f"{pfx}.ffn_gate_exps.weight" in raw:
             data_g, _ = raw[f"{pfx}.ffn_gate_exps.weight"]
             data_u, _ = raw[f"{pfx}.ffn_up_exps.weight"]
-            # [H, I, E] → [E, H, I]
-            gate_w = (
-                torch.from_numpy(np.array(data_g, dtype=np.float32))
-                .to(dtype)
-                .permute(2, 0, 1)
-            )
-            up_w = (
-                torch.from_numpy(np.array(data_u, dtype=np.float32))
-                .to(dtype)
-                .permute(2, 0, 1)
-            )
-            # gate_up_proj: [E, H, 2I]
-            state[f"{lpfx}.mlp.experts.gate_up_proj"] = torch.cat(
-                [gate_w, up_w], dim=-1
-            )
+            # [E, I, H] – keep as-is, cat gate and up along intermediate dim.
+            gate_w = torch.from_numpy(np.array(data_g, dtype=np.float32)).to(dtype)
+            up_w = torch.from_numpy(np.array(data_u, dtype=np.float32)).to(dtype)
+            # gate_up_proj: [E, 2I, H]
+            state[f"{lpfx}.mlp.experts.gate_up_proj"] = torch.cat([gate_w, up_w], dim=1)
 
         if f"{pfx}.ffn_down_exps.weight" in raw:
             data_d, _ = raw[f"{pfx}.ffn_down_exps.weight"]
-            # [I, H, E] → [E, H, I]
-            state[f"{lpfx}.mlp.experts.down_proj"] = (
-                torch.from_numpy(np.array(data_d, dtype=np.float32))
-                .to(dtype)
-                .permute(2, 1, 0)
-            )
+            # [E, H, I] – already in correct layout, no permutation needed.
+            state[f"{lpfx}.mlp.experts.down_proj"] = torch.from_numpy(
+                np.array(data_d, dtype=np.float32)
+            ).to(dtype)
 
         # ── Attention ─────────────────────────────────────────────────────────
         if layer_types[n] == "full_attention":
-            state[f"{lpfx}.self_attn.q_proj.weight"] = t(f"{pfx}.attn_q.weight", True)
-            state[f"{lpfx}.self_attn.k_proj.weight"] = t(f"{pfx}.attn_k.weight", True)
-            state[f"{lpfx}.self_attn.v_proj.weight"] = t(f"{pfx}.attn_v.weight", True)
-            state[f"{lpfx}.self_attn.o_proj.weight"] = t(
-                f"{pfx}.attn_output.weight", True
-            )
+            state[f"{lpfx}.self_attn.q_proj.weight"] = t(f"{pfx}.attn_q.weight")
+            state[f"{lpfx}.self_attn.k_proj.weight"] = t(f"{pfx}.attn_k.weight")
+            state[f"{lpfx}.self_attn.v_proj.weight"] = t(f"{pfx}.attn_v.weight")
+            state[f"{lpfx}.self_attn.o_proj.weight"] = t(f"{pfx}.attn_output.weight")
             state[f"{lpfx}.self_attn.q_norm.weight"] = t(f"{pfx}.attn_q_norm.weight")
             state[f"{lpfx}.self_attn.k_norm.weight"] = t(f"{pfx}.attn_k_norm.weight")
         else:
             # Linear (GatedDeltaNet / SSM) attention.
-            # in_proj_qkvz = cat([attn_qkv^T, attn_gate^T], dim=0)
-            qkv_w = t(f"{pfx}.attn_qkv.weight", True)  # [Q+K+V, H]
-            gate_z = t(f"{pfx}.attn_gate.weight", True)  # [Z, H]
+            # in_proj_qkvz = cat([attn_qkv, attn_gate], dim=0); both already [out, in].
+            qkv_w = t(f"{pfx}.attn_qkv.weight")  # [Q+K+V, H]
+            gate_z = t(f"{pfx}.attn_gate.weight")  # [Z, H]
             if qkv_w is not None and gate_z is not None:
                 state[f"{lpfx}.linear_attn.in_proj_qkvz.weight"] = torch.cat(
                     [qkv_w, gate_z], dim=0
                 )
-            state[f"{lpfx}.linear_attn.in_proj_ba.weight"] = t(
-                f"{pfx}.ssm_ba.weight", True
-            )
-            # conv1d: GGUF [kernel, conv_dim] → PyTorch [conv_dim, 1, kernel]
+            state[f"{lpfx}.linear_attn.in_proj_ba.weight"] = t(f"{pfx}.ssm_ba.weight")
+            # conv1d: GGUF [conv_dim, kernel] → PyTorch [conv_dim, 1, kernel]
             if f"{pfx}.ssm_conv1d.weight" in raw:
                 data_c, _ = raw[f"{pfx}.ssm_conv1d.weight"]
                 c = torch.from_numpy(np.array(data_c, dtype=np.float32)).to(dtype)
-                state[f"{lpfx}.linear_attn.conv1d.weight"] = c.T.unsqueeze(1)
+                state[f"{lpfx}.linear_attn.conv1d.weight"] = c.unsqueeze(1)
             # dt_bias: 1-D bias tensor, stored directly.
             if f"{pfx}.ssm_dt.bias" in raw:
                 data_dt, _ = raw[f"{pfx}.ssm_dt.bias"]
@@ -267,9 +251,7 @@ def _load_qwen3next_from_gguf(gguf_path, dtype=torch.bfloat16):
                 state[f"{lpfx}.linear_attn.A_log"] = torch.from_numpy(
                     np.log(-np.array(data_a, dtype=np.float32))
                 ).to(dtype)
-            state[f"{lpfx}.linear_attn.out_proj.weight"] = t(
-                f"{pfx}.ssm_out.weight", True
-            )
+            state[f"{lpfx}.linear_attn.out_proj.weight"] = t(f"{pfx}.ssm_out.weight")
 
     model = Qwen3NextForCausalLM(config)
     missing, unexpected = model.load_state_dict(state, strict=False)
