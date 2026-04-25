@@ -20,68 +20,77 @@ from ....config import (
 )
 
 
-def _patch_transformers_deepseek2_gguf():
-    """Monkey-patch transformers to add deepseek2 GGUF architecture support.
+_DEEPSEEK_CONFIG_MAPPING = {
+    "context_length": "max_position_embeddings",
+    "block_count": "num_hidden_layers",
+    "feed_forward_length": "intermediate_size",
+    "embedding_length": "hidden_size",
+    "rope.freq_base": "rope_theta",
+    "rope.dimension_count": "qk_rope_head_dim",
+    "attention.head_count": "num_attention_heads",
+    "attention.head_count_kv": "num_key_value_heads",
+    "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+    "attention.key_length": None,
+    "attention.value_length": None,
+    "attention.key_length_mla": "qk_nope_head_dim",
+    "attention.value_length_mla": "v_head_dim",
+    "attention.q_lora_rank": "q_lora_rank",
+    "attention.kv_lora_rank": "kv_lora_rank",
+    "vocab_size": "vocab_size",
+    "expert_count": "n_routed_experts",
+    "expert_used_count": "num_experts_per_tok",
+    "expert_shared_count": "n_shared_experts",
+    "expert_group_count": "n_group",
+    "expert_group_used_count": "topk_group",
+    "expert_weights_scale": "routed_scaling_factor",
+    "expert_weights_norm": "norm_topk_prob",
+    "leading_dense_block_count": "first_k_dense_replace",
+    "expert_feed_forward_length": "moe_intermediate_size",
+}
 
-    The gguf library already knows about deepseek2 tensor names, but
-    transformers lacks the config mapping and architecture registration
-    needed to load deepseek2 GGUF checkpoints.
+
+def _patch_transformers_deepseek2_gguf():
+    """Monkey-patch transformers to add deepseek2/deepseek_v2 GGUF architecture support.
+
+    Some GGUF files use "deepseek2" as the architecture while others use "deepseek_v2"
+    (with underscore). This patch registers both names so loading works regardless of
+    which naming convention the file uses.
     """
     from transformers.integrations.ggml import (
         GGUF_TO_FAST_CONVERTERS,
         GGUFQwen2Converter,
     )
-
-    # Register tokenizer converters unconditionally (before the early-return guard)
-    # so that even if another loader already registered "deepseek2" in
-    # GGUF_SUPPORTED_ARCHITECTURES, we still ensure "deepseek_v2" is present.
-    if "deepseek2" not in GGUF_TO_FAST_CONVERTERS:
-        GGUF_TO_FAST_CONVERTERS["deepseek2"] = GGUFQwen2Converter
-    if "deepseek_v2" not in GGUF_TO_FAST_CONVERTERS:
-        GGUF_TO_FAST_CONVERTERS["deepseek_v2"] = GGUFQwen2Converter
-
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
         GGUF_TO_TRANSFORMERS_MAPPING,
     )
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
 
-    if "deepseek2" in GGUF_SUPPORTED_ARCHITECTURES:
-        return  # Already patched
+    # Register tokenizer converters for both naming conventions unconditionally
+    # (before any early-return guard) so that even if another loader already
+    # registered "deepseek2", "deepseek_v2" is still present.
+    if "deepseek2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["deepseek2"] = GGUFQwen2Converter
+    if "deepseek_v2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["deepseek_v2"] = GGUFQwen2Converter
 
-    # 1. Register deepseek2 as a supported architecture
-    GGUF_SUPPORTED_ARCHITECTURES.append("deepseek2")
+    # Register both arch names in GGUF_SUPPORTED_ARCHITECTURES and config mapping
+    for arch in ("deepseek2", "deepseek_v2"):
+        if arch not in GGUF_SUPPORTED_ARCHITECTURES:
+            GGUF_SUPPORTED_ARCHITECTURES.append(arch)
+        if arch not in GGUF_TO_TRANSFORMERS_MAPPING.get("config", {}):
+            GGUF_TO_TRANSFORMERS_MAPPING.setdefault("config", {})[
+                arch
+            ] = _DEEPSEEK_CONFIG_MAPPING
 
-    # 2. Add config mapping for deepseek2 -> DeepseekV2Config
-    GGUF_TO_TRANSFORMERS_MAPPING["config"]["deepseek2"] = {
-        "context_length": "max_position_embeddings",
-        "block_count": "num_hidden_layers",
-        "feed_forward_length": "intermediate_size",
-        "embedding_length": "hidden_size",
-        "rope.freq_base": "rope_theta",
-        "rope.dimension_count": "qk_rope_head_dim",
-        "attention.head_count": "num_attention_heads",
-        "attention.head_count_kv": "num_key_value_heads",
-        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
-        "attention.key_length": None,
-        "attention.value_length": None,
-        "attention.key_length_mla": "qk_nope_head_dim",
-        "attention.value_length_mla": "v_head_dim",
-        "attention.q_lora_rank": "q_lora_rank",
-        "attention.kv_lora_rank": "kv_lora_rank",
-        "vocab_size": "vocab_size",
-        "expert_count": "n_routed_experts",
-        "expert_used_count": "num_experts_per_tok",
-        "expert_shared_count": "n_shared_experts",
-        "expert_group_count": "n_group",
-        "expert_group_used_count": "topk_group",
-        "expert_weights_scale": "routed_scaling_factor",
-        "expert_weights_norm": "norm_topk_prob",
-        "leading_dense_block_count": "first_k_dense_replace",
-        "expert_feed_forward_length": "moe_intermediate_size",
-    }
+    if "deepseek2" in getattr(gguf_utils, "_deepseek_patched", set()):
+        return  # load_gguf_checkpoint already patched by this function
+    if not hasattr(gguf_utils, "_deepseek_patched"):
+        gguf_utils._deepseek_patched = set()
+    gguf_utils._deepseek_patched.add("deepseek2")
 
-    # 4. Patch load_gguf_checkpoint to set model_type to deepseek_v2
+    # Patch load_gguf_checkpoint: remap deepseek2 model_type -> deepseek_v2 for
+    # transformers AutoConfig (deepseek_v2 is the registered transformers model_type).
     orig_load = gguf_utils.load_gguf_checkpoint
 
     def patched_load_gguf_checkpoint(*args, **kwargs):
@@ -93,7 +102,6 @@ def _patch_transformers_deepseek2_gguf():
 
     gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
-    # Also patch modules that imported load_gguf_checkpoint directly
     import transformers.models.auto.tokenization_auto as tok_auto
     import transformers.configuration_utils as config_utils
     import transformers.modeling_utils as modeling_utils
@@ -101,6 +109,21 @@ def _patch_transformers_deepseek2_gguf():
     for mod in (tok_auto, config_utils, modeling_utils):
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    # Patch get_gguf_hf_weights_map: gguf-py uses "deepseek2" (no underscore) but
+    # GGUF files may report "deepseek_v2"; remap so gguf-py can look up the arch.
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type == "deepseek_v2":
+            model_type = "deepseek2"
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
 
 
 # Apply the monkey-patch at import time
