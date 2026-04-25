@@ -94,20 +94,8 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        messages = [
-            {
-                "role": "user",
-                "content": self.sample_text,
-            }
-        ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-
         inputs = self.tokenizer(
-            text,
+            self.sample_text,
             return_tensors="pt",
             padding=True,
             truncation=True,
