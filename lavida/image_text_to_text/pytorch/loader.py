@@ -88,6 +88,10 @@ class ModelLoader(ForgeModel):
         # __init__ via the mm_vision_tower branch in SigLipVisionTower.
         config.mm_tunable_parts = ""
         config.unfreeze_mm_vision_tower = False
+        # LlavaLladaConfig doesn't define use_cache but LLaDAModelLM.forward
+        # accesses self.config.use_cache; default to False (no KV cache).
+        if not hasattr(config, "use_cache"):
+            config.use_cache = False
 
         # Apply transformers 5.x compatibility patches to the custom model module.
         # The modeling_lavida.py module uses APIs removed in transformers 5.x.
@@ -107,6 +111,27 @@ class ModelLoader(ForgeModel):
 
                     _tie_weights_compat._patched_kwargs = True
                     cls.tie_weights = _tie_weights_compat
+
+                # Patch LLaDAModelLM.forward to absorb extra kwargs that
+                # LlavaLladaForMaskedDiffusion.forward passes via super().forward()
+                # (position_ids, prompt_len, num_items_in_batch) but that
+                # LLaDAModelLM.forward doesn't declare.
+                _orig_forward = cls.forward
+                if not getattr(_orig_forward, "_patched_extra_kwargs", False):
+
+                    def _forward_compat(
+                        self,
+                        *args,
+                        _orig=_orig_forward,
+                        position_ids=None,
+                        prompt_len=None,
+                        num_items_in_batch=None,
+                        **kwargs,
+                    ):
+                        return _orig(self, *args, **kwargs)
+
+                    _forward_compat._patched_extra_kwargs = True
+                    cls.forward = _forward_compat
 
             # Patch SigLipVisionConfig._set_token_in_kwargs:
             # removed in transformers 5.x; was a noop for the token-passing pattern.
@@ -135,6 +160,15 @@ class ModelLoader(ForgeModel):
         vision_tower = model.get_vision_tower()
         if vision_tower is not None and not vision_tower.is_loaded:
             vision_tower.load_model()
+        # Re-initialize SigLip position_ids: the persistent=False buffer is not saved
+        # in the state_dict, so after meta-device from_pretrained the buffer holds
+        # uninitialized memory instead of arange(num_positions).
+        vt = getattr(vision_tower, "vision_tower", None)
+        if vt is not None and hasattr(vt, "vision_model"):
+            emb = vt.vision_model.embeddings
+            n = emb.position_embedding.weight.shape[0]
+            device = emb.position_embedding.weight.device
+            emb.position_ids = torch.arange(n, device=device).unsqueeze(0)
         model.resize_token_embeddings(len(self.tokenizer))
         model.tie_weights()
         model.eval()
@@ -179,13 +213,22 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             pixel_values = pixel_values.to(dtype_override)
 
+        # LaViDa's forward() indexes into labels before the `if labels is not None`
+        # guard (line 3871 in modeling_lavida.py), so labels must always be provided.
+        # Set image-placeholder positions to -100 (ignored) so labels.min() == -100
+        # as required by the model's assertion at line 3888.
+        labels = input_ids.clone()
+        labels[labels == IMAGE_TOKEN_INDEX] = -100
+
         if batch_size > 1:
             input_ids = input_ids.repeat_interleave(batch_size, dim=0)
             attention_mask = attention_mask.repeat_interleave(batch_size, dim=0)
             pixel_values = pixel_values.repeat_interleave(batch_size, dim=0)
+            labels = labels.repeat_interleave(batch_size, dim=0)
 
         return {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
             "images": pixel_values,
+            "labels": labels,
         }
