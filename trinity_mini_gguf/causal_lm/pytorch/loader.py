@@ -8,6 +8,67 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+try:
+    import transformers.tokenization_utils_tokenizers as _tok_utils
+except ModuleNotFoundError:
+    import transformers.tokenization_utils_fast as _tok_utils
+
+
+def _patch_afmoe_support():
+    """Register afmoe architecture as an alias for qwen3_moe.
+
+    Trinity Mini uses the afmoe (Arcee Fine-tuned MoE) architecture which
+    transformers does not recognise. It is structurally equivalent to
+    qwen3_moe with additional MoE config fields.
+    """
+    if "afmoe" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+    GGUF_SUPPORTED_ARCHITECTURES.append("afmoe")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen3_moe" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            mapping = dict(
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3_moe"]
+            )
+            mapping["expert_feed_forward_length"] = "moe_intermediate_size"
+            mapping["expert_shared_count"] = "num_shared_experts"
+            mapping["leading_dense_block_count"] = "first_k_dense_replace"
+            mapping["attention.sliding_window"] = "sliding_window"
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["afmoe"] = mapping
+    if "qwen3_moe" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["afmoe"] = GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
+    if hasattr(_gguf_utils, "GGUF_CONFIG_DEFAULTS_MAPPING"):
+        if "qwen3_moe" in _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING:
+            _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING[
+                "afmoe"
+            ] = _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["qwen3_moe"]
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    """Wrap load_gguf_checkpoint to add afmoe support and fix model_type."""
+    _patch_afmoe_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
+    if result.get("config", {}).get("model_type") == "afmoe":
+        result["config"]["model_type"] = "qwen3_moe"
+    return result
+
+
+_patch_afmoe_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
