@@ -5,7 +5,10 @@
 Emu3-Chat model loader implementation for multimodal visual question answering.
 """
 
+import importlib.util
+import os
 import sys
+import types
 import torch
 from PIL import Image
 from typing import Optional
@@ -101,16 +104,38 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        # Import the custom Emu3Processor from the model's remote code
+        # Import the custom Emu3Processor from the model's remote code.
+        # processing_emu3.py uses relative imports (from .utils_emu3 import ...),
+        # so we must load it as part of a synthetic package.
         model_path = snapshot_download(
             self._variant_config.pretrained_model_name,
-            allow_patterns=["processing_emu3.py"],
+            allow_patterns=["processing_emu3.py", "utils_emu3.py"],
         )
-        sys.path.insert(0, model_path)
-        try:
-            from processing_emu3 import Emu3Processor
-        finally:
-            sys.path.remove(model_path)
+        pkg_name = "_emu3_processing_pkg"
+        parent_mod = types.ModuleType(pkg_name)
+        parent_mod.__path__ = [model_path]
+        parent_mod.__package__ = pkg_name
+        sys.modules[pkg_name] = parent_mod
+
+        utils_spec = importlib.util.spec_from_file_location(
+            f"{pkg_name}.utils_emu3",
+            os.path.join(model_path, "utils_emu3.py"),
+        )
+        utils_mod = importlib.util.module_from_spec(utils_spec)
+        utils_mod.__package__ = pkg_name
+        sys.modules[f"{pkg_name}.utils_emu3"] = utils_mod
+        utils_spec.loader.exec_module(utils_mod)
+
+        proc_spec = importlib.util.spec_from_file_location(
+            f"{pkg_name}.processing_emu3",
+            os.path.join(model_path, "processing_emu3.py"),
+        )
+        proc_mod = importlib.util.module_from_spec(proc_spec)
+        proc_mod.__package__ = pkg_name
+        sys.modules[f"{pkg_name}.processing_emu3"] = proc_mod
+        proc_spec.loader.exec_module(proc_mod)
+
+        Emu3Processor = proc_mod.Emu3Processor
 
         self.processor = Emu3Processor(
             self.image_processor, self.image_tokenizer, self.tokenizer
