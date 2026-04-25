@@ -32,10 +32,9 @@ def _fix_merger_out_hidden_size(model):
     the qwen3 (text) architecture so this default is never overridden during
     GGUF loading. We fix the merger layers directly after from_pretrained.
     """
-    lm_hidden = model.language_model.config.hidden_size
-    mergers = [model.visual.merger] + list(
-        getattr(model.visual, "deepstack_merger_list", [])
-    )
+    lm_hidden = model.config.text_config.hidden_size
+    visual = model.model.visual
+    mergers = [visual.merger] + list(getattr(visual, "deepstack_merger_list", []))
     for merger in mergers:
         fc2 = merger.linear_fc2
         if fc2.out_features != lm_hidden:
