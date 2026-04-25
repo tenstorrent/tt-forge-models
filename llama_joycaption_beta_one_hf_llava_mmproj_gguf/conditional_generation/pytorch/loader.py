@@ -8,6 +8,36 @@ for multimodal conditional generation.
 
 from typing import Optional
 
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    get_gguf_hf_weights_map as _orig_get_gguf_hf_weights_map,
+)
+
+
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
+    """Wrap get_gguf_hf_weights_map to map llava HF model type to llama GGUF arch.
+
+    LLaVA GGUF files use the llama tensor layout for the language backbone, but
+    LlavaConfig reports model_type='llava' which gguf-py does not recognise.
+    """
+    effective_type = hf_model.config.model_type if model_type is None else model_type
+    if effective_type == "llava":
+        model_type = "llama"
+        if num_layers is None:
+            num_layers = hf_model.config.text_config.num_hidden_layers
+    return _orig_get_gguf_hf_weights_map(
+        hf_model,
+        processor,
+        model_type=model_type,
+        num_layers=num_layers,
+        qual_name=qual_name,
+    )
+
+
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
 from datasets import load_dataset
 from transformers import LlavaForConditionalGeneration, AutoProcessor, AutoConfig
 
@@ -90,10 +120,7 @@ class ModelLoader(ForgeModel):
 
         # The concedo repo has an outdated config; use the original full model config
         # so the architecture matches the Llama 3.1-based GGUF weights.
-        # Also expose num_hidden_layers at the top level because get_gguf_hf_weights_map
-        # requires it but LlavaConfig nests it inside text_config.
         config = AutoConfig.from_pretrained(self._PROCESSOR_NAME)
-        config.num_hidden_layers = config.text_config.num_hidden_layers
         model = LlavaForConditionalGeneration.from_pretrained(
             pretrained_model_name,
             config=config,
