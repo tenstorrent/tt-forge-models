@@ -93,10 +93,14 @@ def _fix_gguf_version_detection():
 def _patch_qwen35_support():
     """Register qwen35 in GGUF tables so transformers can load Qwen3.5 GGUF files.
 
-    Qwen 3.5 GGUF files declare architecture as 'qwen35' and tokenizer class
-    as 'qwen3_5_text', which are absent from transformers' GGUF tables even
-    though Qwen3_5ForCausalLM (model_type='qwen3_5') is supported. The config
-    field mapping is identical to qwen3 so we reuse it.
+    Qwen 3.5 GGUF files declare architecture as 'qwen35'.  We remap model_type
+    to 'qwen3_5_text' so that AutoConfig creates Qwen3_5TextConfig (which has
+    vocab_size etc.) and AutoModelForCausalLM picks Qwen3_5ForCausalLM.
+    The config field mapping is identical to qwen3.
+
+    get_gguf_hf_weights_map uses gguf-py's MODEL_ARCH_NAMES for tensor name
+    mapping; gguf-py 0.18 has QWEN35='qwen35' but not 'qwen3_5_text', so we
+    patch the function to remap before the lookup.
     """
     if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
         GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
@@ -112,6 +116,21 @@ def _patch_qwen35_support():
         GGUF_TO_FAST_CONVERTERS.setdefault(
             "qwen3_5_text", GGUF_TO_FAST_CONVERTERS["qwen3"]
         )
+    _cur = _gguf_utils.get_gguf_hf_weights_map
+    if not getattr(_cur, "_qwen35_patched", False):
+        _prev_map_fn = _cur
+
+        def _patched_get_map(
+            hf_model, processor, model_type=None, num_layers=None, qual_name=""
+        ):
+            if model_type is None:
+                model_type = hf_model.config.model_type
+            if model_type in ("qwen3_5", "qwen3_5_text"):
+                model_type = "qwen35"
+            return _prev_map_fn(hf_model, processor, model_type, num_layers, qual_name)
+
+        _patched_get_map._qwen35_patched = True
+        _gguf_utils.get_gguf_hf_weights_map = _patched_get_map
 
 
 class ModelVariant(StrEnum):
@@ -180,7 +199,7 @@ class ModelLoader(ForgeModel):
                 isinstance(result, dict)
                 and result.get("config", {}).get("model_type") == "qwen35"
             ):
-                result["config"]["model_type"] = "qwen3_5"
+                result["config"]["model_type"] = "qwen3_5_text"
             return result
 
         for mod in _mods:
