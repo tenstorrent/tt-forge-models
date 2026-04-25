@@ -8,6 +8,7 @@ InternVL3.5 model loader implementation for multimodal visual question answering
 import torch
 import torchvision.transforms as T
 from PIL import Image
+from torch.overrides import TorchFunctionMode
 from torchvision.transforms.functional import InterpolationMode
 from transformers import (
     AutoModel,
@@ -117,6 +118,23 @@ def load_image(image_path, input_size=448, max_num=12):
     return pixel_values
 
 
+class _SafeMetaTensorMode(TorchFunctionMode):
+    """Intercepts .item() on meta tensors during model __init__.
+
+    Transformers 5.x always wraps model __init__ in torch.device('meta').
+    InternVisionEncoder calls linspace(...).item() to build drop-path schedules,
+    which fails on meta tensors. Returning 0.0 is safe for inference because
+    DropPath is a no-op when model.eval() is set.
+    """
+
+    def __torch_function__(self, func, types, args=(), kwargs=None):
+        if func is torch.Tensor.item:
+            tensor = args[0] if args else None
+            if tensor is not None and tensor.is_meta:
+                return 0.0
+        return func(*args, **(kwargs or {}))
+
+
 class ModelVariant(StrEnum):
     """Available InternVL3.5 model variants."""
 
@@ -222,7 +240,6 @@ class ModelLoader(ForgeModel):
         model_kwargs = {
             "trust_remote_code": True,
             "attn_implementation": "eager",
-            "low_cpu_mem_usage": False,
         }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
@@ -233,7 +250,8 @@ class ModelLoader(ForgeModel):
                 pretrained_model_name, **model_kwargs
             )
         else:
-            model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+            with _SafeMetaTensorMode():
+                model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
 
         model.eval()
         self.model = model
