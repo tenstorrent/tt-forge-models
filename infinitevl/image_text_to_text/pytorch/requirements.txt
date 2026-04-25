@@ -1,1 +1,3 @@
 flash-linear-attention
+triton
+transformers<5.0.0
