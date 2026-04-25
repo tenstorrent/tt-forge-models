@@ -23,11 +23,10 @@ def _rope_default_init(config=None, device=None, seq_len=None, **rope_kwargs):
     else:
         base = rope_kwargs["base"]
         dim = rope_kwargs["dim"]
+    # Do not move to device — meta-tensor contexts used by from_pretrained
+    # fail if .to() is called on a meta tensor.
     inv_freq = 1.0 / (
-        base
-        ** (
-            torch.arange(0, dim, 2, dtype=torch.int64).float().to(device or "cpu") / dim
-        )
+        base ** (torch.arange(0, dim, 2, dtype=torch.int64).float() / dim)
     )
     return inv_freq, 1.0
 
