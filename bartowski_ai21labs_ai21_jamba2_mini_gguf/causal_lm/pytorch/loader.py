@@ -20,6 +20,66 @@ from ....config import (
 )
 
 
+def _patch_transformers_jamba_gguf():
+    """Monkey-patch transformers to add jamba GGUF architecture support.
+
+    Transformers 5.x has JambaForCausalLM but lacks GGUF loading support for
+    the jamba architecture. The GGUF metadata stores head_count_kv=0 (only
+    Mamba layers have no KV heads), so we skip that field and rely on the
+    JambaConfig default (8). All other Mamba-specific fields (mamba_expand,
+    attn_layer_period/offset, expert_layer_period/offset) match JambaConfig
+    defaults and are not present in the GGUF metadata.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        TENSOR_PROCESSORS,
+    )
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFLlamaConverter,
+    )
+
+    if "jamba" in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # Already patched
+
+    # Register jamba as a supported architecture
+    GGUF_SUPPORTED_ARCHITECTURES.append("jamba")
+
+    # Reuse the mamba tensor processor (handles conv1d reshape and ssm_a log transform)
+    if "jamba" not in TENSOR_PROCESSORS and "mamba" in TENSOR_PROCESSORS:
+        TENSOR_PROCESSORS["jamba"] = TENSOR_PROCESSORS["mamba"]
+
+    # Add config mapping for jamba GGUF fields to JambaConfig fields.
+    # head_count_kv is 0 in the GGUF (Mamba layers have no KV heads); skip it
+    # so JambaConfig defaults to 8. mamba_expand, attn_layer_period/offset, and
+    # expert_layer_period/offset are absent from the GGUF but match JambaConfig
+    # defaults for Jamba2-Mini.
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["jamba"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": None,
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "expert_count": "num_experts",
+        "expert_used_count": "num_experts_per_tok",
+        "ssm.conv_kernel": "mamba_d_conv",
+        "ssm.state_size": "mamba_d_state",
+        "ssm.time_step_rank": "mamba_dt_rank",
+        "ssm.inner_size": None,
+    }
+
+    # Jamba uses Llama/SentencePiece tokenizer format in GGUF
+    if "jamba" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["jamba"] = GGUFLlamaConverter
+
+
+# Apply the monkey-patch at import time
+_patch_transformers_jamba_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available bartowski ai21labs AI21-Jamba2-Mini GGUF model variants for causal language modeling."""
 
