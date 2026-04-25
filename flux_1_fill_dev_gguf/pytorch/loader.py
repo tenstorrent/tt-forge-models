@@ -88,12 +88,19 @@ class ModelLoader(ForgeModel):
         import importlib.util
         import sys
 
-        # diffusers caches gguf availability at import time; after dynamic installation
-        # by RequirementsManager, force-refresh the cached flag so load_gguf_checkpoint works.
+        # diffusers caches gguf availability and version at import time; after dynamic
+        # installation by RequirementsManager, force-refresh both cached values so
+        # load_gguf_checkpoint and is_gguf_version work correctly.
         if importlib.util.find_spec("gguf") is not None:
             diu = sys.modules.get("diffusers.utils.import_utils")
             if diu is not None and not diu._gguf_available:
+                import importlib.metadata
+
                 diu._gguf_available = True
+                try:
+                    diu._gguf_version = importlib.metadata.version("gguf")
+                except importlib.metadata.PackageNotFoundError:
+                    diu._gguf_version = "0.10.0"
 
         gguf_file = _GGUF_FILES[self._variant]
         quantization_config = GGUFQuantizationConfig(compute_dtype=dtype)
