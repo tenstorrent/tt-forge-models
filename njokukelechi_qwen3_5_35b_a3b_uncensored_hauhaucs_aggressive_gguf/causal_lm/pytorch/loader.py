@@ -124,6 +124,7 @@ def _patch_transformers_qwen35moe_gguf():
     # used, and finally add the separate-gate-tensor aliases.
     import re as _re
     import sys as _sys
+    import threading as _threading
 
     orig_get_map = gguf_utils.get_gguf_hf_weights_map
 
@@ -132,14 +133,17 @@ def _patch_transformers_qwen35moe_gguf():
     ):
         if hf_model is None:
             # An inner patch (e.g. 4_5test_gguf) may have saved model_to_load
-            # in a module-level thread-local before popping it from kwargs.
-            for _mod in _sys.modules.values():
-                _ctx = getattr(_mod, "_model_to_load_ctx", None)
-                if _ctx is not None:
-                    _recovered = getattr(_ctx, "model_to_load", None)
-                    if _recovered is not None:
-                        hf_model = _recovered
-                        break
+            # in a module-level threading.local before popping it from kwargs.
+            try:
+                for _mod in _sys.modules.values():
+                    _ctx = getattr(_mod, "_model_to_load_ctx", None)
+                    if isinstance(_ctx, _threading.local):
+                        _recovered = getattr(_ctx, "model_to_load", None)
+                        if _recovered is not None:
+                            hf_model = _recovered
+                            break
+            except Exception:
+                pass
         if model_type is None and hf_model is not None:
             model_type = hf_model.config.model_type
         if model_type in ("qwen3_5_moe_text", "qwen3_5_moe", "qwen35moe"):
