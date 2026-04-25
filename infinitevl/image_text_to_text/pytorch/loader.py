@@ -5,11 +5,24 @@
 InfiniteVL model loader implementation for image-text-to-text tasks.
 """
 
+import contextlib
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor
 from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
 from transformers.modeling_utils import PreTrainedModel
 from typing import Optional
+
+
+# fla.utils.custom_device_ctx calls torch.cpu.device(index) on CPU, but
+# torch.cpu has no .device attribute. Patch it to return nullcontext on CPU.
+import fla.utils as _fla_utils
+
+if getattr(_fla_utils, "device_torch_lib", None) is torch.cpu:
+
+    def _cpu_device_ctx(index):
+        return contextlib.nullcontext()
+
+    _fla_utils.custom_device_ctx = _cpu_device_ctx
 
 
 def _rope_default_init(config=None, device=None, seq_len=None, **rope_kwargs):
