@@ -29,12 +29,17 @@ def _patch_transformers_qwen35moe_gguf():
     for the qwen35moe architecture. We bridge the gap by registering qwen35moe
     config/tensor mappings and converting the model_type to qwen3_5_moe_text.
     """
+    import re
+
+    import numpy as np
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
         GGUF_TO_TRANSFORMERS_MAPPING,
+        GGUFTensor,
+        Qwen2MoeTensorProcessor,
         TENSOR_PROCESSORS,
     )
-    import transformers.modeling_gguf_pytorch_utils as gguf_utils
 
     if "qwen35moe" in GGUF_SUPPORTED_ARCHITECTURES:
         return  # Already patched
@@ -60,9 +65,34 @@ def _patch_transformers_qwen35moe_gguf():
         "full_attention_interval": "full_attention_interval",
     }
 
-    # 3. Reuse qwen3moe tensor processor for qwen35moe
-    if "qwen3moe" in TENSOR_PROCESSORS:
-        TENSOR_PROCESSORS["qwen35moe"] = TENSOR_PROCESSORS["qwen3moe"]
+    # 3. Custom tensor processor for qwen35moe.
+    # Qwen3.5MoE stores fused gate_up_proj expert weights in HF format, but the
+    # GGUF file names tensors as blk.N.ffn_gate_exps.weight (WITH .weight suffix).
+    # Qwen2MoeTensorProcessor.process captures m["name"] (WITHOUT .weight) and
+    # looks it up in tensor_key_mapping, but the fallback mapping adds keys WITH
+    # .weight — a mismatch. We fix process() to look up with the .weight suffix.
+    class Qwen35MoeTensorProcessor(Qwen2MoeTensorProcessor):
+        def process(self, weights, name: str, **kwargs):
+            if m := re.fullmatch(self.GGUF_MOE_WEIGHTS_PATTERN, name):
+                tensor_key_mapping = kwargs.get("tensor_key_mapping")
+                parsed_parameters = kwargs.get("parsed_parameters")
+                if tensor_key_mapping:
+                    # GGUF tensors for this model have .weight suffix; the fallback
+                    # mapping stores keys WITH .weight, but the parent looks up
+                    # m["name"] (without .weight).  Try both.
+                    key = m["name"] + ".weight"
+                    if key not in tensor_key_mapping:
+                        key = m["name"]
+                    if key in tensor_key_mapping:
+                        self._set_moe_expert_tensor(
+                            weights, parsed_parameters, tensor_key_mapping[key], m["w"]
+                        )
+                        return GGUFTensor(weights, None, {})
+            if "ffn_gate_inp_shexp" in name:
+                weights = np.expand_dims(weights, axis=0)
+            return GGUFTensor(weights, name, {})
+
+    TENSOR_PROCESSORS["qwen35moe"] = Qwen35MoeTensorProcessor
 
     # 4. Register tokenizer converter
     from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
@@ -96,18 +126,19 @@ def _patch_transformers_qwen35moe_gguf():
     gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
     # Also patch modules that imported load_gguf_checkpoint directly
-    import transformers.models.auto.tokenization_auto as tok_auto
     import transformers.configuration_utils as config_utils
     import transformers.modeling_utils as modeling_utils
+    import transformers.models.auto.tokenization_auto as tok_auto
 
     for mod in (tok_auto, config_utils, modeling_utils):
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
-    # 6. Patch get_gguf_hf_weights_map to route qwen3_5_moe_text through qwen3moe
+    # 6. Patch get_gguf_hf_weights_map to route qwen3_5_moe_text through qwen3moe.
     # Using qwen3moe (not qwen35moe) so the tensor name map produces None for
-    # gate_up_proj, which triggers the fallback that correctly adds ffn_gate_exps
-    # and ffn_up_exps separately (matching the actual GGUF tensor names).
+    # gate_up_proj, triggering the fallback that adds ffn_gate_exps and ffn_up_exps
+    # separately.  The custom Qwen35MoeTensorProcessor.process() then resolves the
+    # .weight-suffix mismatch when looking up those keys.
     orig_get_map = gguf_utils.get_gguf_hf_weights_map
 
     def patched_get_gguf_hf_weights_map(
