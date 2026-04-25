@@ -7,6 +7,7 @@ DeepSeek Janus model loader implementation for multimodal understanding.
 
 from typing import Optional
 
+import torch
 from PIL import Image
 from janus.models import MultiModalityCausalLM  # registers multi_modality type
 from transformers import AutoModelForCausalLM, AutoProcessor
@@ -71,12 +72,30 @@ class ModelLoader(ForgeModel):
         """Load and return the Janus model instance."""
         model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"trust_remote_code": True, "low_cpu_mem_usage": False}
+        model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(str(model_name), **model_kwargs)
+        # transformers 5.x always uses torch.device("meta") in get_init_context,
+        # but siglip_vit.py calls item() during __init__ which fails on meta tensors.
+        # Patch get_init_context to exclude the meta device context.
+        _orig_get_init_context = MultiModalityCausalLM.get_init_context
+
+        @classmethod
+        def _no_meta_get_init_context(cls, dtype, is_quantized, _is_ds_init_called):
+            contexts = _orig_get_init_context.__func__(
+                cls, dtype, is_quantized, _is_ds_init_called
+            )
+            return [c for c in contexts if not isinstance(c, torch.device)]
+
+        MultiModalityCausalLM.get_init_context = _no_meta_get_init_context
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                str(model_name), **model_kwargs
+            )
+        finally:
+            MultiModalityCausalLM.get_init_context = _orig_get_init_context
         model.eval()
 
         if self.processor is None:
