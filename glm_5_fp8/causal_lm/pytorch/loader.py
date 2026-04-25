@@ -60,14 +60,9 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
-            **tokenizer_kwargs,
         )
 
         if self.tokenizer.pad_token is None:
@@ -81,16 +76,20 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"trust_remote_code": True}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+        # Strip FP8 quantization config to avoid triton dependency (no GPU available)
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        config.quantization_config = None
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+
+        model_kwargs = {
+            "trust_remote_code": True,
+            "config": config,
+            "dtype": dtype_override if dtype_override is not None else torch.bfloat16,
+        }
 
         model_kwargs |= kwargs
 
