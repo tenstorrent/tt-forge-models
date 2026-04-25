@@ -28,9 +28,44 @@ def _fixed_is_gguf_available(min_version=None):
         return False
 
 
+import transformers.integrations.ggml as _ggml
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 
 _gguf_utils.is_gguf_available = _fixed_is_gguf_available
+
+# transformers 5.2.x does not include hunyuan-dense in GGUF_CONFIG_MAPPING.
+# Add the field mapping and patch load_gguf_checkpoint to rename the architecture
+# string "hunyuan-dense" to the HF model_type "hunyuan_v1_dense".
+if "hunyuan-dense" not in _ggml.GGUF_CONFIG_MAPPING:
+    _ggml.GGUF_CONFIG_MAPPING["hunyuan-dense"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "attention.key_length": "head_dim",
+    }
+
+if "hunyuan-dense" not in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
+    _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("hunyuan-dense")
+
+_orig_load_gguf_checkpoint = _gguf_utils.load_gguf_checkpoint
+
+
+def _patched_load_gguf_checkpoint(*args, **kwargs):
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
+    if (
+        isinstance(result, dict)
+        and result.get("config", {}).get("model_type") == "hunyuan-dense"
+    ):
+        result["config"]["model_type"] = "hunyuan_v1_dense"
+    return result
+
+
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 from ....base import ForgeModel
 from ....config import (
