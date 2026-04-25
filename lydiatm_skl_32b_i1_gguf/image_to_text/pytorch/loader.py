@@ -5,9 +5,48 @@
 mradermacher/LydiaTM-SKL-32B-i1-GGUF model loader implementation for image to text.
 """
 
+
+def _patch_transformers_qwen3vl_gguf():
+    """Add qwen3vl GGUF architecture support so Qwen3-VL GGUF files load without error.
+
+    The qwen3vl GGUF architecture is not registered in transformers. Both issues
+    are patched here by registering the architecture and its config/converter mappings.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    if "qwen3vl" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vl")
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen3vl"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+    }
+    if "qwen3vl" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["qwen3vl"] = GGUFQwen2Converter
+
+
+_patch_transformers_qwen3vl_gguf()
+
 from transformers import (
-    Qwen3VLForConditionalGeneration,
+    AutoConfig,
     AutoProcessor,
+    Qwen3VLForConditionalGeneration,
 )
 from typing import Optional
 
@@ -65,10 +104,21 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["ignore_mismatched_sizes"] = True
         model_kwargs |= kwargs
 
         # GGUF repos do not ship a processor; use the base model
         self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-32B-Instruct")
+
+        # Provide base config so from_pretrained skips config-from-GGUF:
+        # qwen3vl is not in the VL config mapping so the architecture check fails
+        # without the patch above; passing a ready-made Qwen3VLConfig avoids that
+        # path entirely and ensures vision/text sub-configs are properly populated.
+        config = AutoConfig.from_pretrained("Qwen/Qwen3-VL-32B-Instruct")
+        # Qwen3VLConfig is a composite config; get_gguf_hf_weights_map reads
+        # config.num_hidden_layers directly, so expose it at the top level.
+        config.num_hidden_layers = config.text_config.num_hidden_layers
+        model_kwargs["config"] = config
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
