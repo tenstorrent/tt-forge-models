@@ -96,8 +96,12 @@ class ModelLoader(ForgeModel):
 
         model_kwargs |= kwargs
 
+        # MLX 4-bit weights are stored as packed uint32 (8 values per element)
+        # with separate scales/biases, so weight shapes differ from the model's
+        # bfloat16 parameters. Load with ignore_mismatched_sizes so the
+        # architecture is correct and only the weight values are random.
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
