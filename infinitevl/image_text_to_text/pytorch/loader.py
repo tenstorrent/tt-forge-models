@@ -115,6 +115,17 @@ class ModelLoader(ForgeModel):
                 "lm_head.weight": "model.language_model.embed_tokens.weight"
             }
 
+        # transformers 5.x _init_weights calls module.compute_default_rope_parameters
+        # for rope_type="default", but InfiniteVLRotaryEmbedding lacks this method.
+        infinitevl_rotary_cls = get_class_from_dynamic_module(
+            "modeling_infinitevl.InfiniteVLRotaryEmbedding",
+            pretrained_model_name,
+        )
+        if not hasattr(infinitevl_rotary_cls, "compute_default_rope_parameters"):
+            infinitevl_rotary_cls.compute_default_rope_parameters = staticmethod(
+                _compute_default_rope_parameters
+            )
+
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, config=config, **model_kwargs
         )
