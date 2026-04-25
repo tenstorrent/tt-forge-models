@@ -17,6 +17,34 @@ if not hasattr(DynamicCache, "get_usable_length"):
         lambda self, new_seq_length=None, layer_idx=0: self.get_seq_length(layer_idx)
     )
 
+# compressed_tensors' QuantizedKVCache replaces DynamicCache in the attention
+# forward and is returned as the "present_key_value" by each decoder layer.
+# The custom DeepSeek model code then calls to_legacy_cache() on it, which
+# doesn't exist.  Patch forward() to save a strong ref to the underlying
+# DynamicCache before QuantizedKVCache clears its weakref, then add the method.
+try:
+    from compressed_tensors.modeling.kvcache import QuantizedKVCache
+
+    if not hasattr(QuantizedKVCache, "to_legacy_cache"):
+        _orig_qkv_fwd = QuantizedKVCache.forward
+
+        def _patched_qkv_fwd(self, key_states, value_states, *args, **kwargs):
+            pkv_ref = self.past_key_values
+            result = _orig_qkv_fwd(self, key_states, value_states, *args, **kwargs)
+            self._legacy_pkv = pkv_ref() if pkv_ref is not None else None
+            return result
+
+        def _to_legacy_cache(self):
+            pkv = getattr(self, "_legacy_pkv", None)
+            if pkv is not None and hasattr(pkv, "to_legacy_cache"):
+                return pkv.to_legacy_cache()
+            return ()
+
+        QuantizedKVCache.forward = _patched_qkv_fwd
+        QuantizedKVCache.to_legacy_cache = _to_legacy_cache
+except ImportError:
+    pass
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
