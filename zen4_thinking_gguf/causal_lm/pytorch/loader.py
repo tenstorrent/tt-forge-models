@@ -118,7 +118,10 @@ def _patch_transformers_qwen3next_gguf():
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
-    # 6. Patch get_gguf_hf_weights_map to remap qwen3_next → qwen3next for gguf arch lookup
+    # 6. Patch get_gguf_hf_weights_map to remap qwen3_next → qwen3moe for the tensor name map.
+    # The qwen3next name map has a combined ffn_gate_up_exps entry, but the actual GGUF file
+    # stores separate ffn_gate_exps + ffn_up_exps (qwen3moe format). Using qwen3moe triggers
+    # the perform_fallback_tensor_mapping path that recombines them into gate_up_proj.
     orig_get_map = gguf_utils.get_gguf_hf_weights_map
 
     def patched_get_gguf_hf_weights_map(
@@ -126,8 +129,8 @@ def _patch_transformers_qwen3next_gguf():
     ):
         if model_type is None:
             model_type = hf_model.config.model_type
-        if model_type == "qwen3_next":
-            model_type = "qwen3next"
+        if model_type in ("qwen3_next", "qwen3next"):
+            model_type = "qwen3moe"
         return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
