@@ -40,7 +40,7 @@ def _patch_transformers_qwen35moe_gguf():
     GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen35moe"] = {
         "context_length": "max_position_embeddings",
         "block_count": "num_hidden_layers",
-        "feed_forward_length": "intermediate_size",
+        "feed_forward_length": "moe_intermediate_size",
         "embedding_length": "hidden_size",
         "rope.dimension_count": None,
         "rope.freq_base": "rope_theta",
