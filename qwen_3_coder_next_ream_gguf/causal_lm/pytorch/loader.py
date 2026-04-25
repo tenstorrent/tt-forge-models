@@ -185,7 +185,7 @@ def _load_qwen3next_from_gguf(gguf_path, dtype=torch.bfloat16):
         state[f"{lpfx}.mlp.gate.weight"] = t(f"{pfx}.ffn_gate_inp.weight")
         state[f"{lpfx}.mlp.shared_expert_gate.weight"] = t(
             f"{pfx}.ffn_gate_inp_shexp.weight"
-        )
+        ).unsqueeze(0)
         state[f"{lpfx}.mlp.shared_expert.gate_proj.weight"] = t(
             f"{pfx}.ffn_gate_shexp.weight"
         )
