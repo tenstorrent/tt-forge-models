@@ -160,6 +160,13 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, config=config, **model_kwargs
         )
+
+        # The model hardcodes flash_attention_2 during __init__; override to sdpa
+        # since flash-attn is not available (requires CUDA kernels).
+        for cfg in {model.config, getattr(model.config, "text_config", None)}:
+            if cfg is not None and hasattr(cfg, "_attn_implementation"):
+                cfg._attn_implementation = "sdpa"
+
         model.eval()
 
         return model
