@@ -132,15 +132,40 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
+    @staticmethod
+    def _with_real_gguf(fn):
+        """Run fn() with load_gguf_checkpoint replaced by the real implementation.
+
+        Other GGUF loaders patch load_gguf_checkpoint at import time without
+        forwarding all kwargs, causing failures when multiple loaders are collected
+        together. This bypasses the patch chain and calls the real function directly.
+        """
         _fix_gguf_version_detection()
+        _mods = (_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils)
+        _prev = {mod: mod.load_gguf_checkpoint for mod in _mods}
+        _real_fn = _find_real_load_gguf_checkpoint(_prev[_gguf_utils])
+
+        def _wrapper(gguf_path, return_tensors=False, **patch_kwargs):
+            return _real_fn(gguf_path, return_tensors=return_tensors, **patch_kwargs)
+
+        for mod in _mods:
+            mod.load_gguf_checkpoint = _wrapper
+        try:
+            return fn()
+        finally:
+            for mod, orig in _prev.items():
+                mod.load_gguf_checkpoint = orig
+
+    def _load_tokenizer(self, dtype_override=None):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
         tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+        self.tokenizer = self._with_real_gguf(
+            lambda: AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            )
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -166,25 +191,11 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        # Other GGUF loaders patch load_gguf_checkpoint without forwarding model_to_load,
-        # which was added in newer transformers. Temporarily install our wrapper as the
-        # outermost patch so model_to_load reaches the real function via chain traversal.
-        _mods = (_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils)
-        _prev = {mod: mod.load_gguf_checkpoint for mod in _mods}
-        _real_fn = _find_real_load_gguf_checkpoint(_prev[_gguf_utils])
-
-        def _wrapper(gguf_path, return_tensors=False, **patch_kwargs):
-            return _real_fn(gguf_path, return_tensors=return_tensors, **patch_kwargs)
-
-        for mod in _mods:
-            mod.load_gguf_checkpoint = _wrapper
-        try:
-            model = AutoModelForCausalLM.from_pretrained(
+        model = self._with_real_gguf(
+            lambda: AutoModelForCausalLM.from_pretrained(
                 pretrained_model_name, **model_kwargs
             ).eval()
-        finally:
-            for mod, fn in _prev.items():
-                mod.load_gguf_checkpoint = fn
+        )
 
         self.config = model.config
         self.model = model
@@ -242,8 +253,9 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        _fix_gguf_version_detection()
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+        self.config = self._with_real_gguf(
+            lambda: AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
         )
         return self.config
