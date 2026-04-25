@@ -41,10 +41,12 @@ def _patch_qwen35_support():
         )
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     """Wrap load_gguf_checkpoint to add qwen35 support and fix model_type."""
     _patch_qwen35_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
     if result.get("config", {}).get("model_type") == "qwen35":
         result["config"]["model_type"] = "qwen3"
     return result
@@ -86,7 +88,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.DANILOREDDY_QWEN3_5_0_8B_GGUF
 
-    GGUF_FILE = "Q4_K_M.gguf"
+    GGUF_FILE = "Qwen3.5-0.8B_Q4_K_M.gguf"
 
     sample_text = "Give me a short introduction to large language models."
 
@@ -132,6 +134,8 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        # Qwen3.5 has different attention head dims than Qwen3; allow size mismatches
+        model_kwargs["ignore_mismatched_sizes"] = True
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
