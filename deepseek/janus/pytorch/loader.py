@@ -75,7 +75,7 @@ class ModelLoader(ForgeModel):
         config = AutoConfig.from_pretrained(str(model_name))
         config.language_config._attn_implementation = "eager"
 
-        model_kwargs = {"config": config}
+        model_kwargs = {"config": config, "low_cpu_mem_usage": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
