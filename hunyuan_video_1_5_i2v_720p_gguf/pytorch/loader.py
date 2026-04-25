@@ -157,9 +157,6 @@ class ModelLoader(ForgeModel):
         hf_quantizer.postprocess_model(model)
         model.hf_quantizer = hf_quantizer
 
-        if compute_dtype is not None:
-            model = model.to(compute_dtype)
-
         self._transformer = model
         return self._transformer
 
