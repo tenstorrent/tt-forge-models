@@ -18,22 +18,37 @@ from transformers.modeling_gguf_pytorch_utils import (
 )
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
+# Qwen3.5-27B uses a hybrid SSM + full-attention architecture (qwen35 in GGUF).
+# Map it to "qwen3_5_text" so that Qwen3_5ForCausalLM is used, which correctly
+# sets q_proj output to num_attention_heads * head_dim * 2 (vs Qwen3 which omits
+# the *2 factor) and has the correct layer norm key names.
+_QWEN35_CONFIG_MAPPING = {
+    "context_length": "max_position_embeddings",
+    "block_count": "num_hidden_layers",
+    "feed_forward_length": "intermediate_size",
+    "embedding_length": "hidden_size",
+    "rope.dimension_count": None,
+    "rope.freq_base": "rope_theta",
+    "attention.head_count": "num_attention_heads",
+    "attention.head_count_kv": "num_key_value_heads",
+    "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+    "vocab_size": "vocab_size",
+    "attention.key_length": "head_dim",
+    "full_attention_interval": "full_attention_interval",
+}
+
 
 def _patch_qwen35_support():
-    """Register qwen35 architecture and qwen3_5_text tokenizer as aliases for qwen3.
+    """Register qwen35 GGUF architecture as Qwen3.5 (qwen3_5_text).
 
-    Qwen 3.5 uses the same model architecture as Qwen 3 but the GGUF file
-    declares architecture as 'qwen35' and tokenizer class as 'qwen3_5_text',
-    which transformers 5.x does not yet recognise.
+    Uses direct assignment (not setdefault) so this mapping takes precedence over any
+    qwen35->qwen3 alias installed by other loaders.
     """
     if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
         GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
-    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
-        if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
-            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
-                "qwen35",
-                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
-            )
+    _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"][
+        "qwen35"
+    ] = _QWEN35_CONFIG_MAPPING
     if "qwen3" in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
         GGUF_TO_FAST_CONVERTERS.setdefault(
@@ -41,14 +56,27 @@ def _patch_qwen35_support():
         )
 
 
+def _is_qwen35_gguf(gguf_path):
+    """Return True if the GGUF file declares architecture 'qwen35'."""
+    try:
+        from gguf import GGUFReader
+        from transformers.modeling_gguf_pytorch_utils import read_field
+
+        reader = GGUFReader(gguf_path)
+        arch = read_field(reader, "general.architecture")[0]
+        return arch == "qwen35"
+    except Exception:
+        return False
+
+
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
-    """Wrap load_gguf_checkpoint to add qwen35 support and fix model_type."""
+    """Wrap load_gguf_checkpoint to register qwen35 and fix model_type."""
     _patch_qwen35_support()
     result = _orig_load_gguf_checkpoint(
         gguf_path, return_tensors=return_tensors, **kwargs
     )
-    if result.get("config", {}).get("model_type") == "qwen35":
-        result["config"]["model_type"] = "qwen3"
+    if _is_qwen35_gguf(gguf_path):
+        result["config"]["model_type"] = "qwen3_5_text"
     return result
 
 
