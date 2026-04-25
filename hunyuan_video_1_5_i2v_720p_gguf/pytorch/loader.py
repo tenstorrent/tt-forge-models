@@ -255,7 +255,7 @@ class ModelLoader(ForgeModel):
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
         gguf_file = _GGUF_FILES[self._variant]
-        gguf_url = f"https://huggingface.co/{GGUF_REPO}/resolve/main/{gguf_file}"
+        gguf_url = f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}"
 
         # Download and parse the GGUF checkpoint.
         checkpoint = load_single_file_checkpoint(gguf_url)
