@@ -63,6 +63,21 @@ def _patch_falcon_h1_support():
         GGUF_TO_FAST_CONVERTERS[_FALCON_H1_GGUF_ARCH] = GGUF_TO_FAST_CONVERTERS["llama"]
 
 
+_orig_get_gguf_hf_weights_map = _gguf_utils.get_gguf_hf_weights_map
+
+
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
+    if model_type is None:
+        model_type = hf_model.config.model_type
+    if model_type == _FALCON_H1_MODEL_TYPE:
+        model_type = _FALCON_H1_GGUF_ARCH
+    return _orig_get_gguf_hf_weights_map(
+        hf_model, processor, model_type, num_layers, qual_name
+    )
+
+
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     _patch_falcon_h1_support()
     result = _orig_load_gguf_checkpoint(
@@ -74,6 +89,7 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
 
 
 _patch_falcon_h1_support()
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
