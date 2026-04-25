@@ -86,12 +86,15 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The FLUX.2-dev transformer model instance.
         """
+        from huggingface_hub import hf_hub_download
+
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
         gguf_file = _GGUF_FILES[self._variant]
+        gguf_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         self.transformer = Flux2Transformer2DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/resolve/main/{gguf_file}",
+            gguf_path,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
