@@ -22,7 +22,7 @@ from ...config import (
     StrEnum,
 )
 
-GGUF_BASE_URL = "https://huggingface.co/bullerwins/FLUX.1-Kontext-dev-GGUF/resolve/main"
+GGUF_BASE_URL = "https://huggingface.co/bullerwins/FLUX.1-Kontext-dev-GGUF/blob/main"
 
 
 class ModelVariant(StrEnum):
