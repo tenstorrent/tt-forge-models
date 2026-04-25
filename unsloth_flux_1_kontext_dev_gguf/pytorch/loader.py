@@ -7,8 +7,12 @@ Unsloth FLUX.1 Kontext Dev GGUF model loader implementation for image-to-image g
 Repository:
 - https://huggingface.co/unsloth/FLUX.1-Kontext-dev-GGUF
 """
+import json
+import os
+import tempfile
 import torch
-from diffusers import FluxTransformer2DModel
+from diffusers import GGUFQuantizationConfig
+from diffusers.models import FluxTransformer2DModel
 from typing import Optional
 
 from ...base import ForgeModel
@@ -23,6 +27,23 @@ from ...config import (
 )
 
 GGUF_BASE_URL = "https://huggingface.co/unsloth/FLUX.1-Kontext-dev-GGUF/blob/main"
+
+# FLUX.1-Kontext-dev has the same transformer dimensions as FLUX.1-dev; reference image
+# tokens are packed into the sequence dimension, not the channel dimension.
+_TRANSFORMER_CONFIG = {
+    "_class_name": "FluxTransformer2DModel",
+    "_diffusers_version": "0.37.1",
+    "attention_head_dim": 128,
+    "axes_dims_rope": [16, 56, 56],
+    "guidance_embeds": True,
+    "in_channels": 64,
+    "joint_attention_dim": 4096,
+    "num_attention_heads": 24,
+    "num_layers": 19,
+    "num_single_layers": 38,
+    "patch_size": 1,
+    "pooled_projection_dim": 768,
+}
 
 
 class ModelVariant(StrEnum):
@@ -70,21 +91,29 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _make_local_config_dir(self):
+        config_dir = tempfile.mkdtemp()
+        transformer_dir = os.path.join(config_dir, "transformer")
+        os.makedirs(transformer_dir, exist_ok=True)
+        with open(os.path.join(transformer_dir, "config.json"), "w") as f:
+            json.dump(_TRANSFORMER_CONFIG, f)
+        return config_dir
+
     def load_model(self, *, dtype_override=None, **kwargs):
+        compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+
         gguf_file = self._GGUF_FILES[self._variant]
         gguf_url = f"{GGUF_BASE_URL}/{gguf_file}"
-
-        load_kwargs = {}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
+        config_dir = self._make_local_config_dir()
 
         self.transformer = FluxTransformer2DModel.from_single_file(
             gguf_url,
-            **load_kwargs,
+            config=config_dir,
+            subfolder="transformer",
+            quantization_config=quantization_config,
+            torch_dtype=compute_dtype,
         )
-
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
 
         return self.transformer
 
