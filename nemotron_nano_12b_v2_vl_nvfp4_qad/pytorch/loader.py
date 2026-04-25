@@ -155,6 +155,9 @@ class ModelLoader(ForgeModel):
                 int(num_patches.sum()), 1, dtype=torch.long
             )
 
+        if dtype_override is not None:
+            inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
+
         if batch_size > 1:
             for key, value in inputs.items():
                 if hasattr(value, "repeat_interleave"):
