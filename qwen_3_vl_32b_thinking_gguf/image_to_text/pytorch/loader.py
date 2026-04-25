@@ -7,8 +7,8 @@ Qwen 3 VL 32B Thinking GGUF model loader implementation for image to text.
 
 import torch
 from transformers import (
-    Qwen3VLForConditionalGeneration,
     AutoConfig,
+    AutoModelForImageTextToText,
     AutoProcessor,
 )
 from typing import Optional
@@ -90,7 +90,7 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
 
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        model = Qwen3VLForConditionalGeneration.from_config(
+        model = AutoModelForImageTextToText.from_config(
             config, torch_dtype=dtype
         ).eval()
         return model
