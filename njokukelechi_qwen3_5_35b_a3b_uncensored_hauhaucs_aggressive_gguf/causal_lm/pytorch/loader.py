@@ -35,11 +35,11 @@ def _patch_transformers_qwen35moe_gguf():
     )
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
 
-    if "qwen35moe" in GGUF_SUPPORTED_ARCHITECTURES:
-        return  # Already patched
+    already_registered = "qwen35moe" in GGUF_SUPPORTED_ARCHITECTURES
 
-    # 1. Register qwen35moe as a supported architecture
-    GGUF_SUPPORTED_ARCHITECTURES.append("qwen35moe")
+    if not already_registered:
+        # 1. Register qwen35moe as a supported architecture
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen35moe")
 
     # 2. Add config mapping for qwen35moe (based on qwen3_moe + Qwen3.5 fields)
     GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen35moe"] = {
