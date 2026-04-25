@@ -64,7 +64,8 @@ class ModelLoader(ForgeModel):
 
         model_kwargs |= kwargs
 
-        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
+        # MLX repos do not ship a processor; use the base model
+        self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3.5-27B")
 
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
