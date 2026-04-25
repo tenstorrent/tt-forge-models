@@ -1,2 +1,3 @@
 flash-linear-attention @ git+https://github.com/sustcsonglin/flash-linear-attention
 triton
+transformers<5.0.0
