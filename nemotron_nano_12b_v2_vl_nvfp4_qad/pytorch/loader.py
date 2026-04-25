@@ -5,6 +5,9 @@
 NVIDIA Nemotron Nano 12B v2 VL NVFP4-QAD model loader implementation for image to text.
 """
 
+import contextlib
+
+import torch
 import torch.distributed as _dist
 
 from transformers import AutoConfig, AutoModel, AutoProcessor
@@ -25,6 +28,17 @@ def _safe_get_rank(*args, **kwargs):
 
 
 _dist.get_rank = _safe_get_rank
+
+# NemotronH backbone calls torch.cuda.stream(torch.cuda.default_stream(device))
+# unconditionally, which raises AssertionError on CPU-only torch builds.
+if not torch.cuda.is_available():
+
+    @contextlib.contextmanager
+    def _noop_cuda_stream(_stream):
+        yield
+
+    torch.cuda.stream = _noop_cuda_stream
+    torch.cuda.default_stream = lambda device=None: None
 from ...base import ForgeModel
 from ...config import (
     LLMModelConfig,
