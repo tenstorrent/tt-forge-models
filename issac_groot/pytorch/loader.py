@@ -20,6 +20,8 @@ from ...config import (
     StrEnum,
 )
 
+_N1_6_VARIANTS = frozenset()
+
 
 class ModelVariant(StrEnum):
     """Available Isaac GR00T model variants."""
@@ -27,6 +29,9 @@ class ModelVariant(StrEnum):
     GROOT_N1_5_3B = "Gr00t_N1.5_3B"
     GROOT_N1_6_3B = "Gr00t_N1.6_3B"
     GROOT_N1_6_DROID = "Gr00t_N1.6_DROID"
+
+
+_N1_6_VARIANTS = frozenset({ModelVariant.GROOT_N1_6_3B, ModelVariant.GROOT_N1_6_DROID})
 
 
 class ModelLoader(ForgeModel):
@@ -50,7 +55,11 @@ class ModelLoader(ForgeModel):
     DEFAULT_DENOISING_STEPS = 4
 
     # Per-variant overrides for variants fine-tuned on a non-GR1 embodiment.
-    _VARIANT_DEFAULTS = {}
+    _VARIANT_DEFAULTS = {
+        ModelVariant.GROOT_N1_6_DROID: {
+            "embodiment_tag": "oxe_droid",
+        },
+    }
 
     def __init__(
         self,
@@ -123,6 +132,9 @@ class ModelLoader(ForgeModel):
             self._modality_config = data_config_obj.modality_config()
             self._modality_transform = data_config_obj.transform()
 
+    def _is_n1_6(self) -> bool:
+        return self._variant in _N1_6_VARIANTS
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """
         Load and return the Isaac GR00T policy model.
@@ -131,13 +143,21 @@ class ModelLoader(ForgeModel):
             dtype_override: Optional dtype to cast model to (not recommended for GR00T)
 
         Returns:
-            Gr00tPolicyModule instance (nn.Module)
+            nn.Module instance (Gr00tPolicyModule for N1.5, Gr00tN1d6 for N1.6)
         """
+        pretrained_model_name = self._variant_config.pretrained_model_name
+
+        if self._is_n1_6():
+            from .src.model_n1d6 import Gr00tN1d6
+
+            model = Gr00tN1d6.from_pretrained(pretrained_model_name)
+            model.eval()
+            self._model = model
+            return model
+
         from .src.model import Gr00tPolicyModule
 
         self._load_data_config()
-
-        pretrained_model_name = self._variant_config.pretrained_model_name
 
         # Create policy module
         policy = Gr00tPolicyModule(
@@ -159,12 +179,53 @@ class ModelLoader(ForgeModel):
 
         return policy
 
-    def load_inputs(self, dtype_override=None):
+    def _load_n1_6_inputs(self) -> Dict[str, Any]:
+        """Create synthetic inputs for N1.6 model inference."""
+        model = self._model
+        config = model.config
+
+        batch_size = 1
+        # Eagle patch_size=14, so images must be multiples of 14; 224=16*14
+        num_cameras = 2
+        image_h, image_w = 224, 224
+        num_channels = 3
+
+        # Eagle uses downsample_ratio=0.5 -> pixel_shuffle_back halves spatial dims:
+        # (224/14)^2 * 0.5^2 = 256 * 0.25 = 64 tokens per image
+        tokens_per_image = 64
+        num_image_tokens = tokens_per_image * num_cameras
+        # image_token_index from Eagle-Block2A-2B-v2/config.json (hardcoded for safety)
+        image_token_index = getattr(
+            model.backbone.model.config, "image_token_index", 151669
+        )
+
+        # pixel_values must be a list of 4D tensors (batch, C, H, W), one per camera
+        pixel_values = [
+            torch.zeros(batch_size, num_channels, image_h, image_w, dtype=torch.float32)
+            for _ in range(num_cameras)
+        ]
+
+        # input_ids must contain image_token_index values for Eagle's assert to pass
+        seq_len = num_image_tokens + 16  # image tokens + some text tokens
+        input_ids = torch.zeros(batch_size, seq_len, dtype=torch.long)
+        input_ids[0, :num_image_tokens] = image_token_index
+        attention_mask = torch.ones(batch_size, seq_len, dtype=torch.long)
+
+        # Action head inputs
+        state = torch.zeros(batch_size, 1, config.max_state_dim, dtype=torch.float32)
+        embodiment_id = torch.zeros(batch_size, dtype=torch.long)
+
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "pixel_values": pixel_values,
+            "state": state,
+            "embodiment_id": embodiment_id,
+        }
+
+    def load_inputs(self, dtype_override=None, **kwargs):
         """
         Load and return preprocessed input observations for Isaac GR00T.
-
-        Uses the demo dataset (robot_sim.PickNPlace) and loads the first sample (index 0).
-        Model must be loaded before calling this method.
 
         Args:
             dtype_override: Optional dtype to cast inputs to (not recommended for GR00T)
@@ -172,14 +233,17 @@ class ModelLoader(ForgeModel):
         Returns:
             Dictionary containing preprocessed observation tensors ready for model inference
         """
-        from .src.utils import LeRobotSingleDataset
-
         # Ensure model is loaded
         if not hasattr(self, "_model") or self._model is None:
             raise RuntimeError(
                 "Model must be loaded before loading inputs. "
                 "Call load_model() first."
             )
+
+        if self._is_n1_6():
+            return self._load_n1_6_inputs()
+
+        from .src.utils import LeRobotSingleDataset
 
         self._load_data_config()
 
