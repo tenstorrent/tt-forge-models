@@ -139,17 +139,21 @@ class ModelLoader(ForgeModel):
             model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
 
         # NemotronH_Nano_VL_V2.forward() accesses outputs.past_key_values but the LM returns
-        # NemotronHCausalLMOutput which only has cache_params. Patch the class to expose
-        # past_key_values as an alias so the forward doesn't raise AttributeError.
+        # NemotronHCausalLMOutput which only has cache_params. Patch the dataclass to add
+        # past_key_values as a real Optional field (value None) so the forward can access it.
+        # Use vars() to bypass torch._classes.__getattr__ which intercepts hasattr() on proxies.
         import sys
 
-        for _mod in sys.modules.values():
-            if hasattr(_mod, "NemotronHCausalLMOutput"):
-                _cls = _mod.NemotronHCausalLMOutput
-                if not hasattr(_cls, "past_key_values"):
-                    _cls.past_key_values = property(
-                        lambda self: getattr(self, "cache_params", None)
-                    )
+        for _mod in list(sys.modules.values()):
+            _cls = (
+                vars(_mod).get("NemotronHCausalLMOutput")
+                if hasattr(_mod, "__dict__")
+                else None
+            )
+            if _cls is None or not isinstance(_cls, type):
+                continue
+            if "past_key_values" not in vars(_cls):
+                _cls.past_key_values = None
 
         # vision_model.to(dtype) in __init__ corrupts the RADIO encoder's summary_idxs buffer
         # (an int64 index tensor that gets reinterpretted during dtype conversion).
