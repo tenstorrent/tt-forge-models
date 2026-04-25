@@ -260,6 +260,54 @@ class GR00T_N1_5_Config(PretrainedConfig):
         for key, value in kwargs.items():
             setattr(self, key, value)
 
+        # N1.6 DROID config uses flat keys instead of nested backbone_cfg/action_head_cfg dicts.
+        if not isinstance(getattr(self, "backbone_cfg", None), dict):
+            self.backbone_cfg = {
+                "tune_llm": kwargs.get("tune_llm", False),
+                "tune_visual": kwargs.get("tune_visual", False),
+                "select_layer": kwargs.get("select_layer", -1),
+                "reproject_vision": kwargs.get("reproject_vision", False),
+                "use_flash_attention": kwargs.get("use_flash_attention", False),
+                "load_bf16": kwargs.get("load_bf16", False),
+                "project_to_dim": kwargs.get("input_embedding_dim", 1536),
+            }
+
+        if not isinstance(getattr(self, "action_head_cfg", None), dict):
+            action_head_keys = [
+                "add_pos_embed",
+                "model_dtype",
+                "diffusion_model_cfg",
+                "input_embedding_dim",
+                "backbone_embedding_dim",
+                "hidden_size",
+                "max_seq_len",
+                "action_dim",
+                "action_horizon",
+                "noise_beta_alpha",
+                "noise_beta_beta",
+                "noise_s",
+                "num_timestep_buckets",
+                "num_inference_timesteps",
+                "max_num_embodiments",
+                "tune_projector",
+                "tune_diffusion_model",
+                "apply_sincos_state_encoding",
+                "state_dropout_prob",
+                "attn_dropout",
+                "max_action_dim",
+                "max_state_dim",
+                "use_alternate_vl_dit",
+                "use_vlln",
+                "use_relative_action",
+                "use_percentiles",
+            ]
+            self.action_head_cfg = {
+                k: kwargs[k] for k in action_head_keys if k in kwargs
+            }
+
+        if not isinstance(getattr(self, "action_dim", None), int):
+            self.action_dim = kwargs.get("max_action_dim", 128)
+
 
 class GR00T_N1_5(PreTrainedModel):
     supports_gradient_checkpointing = True
