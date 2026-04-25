@@ -8,6 +8,7 @@ from typing import Optional
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFGPTConverter
 
 from ....base import ForgeModel
 from ....config import (
@@ -63,6 +64,10 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        # LFM2 GGUF uses a GPT2-style tokenizer but the GGUF architecture key is 'lfm2',
+        # which is missing from GGUF_TO_FAST_CONVERTERS in transformers 5.x.
+        GGUF_TO_FAST_CONVERTERS.setdefault("lfm2", GGUFGPTConverter)
+
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -98,6 +103,11 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
+
+        # The GGUF tokenizer registers BOS/EOS as tokens 65536/65537 beyond the model's
+        # vocab_size of 65536, so resize embeddings to cover all tokenizer token IDs.
+        if len(self.tokenizer) > model.config.vocab_size:
+            model.resize_token_embeddings(len(self.tokenizer))
 
         self.config = model.config
         self.model = model
