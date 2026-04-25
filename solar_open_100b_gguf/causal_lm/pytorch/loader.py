@@ -8,6 +8,14 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+# Disable xet-based downloads — the xet client deadlocks on large GGUF files.
+try:
+    import huggingface_hub.constants as _hf_constants
+
+    _hf_constants.HF_HUB_DISABLE_XET = True
+except Exception:
+    pass
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -37,6 +45,7 @@ class ModelLoader(ForgeModel):
     }
 
     DEFAULT_VARIANT = ModelVariant.SOLAR_OPEN_100B_Q4_K_S_GGUF
+    DEFAULT_NUM_LAYERS = 4
 
     GGUF_FILE = "Solar-Open-100B.Q4_K_S.gguf"
 
@@ -48,7 +57,9 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.tokenizer = None
         self.config = None
-        self.num_layers = num_layers
+        self.num_layers = (
+            num_layers if num_layers is not None else self.DEFAULT_NUM_LAYERS
+        )
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
