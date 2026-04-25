@@ -11,6 +11,7 @@ from diffusers import (
     StableDiffusionXLPipeline,
     UNet2DConditionModel,
 )
+from diffusers.models.model_loading_utils import load_gguf_checkpoint
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
     retrieve_timesteps,
 )
@@ -23,8 +24,10 @@ SDXL_BASE_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
 def load_pony_gguf_pipe(repo_id: str, gguf_filename: str):
     """Load an SDXL-based pipeline from a GGUF checkpoint.
 
-    The GGUF file contains only UNet weights; the text encoders and VAE are
-    loaded from the standard SDXL base model.
+    The GGUF file uses ComfyUI-style keys (input_blocks.*). We prepend the
+    model.diffusion_model. prefix so that convert_ldm_unet_checkpoint can map
+    them to diffusers format, then inject the quantized UNet into a base SDXL
+    pipeline that provides the text encoders and VAE.
 
     Args:
         repo_id: HuggingFace repository ID.
@@ -35,10 +38,16 @@ def load_pony_gguf_pipe(repo_id: str, gguf_filename: str):
     """
     model_path = hf_hub_download(repo_id=repo_id, filename=gguf_filename)
 
+    # The GGUF uses ComfyUI-style keys without the A1111 prefix.
+    # convert_ldm_unet_checkpoint expects "model.diffusion_model." prefix, so we add it.
+    raw_checkpoint = load_gguf_checkpoint(model_path)
+    checkpoint = {f"model.diffusion_model.{k}": v for k, v in raw_checkpoint.items()}
+
     quantization_config = GGUFQuantizationConfig(compute_dtype=torch.float32)
 
     unet = UNet2DConditionModel.from_single_file(
-        model_path,
+        checkpoint,
+        config=SDXL_BASE_MODEL,
         quantization_config=quantization_config,
         torch_dtype=torch.float32,
     )
