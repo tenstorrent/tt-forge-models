@@ -5,10 +5,7 @@
 Qwen 3 VL 8B Maid i1 GGUF model loader implementation for image to text.
 """
 
-import transformers.configuration_utils as _config_utils
-import transformers.modeling_gguf_pytorch_utils as _gguf_utils
-import transformers.models.auto.tokenization_auto as _auto_tokenizer
-import transformers.tokenization_utils_tokenizers as _tok_utils
+import torch.nn as nn
 from transformers import (
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
@@ -27,38 +24,25 @@ from ....config import (
 )
 
 
-def _patch_qwen3vl_gguf_out_hidden_size():
-    """Fix vision out_hidden_size for qwen3_vl GGUF models.
+def _fix_merger_out_hidden_size(model):
+    """Fix vision merger linear_fc2 output dim to match LM hidden_size.
 
-    The gguf-py default for Qwen3VLVisionConfig.out_hidden_size is 3584, but
-    for Qwen3-VL-8B it must equal the text hidden_size (4096). Patch
-    load_gguf_checkpoint to correct this before the model is built.
+    Qwen3VLVisionConfig.out_hidden_size defaults to 3584, but for the 8B
+    model it must equal the LM hidden_size (4096). The GGUF file stores only
+    the qwen3 (text) architecture so this default is never overridden during
+    GGUF loading. We fix the merger layers directly after from_pretrained.
     """
-    _orig_load = _gguf_utils.load_gguf_checkpoint
-
-    def _patched_load_gguf_checkpoint(*args, **kwargs):
-        result = _orig_load(*args, **kwargs)
-        config = result.get("config", {})
-        if config.get("model_type") == "qwen3_vl":
-            vision_cfg = config.get("vision_config", {})
-            text_cfg = config.get("text_config", {})
-            lm_hidden = text_cfg.get("hidden_size") or config.get("hidden_size")
-            if lm_hidden and vision_cfg.get("out_hidden_size", 3584) != lm_hidden:
-                vision_cfg = dict(vision_cfg)
-                vision_cfg["out_hidden_size"] = lm_hidden
-                config = dict(config)
-                config["vision_config"] = vision_cfg
-                result = dict(result)
-                result["config"] = config
-        return result
-
-    _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-    _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-    _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-    _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-
-
-_patch_qwen3vl_gguf_out_hidden_size()
+    lm_hidden = model.language_model.config.hidden_size
+    mergers = [model.visual.merger] + list(
+        getattr(model.visual, "deepstack_merger_list", [])
+    )
+    for merger in mergers:
+        fc2 = merger.linear_fc2
+        if fc2.out_features != lm_hidden:
+            new_fc2 = nn.Linear(fc2.in_features, lm_hidden, bias=fc2.bias is not None)
+            new_fc2.to(device=fc2.weight.device, dtype=fc2.weight.dtype)
+            merger.linear_fc2 = new_fc2
+    model.config.vision_config.out_hidden_size = lm_hidden
 
 
 class ModelVariant(StrEnum):
@@ -113,6 +97,7 @@ class ModelLoader(ForgeModel):
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         )
+        _fix_merger_out_hidden_size(model)
         model.eval()
 
         return model
