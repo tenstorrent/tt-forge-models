@@ -13,6 +13,8 @@ import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
 
 from ....base import ForgeModel
 from ....config import (
@@ -88,6 +90,27 @@ def _fix_gguf_version_detection():
     _import_utils.is_gguf_available.cache_clear()
 
 
+def _patch_qwen35_support():
+    """Register qwen35 architecture as an alias for qwen3.
+
+    Qwen 3.5 GGUF files declare architecture as 'qwen35' and tokenizer class
+    as 'qwen3_5_text', which some transformers versions do not yet recognise.
+    """
+    if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "qwen35",
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
+            )
+    if "qwen3" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "qwen3_5_text", GGUF_TO_FAST_CONVERTERS["qwen3"]
+        )
+
+
 class ModelVariant(StrEnum):
     """Available mradermacher Qwen3.5-2B-Claude-4.6-OS-Auto-Variable-HERETIC-UNCENSORED-THINKING i1 GGUF model variants for causal language modeling."""
 
@@ -140,14 +163,22 @@ class ModelLoader(ForgeModel):
         Other GGUF loaders patch load_gguf_checkpoint at import time without
         forwarding all kwargs, causing failures when multiple loaders are collected
         together. This bypasses the patch chain and calls the real function directly.
+        Also patches qwen35 architecture support and fixes the model_type field.
         """
         _fix_gguf_version_detection()
+        _patch_qwen35_support()
         _mods = (_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils)
         _prev = {mod: mod.load_gguf_checkpoint for mod in _mods}
         _real_fn = _find_real_load_gguf_checkpoint(_prev[_gguf_utils])
 
         def _wrapper(gguf_path, return_tensors=False, **patch_kwargs):
-            return _real_fn(gguf_path, return_tensors=return_tensors, **patch_kwargs)
+            result = _real_fn(gguf_path, return_tensors=return_tensors, **patch_kwargs)
+            if (
+                isinstance(result, dict)
+                and result.get("config", {}).get("model_type") == "qwen35"
+            ):
+                result["config"]["model_type"] = "qwen3"
+            return result
 
         for mod in _mods:
             mod.load_gguf_checkpoint = _wrapper
