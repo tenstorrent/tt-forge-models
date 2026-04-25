@@ -113,5 +113,5 @@ class ModelLoader(ForgeModel):
                 batch_size, txt_seq_len, dtype=dtype
             ),
             "timestep": torch.tensor([500.0] * batch_size, dtype=dtype),
-            "img_shapes": [(frame, height, width)] * batch_size,
+            "img_shapes": [[(frame, height, width)]] * batch_size,
         }
