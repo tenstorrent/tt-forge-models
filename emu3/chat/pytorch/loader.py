@@ -190,6 +190,8 @@ class ModelLoader(ForgeModel):
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from transformers import AutoConfig
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.processor is None:
@@ -202,6 +204,22 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        # The custom modeling_emu3.py expects rope_scaling["type"] but the model config
+        # uses rope_scaling["rope_type"] (new transformers format). Patch the config so
+        # the old custom code can find the "type" key, or clear it when type is "default".
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        if config.rope_scaling is not None:
+            rope_type = config.rope_scaling.get(
+                "rope_type", config.rope_scaling.get("type")
+            )
+            if rope_type == "default":
+                config.rope_scaling = None
+            elif "type" not in config.rope_scaling:
+                config.rope_scaling["type"] = rope_type
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
