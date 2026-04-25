@@ -190,8 +190,13 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
+        # The mradermacher i1 GGUF stores q_b_proj without the rope dimension
+        # and splits kv_b_proj into separate k_b/v_b tensors — incompatible
+        # with HF DeepSeekV2 which expects the full q_b and merged kv_b shapes.
+        # ignore_mismatched_sizes=True re-initializes those layers randomly,
+        # which is acceptable for compile-only workloads.
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
