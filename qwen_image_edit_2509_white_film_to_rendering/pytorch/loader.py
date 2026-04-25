@@ -78,8 +78,7 @@ class ModelLoader(ForgeModel):
             LORA_REPO,
             weight_name=LORA_WEIGHT_NAME,
         )
-        pipeline.transformer.to(dtype)
-        pipeline.fuse_lora()
+        pipeline.fuse_lora(safe_fusing=True)
 
         self._transformer = pipeline.transformer
         self._transformer.eval()
