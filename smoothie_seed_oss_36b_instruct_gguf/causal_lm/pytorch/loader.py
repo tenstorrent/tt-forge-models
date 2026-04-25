@@ -8,6 +8,20 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+    GGUF_TO_TRANSFORMERS_MAPPING,
+)
+from transformers.integrations.ggml import (
+    GGUF_CONFIG_MAPPING,
+    GGUF_TO_FAST_CONVERTERS,
+)
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -18,6 +32,40 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_seed_oss_support():
+    """Register seed_oss GGUF architecture using qwen3 field mappings.
+
+    seed_oss uses the same GGUF metadata field names as qwen3 but transformers
+    does not include it in GGUF_SUPPORTED_ARCHITECTURES yet.
+    """
+    if "seed_oss" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("seed_oss")
+    if "seed_oss" not in GGUF_CONFIG_MAPPING:
+        GGUF_CONFIG_MAPPING["seed_oss"] = dict(GGUF_CONFIG_MAPPING["qwen3"])
+    for section in GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen3" in GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "seed_oss",
+                GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
+            )
+    GGUF_TO_FAST_CONVERTERS.setdefault("seed_oss", GGUF_TO_FAST_CONVERTERS["qwen3"])
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    _patch_seed_oss_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
+    return result
+
+
+_patch_seed_oss_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
