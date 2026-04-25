@@ -5,7 +5,7 @@
 Mistral-Small-4-119B-2603 MLX 9-bit model loader for causal language modeling.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoTokenizer, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -87,8 +87,10 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        if hasattr(config, "quantization_config"):
+            delattr(config, "quantization_config")
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
             if hasattr(config, "text_config"):
                 config.text_config.num_hidden_layers = self.num_layers
                 if hasattr(config.text_config, "layer_types"):
@@ -97,12 +99,14 @@ class ModelLoader(ForgeModel):
                     ]
             else:
                 config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+        from transformers import Mistral3ForConditionalGeneration
+
+        model = Mistral3ForConditionalGeneration.from_pretrained(
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
@@ -143,15 +147,32 @@ class ModelLoader(ForgeModel):
 
     def load_shard_spec(self, model):
         shard_specs = {}
-        for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+        for layer in model.model.language_model.layers:
+            mlp = layer.mlp
+            if hasattr(mlp, "experts"):
+                shard_specs[mlp.experts.gate_up_proj] = (None, "model", "batch")
+                shard_specs[mlp.experts.down_proj] = (None, "batch", "model")
+            if hasattr(mlp, "shared_experts"):
+                shard_specs[mlp.shared_experts.up_proj.weight] = ("model", "batch")
+                shard_specs[mlp.shared_experts.gate_proj.weight] = ("model", "batch")
+                shard_specs[mlp.shared_experts.down_proj.weight] = ("batch", "model")
+            if hasattr(mlp, "up_proj"):
+                shard_specs[mlp.up_proj.weight] = ("model", "batch")
+                shard_specs[mlp.gate_proj.weight] = ("model", "batch")
+                shard_specs[mlp.down_proj.weight] = ("batch", "model")
 
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+            attn = layer.self_attn
+            if hasattr(attn, "q_proj"):
+                shard_specs[attn.q_proj.weight] = ("model", "batch")
+            if hasattr(attn, "q_b_proj"):
+                shard_specs[attn.q_b_proj.weight] = ("model", "batch")
+            if hasattr(attn, "k_proj"):
+                shard_specs[attn.k_proj.weight] = ("model", "batch")
+            if hasattr(attn, "v_proj"):
+                shard_specs[attn.v_proj.weight] = ("model", "batch")
+            if hasattr(attn, "kv_b_proj"):
+                shard_specs[attn.kv_b_proj.weight] = ("model", "batch")
+            shard_specs[attn.o_proj.weight] = ("batch", "model")
         shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
 
