@@ -5,11 +5,26 @@
 NVIDIA Nemotron Nano 12B v2 VL NVFP4-QAD model loader implementation for image to text.
 """
 
+import torch.distributed as _dist
+
 from transformers import AutoConfig, AutoModel, AutoProcessor
 from PIL import Image
 from typing import Optional
 
 from ...tools.utils import get_file
+
+# The model's forward() calls torch.distributed.get_rank() unconditionally as a
+# debug print guard.  Patch it to return 0 when the process group is not set up.
+_orig_get_rank = _dist.get_rank
+
+
+def _safe_get_rank(*args, **kwargs):
+    if not _dist.is_initialized():
+        return 0
+    return _orig_get_rank(*args, **kwargs)
+
+
+_dist.get_rank = _safe_get_rank
 from ...base import ForgeModel
 from ...config import (
     LLMModelConfig,
