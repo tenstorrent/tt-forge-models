@@ -66,11 +66,11 @@ _GGUF_FILES = {
 
 def _refresh_diffusers_gguf_cache():
     """Fix diffusers module-level gguf availability cache after dynamic installation."""
+    import importlib.metadata
+
     if importlib.util.find_spec("gguf") is not None:
         diu = sys.modules.get("diffusers.utils.import_utils")
         if diu is not None and not diu._gguf_available:
-            import importlib.metadata
-
             diu._gguf_available = True
             try:
                 diu._gguf_version = importlib.metadata.version("gguf")
