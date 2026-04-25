@@ -105,10 +105,49 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
         )
+
+        # transformers 5.x ProcessorMixin.get_attributes() inspects __init__ params by name
+        # and rejects Emu3VisionVQModel for the "vision_tokenizer" param (mapped to tokenizer
+        # modality). Patch __init__ with a neutral param name to avoid type-checking, then
+        # replicate the original initialization manually.
+        _orig_init = Emu3Processor.__init__
+        _default_chat_template = (
+            "You are a helpful assistant. USER: {image_prompt}{text_prompt}. ASSISTANT:"
+        )
+        _default_prefix_template = "{H}*{W}"
+        _default_visual_template = (
+            "<|visual token {token_id:0>6d}|>",
+            r"<\|visual token (\d+)\|>",
+        )
+
+        def _fixed_init(
+            self,
+            image_processor=None,
+            tokenizer=None,
+            chat_template=_default_chat_template,
+            prefix_template=_default_prefix_template,
+            visual_template=_default_visual_template,
+            **kwargs,
+        ):
+            vision_tokenizer = kwargs.pop("_vision_tokenizer", None)
+            assert vision_tokenizer is not None, "image tokenizer can not be None"
+            self.vision_tokenizer = vision_tokenizer
+            self.prefix_template = prefix_template
+            self.visual_template = visual_template
+            self.vis_tok_spatial_factor = 2 ** (
+                len(self.vision_tokenizer.config.ch_mult) - 1
+            )
+            super(Emu3Processor, self).__init__(
+                image_processor, tokenizer, chat_template=chat_template
+            )
+            self.const_helper = self.build_const_helper()
+
+        Emu3Processor.__init__ = _fixed_init
+
         self.processor = Emu3Processor(
             self.image_processor,
-            vision_tokenizer=self.image_tokenizer,
-            tokenizer=self.tokenizer,
+            self.tokenizer,
+            _vision_tokenizer=self.image_tokenizer,
         )
         return self.processor
 
