@@ -155,18 +155,48 @@ class ModelLoader(ForgeModel):
             HunyuanVideo15Transformer3DModel,
         )
         from diffusers.loaders.single_file_model import SINGLE_FILE_LOADABLE_CLASSES
+        from diffusers.loaders.single_file_utils import (
+            convert_hunyuan_video_transformer_to_diffusers,
+        )
+
+        def _convert_hunyuan_video15_i2v_checkpoint(checkpoint, **kwargs):
+            # Apply the v1.0 conversion for shared keys (img_in→x_embedder,
+            # double_blocks→transformer_blocks, QKV splitting, txt_in→context_embedder,
+            # single_blocks remapping, final_layer remapping, etc.).
+            checkpoint = convert_hunyuan_video_transformer_to_diffusers(
+                checkpoint, **kwargs
+            )
+            # Map v1.5 I2V-specific keys the v1.0 function does not handle.
+            # GGUF vision_in.proj is Sequential(norm_in, linear_1, GELU, linear_2, norm_out).
+            # byt5_in holds the ByT5 text encoder; cond_type_embedding is an nn.Embedding.
+            V15_I2V_REMAP = [
+                ("vision_in.proj.0", "image_embedder.norm_in"),
+                ("vision_in.proj.1", "image_embedder.linear_1"),
+                ("vision_in.proj.3", "image_embedder.linear_2"),
+                ("vision_in.proj.4", "image_embedder.norm_out"),
+                ("byt5_in.layernorm", "context_embedder_2.norm"),
+                ("byt5_in.fc1", "context_embedder_2.linear_1"),
+                ("byt5_in.fc2", "context_embedder_2.linear_2"),
+                ("byt5_in.fc3", "context_embedder_2.linear_3"),
+                ("cond_type_embedding", "cond_type_embed"),
+            ]
+            updated = {}
+            for key in list(checkpoint.keys()):
+                new_key = key
+                for old, new in V15_I2V_REMAP:
+                    if key.startswith(old):
+                        new_key = new + key[len(old) :]
+                        break
+                if new_key != key:
+                    updated[new_key] = checkpoint.pop(key)
+            checkpoint.update(updated)
+            return checkpoint
 
         # HunyuanVideo15Transformer3DModel is not yet in SINGLE_FILE_LOADABLE_CLASSES
         # in diffusers 0.37.x; patch it in so from_single_file works.
-        # The GGUF file uses diffusers-format keys (quantized from the
-        # hunyuanvideo-community diffusers repo), so a pass-through mapping
-        # is correct.  The v1.0 convert_hunyuan_video_transformer_to_diffusers
-        # function would silently drop v1.5 I2V-specific params (image_embedder,
-        # cond_type_embed, context_embedder_2), leaving them on meta and
-        # causing dispatch_model to fail.
         if "HunyuanVideo15Transformer3DModel" not in SINGLE_FILE_LOADABLE_CLASSES:
             SINGLE_FILE_LOADABLE_CLASSES["HunyuanVideo15Transformer3DModel"] = {
-                "checkpoint_mapping_fn": lambda checkpoint, **kwargs: checkpoint,
+                "checkpoint_mapping_fn": _convert_hunyuan_video15_i2v_checkpoint,
                 "default_subfolder": "transformer",
             }
 
