@@ -194,6 +194,21 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        # patched_load_gguf_checkpoint renames model_type to "deepseek_v2", but
+        # get_gguf_hf_weights_map searches MODEL_ARCH_NAMES for that value and
+        # gguf-py uses "deepseek2". Apply the rename here at call time when gguf
+        # is already installed (not at module import time when it may be absent).
+        try:
+            from gguf.constants import MODEL_ARCH, MODEL_ARCH_NAMES
+
+            if (
+                MODEL_ARCH.DEEPSEEK2 in MODEL_ARCH_NAMES
+                and MODEL_ARCH_NAMES[MODEL_ARCH.DEEPSEEK2] == "deepseek2"
+            ):
+                MODEL_ARCH_NAMES[MODEL_ARCH.DEEPSEEK2] = "deepseek_v2"
+        except Exception:
+            pass
+
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
