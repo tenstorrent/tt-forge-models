@@ -82,6 +82,18 @@ class ModelLoader(ForgeModel):
         model = Glm4vMoeForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        # The NVFP4 model has static activation scales calibrated at a fixed sequence
+        # length; image inputs expand to much longer sequences, causing shape mismatches.
+        # Switch all activation quantization to dynamic so scales are computed at runtime.
+        for module in model.modules():
+            scheme = getattr(module, "scheme", None)
+            if scheme is not None:
+                for attr in ("input_activations", "output_activations"):
+                    quant_args = getattr(scheme, attr, None)
+                    if quant_args is not None:
+                        quant_args.dynamic = True
+
         model.eval()
         self.model = model
         self.config = model.config
