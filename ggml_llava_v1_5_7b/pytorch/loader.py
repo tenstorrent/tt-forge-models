@@ -84,6 +84,13 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
+        # PACKAGE_DISTRIBUTION_MAPPING is frozen at transformers import time; refresh
+        # it so runtime-installed gguf is visible to is_gguf_available().
+        import importlib.metadata
+        import transformers.utils.import_utils as _tui
+
+        _tui.PACKAGE_DISTRIBUTION_MAPPING = importlib.metadata.packages_distributions()
+
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
