@@ -8,6 +8,7 @@ InfiniteVL model loader implementation for image-text-to-text tasks.
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor
 from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
+from transformers.modeling_utils import PreTrainedModel
 from typing import Optional
 
 
@@ -33,6 +34,29 @@ def _rope_default_init(config=None, device=None, seq_len=None, **rope_kwargs):
 
 if "default" not in ROPE_INIT_FUNCTIONS:
     ROPE_INIT_FUNCTIONS["default"] = _rope_default_init
+
+
+# Transformers 5.x changed _tied_weights_keys from list to dict. Patch
+# get_expanded_tied_weights_keys to handle old-style list format.
+_orig_get_expanded = PreTrainedModel.get_expanded_tied_weights_keys
+
+
+def _compat_get_expanded(self, all_submodels=False):
+    if isinstance(self._tied_weights_keys, list):
+        try:
+            embed_module = self.get_input_embeddings()
+            embed_path = next(
+                f"{name}.weight"
+                for name, mod in self.named_modules()
+                if mod is embed_module
+            )
+            self._tied_weights_keys = {k: embed_path for k in self._tied_weights_keys}
+        except (AttributeError, StopIteration):
+            self._tied_weights_keys = {}
+    return _orig_get_expanded(self, all_submodels=all_submodels)
+
+
+PreTrainedModel.get_expanded_tied_weights_keys = _compat_get_expanded
 
 from ....base import ForgeModel
 from ....config import (
