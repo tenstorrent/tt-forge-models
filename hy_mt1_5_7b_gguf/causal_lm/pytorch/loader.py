@@ -52,6 +52,9 @@ if "hunyuan-dense" not in _ggml.GGUF_CONFIG_MAPPING:
 if "hunyuan-dense" not in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
     _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("hunyuan-dense")
 
+if "hunyuan_v1_dense" not in _ggml.GGUF_TO_FAST_CONVERTERS:
+    _ggml.GGUF_TO_FAST_CONVERTERS["hunyuan_v1_dense"] = _ggml.GGUFQwen2Converter
+
 _orig_load_gguf_checkpoint = _gguf_utils.load_gguf_checkpoint
 
 
