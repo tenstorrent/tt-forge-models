@@ -190,8 +190,51 @@ class ModelLoader(ForgeModel):
                 src = hf_hub_download(pretrained_model_name, fname)
                 shutil.copy2(src, os.path.join(tmpdir, fname))
 
+        self._apply_processing_patches(tmpdir)
+
         self._patched_dir = tmpdir
         return tmpdir
+
+    def _apply_processing_patches(self, directory: str) -> None:
+        """Patch ultravox_processing.py for transformers 5.x compatibility.
+
+        transformers 5.x requires audio_processor to be a FeatureExtractionMixin
+        (e.g. WhisperFeatureExtractor) rather than a full processor (WhisperProcessor).
+        """
+        import sys
+
+        processing_file = os.path.join(directory, "ultravox_processing.py")
+        if not os.path.exists(processing_file):
+            return
+        with open(processing_file) as f:
+            content = f.read()
+
+        patched = content
+        # Use WhisperFeatureExtractor class so base class type check passes
+        patched = patched.replace(
+            'audio_processor_class = ("WhisperProcessor",)',
+            'audio_processor_class = ("WhisperFeatureExtractor",)',
+        )
+        # Load feature extractor directly instead of full WhisperProcessor
+        patched = patched.replace(
+            "transformers.AutoProcessor.from_pretrained(",
+            "transformers.AutoFeatureExtractor.from_pretrained(",
+        )
+        # Access hop_length directly on feature extractor, not via .feature_extractor
+        patched = patched.replace(
+            "self.audio_processor.feature_extractor.hop_length",
+            "self.audio_processor.hop_length",
+        )
+        if patched != content:
+            with open(processing_file, "w") as f:
+                f.write(patched)
+            to_remove = [
+                k
+                for k in sys.modules
+                if "ultravox_processing" in k or "transformers_modules" in k
+            ]
+            for key in to_remove:
+                del sys.modules[key]
 
     def _cleanup_patched_dir(self):
         if self._patched_dir is not None:
@@ -203,6 +246,8 @@ class ModelLoader(ForgeModel):
 
         The cached ultravox_model.py uses APIs removed/changed in transformers 5.x:
         - tie_weights(self) must accept **kwargs (transformers now passes recompute_mapping=False)
+
+        Also patches any cached ultravox_processing.py modules.
         """
         import glob
         import sys
@@ -217,12 +262,12 @@ class ModelLoader(ForgeModel):
                 "huggingface",
             ),
         )
-        # Use recursive glob to find all ultravox_model.py under the modules cache
-        search_pattern = os.path.join(
-            hf_home, "modules", "transformers_modules", "**", "ultravox_model.py"
-        )
+        modules_root = os.path.join(hf_home, "modules", "transformers_modules")
         patched_any = False
-        for model_file in glob.glob(search_pattern, recursive=True):
+
+        for model_file in glob.glob(
+            os.path.join(modules_root, "**", "ultravox_model.py"), recursive=True
+        ):
             with open(model_file) as f:
                 content = f.read()
             patched = content.replace(
@@ -233,8 +278,13 @@ class ModelLoader(ForgeModel):
                 with open(model_file, "w") as f:
                     f.write(patched)
                 patched_any = True
+
+        for proc_file in glob.glob(
+            os.path.join(modules_root, "**", "ultravox_processing.py"), recursive=True
+        ):
+            self._apply_processing_patches(os.path.dirname(proc_file))
+
         if patched_any:
-            # Clear module cache so the patched version is reimported
             to_remove = [
                 k
                 for k in sys.modules
