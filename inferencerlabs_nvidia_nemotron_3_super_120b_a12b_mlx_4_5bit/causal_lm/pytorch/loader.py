@@ -121,7 +121,9 @@ class ModelLoader(ForgeModel):
         # tensor names and shapes). Use from_config with random weights — equivalent
         # to from_pretrained + ignore_mismatched_sizes but orders of magnitude faster.
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        model = AutoModelForCausalLM.from_config(config, torch_dtype=dtype).eval()
+        model = AutoModelForCausalLM.from_config(
+            config, torch_dtype=dtype, trust_remote_code=True
+        ).eval()
 
         self.config = model.config
         self.model = model
