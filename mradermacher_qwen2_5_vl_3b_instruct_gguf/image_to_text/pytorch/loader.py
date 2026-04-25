@@ -5,22 +5,102 @@
 Mradermacher Qwen2.5-VL 3B Instruct GGUF model loader implementation for image to text.
 """
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_SUPPORTED_ARCHITECTURES,
+    get_gguf_hf_weights_map as _orig_get_gguf_hf_weights_map,
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+)
+
 from transformers import (
-    Qwen2_5_VLForConditionalGeneration,
     AutoProcessor,
+    Qwen2_5_VLConfig,
+    Qwen2_5_VLForConditionalGeneration,
 )
 from typing import Optional
 
 from ....base import ForgeModel
 from ....config import (
-    LLMModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
+
+
+def _patch_qwen2vl_support():
+    """Register qwen2vl GGUF architecture as a supported architecture for Qwen2.5-VL.
+
+    Transformers 5.x does not natively support loading qwen2vl GGUF checkpoints.
+    The GGUF file uses 'qwen2vl' as the architecture name, but transformers only
+    knows 'qwen2'. We alias the config key mapping and fix the tensor name lookup
+    so from_pretrained can load the text-model weights from the GGUF file.
+
+    We also add num_hidden_layers as a property on Qwen2_5_VLConfig since the
+    get_gguf_hf_weights_map function accesses it unconditionally, but the VL config
+    only exposes it via text_config.
+    """
+    if "qwen2vl" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen2vl")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen2" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "qwen2vl",
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen2"],
+            )
+    if not hasattr(Qwen2_5_VLConfig, "num_hidden_layers"):
+        Qwen2_5_VLConfig.num_hidden_layers = property(
+            lambda self: self.text_config.num_hidden_layers
+        )
+
+
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
+    """Wrap get_gguf_hf_weights_map to handle qwen2_5_vl model type.
+
+    Qwen2_5_VLConfig stores num_hidden_layers under text_config (not top-level),
+    and the model_type 'qwen2_5_vl' has no matching entry in gguf.MODEL_ARCH_NAMES.
+    We remap it to 'qwen2vl' and supply num_layers from text_config.
+    """
+    if model_type is None and hasattr(hf_model, "config"):
+        cfg = hf_model.config
+        if getattr(cfg, "model_type", None) == "qwen2_5_vl":
+            model_type = "qwen2vl"
+            if num_layers is None:
+                text_cfg = getattr(cfg, "text_config", cfg)
+                num_layers = getattr(text_cfg, "num_hidden_layers", None)
+    elif model_type == "qwen2_5_vl":
+        model_type = "qwen2vl"
+        if num_layers is None and hasattr(hf_model, "config"):
+            text_cfg = getattr(hf_model.config, "text_config", hf_model.config)
+            num_layers = getattr(text_cfg, "num_hidden_layers", None)
+
+    return _orig_get_gguf_hf_weights_map(
+        hf_model, processor, model_type, num_layers, qual_name
+    )
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    """Wrap load_gguf_checkpoint to add qwen2vl architecture support."""
+    _patch_qwen2vl_support()
+    return _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
+
+
+_patch_qwen2vl_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
@@ -82,6 +162,12 @@ class ModelLoader(ForgeModel):
         self.processor = AutoProcessor.from_pretrained(
             "Qwen/Qwen2.5-VL-3B-Instruct",
         )
+
+        # The GGUF repo has no config.json, so from_pretrained would fall back to
+        # Qwen2_5_VLConfig defaults which have wrong vision dimensions (out_hidden_size
+        # 3584 vs the correct 2048 for 3B). Load the correct config from the base model.
+        config = Qwen2_5_VLConfig.from_pretrained("Qwen/Qwen2.5-VL-3B-Instruct")
+        model_kwargs.setdefault("config", config)
 
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
