@@ -91,10 +91,12 @@ def _fix_gguf_version_detection():
 
 
 def _patch_qwen35_support():
-    """Register qwen35 architecture as an alias for qwen3.
+    """Register qwen35 in GGUF tables so transformers can load Qwen3.5 GGUF files.
 
     Qwen 3.5 GGUF files declare architecture as 'qwen35' and tokenizer class
-    as 'qwen3_5_text', which some transformers versions do not yet recognise.
+    as 'qwen3_5_text', which are absent from transformers' GGUF tables even
+    though Qwen3_5ForCausalLM (model_type='qwen3_5') is supported. The config
+    field mapping is identical to qwen3 so we reuse it.
     """
     if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
         GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
@@ -177,7 +179,7 @@ class ModelLoader(ForgeModel):
                 isinstance(result, dict)
                 and result.get("config", {}).get("model_type") == "qwen35"
             ):
-                result["config"]["model_type"] = "qwen3"
+                result["config"]["model_type"] = "qwen3_5"
             return result
 
         for mod in _mods:
