@@ -87,7 +87,7 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        model_kwargs = {"trust_remote_code": True}
+        model_kwargs = {"trust_remote_code": True, "attn_implementation": "eager"}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -103,6 +103,13 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, config=config, **model_kwargs
         )
+        # The model's __init__ forcibly sets _attn_implementation="flash_attention_2"
+        # on the shared text config; reset it back to eager so forward passes don't
+        # try to call flash attention which isn't available in this environment.
+        if hasattr(model.config, "text_config") and hasattr(
+            model.config.text_config, "_attn_implementation"
+        ):
+            model.config.text_config._attn_implementation = "eager"
         model.eval()
 
         return model
