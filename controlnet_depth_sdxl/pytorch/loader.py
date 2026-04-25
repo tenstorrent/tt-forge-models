@@ -121,11 +121,11 @@ class ModelLoader(ForgeModel):
             latent_model_input = latent_model_input.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
 
-        return [
-            latent_model_input,
-            timesteps[0:1],
-            prompt_embeds,
-            added_cond_kwargs,
-            down_block_additional_residuals,
-            mid_block_additional_residual,
-        ]
+        return {
+            "sample": latent_model_input,
+            "timestep": timesteps[0:1],
+            "encoder_hidden_states": prompt_embeds,
+            "added_cond_kwargs": added_cond_kwargs,
+            "down_block_additional_residuals": down_block_additional_residuals,
+            "mid_block_additional_residual": mid_block_additional_residual,
+        }
