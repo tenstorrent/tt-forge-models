@@ -28,7 +28,8 @@ class LoRAModelMixin:
 
     def load_model(self, *, dtype_override=None, **kwargs):
         model = super().load_model(dtype_override=dtype_override, **kwargs)
-        config = self._LORA_CONFIGS.get(self._variant, self._DEFAULT_LORA_CONFIG)
+        # Always replace() to avoid get_peft_model mutating the shared class-level config.
+        config = replace(self._LORA_CONFIGS.get(self._variant, self._DEFAULT_LORA_CONFIG))
         model = get_peft_model(model, config)
         # PEFT initializes lora_A/lora_B as float32 regardless of the base model dtype.
         if dtype_override is not None:
