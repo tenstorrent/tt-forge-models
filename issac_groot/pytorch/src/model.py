@@ -242,21 +242,78 @@ N_COLOR_CHANNELS = 3
 @dataclass
 class GR00T_N1_5_Config(PretrainedConfig):
     model_type = "gr00t_n1_5"
-    backbone_cfg: dict = field(init=False, metadata={"help": "Backbone configuration."})
-
-    action_head_cfg: dict = field(
-        init=False, metadata={"help": "Action head configuration."}
+    backbone_cfg: dict = field(
+        default=None, metadata={"help": "Backbone configuration."}
     )
 
-    action_horizon: int = field(init=False, metadata={"help": "Action horizon."})
+    action_head_cfg: dict = field(
+        default=None, metadata={"help": "Action head configuration."}
+    )
 
-    action_dim: int = field(init=False, metadata={"help": "Action dimension."})
+    action_horizon: int = field(default=None, metadata={"help": "Action horizon."})
+
+    action_dim: int = field(default=None, metadata={"help": "Action dimension."})
     compute_dtype: str = field(default="float32", metadata={"help": "Compute dtype."})
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         for key, value in kwargs.items():
             setattr(self, key, value)
+
+        # Construct backbone_cfg and action_head_cfg from flat config fields when
+        # loading N1.6 configs that store these as individual top-level keys rather
+        # than nested dicts.
+        if self.backbone_cfg is None:
+            self.backbone_cfg = {
+                "tune_llm": getattr(self, "tune_llm", False),
+                "tune_visual": getattr(self, "tune_visual", False),
+                "select_layer": getattr(self, "select_layer", -1),
+                "reproject_vision": getattr(self, "reproject_vision", False),
+                "use_flash_attention": getattr(self, "use_flash_attention", False),
+                "load_bf16": getattr(self, "load_bf16", False),
+                "project_to_dim": getattr(self, "input_embedding_dim", 1536),
+            }
+
+        if self.action_head_cfg is None:
+            diffusion_model_cfg = getattr(self, "diffusion_model_cfg", None)
+            if (
+                diffusion_model_cfg is not None
+                and "cross_attention_dim" not in diffusion_model_cfg
+            ):
+                diffusion_model_cfg = dict(diffusion_model_cfg)
+                diffusion_model_cfg["cross_attention_dim"] = getattr(
+                    self, "backbone_embedding_dim", 2048
+                )
+            self.action_head_cfg = {
+                "add_pos_embed": getattr(self, "add_pos_embed", True),
+                "model_dtype": getattr(self, "model_dtype", "float32"),
+                "diffusion_model_cfg": diffusion_model_cfg,
+                "input_embedding_dim": getattr(self, "input_embedding_dim", 1536),
+                "backbone_embedding_dim": getattr(self, "backbone_embedding_dim", 1536),
+                "hidden_size": getattr(self, "hidden_size", 1024),
+                "max_seq_len": getattr(self, "max_seq_len", 1024),
+                "action_dim": getattr(self, "max_action_dim", None),
+                "action_horizon": getattr(self, "action_horizon", None),
+                "max_state_dim": getattr(self, "max_state_dim", 128),
+                "noise_beta_alpha": getattr(self, "noise_beta_alpha", 1.5),
+                "noise_beta_beta": getattr(self, "noise_beta_beta", 1.0),
+                "noise_s": getattr(self, "noise_s", 0.999),
+                "num_timestep_buckets": getattr(self, "num_timestep_buckets", 1000),
+                "num_inference_timesteps": getattr(
+                    self, "num_inference_timesteps", None
+                ),
+                "max_num_embodiments": getattr(self, "max_num_embodiments", 32),
+                "tune_projector": getattr(self, "tune_projector", True),
+                "tune_diffusion_model": getattr(self, "tune_diffusion_model", True),
+                "use_vlln": getattr(self, "use_vlln", True),
+                "vl_self_attention_cfg": getattr(self, "vl_self_attention_cfg", {}),
+            }
+
+        if self.action_horizon is None:
+            self.action_horizon = getattr(self, "action_horizon", 50)
+
+        if self.action_dim is None:
+            self.action_dim = getattr(self, "max_action_dim", 128)
 
 
 class GR00T_N1_5(PreTrainedModel):
