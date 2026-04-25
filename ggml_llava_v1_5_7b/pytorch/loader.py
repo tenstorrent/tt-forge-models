@@ -5,7 +5,6 @@
 GGML LLaVA v1.5 7B GGUF model loader implementation for multimodal conditional generation.
 """
 
-from huggingface_hub import hf_hub_download
 from PIL import Image
 from transformers import LlavaForConditionalGeneration, AutoProcessor
 from typing import Optional
@@ -38,21 +37,15 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="mys/ggml_llava-v1.5-7b",
         ),
         ModelVariant.SECOND_STATE_LLAVA_V1_5_7B_Q4_K_M: ModelConfig(
-            pretrained_model_name="llava-hf/llava-1.5-7b-hf",
+            pretrained_model_name="second-state/Llava-v1.5-7B-GGUF",
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.GGML_LLAVA_V1_5_7B_Q4_K
 
     _GGUF_FILES = {
-        ModelVariant.GGML_LLAVA_V1_5_7B_Q4_K: (
-            "mys/ggml_llava-v1.5-7b",
-            "ggml-model-q4_k.gguf",
-        ),
-        ModelVariant.SECOND_STATE_LLAVA_V1_5_7B_Q4_K_M: (
-            "second-state/Llava-v1.5-7B-GGUF",
-            "llava-v1.5-7b-Q4_K_M.gguf",
-        ),
+        ModelVariant.GGML_LLAVA_V1_5_7B_Q4_K: "ggml-model-q4_k.gguf",
+        ModelVariant.SECOND_STATE_LLAVA_V1_5_7B_Q4_K_M: "llava-v1.5-7b-Q4_K_M.gguf",
     }
 
     PROCESSOR_MODEL = "llava-hf/llava-1.5-7b-hf"
@@ -64,7 +57,7 @@ class ModelLoader(ForgeModel):
         self.processor = None
 
     @property
-    def gguf_repo_and_file(self):
+    def gguf_file(self):
         return self._GGUF_FILES[self._variant]
 
     @classmethod
@@ -95,12 +88,20 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        gguf_repo, gguf_filename = self.gguf_repo_and_file
-        model_kwargs["gguf_file"] = hf_hub_download(gguf_repo, gguf_filename)
+        model_kwargs["gguf_file"] = self.gguf_file
 
         model = LlavaForConditionalGeneration.from_pretrained(
             pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
+
+        # The second-state GGUF repo has vocab_size=32000 but the llava-hf processor
+        # uses image token ID 32000, so resize embeddings to cover all special tokens.
+        processor_vocab_size = len(self.processor.tokenizer)
+        if (
+            model.language_model.model.embed_tokens.num_embeddings
+            < processor_vocab_size
+        ):
+            model.resize_token_embeddings(processor_vocab_size)
 
         return model
 
