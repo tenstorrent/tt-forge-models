@@ -69,7 +69,14 @@ _GGUF_FILES = {
 
 
 def _refresh_diffusers_gguf_cache():
-    """Fix diffusers module-level gguf availability cache after dynamic installation."""
+    """Fix diffusers module-level gguf availability cache after dynamic installation.
+
+    diffusers caches gguf availability at import time. When RequirementsManager
+    installs gguf dynamically, three things need patching:
+    1. import_utils._gguf_available / _gguf_version - used by is_gguf_available()
+    2. gguf_quantizer module-level names (_replace_with_gguf_linear etc.) that
+       were skipped by the is_gguf_available() guard at module load time.
+    """
     import importlib.metadata
 
     if importlib.util.find_spec("gguf") is not None:
@@ -80,6 +87,31 @@ def _refresh_diffusers_gguf_cache():
                 diu._gguf_version = importlib.metadata.version("gguf")
             except importlib.metadata.PackageNotFoundError:
                 diu._gguf_version = "0.10.0"
+
+            # gguf_quantizer skips torch and gguf utility imports when gguf is absent
+            # at module load time. Inject them now that gguf is installed.
+            gguf_qmod = sys.modules.get("diffusers.quantizers.gguf.gguf_quantizer")
+            if gguf_qmod is not None and not hasattr(
+                gguf_qmod, "_replace_with_gguf_linear"
+            ):
+                import torch
+
+                from diffusers.quantizers.gguf.utils import (
+                    GGML_QUANT_SIZES,
+                    GGUFParameter,
+                    _dequantize_gguf_and_restore_linear,
+                    _quant_shape_from_byte_shape,
+                    _replace_with_gguf_linear,
+                )
+
+                gguf_qmod.torch = torch
+                gguf_qmod.GGML_QUANT_SIZES = GGML_QUANT_SIZES
+                gguf_qmod.GGUFParameter = GGUFParameter
+                gguf_qmod._dequantize_gguf_and_restore_linear = (
+                    _dequantize_gguf_and_restore_linear
+                )
+                gguf_qmod._quant_shape_from_byte_shape = _quant_shape_from_byte_shape
+                gguf_qmod._replace_with_gguf_linear = _replace_with_gguf_linear
 
 
 class ModelLoader(ForgeModel):
