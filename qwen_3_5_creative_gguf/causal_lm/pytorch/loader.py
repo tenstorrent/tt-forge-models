@@ -103,26 +103,55 @@ def _patch_transformers_qwen35moe_gguf():
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
     # 6. Patch get_gguf_hf_weights_map to handle qwen3_5_moe_text -> qwen35moe
-    # and add separate gate/up expert tensor aliases for GGUF files that use
-    # blk.N.ffn_gate_exps / blk.N.ffn_up_exps instead of blk.N.ffn_gate_up_exps.
     orig_get_map = gguf_utils.get_gguf_hf_weights_map
 
     def patched_get_gguf_hf_weights_map(
         hf_model, processor, model_type=None, num_layers=None, qual_name=""
     ):
-        import re as _re
-
         if model_type is None:
             model_type = getattr(getattr(hf_model, "config", None), "model_type", None)
         if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
             model_type = "qwen35moe"
-        result = orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
 
-        # qwen35moe GGUF files store experts as separate ffn_gate_exps / ffn_up_exps
-        # tensors, but the HF model has a combined gate_up_proj nn.Parameter (no
-        # .weight suffix in the state-dict key).  Add alias entries so the
-        # Qwen2MoeTensorProcessor can write each half into the combined param.
-        if model_type == "qwen35moe":
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+
+def _patch_qwen35moe_separate_expert_tensors():
+    """Add blk.N.ffn_gate_exps / ffn_up_exps aliases to get_gguf_hf_weights_map.
+
+    qwen35moe GGUF files store expert FFN weights as separate ffn_gate_exps and
+    ffn_up_exps tensors, but the HF Qwen3_5MoeExperts uses a combined gate_up_proj
+    nn.Parameter.  The gguf name-map produces only blk.N.ffn_gate_up_exps in
+    tensor_key_mapping; Qwen2MoeTensorProcessor needs the separate keys to write
+    each half of the combined parameter.
+
+    This patch is applied unconditionally (outside the architecture-registration
+    guard) so it runs even when another loader already registered qwen35moe.
+    """
+    import re as _re
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    _SENTINEL = "_qwen35moe_separate_expert_patched"
+    if getattr(gguf_utils.get_gguf_hf_weights_map, _SENTINEL, False):
+        return
+
+    orig = gguf_utils.get_gguf_hf_weights_map
+
+    def patched(hf_model, processor, model_type=None, num_layers=None, qual_name=""):
+        if model_type is None:
+            model_type = getattr(getattr(hf_model, "config", None), "model_type", None)
+        effective_type = model_type
+        if effective_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
+            effective_type = "qwen35moe"
+        result = orig(hf_model, processor, effective_type, num_layers, qual_name)
+
+        # For GGUF files that use the separate format (ffn_gate_exps / ffn_up_exps)
+        # instead of the combined format (ffn_gate_up_exps), add alias entries so
+        # Qwen2MoeTensorProcessor can locate the combined HF parameter by the
+        # separate GGUF tensor name (matched without the .weight suffix because
+        # gate_up_proj is an nn.Parameter, not nn.Linear).
+        if effective_type == "qwen35moe":
             new_entries = {}
             for key, val in result.items():
                 m = _re.match(r"(blk\.\d+)\.ffn_gate_up_exps$", key)
@@ -134,11 +163,13 @@ def _patch_transformers_qwen35moe_gguf():
 
         return result
 
-    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+    setattr(patched, _SENTINEL, True)
+    gguf_utils.get_gguf_hf_weights_map = patched
 
 
-# Apply the monkey-patch at import time
+# Apply patches at import time.
 _patch_transformers_qwen35moe_gguf()
+_patch_qwen35moe_separate_expert_tensors()
 
 
 class ModelVariant(StrEnum):
