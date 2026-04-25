@@ -138,6 +138,19 @@ class ModelLoader(ForgeModel):
         with _patch_tied_keys_for_missing_post_init():
             model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
 
+        # NemotronH_Nano_VL_V2.forward() accesses outputs.past_key_values but the LM returns
+        # NemotronHCausalLMOutput which only has cache_params. Patch the class to expose
+        # past_key_values as an alias so the forward doesn't raise AttributeError.
+        import sys
+
+        for _mod in sys.modules.values():
+            if hasattr(_mod, "NemotronHCausalLMOutput"):
+                _cls = _mod.NemotronHCausalLMOutput
+                if not hasattr(_cls, "past_key_values"):
+                    _cls.past_key_values = property(
+                        lambda self: getattr(self, "cache_params", None)
+                    )
+
         # vision_model.to(dtype) in __init__ corrupts the RADIO encoder's summary_idxs buffer
         # (an int64 index tensor that gets reinterpretted during dtype conversion).
         # Recompute the correct values from the model's vision config.
@@ -204,10 +217,6 @@ class ModelLoader(ForgeModel):
             else inputs["pixel_values"].shape[0]
         )
         inputs["image_flags"] = torch.ones(total_tiles, 1, dtype=torch.long)
-
-        # forward() tries outputs.past_key_values but the LM returns cache_params;
-        # return_dict=False makes the model return a plain tuple instead.
-        inputs["return_dict"] = False
 
         if batch_size > 1:
             for key, value in inputs.items():
