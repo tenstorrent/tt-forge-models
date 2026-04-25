@@ -99,12 +99,25 @@ def _patch_transformers_qwen3next_gguf():
         hf_model, processor, model_type=None, num_layers=None, qual_name=""
     ):
         if model_type is None:
-            model_type = hf_model.config.model_type
+            model_type = getattr(getattr(hf_model, "config", None), "model_type", None)
         if model_type == "qwen3_next":
             model_type = "qwen3next"
-        return orig_get_map(
+        result = orig_get_map(
             hf_model, processor, model_type, num_layers=num_layers, qual_name=qual_name
         )
+        if model_type == "qwen3next":
+            # The qwen3next tensor map uses ffn_gate_up_exps (combined), but GGUF files
+            # store expert weights as separate ffn_gate_exps / ffn_up_exps tensors.
+            # Add fallback entries so Qwen2MoeTensorProcessor.process can merge them.
+            for gguf_key, hf_key in list(result.items()):
+                if ".ffn_gate_up_exps" in gguf_key:
+                    result.setdefault(
+                        gguf_key.replace(".ffn_gate_up_exps", ".ffn_gate_exps"), hf_key
+                    )
+                    result.setdefault(
+                        gguf_key.replace(".ffn_gate_up_exps", ".ffn_up_exps"), hf_key
+                    )
+        return result
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
 
