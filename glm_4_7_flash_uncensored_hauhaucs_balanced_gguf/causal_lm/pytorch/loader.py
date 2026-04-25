@@ -10,6 +10,46 @@ from typing import Optional
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
+
+def _patch_transformers_deepseek_v2_gguf():
+    """Monkey-patch transformers to support deepseek_v2 in GGUF tokenizer and weight loading.
+
+    The glm_4_7_flash_gguf loader remaps model_type from 'deepseek2' to
+    'deepseek_v2' globally. This causes two failures for models using the
+    deepseek2 GGUF architecture:
+      1. convert_gguf_tokenizer looks up GGUF_TO_FAST_CONVERTERS['deepseek_v2']
+      2. get_gguf_hf_weights_map looks up 'deepseek_v2' in MODEL_ARCH_NAMES
+
+    Both are fixed by aliasing deepseek_v2 -> deepseek2 converters.
+    """
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "deepseek_v2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["deepseek_v2"] = GGUFQwen2Converter
+
+    if not getattr(gguf_utils, "_deepseek_v2_weights_map_patched", False):
+        orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+        def patched_get_gguf_hf_weights_map(
+            hf_model, processor, model_type=None, num_layers=None, qual_name=""
+        ):
+            if model_type is None:
+                cfg = getattr(hf_model, "config", None)
+                model_type = getattr(cfg, "model_type", None)
+            if model_type == "deepseek_v2":
+                model_type = "deepseek2"
+            return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+        gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+        gguf_utils._deepseek_v2_weights_map_patched = True
+
+
+_patch_transformers_deepseek_v2_gguf()
+
 from ....base import ForgeModel
 from ....config import (
     Framework,
@@ -99,7 +139,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
