@@ -101,4 +101,9 @@ class ModelLoader(ForgeModel):
             added_cond_kwargs,
         ) = make_sdxl_unet_inputs(self._unet, dtype=dtype or self._unet.dtype)
 
-        return [latent_model_input, timestep, prompt_embeds, added_cond_kwargs]
+        return {
+            "sample": latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "added_cond_kwargs": added_cond_kwargs,
+        }
