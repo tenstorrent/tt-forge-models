@@ -8,7 +8,16 @@ Hermes 4.3 36B GGUF model loader implementation for causal language modeling.
 from typing import Optional
 
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFLlamaConverter
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_SUPPORTED_ARCHITECTURES,
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+)
 
 from ....base import ForgeModel
 from ....config import (
@@ -20,6 +29,62 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
+
+_SEED_OSS_GGUF_ARCH = "seed_oss"
+
+_SEED_OSS_CONFIG_MAPPING = {
+    "context_length": "max_position_embeddings",
+    "block_count": "num_hidden_layers",
+    "feed_forward_length": "intermediate_size",
+    "embedding_length": "hidden_size",
+    "rope.dimension_count": "head_dim",
+    "rope.freq_base": "rope_theta",
+    "attention.head_count": "num_attention_heads",
+    "attention.head_count_kv": "num_key_value_heads",
+    "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+    "vocab_size": "vocab_size",
+}
+
+
+def _patch_seed_oss_gguf_support():
+    if _SEED_OSS_GGUF_ARCH in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append(_SEED_OSS_GGUF_ARCH)
+
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "llama" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                _SEED_OSS_GGUF_ARCH,
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["llama"],
+            )
+
+    _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"][
+        _SEED_OSS_GGUF_ARCH
+    ] = _SEED_OSS_CONFIG_MAPPING
+
+    GGUF_TO_FAST_CONVERTERS.setdefault(_SEED_OSS_GGUF_ARCH, GGUFLlamaConverter)
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
+    _patch_seed_oss_gguf_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
+    )
+    config = result.get("config", {})
+    if config.get("model_type") == _SEED_OSS_GGUF_ARCH and "rope_theta" in config:
+        rope_theta = config.pop("rope_theta")
+        config.setdefault(
+            "rope_parameters", {"rope_type": "default", "rope_theta": rope_theta}
+        )
+    return result
+
+
+_patch_seed_oss_gguf_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
