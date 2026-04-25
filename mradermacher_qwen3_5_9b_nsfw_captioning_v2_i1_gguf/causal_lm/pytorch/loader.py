@@ -7,7 +7,86 @@ Qwen 3.5 9B NSFW Captioning v2 i1 GGUF model loader implementation for causal la
 from typing import Optional
 
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+
+def _patch_gguf_is_available():
+    """Fix is_gguf_available() to handle gguf installed after transformers was imported.
+
+    PACKAGE_DISTRIBUTION_MAPPING is computed at transformers import time, so gguf
+    installed via requirements.txt during the test run is absent from the map. This
+    causes _is_package_available to fall back to getattr(gguf, '__version__', 'N/A'),
+    and since gguf has no __version__, version.parse('N/A') raises InvalidVersion.
+    We bypass the cached mapping and call importlib.metadata.version() directly.
+    """
+    import importlib.metadata
+    import importlib.util
+    from packaging import version as pkg_version
+
+    def _fixed_is_gguf_available(min_version=None):
+        if importlib.util.find_spec("gguf") is None:
+            return False
+        try:
+            gguf_ver = importlib.metadata.version("gguf")
+            if min_version is None:
+                return True
+            try:
+                return pkg_version.parse(gguf_ver) >= pkg_version.parse(min_version)
+            except pkg_version.InvalidVersion:
+                return True
+        except Exception:
+            return True
+
+    _gguf_utils.is_gguf_available = _fixed_is_gguf_available
+
+
+def _patch_qwen35_support():
+    """Register qwen35 architecture as an alias for qwen3.
+
+    Qwen 3.5 GGUF files declare architecture as 'qwen35', which transformers 5.x
+    does not yet recognise.
+    """
+    if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "qwen35",
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
+            )
+    if "qwen3" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "qwen3_5_text", GGUF_TO_FAST_CONVERTERS["qwen3"]
+        )
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    """Wrap load_gguf_checkpoint to add qwen35 support and fix model_type."""
+    _patch_qwen35_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
+    if result.get("config", {}).get("model_type") == "qwen35":
+        result["config"]["model_type"] = "qwen3"
+    return result
+
+
+_patch_gguf_is_available()
+_patch_qwen35_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 from ....base import ForgeModel
 from ....config import (
