@@ -9,6 +9,72 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
+# The model code uses @check_model_inputs() (decorator factory) but the
+# transformers compat shim only supports @check_model_inputs (plain decorator).
+# Patch to support both call styles.
+import transformers.utils.generic as _tfm_generic
+
+_original_check = getattr(_tfm_generic, "check_model_inputs", None)
+if _original_check is not None:
+
+    def _check_model_inputs_patched(func=None):
+        if func is None:
+            return _original_check
+        return _original_check(func)
+
+    _tfm_generic.check_model_inputs = _check_model_inputs_patched
+
+# transformers 5.6.2 omits "default" from ROPE_INIT_FUNCTIONS despite documenting it.
+# Add a standard RoPE implementation (no scaling) so models using rope_type="default" work.
+from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS as _ROPE_INIT_FUNCTIONS
+
+if "default" not in _ROPE_INIT_FUNCTIONS:
+
+    def _compute_default_rope_parameters(
+        config=None, device=None, seq_len=None, layer_type=None
+    ):
+        base = getattr(config, "rope_theta", 10000.0)
+        head_dim = (
+            getattr(config, "head_dim", None)
+            or config.hidden_size // config.num_attention_heads
+        )
+        inv_freq = 1.0 / (
+            base
+            ** (
+                torch.arange(0, head_dim, 2, dtype=torch.int64).to(
+                    device=device, dtype=torch.float
+                )
+                / head_dim
+            )
+        )
+        return inv_freq, 1.0
+
+    _ROPE_INIT_FUNCTIONS["default"] = _compute_default_rope_parameters
+
+# BolmoXLSTMLayer hardcodes triton kernels, which require CUDA.
+# Patch mLSTMBackendConfig to fall back to native PyTorch kernels when CUDA is unavailable.
+if not torch.cuda.is_available():
+    from mlstm_kernels.torch.backend_module import (
+        mLSTMBackendConfig as _mLSTMBackendConfig,
+    )
+
+    _original_mlstm_post_init = _mLSTMBackendConfig.__post_init__
+
+    def _mlstm_post_init_patched(self):
+        if "triton" in (self.chunkwise_kernel or ""):
+            self.chunkwise_kernel = "chunkwise--native_autograd"
+        if "triton" in (self.sequence_kernel or ""):
+            self.sequence_kernel = "native_sequence__native"
+        if self.step_kernel == "triton":
+            self.step_kernel = "native"
+        # Match state dtype to model dtype (bfloat16) to avoid mixed-dtype
+        # matmul failures when the model is loaded in bfloat16 and CUDA
+        # autocast is unavailable.
+        self.inference_state_dtype = "bfloat16"
+        _original_mlstm_post_init(self)
+
+    _mLSTMBackendConfig.__post_init__ = _mlstm_post_init_patched
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
