@@ -5,6 +5,12 @@
 mradermacher/Huihui-Kimi-Linear-48B-A3B-Instruct-abliterated-GGUF model loader for causal language modeling.
 """
 
+import os
+
+# Disable hf-xet download backend: xet produces sparse files that cause tensor
+# reshape errors when loading GGUF models of this size.
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+
 from typing import Optional
 
 import torch
