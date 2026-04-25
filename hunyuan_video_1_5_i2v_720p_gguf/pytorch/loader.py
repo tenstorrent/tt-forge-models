@@ -135,9 +135,17 @@ def _convert_hunyuan_video15_transformer_to_diffusers(checkpoint, **kwargs):
         state_dict[key.replace("txt_attn_qkv", "attn.add_v_proj")] = to_v
 
     TRANSFORMER_KEYS_RENAME_DICT = {
+        # Specific entries must come before generic ones (applied left-to-right).
+        "byt5_in.fc1": "context_embedder_2.linear_1",
+        "byt5_in.fc2": "context_embedder_2.linear_2",
+        "byt5_in.fc3": "context_embedder_2.linear_3",
+        "byt5_in.layernorm": "context_embedder_2.norm",
+        "vision_in.proj.0": "image_embedder.linear_1",
+        "vision_in.proj.1": "image_embedder.norm_in",
+        "vision_in.proj.3": "image_embedder.linear_2",
+        "vision_in.proj.4": "image_embedder.norm_out",
+        "cond_type_embedding": "cond_type_embed",
         "img_in": "x_embedder",
-        "img_emb": "image_embedder",
-        "mlp_t5": "context_embedder_2",
         "time_in.mlp.0": "time_embed.timestep_embedder.linear_1",
         "time_in.mlp.2": "time_embed.timestep_embedder.linear_2",
         "double_blocks": "transformer_blocks",
