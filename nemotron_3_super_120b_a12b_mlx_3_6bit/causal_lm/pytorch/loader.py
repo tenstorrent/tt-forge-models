@@ -85,16 +85,31 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        # The checkpoint uses MLX affine quantization (uint32-packed weights) which is
+        # incompatible with standard PyTorch loading. Strip the quantization_config so
+        # the model can be instantiated with the correct architecture.
+        if hasattr(config, "quantization_config"):
+            del config.quantization_config
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, trust_remote_code=True, **model_kwargs
-        ).eval()
+        # Use from_config to create the model with correct architecture and random
+        # weights. The MLX quantized checkpoint cannot be dequantized without the
+        # MLX framework (Apple Silicon only), so we skip checkpoint loading entirely.
+        # For compile-only environments this is acceptable.
+        # Set default dtype so parameters are created directly in the target dtype,
+        # avoiding a float32→bfloat16 conversion that would double peak memory.
+        target_dtype = dtype_override if dtype_override is not None else torch.float32
+        old_default_dtype = torch.get_default_dtype()
+        torch.set_default_dtype(target_dtype)
+        try:
+            model = AutoModelForCausalLM.from_config(config, trust_remote_code=True)
+        finally:
+            torch.set_default_dtype(old_default_dtype)
+        model = model.eval()
 
         self.config = model.config
         self.model = model
