@@ -335,7 +335,7 @@ class Compressor(nn.Module):
                 if should_compress:
                     kv = (self.kv_state[:bsz] * self.score_state[:bsz].softmax(dim=1)).sum(dim=1, keepdim=True)
         if not should_compress:
-            return
+            return kv
         kv = self.norm(kv.to(dtype))
         if start_pos == 0:
             freqs_cis = self.freqs_cis[:cutoff:ratio]
