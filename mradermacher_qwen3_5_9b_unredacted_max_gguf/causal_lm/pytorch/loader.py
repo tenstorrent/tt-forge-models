@@ -15,6 +15,11 @@ import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tok
 import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_SUPPORTED_ARCHITECTURES,
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+)
 
 from ....base import ForgeModel
 from ....config import (
@@ -28,62 +33,56 @@ from ....config import (
 )
 
 
-def _unwrap_to_real_load_gguf_checkpoint():
-    """Walk the monkey-patch chain to find the real transformers load_gguf_checkpoint."""
-    fn = _gguf_utils.load_gguf_checkpoint
-    visited = set()
-    while fn is not None and id(fn) not in visited:
-        visited.add(id(fn))
-        try:
-            if "model_to_load" in inspect.signature(fn).parameters:
-                return fn
-        except (TypeError, ValueError):
-            pass
-        next_fn = None
-        if hasattr(fn, "__code__") and fn.__closure__ and fn.__code__.co_freevars:
-            for name, cell in zip(fn.__code__.co_freevars, fn.__closure__):
-                try:
-                    val = cell.cell_contents
-                except ValueError:
-                    continue
-                if not callable(val) or id(val) in visited:
-                    continue
-                if any(k in name.lower() for k in ("orig", "load")):
-                    next_fn = val
-                    break
-                if next_fn is None:
-                    next_fn = val
-        if next_fn is None and hasattr(fn, "__globals__") and hasattr(fn, "__code__"):
-            for name in fn.__code__.co_names:
-                if not any(k in name.lower() for k in ("orig", "load")):
-                    continue
-                val = fn.__globals__.get(name)
-                if val is None or not callable(val) or id(val) in visited:
-                    continue
-                next_fn = val
-                break
-        if next_fn is None:
-            break
-        fn = next_fn
-    return None
+def _patch_qwen35_support():
+    """Register qwen35 architecture and qwen3_5_text tokenizer as aliases for qwen3.
+
+    Qwen 3.5 uses the same model architecture as Qwen 3 but the GGUF file
+    declares architecture as 'qwen35' and tokenizer class as 'qwen3_5_text',
+    which transformers 5.x does not yet recognise.
+    """
+    if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "qwen35",
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
+            )
+    if "qwen3" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "qwen3_5_text", GGUF_TO_FAST_CONVERTERS["qwen3"]
+        )
 
 
-def _apply_model_to_load_compat():
-    real_fn = _unwrap_to_real_load_gguf_checkpoint()
-    if real_fn is not None:
-        _gguf_utils.load_gguf_checkpoint = real_fn
-        for _mod in (_config_utils, _auto_tok, _tok_utils):
-            _mod.load_gguf_checkpoint = real_fn
-    else:
-        fn = _gguf_utils.load_gguf_checkpoint
-        if "model_to_load" not in inspect.signature(fn).parameters:
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
+    """Wrap load_gguf_checkpoint to add qwen35 support, fix model_type, and model_to_load compat."""
+    _patch_qwen35_support()
+    try:
+        sig = inspect.signature(_orig_load_gguf_checkpoint)
+        if "model_to_load" in sig.parameters:
+            result = _orig_load_gguf_checkpoint(
+                gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
+            )
+        else:
+            result = _orig_load_gguf_checkpoint(
+                gguf_path, return_tensors=return_tensors
+            )
+    except TypeError:
+        result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    if (
+        isinstance(result, dict)
+        and result.get("config", {}).get("model_type") == "qwen35"
+    ):
+        result["config"]["model_type"] = "qwen3"
+    return result
 
-            def _wrapper(gguf_path, return_tensors=False, model_to_load=None):
-                return fn(gguf_path, return_tensors=return_tensors)
 
-            _gguf_utils.load_gguf_checkpoint = _wrapper
-            for _mod in (_config_utils, _auto_tok, _tok_utils):
-                _mod.load_gguf_checkpoint = _wrapper
+_patch_qwen35_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tok.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
@@ -147,7 +146,6 @@ class ModelLoader(ForgeModel):
 
     def _load_tokenizer(self, dtype_override=None):
         self._fix_gguf_version_detection()
-        _apply_model_to_load_compat()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -241,7 +239,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self._fix_gguf_version_detection()
-        _apply_model_to_load_compat()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
