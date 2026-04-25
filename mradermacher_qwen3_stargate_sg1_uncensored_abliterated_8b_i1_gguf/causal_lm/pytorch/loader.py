@@ -66,6 +66,22 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        # Refresh importlib.metadata and transformers availability caches after
+        # dynamic gguf installation to avoid InvalidVersion('N/A') from stale
+        # FastPath mtime cache on filesystems with 1-second mtime resolution.
+        try:
+            import importlib.metadata
+
+            importlib.metadata.MetadataPathFinder.invalidate_caches()
+        except Exception:
+            pass
+        try:
+            from transformers.utils.import_utils import is_gguf_available
+
+            is_gguf_available.cache_clear()
+        except Exception:
+            pass
+
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
