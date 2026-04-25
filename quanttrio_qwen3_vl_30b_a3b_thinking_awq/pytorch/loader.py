@@ -6,6 +6,7 @@ QuantTrio Qwen3-VL-30B-A3B-Thinking AWQ model loader implementation for image to
 """
 
 import gptqmodel  # noqa: F401 — must import before from_pretrained enters meta-device context
+from gptqmodel.nn_modules.qlinear.gemm_hf_kernel_awq import HFKernelAwqLinear
 
 from transformers import (
     Qwen3VLMoeForConditionalGeneration,
@@ -102,6 +103,13 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
         model.eval()
+
+        # gptqmodel's optimized CPU AWQ kernel asserts N % 32 == 0, which fails
+        # for some MoE expert weight shapes in this model. Force the dequantize
+        # fallback path by pre-setting linear_mode so transform() is never called.
+        for module in model.modules():
+            if isinstance(module, HFKernelAwqLinear):
+                module.linear_mode = "train"
 
         return model
 
