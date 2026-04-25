@@ -75,8 +75,19 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    def _clear_gguf_availability_cache(self):
+        # The lru_cache on is_gguf_available may be stale if gguf was installed
+        # after collection; clear it so transformers re-evaluates availability.
+        try:
+            from transformers.utils.import_utils import is_gguf_available
+
+            is_gguf_available.cache_clear()
+        except Exception:
+            pass
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
+        self._clear_gguf_availability_cache()
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
@@ -153,6 +164,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        self._clear_gguf_availability_cache()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
