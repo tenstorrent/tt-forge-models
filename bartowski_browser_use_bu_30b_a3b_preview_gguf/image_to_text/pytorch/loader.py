@@ -132,10 +132,8 @@ def _patch_transformers_qwen3vlmoe_gguf():
     orig_get_map = gguf_utils.get_gguf_hf_weights_map
 
     def patched_get_gguf_hf_weights_map(
-        hf_model, model_type=None, num_layers=None, qual_name=""
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
     ):
-        # Always read the true model type from config to avoid the arg-shift issue
-        # where model_type may actually hold a TensorProcessor object.
         actual_type = getattr(getattr(hf_model, "config", None), "model_type", None)
 
         if actual_type in ("qwen3_vl_moe", "qwen3vlmoe") and qual_name == "":
@@ -190,9 +188,7 @@ def _patch_transformers_qwen3vlmoe_gguf():
 
                 return gguf_to_hf_name_map
 
-        # Fallback: pass through unchanged so we don't disturb the arg-shift
-        # convention relied on by other patches in the chain.
-        return orig_get_map(hf_model, model_type, num_layers, qual_name)
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
     if hasattr(modeling_utils, "get_gguf_hf_weights_map"):
