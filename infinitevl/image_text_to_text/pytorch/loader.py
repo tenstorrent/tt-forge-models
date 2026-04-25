@@ -5,7 +5,7 @@
 InfiniteVL model loader implementation for image-text-to-text tasks.
 """
 
-from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor
 from typing import Optional
 
 from ....base import ForgeModel
@@ -73,8 +73,16 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        # Transformers 5.x no longer defaults sub-config attributes to None;
+        # patch pad_token_id on text_config so the custom modeling code works.
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        if hasattr(config, "text_config"):
+            config.text_config.__dict__.setdefault("pad_token_id", None)
+
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, config=config, **model_kwargs
         )
         model.eval()
 
