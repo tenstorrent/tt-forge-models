@@ -182,19 +182,25 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
-        # num_patches is returned by the processor but not accepted by forward(); drop it
-        inputs.pop("num_patches", None)
+        # num_patches: one entry per image indicating how many tiles the image was split into
+        num_patches = inputs.pop("num_patches", None)
 
         # pixel_values must match the model dtype (vision encoder is cast to language model dtype)
         if dtype_override is not None and "pixel_values" in inputs:
             inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
 
-        # image_flags marks which images in the batch are valid (required by forward)
-        inputs["image_flags"] = torch.ones(batch_size, 1, dtype=torch.long)
+        # image_flags marks which tiles are valid; shape must match pixel_values batch dim
+        total_tiles = (
+            int(num_patches.sum())
+            if num_patches is not None
+            else inputs["pixel_values"].shape[0]
+        )
+        inputs["image_flags"] = torch.ones(total_tiles, 1, dtype=torch.long)
 
         if batch_size > 1:
             for key, value in inputs.items():
                 if key != "image_flags" and hasattr(value, "repeat_interleave"):
                     inputs[key] = value.repeat_interleave(batch_size, dim=0)
+            inputs["image_flags"] = inputs["image_flags"].repeat(batch_size, 1)
 
         return inputs
