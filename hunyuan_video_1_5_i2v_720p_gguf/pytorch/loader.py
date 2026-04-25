@@ -118,6 +118,14 @@ class ModelLoader(ForgeModel):
             if importlib.util.find_spec("gguf") is not None:
                 _diffusers_import_utils._gguf_available = True
 
+        if _diffusers_import_utils._gguf_version == "N/A":
+            try:
+                from importlib.metadata import version as _pkg_version
+
+                _diffusers_import_utils._gguf_version = _pkg_version("gguf")
+            except Exception:
+                pass
+
         from diffusers import (
             GGUFQuantizationConfig,
             HunyuanVideo15Transformer3DModel,
