@@ -4,8 +4,12 @@
 """
 DeepSeek OCR-2 model loader implementation for document OCR tasks.
 """
+import glob
+import inspect
 import os
+import sys
 import tempfile
+import textwrap
 from PIL import Image
 from transformers import AutoTokenizer, AutoModel
 from typing import Optional
@@ -80,8 +84,51 @@ class ModelLoader(ForgeModel):
         )
         return self.tokenizer
 
+    @staticmethod
+    def _patch_cached_ocr2_modules():
+        """Patch cached HF modules to replace .cuda() with device-agnostic calls."""
+        hf_home = os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
+        pattern = os.path.join(
+            hf_home,
+            "modules",
+            "transformers_modules",
+            "deepseek_hyphen_ai",
+            "DeepSeek_hyphen_OCR_hyphen_2",
+            "*",
+            "modeling_deepseekocr2.py",
+        )
+        old = "images_seq_mask[idx].unsqueeze(-1).cuda()"
+        new = "images_seq_mask[idx].unsqueeze(-1).to(inputs_embeds[idx].device)"
+        for cached_file in glob.glob(pattern):
+            with open(cached_file) as f:
+                content = f.read()
+            if old in content:
+                with open(cached_file, "w") as f:
+                    f.write(content.replace(old, new))
+                stale = [k for k in sys.modules if "modeling_deepseekocr2" in k]
+                for k in stale:
+                    del sys.modules[k]
+
+    @staticmethod
+    def _patch_model_forward(model):
+        """In-memory patch: replace .cuda() in DeepseekOCR2Model.forward."""
+        cls = type(model.model)
+        src = inspect.getsource(cls.forward)
+        old = "images_seq_mask[idx].unsqueeze(-1).cuda()"
+        new = "images_seq_mask[idx].unsqueeze(-1).to(inputs_embeds[idx].device)"
+        if old not in src:
+            return
+        src = textwrap.dedent(src).replace(old, new)
+        mod = inspect.getmodule(cls)
+        globs = {**vars(mod), "__builtins__": __builtins__}
+        exec(src, globs)  # noqa: S102
+        cls.forward = globs["forward"]
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        # Patch cached module files before loading (for future imports)
+        self._patch_cached_ocr2_modules()
 
         model = AutoModel.from_pretrained(
             pretrained_model_name,
@@ -89,6 +136,9 @@ class ModelLoader(ForgeModel):
             use_safetensors=True,
             **kwargs,
         )
+
+        # In-memory patch in case the module was already imported before patching
+        self._patch_model_forward(model)
 
         model.config.return_dict = False
         model.config.use_cache = False
