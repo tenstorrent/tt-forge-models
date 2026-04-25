@@ -226,11 +226,12 @@ class ModelLoader(ForgeModel):
         Uses diffusers GGUFQuantizationConfig to load the quantized transformer.
         Returns the transformer nn.Module directly for compilation testing.
         """
+        import importlib
+        import importlib.util
+
         import diffusers.utils.import_utils as _diffusers_import_utils
 
         if not _diffusers_import_utils._gguf_available:
-            import importlib.util
-
             if importlib.util.find_spec("gguf") is not None:
                 import importlib.metadata as _importlib_metadata
 
@@ -241,6 +242,15 @@ class ModelLoader(ForgeModel):
                     )
                 except Exception:
                     _diffusers_import_utils._gguf_version = "0.10.0"
+
+                # gguf_quantizer may be cached in sys.modules without the
+                # conditional imports (loaded before gguf was installed).
+                # Force-reload so _replace_with_gguf_linear is available.
+                import sys
+
+                for mod_name in list(sys.modules):
+                    if "gguf_quantizer" in mod_name:
+                        importlib.reload(sys.modules[mod_name])
 
         from diffusers import (
             GGUFQuantizationConfig,
