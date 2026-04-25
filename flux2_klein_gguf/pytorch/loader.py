@@ -26,30 +26,26 @@ from ...config import (
 
 
 def _dequantize_bf16_gguf_params(model):
-    # The leejet GGUF stores all weights as BF16 raw bytes, so GGUFParameter
-    # shapes are doubled (e.g. 128 bf16 values → [256] uint8). This breaks
-    # rms_norm which validates weight shape against normalized_shape.
+    # The leejet GGUF stores all weights as BF16 raw bytes (uint8 storage with
+    # doubled last dim, e.g. 128 bf16 values → shape [256]). GGUFParameter
+    # propagates through all tensor ops via __torch_function__, so we must use
+    # as_tensor() to escape the subclass before converting to plain bfloat16.
     try:
         from diffusers.quantizers.gguf.utils import GGUFParameter
     except ImportError:
         return
-    try:
-        from gguf import GGMLQuantizationType
-
-        bf16_type = GGMLQuantizationType.BF16
-    except ImportError:
-        bf16_type = None
 
     for module in model.modules():
         for name, param in list(module.named_parameters(recurse=False)):
             if not isinstance(param, GGUFParameter):
                 continue
-            if (
-                bf16_type is not None
-                and getattr(param, "quant_type", None) != bf16_type
-            ):
-                continue
-            bf16 = param.data.contiguous().view(torch.bfloat16)
+            # as_tensor() returns plain torch.Tensor (breaks GGUFParameter chain)
+            raw = param.as_tensor()
+            bf16 = (
+                raw.view(torch.bfloat16)
+                if raw.dtype == torch.uint8
+                else raw.to(torch.bfloat16)
+            )
             module.register_parameter(name, torch.nn.Parameter(bf16))
 
 
