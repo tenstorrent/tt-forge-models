@@ -9,6 +9,22 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
+# Bolmo-7B's modeling_bolmo.py uses @check_model_inputs() (factory pattern) but
+# transformers exposes it as a direct decorator. Patch it to support both usages.
+try:
+    import transformers.utils.generic as _tug
+
+    _orig_cmi = _tug.check_model_inputs
+
+    def _compat_check_model_inputs(func=None):
+        if func is None:
+            return _orig_cmi
+        return _orig_cmi(func)
+
+    _tug.check_model_inputs = _compat_check_model_inputs
+except (ImportError, AttributeError):
+    pass
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
