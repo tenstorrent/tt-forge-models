@@ -5,225 +5,128 @@
 Helper functions for loading GGUF-quantized Stable Diffusion XL finetune models.
 """
 
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
-from diffusers import GGUFQuantizationConfig, StableDiffusionXLPipeline
-from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
-    retrieve_timesteps,
-)
+from diffusers import UNet2DConditionModel
 from huggingface_hub import hf_hub_download
 
+# SDXL base model repo used only for UNet config (no weight download).
+_SDXL_BASE_REPO = "stabilityai/stable-diffusion-xl-base-1.0"
 
-def load_gguf_pipe(repo_id: str, gguf_filename: str, subfolder: Optional[str] = None):
-    """Load a Stable Diffusion XL pipeline from a GGUF checkpoint.
+
+def _load_comfyui_gguf_state_dict(gguf_path: str) -> dict:
+    """Load a ComfyUI-format GGUF file into a plain FP32 state dict.
+
+    ComfyUI GGUF files:
+    - Store tensor data with GGUFReader-transposed shapes (``t.data.shape``).
+    - May include ``comfy.gguf.orig_shape.*`` metadata when the transposed shape
+      differs from the original PyTorch shape (e.g. non-square weight matrices
+      that were quantized into a block-aligned layout).
+    - Quantized tensors must be dequantized; the dequantized flat tensor is then
+      reshaped to the stored orig_shape.
+    - F16/F32 tensors either already have the correct shape after transposition
+      by GGUFReader, or carry an orig_shape for the same reason as quantized ones.
+    """
+    import gguf as gguf_module
+    from diffusers.quantizers.gguf.utils import GGUFParameter, dequantize_gguf_tensor
+    from gguf import GGUFReader
+
+    reader = GGUFReader(gguf_path)
+
+    # Collect per-tensor original shapes from ComfyUI metadata.
+    orig_shapes: dict[str, tuple] = {}
+    for key, field in reader.fields.items():
+        if key.startswith("comfy.gguf.orig_shape."):
+            tensor_name = key[len("comfy.gguf.orig_shape.") :]
+            orig_shapes[tensor_name] = tuple(
+                int(field.parts[idx][0]) for idx in field.data
+            )
+
+    state_dict = {}
+    for tensor in reader.tensors:
+        name = tensor.name
+        quant_type = tensor.tensor_type
+
+        is_gguf_quant = quant_type not in (
+            gguf_module.GGMLQuantizationType.F32,
+            gguf_module.GGMLQuantizationType.F16,
+        )
+
+        data = torch.from_numpy(tensor.data.copy())
+
+        if is_gguf_quant:
+            param = GGUFParameter(data, quant_type=quant_type)
+            data = dequantize_gguf_tensor(param).to(torch.float32)
+        else:
+            data = data.to(torch.float32)
+
+        # Reshape to the original model shape if ComfyUI stored a hint.
+        if name in orig_shapes:
+            data = data.reshape(orig_shapes[name])
+
+        state_dict[name] = data
+
+    return state_dict
+
+
+def load_gguf_unet(repo_id: str, gguf_filename: str, subfolder: Optional[str] = None):
+    """Load an SDXL UNet from a ComfyUI-format GGUF checkpoint.
+
+    The file contains only the UNet weights (no text encoders/VAE) with keys
+    in the original LDM naming convention (without the ``model.diffusion_model.``
+    prefix expected by ``convert_ldm_unet_checkpoint``).
 
     Args:
         repo_id: HuggingFace repository ID.
         gguf_filename: Filename of the GGUF checkpoint within the repo.
-        subfolder: Optional subfolder within the repo containing the checkpoint.
+        subfolder: Optional subfolder within the repo.
 
     Returns:
-        DiffusionPipeline: Loaded pipeline with components set to eval mode.
+        UNet2DConditionModel: Loaded UNet in eval mode with frozen weights.
     """
     model_path = hf_hub_download(
         repo_id=repo_id, filename=gguf_filename, subfolder=subfolder
     )
 
-    quantization_config = GGUFQuantizationConfig(compute_dtype=torch.float32)
+    state_dict = _load_comfyui_gguf_state_dict(model_path)
 
-    pipe = StableDiffusionXLPipeline.from_single_file(
-        model_path,
-        quantization_config=quantization_config,
+    # convert_ldm_unet_checkpoint expects the "model.diffusion_model." prefix.
+    prefixed = {"model.diffusion_model." + k: v for k, v in state_dict.items()}
+
+    unet = UNet2DConditionModel.from_single_file(
+        prefixed,
+        config=_SDXL_BASE_REPO,
+        subfolder="unet",
         torch_dtype=torch.float32,
     )
+    unet.eval()
+    for param in unet.parameters():
+        param.requires_grad = False
 
-    pipe.to("cpu")
-
-    for module in [pipe.unet, pipe.text_encoder, pipe.vae]:
-        if module is not None:
-            module.eval()
-            for param in module.parameters():
-                if param.requires_grad:
-                    param.requires_grad = False
-
-    if hasattr(pipe, "text_encoder_2") and pipe.text_encoder_2 is not None:
-        pipe.text_encoder_2.eval()
-        for param in pipe.text_encoder_2.parameters():
-            if param.requires_grad:
-                param.requires_grad = False
-
-    return pipe
+    return unet
 
 
-def stable_diffusion_preprocessing_xl(
-    pipe,
-    prompt,
-    device="cpu",
-    negative_prompt=None,
-    guidance_scale=5.0,
-    num_inference_steps=50,
-    timesteps=None,
-    sigmas=None,
-    num_images_per_prompt=1,
-    height=None,
-    width=None,
-    clip_skip=None,
-    original_size=None,
-    target_size=None,
-    crops_coords_top_left: Tuple[int, int] = (0, 0),
-    negative_original_size: Optional[Tuple[int, int]] = None,
-    negative_target_size: Optional[Tuple[int, int]] = None,
-    negative_crops_coords_top_left: Tuple[int, int] = (0, 0),
-):
-    """Preprocess inputs for Stable Diffusion XL model.
-
-    Args:
-        pipe: Stable Diffusion XL pipeline.
-        prompt: Text prompt for generation.
-        device: Device to run on (default: "cpu").
-        negative_prompt: Negative prompt (optional).
-        guidance_scale: Guidance scale (default: 5.0).
-        num_inference_steps: Number of inference steps (default: 50).
-        timesteps: Custom timesteps (optional).
-        sigmas: Custom sigmas (optional).
-        num_images_per_prompt: Number of images per prompt (default: 1).
-        height: Image height (optional).
-        width: Image width (optional).
-        clip_skip: CLIP skip layers (optional).
-        original_size: Original size tuple (optional).
-        target_size: Target size tuple (optional).
-        crops_coords_top_left: Crop coordinates (default: (0, 0)).
-        negative_original_size: Negative original size (optional).
-        negative_target_size: Negative target size (optional).
-        negative_crops_coords_top_left: Negative crop coordinates (default: (0, 0)).
+def make_sdxl_unet_inputs(unet, dtype=torch.float32):
+    """Generate synthetic UNet inputs from the UNet config.
 
     Returns:
-        tuple: (latent_model_input, timesteps, prompt_embeds, timestep_cond,
-                added_cond_kwargs, add_time_ids)
+        tuple: (latent_model_input, timestep, prompt_embeds, added_cond_kwargs)
     """
-    height = height or pipe.default_sample_size * pipe.vae_scale_factor
-    width = width or pipe.default_sample_size * pipe.vae_scale_factor
-    original_size = original_size or (height, width)
-    target_size = target_size or (height, width)
+    cfg = unet.config
+    batch = 2  # classifier-free guidance doubles the batch
+    latent_h = 128  # 1024 // 8
+    latent_w = 128
 
-    pipe.check_inputs(
-        prompt,
-        None,
-        height,
-        width,
-        negative_prompt=negative_prompt,
-        prompt_embeds=None,
-        negative_prompt_embeds=None,
-        pooled_prompt_embeds=None,
-        negative_pooled_prompt_embeds=None,
-        callback_steps=None,
-        callback_on_step_end_tensor_inputs=["latents"],
+    latent_model_input = torch.randn(
+        batch, cfg.in_channels, latent_h, latent_w, dtype=dtype
     )
+    timestep = torch.tensor([999], dtype=torch.long)
+    prompt_embeds = torch.randn(batch, 77, cfg.cross_attention_dim, dtype=dtype)
 
-    do_classifier_free_guidance = True
-    (
-        prompt_embeds,
-        negative_prompt_embeds,
-        pooled_prompt_embeds,
-        negative_pooled_prompt_embeds,
-    ) = pipe.encode_prompt(
-        prompt=prompt,
-        negative_prompt=negative_prompt,
-        do_classifier_free_guidance=True,
-        device=device,
-        num_images_per_prompt=num_images_per_prompt,
-        clip_skip=clip_skip,
-    )
+    # SDXL time-embedding: text_embeds (1280) + 6 time_ids sinusoidal-embedded.
+    text_embeds = torch.randn(batch, 1280, dtype=dtype)
+    time_ids = torch.tensor([[1024, 1024, 0, 0, 1024, 1024]] * batch, dtype=dtype)
+    added_cond_kwargs = {"text_embeds": text_embeds, "time_ids": time_ids}
 
-    timesteps, num_inference_steps = retrieve_timesteps(
-        pipe.scheduler,
-        num_inference_steps=num_inference_steps,
-        device=device,
-        timesteps=timesteps,
-        sigmas=sigmas,
-    )
-
-    if isinstance(prompt, str):
-        batch_size = 1
-    elif prompt is not None and isinstance(prompt, list):
-        batch_size = len(prompt)
-    else:
-        batch_size = prompt_embeds.shape[0]
-
-    num_channels_latents = pipe.unet.config.in_channels
-    torch.manual_seed(42)
-    latents = torch.randn(
-        (
-            batch_size * num_images_per_prompt,
-            num_channels_latents,
-            height // pipe.vae_scale_factor,
-            width // pipe.vae_scale_factor,
-        ),
-        device=device,
-    )
-    latents = latents * pipe.scheduler.init_noise_sigma
-
-    add_text_embeds = pooled_prompt_embeds
-    if pipe.text_encoder_2 is None:
-        text_encoder_projection_dim = int(pooled_prompt_embeds.shape[-1])
-    else:
-        text_encoder_projection_dim = pipe.text_encoder_2.config.projection_dim
-
-    add_time_ids = pipe._get_add_time_ids(
-        original_size,
-        crops_coords_top_left,
-        target_size,
-        dtype=prompt_embeds.dtype,
-        text_encoder_projection_dim=text_encoder_projection_dim,
-    )
-
-    if negative_original_size is not None and negative_target_size is not None:
-        negative_add_time_ids = pipe._get_add_time_ids(
-            negative_original_size,
-            negative_crops_coords_top_left,
-            negative_target_size,
-            dtype=prompt_embeds.dtype,
-            text_encoder_projection_dim=text_encoder_projection_dim,
-        )
-    else:
-        negative_add_time_ids = add_time_ids
-
-    if do_classifier_free_guidance:
-        prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0)
-        add_text_embeds = torch.cat(
-            [negative_pooled_prompt_embeds, add_text_embeds], dim=0
-        )
-        add_time_ids = torch.cat([negative_add_time_ids, add_time_ids], dim=0)
-
-    prompt_embeds = prompt_embeds.to(device)
-    add_text_embeds = add_text_embeds.to(device)
-    add_time_ids = add_time_ids.to(device).repeat(batch_size * num_images_per_prompt, 1)
-
-    timestep_cond = None
-    if pipe.unet.config.time_cond_proj_dim is not None:
-        guidance_scale_tensor = torch.tensor(guidance_scale - 1).repeat(
-            batch_size * num_images_per_prompt
-        )
-        timestep_cond = pipe.get_guidance_scale_embedding(
-            guidance_scale_tensor,
-            embedding_dim=pipe.unet.config.time_cond_proj_dim,
-        ).to(device=device, dtype=latents.dtype)
-
-    added_cond_kwargs = {"text_embeds": add_text_embeds, "time_ids": add_time_ids}
-
-    latent_model_input = (
-        torch.cat([latents] * 2) if do_classifier_free_guidance else latents
-    )
-    latent_model_input = pipe.scheduler.scale_model_input(
-        latent_model_input, timesteps[0]
-    )
-
-    return (
-        latent_model_input,
-        timesteps,
-        prompt_embeds,
-        timestep_cond,
-        added_cond_kwargs,
-        add_time_ids,
-    )
+    return latent_model_input, timestep, prompt_embeds, added_cond_kwargs

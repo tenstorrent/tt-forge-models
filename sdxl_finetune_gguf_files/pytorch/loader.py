@@ -25,7 +25,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from .src.model_utils import load_gguf_pipe, stable_diffusion_preprocessing_xl
+from .src.model_utils import load_gguf_unet, make_sdxl_unet_inputs
 
 REPO_ID = "Old-Fisherman/SDXL_Finetune_GGUF_Files"
 
@@ -51,11 +51,9 @@ class ModelLoader(ForgeModel):
     GGUF_SUBFOLDER = "GGUF_Models"
     GGUF_FILE = "juggernautXL_juggXIByRundiffusion_Q4_K_S.gguf"
 
-    prompt = "An astronaut riding a green horse"
-
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self.pipeline = None
+        self._unet = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -71,42 +69,36 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the SDXL finetune pipeline from GGUF checkpoint.
+        """Load and return the SDXL UNet from the GGUF checkpoint.
 
         Returns:
-            DiffusionPipeline: The loaded pipeline instance.
+            UNet2DConditionModel: The loaded UNet instance.
         """
-        if self.pipeline is None:
-            self.pipeline = load_gguf_pipe(
+        if self._unet is None:
+            self._unet = load_gguf_unet(
                 REPO_ID, self.GGUF_FILE, subfolder=self.GGUF_SUBFOLDER
             )
 
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            self._unet = self._unet.to(dtype_override)
 
-        return self.pipeline
+        return self._unet
 
     def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the model.
+        """Load and return synthetic inputs for the SDXL UNet.
 
         Returns:
-            list: Input tensors for the UNet model.
+            list: [latent_model_input, timestep, prompt_embeds, added_cond_kwargs]
         """
-        if self.pipeline is None:
+        if self._unet is None:
             self.load_model(dtype_override=dtype_override)
 
+        dtype = dtype_override if dtype_override is not None else None
         (
             latent_model_input,
-            timesteps,
+            timestep,
             prompt_embeds,
-            timestep_cond,
             added_cond_kwargs,
-            add_time_ids,
-        ) = stable_diffusion_preprocessing_xl(self.pipeline, self.prompt)
+        ) = make_sdxl_unet_inputs(self._unet, dtype=dtype or self._unet.dtype)
 
-        if dtype_override:
-            latent_model_input = latent_model_input.to(dtype_override)
-            timesteps = timesteps.to(dtype_override)
-            prompt_embeds = prompt_embeds.to(dtype_override)
-
-        return [latent_model_input, timesteps, prompt_embeds, added_cond_kwargs]
+        return [latent_model_input, timestep, prompt_embeds, added_cond_kwargs]
