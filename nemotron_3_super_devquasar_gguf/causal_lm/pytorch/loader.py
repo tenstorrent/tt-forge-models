@@ -273,7 +273,7 @@ _orig_get_gguf_hf_weights_map = _gguf_utils.get_gguf_hf_weights_map
 
 
 def _patched_get_gguf_hf_weights_map(
-    hf_model, processor=None, model_type=None, **kwargs
+    hf_model, processor=None, model_type=None, num_layers=None, **kwargs
 ):
     mt = hf_model.config.model_type if model_type is None else model_type
     if mt == "nemotron_h":
@@ -281,10 +281,12 @@ def _patched_get_gguf_hf_weights_map(
     orig_params = inspect.signature(_orig_get_gguf_hf_weights_map).parameters
     if "processor" in orig_params:
         return _orig_get_gguf_hf_weights_map(
-            hf_model, processor, model_type=mt, **kwargs
+            hf_model, processor, model_type=mt, num_layers=num_layers, **kwargs
         )
     else:
-        return _orig_get_gguf_hf_weights_map(hf_model, model_type=mt, **kwargs)
+        return _orig_get_gguf_hf_weights_map(
+            hf_model, model_type=mt, num_layers=num_layers, **kwargs
+        )
 
 
 _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
