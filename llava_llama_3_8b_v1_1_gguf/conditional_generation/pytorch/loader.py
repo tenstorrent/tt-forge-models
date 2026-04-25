@@ -45,7 +45,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.LLAVA_LLAMA_3_8B_V1_1_F16: "llava-llama-3-8b-v1_1-f16.gguf",
     }
 
-    _PROCESSOR_NAME = "xtuner/llava-llama-3-8b-v1_1-hf"
+    # xtuner/llava-llama-3-8b-v1_1-hf uses model_type `llava_llama` which is not
+    # recognized by transformers 5.x; use the standard llava-1.5-7b-hf instead.
+    _PROCESSOR_NAME = "llava-hf/llava-1.5-7b-hf"
 
     sample_text = "What's shown in this image?"
 
