@@ -161,10 +161,10 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None):
         """
-        Load and return preprocessed input observations for Isaac GR00T.
+        Load and return synthetic preprocessed inputs for Isaac GR00T.
 
-        Uses the demo dataset (robot_sim.PickNPlace) and loads the first sample (index 0).
-        Model must be loaded before calling this method.
+        Generates synthetic inputs using the Eagle processor on a dummy image,
+        bypassing the LeRobotSingleDataset which requires IRD_LF_CACHE.
 
         Args:
             dtype_override: Optional dtype to cast inputs to (not recommended for GR00T)
@@ -172,7 +172,9 @@ class ModelLoader(ForgeModel):
         Returns:
             Dictionary containing preprocessed observation tensors ready for model inference
         """
-        from .src.utils import LeRobotSingleDataset
+        from PIL import Image
+        from .src.model import build_eagle_processor, collate
+        from .src.utils import EMBODIMENT_TAG_MAPPING, EmbodimentTag
 
         # Ensure model is loaded
         if not hasattr(self, "_model") or self._model is None:
@@ -183,26 +185,70 @@ class ModelLoader(ForgeModel):
 
         self._load_data_config()
 
-        # Load dataset (no dataset_path needed - all files loaded via get_file)
-        dataset = LeRobotSingleDataset(
-            modality_configs=self._modality_config,
-            embodiment_tag=self.embodiment_tag,
-            video_backend="ffmpeg",
-            video_backend_kwargs=None,
-            transforms=None,
+        # Build Eagle processor from cached files (no IRD_LF_CACHE needed)
+        eagle_processor = build_eagle_processor()
+
+        # Count video views from modality config
+        n_views = len(self._modality_config["video"].modality_keys)
+
+        # Create dummy PIL images (224x224 black, one per camera view)
+        dummy_images = [
+            Image.fromarray(np.zeros((224, 224, 3), dtype=np.uint8))
+            for _ in range(n_views)
+        ]
+
+        # Build eagle conversation identical to GR00TTransform._apply_vlm_processing
+        instruction = "Perform the default behavior."
+        eagle_conversation = [
+            {
+                "role": "user",
+                "content": [
+                    *[{"type": "image", "image": img} for img in dummy_images],
+                    {"type": "text", "text": instruction},
+                ],
+            }
+        ]
+
+        text_list = [
+            eagle_processor.py_apply_chat_template(
+                eagle_conversation, tokenize=False, add_generation_prompt=True
+            )
+        ]
+        image_inputs, video_inputs = eagle_processor.process_vision_info(
+            eagle_conversation
         )
 
-        # Get first sample (index 0)
-        observations = dataset[0]
-        if dtype_override:
-            print(
-                f"Warning: dtype_override may not work well with mixed-type observations (videos, states, etc.)."
-            )
+        eagle_content = {
+            "image_inputs": image_inputs,
+            "video_inputs": video_inputs,
+            "text_list": text_list,
+        }
 
-        # Apply preprocessing
-        observations = self._model.preprocess(observations)
+        # Get state dimensions from model config
+        model_config = self._model.policy.model.config
+        max_state_dim = getattr(model_config, "max_state_dim", 128)
+        state_horizon = 1
 
-        return observations
+        # Embodiment ID lookup
+        try:
+            embodiment_id = EMBODIMENT_TAG_MAPPING[
+                EmbodimentTag(self.embodiment_tag).value
+            ]
+        except (KeyError, ValueError):
+            embodiment_id = 0
+
+        features = [
+            {
+                "eagle_content": eagle_content,
+                "state": np.zeros((state_horizon, max_state_dim), dtype=np.float32),
+                "state_mask": np.zeros((state_horizon, max_state_dim), dtype=bool),
+                "embodiment_id": embodiment_id,
+            }
+        ]
+
+        inputs = collate(features, eagle_processor)
+        inputs["_was_batched"] = True
+        return inputs
 
     def postprocess(self, raw_action_tensor: torch.Tensor) -> Dict[str, np.ndarray]:
         """

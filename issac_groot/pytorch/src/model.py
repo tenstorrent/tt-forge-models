@@ -269,7 +269,11 @@ class GR00T_N1_5_Config(PretrainedConfig):
                 "reproject_vision": kwargs.get("reproject_vision", False),
                 "use_flash_attention": kwargs.get("use_flash_attention", False),
                 "load_bf16": kwargs.get("load_bf16", False),
-                "project_to_dim": kwargs.get("input_embedding_dim", 1536),
+                # The checkpoint has no eagle_linear projection weights; Eagle
+                # produces backbone_embedding_dim-sized features directly.
+                # input_embedding_dim is used by the action head for state
+                # embeddings, not for visual projection.
+                "project_to_dim": None,
             }
 
         if not isinstance(getattr(self, "action_head_cfg", None), dict):
