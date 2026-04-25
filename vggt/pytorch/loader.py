@@ -61,7 +61,7 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if os.environ.get("TT_RANDOM_WEIGHTS"):
-            model = VGGT()
+            model = VGGT().float()
         else:
             model = VGGT.from_pretrained(pretrained_model_name)
 
