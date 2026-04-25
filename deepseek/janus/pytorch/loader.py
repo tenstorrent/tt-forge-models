@@ -8,6 +8,7 @@ DeepSeek Janus model loader implementation for multimodal understanding.
 from typing import Optional
 
 from PIL import Image
+from janus.models import MultiModalityCausalLM  # registers multi_modality type
 from transformers import AutoModelForCausalLM, AutoProcessor
 
 from ....base import ForgeModel
