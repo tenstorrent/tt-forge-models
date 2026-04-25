@@ -37,6 +37,13 @@ class ModelLoader(ForgeModel):
         ),
     }
 
+    # Preprocessor model names — fine-tuned variants may not ship policy_preprocessor.json,
+    # so we fall back to the base model's preprocessor for those.
+    _PREPROCESSOR_MODEL = {
+        ModelVariant.LIBERO_BASE: "lerobot/pi05_libero_base",
+        ModelVariant.FLOW_V2_FEB24: "lerobot/pi05_libero_base",
+    }
+
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.LIBERO_BASE
 
@@ -94,9 +101,10 @@ class ModelLoader(ForgeModel):
         from lerobot.policies.factory import make_pre_post_processors
         from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
+        preprocessor_model = self._PREPROCESSOR_MODEL[self._variant]
         self.preprocess, self.postprocess_fn = make_pre_post_processors(
             self.pi_05.config,
-            self.pretrained_model_name,
+            preprocessor_model,
             preprocessor_overrides={"device_processor": {"device": "cpu"}},
         )
         dataset = LeRobotDataset("lerobot/libero")
