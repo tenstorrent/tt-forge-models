@@ -27,6 +27,10 @@ def _patch_transformers_deci_gguf():
         config = result.get("config", {})
         if config.get("model_type") == "deci":
             config["model_type"] = "llama"
+            # DeciLM stores per-layer attention counts as lists; LlamaConfig needs ints
+            for key in ("num_attention_heads", "num_key_value_heads"):
+                if isinstance(config.get(key), list):
+                    config[key] = config[key][0]
         return result
 
     gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
