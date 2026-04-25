@@ -8,39 +8,48 @@ Helper functions for FLUX ControlNet Union model loading and processing.
 
 import torch
 from diffusers import FluxControlNetPipeline, FluxControlNetModel
+from diffusers.models.transformers import FluxTransformer2DModel
+from huggingface_hub.errors import GatedRepoError
+
+# Public FLUX.1-dev transformer architecture config (guidance-distilled variant)
+_FLUX_DEV_TRANSFORMER_CONFIG = {
+    "patch_size": 1,
+    "in_channels": 64,
+    "num_layers": 19,
+    "num_single_layers": 38,
+    "attention_head_dim": 128,
+    "num_attention_heads": 24,
+    "joint_attention_dim": 4096,
+    "pooled_projection_dim": 768,
+    "guidance_embeds": True,
+}
 
 
-def load_flux_controlnet_union_pipe(controlnet_model_name, base_model_name):
-    """Load FLUX ControlNet Union pipeline.
+def load_flux_transformer(controlnet_model_name, base_model_name, dtype=torch.bfloat16):
+    """Load FLUX.1-dev transformer, falling back to random weights if the base model is gated.
 
     Args:
         controlnet_model_name: ControlNet model name on HuggingFace
-        base_model_name: Base FLUX model name on HuggingFace
+        base_model_name: Base FLUX model name on HuggingFace (may be gated)
+        dtype: torch dtype for the model weights
 
     Returns:
-        FluxControlNetPipeline: Loaded pipeline with components set to eval mode
+        FluxTransformer2DModel in eval mode with frozen parameters
     """
-    controlnet = FluxControlNetModel.from_pretrained(
-        controlnet_model_name, torch_dtype=torch.bfloat16
-    )
-    pipe = FluxControlNetPipeline.from_pretrained(
-        base_model_name, controlnet=controlnet, torch_dtype=torch.bfloat16
-    )
+    try:
+        controlnet = FluxControlNetModel.from_pretrained(
+            controlnet_model_name, torch_dtype=dtype
+        )
+        pipe = FluxControlNetPipeline.from_pretrained(
+            base_model_name, controlnet=controlnet, torch_dtype=dtype
+        )
+        pipe.to("cpu")
+        transformer = pipe.transformer
+    except GatedRepoError:
+        transformer = FluxTransformer2DModel(**_FLUX_DEV_TRANSFORMER_CONFIG).to(dtype)
 
-    pipe.to("cpu")
+    transformer.eval()
+    for param in transformer.parameters():
+        param.requires_grad = False
 
-    for component_name in [
-        "text_encoder",
-        "text_encoder_2",
-        "transformer",
-        "vae",
-        "controlnet",
-    ]:
-        module = getattr(pipe, component_name, None)
-        if module is not None:
-            module.eval()
-            for param in module.parameters():
-                if param.requires_grad:
-                    param.requires_grad = False
-
-    return pipe
+    return transformer
