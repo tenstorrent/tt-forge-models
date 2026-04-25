@@ -8,9 +8,7 @@ import glob
 import inspect
 import os
 import sys
-import tempfile
 import textwrap
-from PIL import Image
 from transformers import AutoTokenizer, AutoModel
 from typing import Optional
 
@@ -149,6 +147,28 @@ class ModelLoader(ForgeModel):
         model.eval()
         return model
 
+    def _create_synthetic_inputs(self, dtype_override=None):
+        """Synthetic inputs with zero images so the model skips image encoding."""
+        import torch
+
+        text = "Convert the document to markdown."
+        tokens = self.tokenizer.encode(text, add_special_tokens=False)
+        input_ids = torch.LongTensor([[0] + tokens])
+        seq_len = input_ids.shape[1]
+        dtype = dtype_override or torch.float32
+        return {
+            "input_ids": input_ids,
+            # Zero image_ori causes forward to skip masked_scatter_ (sum==0 guard)
+            "images": [
+                (
+                    torch.zeros((1, 3, 1024, 1024), dtype=dtype),
+                    torch.zeros((1, 3, 640, 640), dtype=dtype),
+                )
+            ],
+            "images_seq_mask": torch.zeros(1, seq_len, dtype=torch.bool),
+            "images_spatial_crop": torch.zeros((1, 2), dtype=torch.long),
+        }
+
     def load_inputs(self, dtype_override=None):
         if self.tokenizer is None:
             self._load_tokenizer()
@@ -156,9 +176,7 @@ class ModelLoader(ForgeModel):
         try:
             image_file = get_file("test_images/doc.png")
         except (ValueError, RuntimeError):
-            tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
-            Image.new("RGB", (640, 640), color=(255, 255, 255)).save(tmp.name)
-            image_file = tmp.name
+            return self._create_synthetic_inputs(dtype_override)
 
         inputs = preprocess(
             tokenizer=self.tokenizer,
