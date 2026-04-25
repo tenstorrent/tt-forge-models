@@ -6,6 +6,7 @@ QuantTrio Qwen3-VL-30B-A3B-Thinking AWQ model loader implementation for image to
 """
 
 import gptqmodel  # noqa: F401 — must import before from_pretrained enters meta-device context
+import gptqmodel.quantization.awq.utils.packing_utils as _awq_packing
 from gptqmodel.nn_modules.qlinear.gemm_hf_kernel_awq import HFKernelAwqLinear
 
 from transformers import (
@@ -13,6 +14,27 @@ from transformers import (
     AutoProcessor,
 )
 from typing import Optional
+
+import torch
+
+# Patch dequantize_gemm to crop padded scales/zeros to actual weight size.
+# Some AWQ checkpoints pad in_features to the next group_size boundary; the
+# original function assumes exact alignment and errors with a size mismatch.
+_orig_dequantize_gemm = _awq_packing.dequantize_gemm
+
+
+def _dequantize_gemm_padded(qweight, qzeros, scales, bits, group_size):
+    iweight, izeros = _awq_packing.unpack_awq(qweight, qzeros, bits)
+    iweight, izeros = _awq_packing.reverse_awq_order(iweight, izeros, bits)
+    iweight = torch.bitwise_and(iweight, (2**bits) - 1)
+    izeros = torch.bitwise_and(izeros, (2**bits) - 1)
+    K = iweight.shape[0]
+    scales_exp = scales.repeat_interleave(group_size, dim=0)[:K]
+    izeros_exp = izeros.repeat_interleave(group_size, dim=0)[:K]
+    return (iweight - izeros_exp) * scales_exp
+
+
+_awq_packing.dequantize_gemm = _dequantize_gemm_padded
 
 from ...base import ForgeModel
 from ...config import (
