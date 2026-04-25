@@ -9,6 +9,105 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    get_gguf_hf_weights_map as _orig_get_gguf_hf_weights_map,
+    GGUF_SUPPORTED_ARCHITECTURES,
+    Gemma2TensorProcessor,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+
+def _patch_gemma3n_support():
+    """Register gemma3n GGUF architecture as gemma3n_text for transformers.
+
+    Gemma 3n is a multimodal model. The GGUF file contains only text backbone weights
+    and declares architecture as 'gemma3n', but transformers uses model_type 'gemma3n_text'
+    (Gemma3nForCausalLM) for the text-only causal LM.
+    """
+    if "gemma3n" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("gemma3n")
+    config_mapping = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING.get("config", {})
+    if "gemma3n" not in config_mapping:
+        config_mapping["gemma3n"] = {
+            "context_length": "max_position_embeddings",
+            "block_count": "num_hidden_layers",
+            "feed_forward_length": "intermediate_size",
+            "embedding_length": "hidden_size",
+            "rope.dimension_count": None,
+            "rope.freq_base": None,
+            "attention.key_length": "head_dim",
+            "attention.head_count": "num_attention_heads",
+            "attention.head_count_kv": "num_key_value_heads",
+            "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+            "attention.sliding_window": "sliding_window",
+            "vocab_size": "vocab_size",
+            "altup.active_idx": "altup_active_idx",
+            "altup.num_inputs": "altup_num_inputs",
+            "embedding_length_per_layer_input": "hidden_size_per_layer_input",
+            "attention.shared_kv_layers": "num_kv_shared_layers",
+            "attention.value_length": None,
+            "activation_sparsity_scale": None,
+            "attention.sliding_window_pattern": None,
+        }
+    if "gemma3n" not in _gguf_utils.TENSOR_PROCESSORS:
+        _gguf_utils.TENSOR_PROCESSORS["gemma3n"] = Gemma2TensorProcessor
+    if "gemma3_text" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "gemma3n_text", GGUF_TO_FAST_CONVERTERS["gemma3_text"]
+        )
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "gemma3n", GGUF_TO_FAST_CONVERTERS["gemma3_text"]
+        )
+
+
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
+    """Wrap get_gguf_hf_weights_map to translate gemma3n_text -> gemma3n arch key."""
+    actual_type = (
+        model_type
+        if model_type is not None
+        else (hf_model.config.model_type if hf_model is not None else None)
+    )
+    if actual_type == "gemma3n_text":
+        model_type = "gemma3n"
+    return _orig_get_gguf_hf_weights_map(
+        hf_model,
+        processor,
+        model_type=model_type,
+        num_layers=num_layers,
+        qual_name=qual_name,
+    )
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    """Wrap load_gguf_checkpoint to add gemma3n support and fix model_type."""
+    _patch_gemma3n_support()
+    result = _orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, **kwargs
+    )
+    if result.get("config", {}).get("model_type") == "gemma3n":
+        result["config"]["model_type"] = "gemma3n_text"
+        # GGUF stores num_kv_shared_layers as float; config needs int
+        if "num_kv_shared_layers" in result["config"]:
+            result["config"]["num_kv_shared_layers"] = int(
+                result["config"]["num_kv_shared_layers"]
+            )
+    return result
+
+
+_patch_gemma3n_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
