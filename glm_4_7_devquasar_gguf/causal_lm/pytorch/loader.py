@@ -141,6 +141,20 @@ def _patch_transformers_glm4moe_gguf():
 
     gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
+    # 5. Patch get_gguf_hf_weights_map to remap glm4_moe -> glm4moe for gguf-py arch lookup
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type == "glm4_moe":
+            model_type = "glm4moe"
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
     # Also patch modules that imported load_gguf_checkpoint directly
     import transformers.models.auto.tokenization_auto as tok_auto
     import transformers.configuration_utils as config_utils
