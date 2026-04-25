@@ -7,6 +7,7 @@ Qwen 3 VL 8B Maid i1 GGUF model loader implementation for image to text.
 
 from transformers import (
     Qwen3VLForConditionalGeneration,
+    AutoConfig,
     AutoProcessor,
 )
 from typing import Optional
@@ -72,8 +73,15 @@ class ModelLoader(ForgeModel):
         # GGUF repos do not ship a processor; use the base model
         self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-8B-Instruct")
 
+        # GGUF metadata overrides out_hidden_size with a wrong default (3584);
+        # load config from the base model to ensure visual/text hidden sizes match.
+        base_config = AutoConfig.from_pretrained("Qwen/Qwen3-VL-8B-Instruct")
+
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
+            pretrained_model_name,
+            config=base_config,
+            ignore_mismatched_sizes=True,
+            **model_kwargs
         )
         model.eval()
 
