@@ -122,6 +122,33 @@ class ModelLoader(ForgeModel):
                 _diffusers_import_utils._gguf_version = importlib.metadata.version(
                     "gguf"
                 )
+                # The gguf_quantizer module's conditional import block ran at
+                # import time when gguf was absent; patch the missing names in
+                # so its methods can resolve them at call time.
+                import sys
+
+                _gguf_q = sys.modules.get("diffusers.quantizers.gguf.gguf_quantizer")
+                if _gguf_q is not None and not hasattr(
+                    _gguf_q, "_replace_with_gguf_linear"
+                ):
+                    import torch as _torch
+
+                    from diffusers.quantizers.gguf.utils import (
+                        GGML_QUANT_SIZES as _GGML_QUANT_SIZES,
+                        GGUFParameter as _GGUFParameter,
+                        _dequantize_gguf_and_restore_linear,
+                        _quant_shape_from_byte_shape,
+                        _replace_with_gguf_linear,
+                    )
+
+                    _gguf_q.torch = _torch
+                    _gguf_q.GGML_QUANT_SIZES = _GGML_QUANT_SIZES
+                    _gguf_q.GGUFParameter = _GGUFParameter
+                    _gguf_q._dequantize_gguf_and_restore_linear = (
+                        _dequantize_gguf_and_restore_linear
+                    )
+                    _gguf_q._quant_shape_from_byte_shape = _quant_shape_from_byte_shape
+                    _gguf_q._replace_with_gguf_linear = _replace_with_gguf_linear
 
         from diffusers import (
             GGUFQuantizationConfig,
@@ -148,6 +175,7 @@ class ModelLoader(ForgeModel):
         self._transformer = HunyuanVideo15Transformer3DModel.from_single_file(
             f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
             config=CONFIG_REPO,
+            subfolder="transformer",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
