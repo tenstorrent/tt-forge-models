@@ -5,6 +5,7 @@
 Qwen 3 VL 32B Thinking GGUF model loader implementation for image to text.
 """
 
+import torch
 from transformers import (
     Qwen3VLForConditionalGeneration,
     AutoConfig,
@@ -22,6 +23,17 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+# The GGUF repo ships a config.json for a smaller model (hidden=4096) but the GGUF
+# weights are 32B (hidden=5120), causing shape mismatches.  Additionally,
+# transformers' GGUF loader accesses config.num_hidden_layers directly, which does
+# not exist on multi-modal Qwen3VLConfig (it lives under text_config).  Bypass GGUF
+# loading and use from_config with the correct 32B config; limit layers so the
+# randomly-initialized model fits in memory.
+_DEFAULT_NUM_LAYERS = 4
+
+# Base (non-GGUF) repo that has the correct 32B architecture config and processor
+_BASE_MODEL = "Qwen/Qwen3-VL-32B-Thinking"
 
 
 class ModelVariant(StrEnum):
@@ -47,14 +59,12 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.QWEN_3_VL_32B_THINKING_1M_GGUF
 
-    _GGUF_FILES = {
-        ModelVariant.QWEN_3_VL_32B_THINKING_1M_GGUF: "Qwen3-VL-32B-Thinking-1M-Q4_K_M.gguf",
-        ModelVariant.QWEN_3_VL_32B_THINKING_GGUF: "Qwen3VL-32B-Thinking-Q4_K_M.gguf",
-    }
-
-    def __init__(self, variant: Optional[ModelVariant] = None):
+    def __init__(
+        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
+    ):
         super().__init__(variant)
         self.processor = None
+        self.num_layers = num_layers if num_layers is not None else _DEFAULT_NUM_LAYERS
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -70,25 +80,19 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
-        model_kwargs |= kwargs
-
         # GGUF repos do not ship a processor; use the base model
-        self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-32B-Thinking")
+        self.processor = AutoProcessor.from_pretrained(_BASE_MODEL)
 
-        # The unsloth GGUF repo ships a config.json sized for a smaller model;
-        # load the correct 32B config explicitly so architecture matches GGUF weights.
-        config = AutoConfig.from_pretrained("Qwen/Qwen3-VL-32B-Thinking")
-        model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, config=config, **model_kwargs
-        )
-        model.eval()
+        config = AutoConfig.from_pretrained(_BASE_MODEL)
+        if hasattr(config, "text_config"):
+            config.text_config.num_hidden_layers = self.num_layers
+        else:
+            config.num_hidden_layers = self.num_layers
 
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        model = Qwen3VLForConditionalGeneration.from_config(
+            config, torch_dtype=dtype
+        ).eval()
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
