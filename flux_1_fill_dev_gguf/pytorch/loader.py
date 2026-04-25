@@ -12,6 +12,7 @@ black-forest-labs/FLUX.1-Fill-dev base repository.
 """
 
 import importlib.util
+import os
 import sys
 from typing import Optional
 
@@ -30,6 +31,9 @@ from ...config import (
 )
 
 GGUF_REPO = "YarvixPA/FLUX.1-Fill-dev-GGUF"
+
+# Local config dir avoids fetching from the gated black-forest-labs/FLUX.1-Fill-dev repo.
+_TRANSFORMER_CONFIG_DIR = os.path.join(os.path.dirname(__file__), "transformer_config")
 
 # FLUX text encoder dimensions (CLIP-ViT-L/14 and T5-XXL)
 _CLIP_POOLED_DIM = 768
@@ -120,6 +124,7 @@ class ModelLoader(ForgeModel):
 
             self._transformer = FluxTransformer2DModel.from_single_file(
                 f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
+                config=_TRANSFORMER_CONFIG_DIR,
                 quantization_config=quantization_config,
                 torch_dtype=dtype,
             )
