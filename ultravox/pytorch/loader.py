@@ -283,6 +283,20 @@ class ModelLoader(ForgeModel):
             PreTrainedModel.init_weights = _compat_init_weights
             PreTrainedModel._tie_weights_compat_patched = True
 
+        # transformers 5.x removed layer_head_mask from WhisperEncoderLayer.forward(),
+        # but the legacy custom ModifiedWhisperEncoder still passes it. Patch to ignore it.
+        from transformers.models.whisper.modeling_whisper import WhisperEncoderLayer
+
+        if not getattr(WhisperEncoderLayer, "_layer_head_mask_compat_patched", False):
+            _orig_whisper_forward = WhisperEncoderLayer.forward
+
+            def _compat_whisper_forward(self, *args, **kwargs):
+                kwargs.pop("layer_head_mask", None)
+                return _orig_whisper_forward(self, *args, **kwargs)
+
+            WhisperEncoderLayer.forward = _compat_whisper_forward
+            WhisperEncoderLayer._layer_head_mask_compat_patched = True
+
         pretrained_model_name = self._variant_config.pretrained_model_name
         patched_dir = self._get_patched_model_dir()
 
