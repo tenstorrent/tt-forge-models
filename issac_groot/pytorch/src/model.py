@@ -47,10 +47,16 @@ from .utils import (
 from transformers.image_processing_utils import BatchFeature, get_patch_output_size
 from transformers.image_processing_utils_fast import (
     BaseImageProcessorFast,
-    DefaultFastImageProcessorKwargs,
     group_images_by_shape,
     reorder_images,
 )
+
+try:
+    from transformers.image_processing_utils_fast import DefaultFastImageProcessorKwargs
+except ImportError:
+    from transformers.image_processing_utils_fast import (
+        ImagesKwargs as DefaultFastImageProcessorKwargs,
+    )
 from transformers.image_utils import IMAGENET_STANDARD_MEAN  # 0.5, 0.5, 0.5
 from transformers.image_utils import IMAGENET_STANDARD_STD  # 0.5, 0.5, 0.5
 from transformers.image_utils import (
@@ -242,21 +248,72 @@ N_COLOR_CHANNELS = 3
 @dataclass
 class GR00T_N1_5_Config(PretrainedConfig):
     model_type = "gr00t_n1_5"
-    backbone_cfg: dict = field(init=False, metadata={"help": "Backbone configuration."})
-
-    action_head_cfg: dict = field(
-        init=False, metadata={"help": "Action head configuration."}
+    backbone_cfg: Optional[dict] = field(
+        init=False, default=None, metadata={"help": "Backbone configuration."}
     )
 
-    action_horizon: int = field(init=False, metadata={"help": "Action horizon."})
+    action_head_cfg: Optional[dict] = field(
+        init=False, default=None, metadata={"help": "Action head configuration."}
+    )
 
-    action_dim: int = field(init=False, metadata={"help": "Action dimension."})
+    action_horizon: Optional[int] = field(
+        init=False, default=None, metadata={"help": "Action horizon."}
+    )
+
+    action_dim: Optional[int] = field(
+        init=False, default=None, metadata={"help": "Action dimension."}
+    )
     compute_dtype: str = field(default="float32", metadata={"help": "Compute dtype."})
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         for key, value in kwargs.items():
             setattr(self, key, value)
+
+        # Construct backbone_cfg from flat N1.6-style config if not provided
+        if self.backbone_cfg is None and hasattr(self, "model_name"):
+            diffusion_cfg = getattr(self, "diffusion_model_cfg", {}) or {}
+            if "cross_attention_dim" not in diffusion_cfg:
+                diffusion_cfg = dict(diffusion_cfg)
+                diffusion_cfg["cross_attention_dim"] = getattr(
+                    self, "backbone_embedding_dim", 2048
+                )
+            self.backbone_cfg = {
+                "eagle_path": getattr(self, "model_name", None),
+                "tune_llm": getattr(self, "tune_llm", False),
+                "tune_visual": getattr(self, "tune_visual", False),
+                "select_layer": getattr(self, "select_layer", -1),
+                "reproject_vision": False,
+                "use_flash_attention": getattr(self, "use_flash_attention", False),
+                "load_bf16": getattr(self, "load_bf16", False),
+                "project_to_dim": getattr(self, "input_embedding_dim", 1536),
+            }
+            self.action_head_cfg = {
+                "backbone_embedding_dim": getattr(self, "backbone_embedding_dim", 2048),
+                "input_embedding_dim": getattr(self, "input_embedding_dim", 1536),
+                "hidden_size": getattr(self, "hidden_size", 1024),
+                "max_seq_len": getattr(self, "max_seq_len", 1024),
+                "action_horizon": getattr(self, "action_horizon", None),
+                "action_dim": getattr(self, "max_action_dim", None),
+                "noise_beta_alpha": getattr(self, "noise_beta_alpha", 1.5),
+                "noise_beta_beta": getattr(self, "noise_beta_beta", 1.0),
+                "noise_s": getattr(self, "noise_s", 0.999),
+                "num_timestep_buckets": getattr(self, "num_timestep_buckets", 1000),
+                "num_inference_timesteps": getattr(
+                    self, "num_inference_timesteps", None
+                ),
+                "max_num_embodiments": getattr(self, "max_num_embodiments", 32),
+                "max_state_dim": getattr(self, "max_state_dim", 128),
+                "tune_projector": getattr(self, "tune_projector", True),
+                "tune_diffusion_model": getattr(self, "tune_diffusion_model", True),
+                "diffusion_model_cfg": diffusion_cfg,
+                "add_pos_embed": getattr(self, "add_pos_embed", True),
+                "model_dtype": getattr(self, "model_dtype", "float32"),
+                "use_vlln": getattr(self, "use_vlln", True),
+                "use_mask_token": True,
+            }
+            self.action_dim = getattr(self, "max_action_dim", None)
+            self.action_horizon = getattr(self, "action_horizon", None)
 
 
 class GR00T_N1_5(PreTrainedModel):
@@ -469,6 +526,288 @@ AutoConfig.register("gr00t_n1_5", GR00T_N1_5_Config)
 AutoModel.register(GR00T_N1_5_Config, GR00T_N1_5)
 
 
+@dataclass
+class Gr00tN1d6Config(PretrainedConfig):
+    """Config for GR00T N1.6 models (flat config format)."""
+
+    model_type = "Gr00tN1d6"
+
+    backbone_cfg: Optional[dict] = field(
+        init=False, default=None, metadata={"help": "Backbone configuration."}
+    )
+    action_head_cfg: Optional[dict] = field(
+        init=False, default=None, metadata={"help": "Action head configuration."}
+    )
+    action_horizon: Optional[int] = field(
+        init=False, default=None, metadata={"help": "Action horizon."}
+    )
+    action_dim: Optional[int] = field(
+        init=False, default=None, metadata={"help": "Action dimension."}
+    )
+    compute_dtype: str = field(default="bfloat16", metadata={"help": "Compute dtype."})
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+        diffusion_cfg = dict(getattr(self, "diffusion_model_cfg", {}) or {})
+        if "cross_attention_dim" not in diffusion_cfg:
+            diffusion_cfg["cross_attention_dim"] = getattr(
+                self, "backbone_embedding_dim", 2048
+            )
+
+        if self.backbone_cfg is None:
+            self.backbone_cfg = {
+                "eagle_path": getattr(self, "model_name", None),
+                "tune_llm": getattr(self, "tune_llm", False),
+                "tune_visual": getattr(self, "tune_visual", False),
+                "select_layer": getattr(self, "select_layer", -1),
+                "reproject_vision": False,
+                "use_flash_attention": getattr(self, "use_flash_attention", False),
+                "load_bf16": getattr(self, "load_bf16", False),
+                "project_to_dim": None,
+            }
+
+        if self.action_head_cfg is None:
+            self.action_head_cfg = {
+                "backbone_embedding_dim": getattr(self, "backbone_embedding_dim", 2048),
+                "input_embedding_dim": getattr(self, "input_embedding_dim", 1536),
+                "hidden_size": getattr(self, "hidden_size", 1024),
+                "max_seq_len": getattr(self, "max_seq_len", 1024),
+                "action_horizon": getattr(self, "action_horizon", None),
+                "action_dim": getattr(self, "max_action_dim", None),
+                "noise_beta_alpha": getattr(self, "noise_beta_alpha", 1.5),
+                "noise_beta_beta": getattr(self, "noise_beta_beta", 1.0),
+                "noise_s": getattr(self, "noise_s", 0.999),
+                "num_timestep_buckets": getattr(self, "num_timestep_buckets", 1000),
+                "num_inference_timesteps": getattr(
+                    self, "num_inference_timesteps", None
+                ),
+                "max_num_embodiments": getattr(self, "max_num_embodiments", 32),
+                "max_state_dim": getattr(self, "max_state_dim", 128),
+                "tune_projector": getattr(self, "tune_projector", True),
+                "tune_diffusion_model": getattr(self, "tune_diffusion_model", True),
+                "diffusion_model_cfg": diffusion_cfg,
+                "add_pos_embed": getattr(self, "add_pos_embed", True),
+                "model_dtype": getattr(self, "model_dtype", "bfloat16"),
+                "use_vlln": getattr(self, "use_vlln", True),
+                "use_mask_token": True,
+            }
+
+        if self.action_dim is None:
+            self.action_dim = getattr(self, "max_action_dim", None)
+        if self.action_horizon is None:
+            self.action_horizon = getattr(self, "action_horizon", None)
+
+
+class Gr00tN1d6Backbone(nn.Module):
+    """Backbone for GR00T N1.6 models - stores Eagle model as self.model."""
+
+    def __init__(
+        self,
+        tune_llm: bool = False,
+        tune_visual: bool = False,
+        select_layer: int = -1,
+        reproject_vision: bool = False,
+        use_flash_attention: bool = False,
+        load_bf16: bool = False,
+        eagle_path: str | None = None,
+        project_to_dim: int | None = None,
+    ):
+        super().__init__()
+        assert not reproject_vision, "reproject_vision not implemented"
+
+        # Eagle-Block2A-2B-v2: SigLIP2 ViT-L vision + Qwen3-2B language
+        vision_config = {
+            "model_type": "siglip_vision_model",
+            "hidden_size": 1152,
+            "num_hidden_layers": 27,
+            "num_attention_heads": 16,
+            "intermediate_size": 4304,
+            "patch_size": 14,
+            "image_size": 224,
+        }
+        text_config = {
+            "architectures": ["Qwen3ForCausalLM"],
+            "hidden_size": 2048,
+            "intermediate_size": 6144,
+            "num_hidden_layers": 16,
+            "num_attention_heads": 16,
+            "num_key_value_heads": 8,
+            "vocab_size": 151680,
+            "head_dim": 128,
+        }
+        config = Eagle2_5_VLConfig(
+            vision_config=vision_config,
+            text_config=text_config,
+            use_pixel_shuffle=True,
+            downsample_ratio=0.5,
+            mlp_connector_layers=2,
+            _attn_implementation="eager",
+        )
+
+        self.model = Eagle2_5_VLForConditionalGeneration(config)
+
+        if project_to_dim is not None:
+            self.eagle_linear = torch.nn.Linear(2048, project_to_dim)
+        else:
+            self.eagle_linear = torch.nn.Identity()
+
+        while len(self.model.language_model.model.layers) > select_layer:
+            self.model.language_model.model.layers.pop(-1)
+
+        self.select_layer = select_layer
+        self.set_trainable_parameters(tune_llm, tune_visual)
+
+    def set_trainable_parameters(self, tune_llm: bool, tune_visual: bool):
+        self.tune_llm = tune_llm
+        self.tune_visual = tune_visual
+        for p in self.parameters():
+            p.requires_grad = True
+        if not tune_llm:
+            self.model.language_model.requires_grad_(False)
+        if not tune_visual:
+            self.model.vision_model.requires_grad_(False)
+            self.model.mlp1.requires_grad_(False)
+
+    def set_frozen_modules_to_eval_mode(self):
+        if self.training:
+            if self.model.language_model and not self.tune_llm:
+                self.model.language_model.eval()
+            if self.model.vision_model and not self.tune_visual:
+                self.model.vision_model.eval()
+
+    def prepare_input(self, batch: dict) -> BatchFeature:
+        return BatchFeature(data=batch)
+
+    def forward_eagle(self, vl_input: BatchFeature) -> BatchFeature:
+        eagle_prefix = "eagle_"
+        eagle_input = {
+            k.removeprefix(eagle_prefix): v
+            for k, v in vl_input.items()
+            if k.startswith(eagle_prefix)
+        }
+        del eagle_input["image_sizes"]
+
+        eagle_output = self.model(
+            **eagle_input, output_hidden_states=True, return_dict=True
+        )
+        eagle_features = eagle_output.hidden_states[self.select_layer]
+        eagle_features = self.eagle_linear(eagle_features)
+        return eagle_features, eagle_input["attention_mask"]
+
+    def forward(self, vl_input: BatchFeature) -> BatchFeature:
+        self.set_frozen_modules_to_eval_mode()
+        eagle_embeds, eagle_mask = self.forward_eagle(vl_input)
+        return BatchFeature(
+            data={
+                "backbone_features": eagle_embeds,
+                "backbone_attention_mask": eagle_mask,
+            }
+        )
+
+
+class Gr00tN1d6(PreTrainedModel):
+    """GR00T N1.6 model class."""
+
+    supports_gradient_checkpointing = True
+    config_class = Gr00tN1d6Config
+
+    def __init__(self, config: Gr00tN1d6Config, local_model_path: str):
+        assert isinstance(config.backbone_cfg, dict)
+        assert isinstance(config.action_head_cfg, dict)
+
+        super().__init__(config)
+        self.local_model_path = local_model_path
+
+        self.backbone = Gr00tN1d6Backbone(**config.backbone_cfg)
+        action_head_cfg = FlowmatchingActionHeadConfig(**config.action_head_cfg)
+        self.action_head = FlowmatchingActionHead(action_head_cfg)
+
+        self.action_horizon = config.action_horizon
+        self.action_dim = config.action_dim
+        self.compute_dtype = config.compute_dtype
+        self.post_init()
+
+    def forward(self, inputs: dict) -> BatchFeature:
+        backbone_inputs, action_inputs = self._prepare_input(inputs)
+        backbone_outputs = self.backbone(backbone_inputs)
+        action_head_outputs = self.action_head(backbone_outputs, action_inputs)
+        return action_head_outputs
+
+    def _prepare_input(self, inputs: dict):
+        backbone_inputs = self.backbone.prepare_input(inputs)
+        action_inputs = self.action_head.prepare_input(inputs)
+        return backbone_inputs, action_inputs
+
+    @classmethod
+    def from_pretrained(cls, pretrained_model_name_or_path: str, **kwargs):
+        from safetensors.torch import load_file as st_load_file
+
+        tune_visual = kwargs.pop("tune_visual", False)
+        tune_llm = kwargs.pop("tune_llm", False)
+        tune_projector = kwargs.pop("tune_projector", True)
+        tune_diffusion_model = kwargs.pop("tune_diffusion_model", True)
+        torch_dtype = kwargs.pop("torch_dtype", torch.bfloat16)
+        # local_model_path is passed by Gr00tN1d6.__init__ callers; consume it here too
+        kwargs.pop("local_model_path", None)
+
+        try:
+            local_model_path = snapshot_download(
+                pretrained_model_name_or_path, repo_type="model"
+            )
+        except (HFValidationError, RepositoryNotFoundError):
+            local_model_path = pretrained_model_name_or_path
+
+        config = Gr00tN1d6Config.from_pretrained(local_model_path)
+        model = cls(config, local_model_path=local_model_path)
+        if torch_dtype is not None:
+            model = model.to(torch_dtype)
+
+        # Load checkpoint shards and remap transformers-4.x key structure to 5.x
+        checkpoint = {}
+        for sf_path in sorted(Path(local_model_path).glob("*.safetensors")):
+            checkpoint.update(st_load_file(str(sf_path)))
+
+        remapped = {}
+        for k, v in checkpoint.items():
+            # transformers 4.x SiglipVisionModel had self.vision_model = SiglipVisionTransformer;
+            # transformers 5.x flattened it so the nested .vision_model is gone.
+            new_k = k.replace(
+                "backbone.model.vision_model.vision_model.",
+                "backbone.model.vision_model.",
+            )
+            # Patch embedding stored as 2D [out_ch, in*h*w] in ckpt; Conv2d expects 4D [out_ch, in, h, w]
+            if "patch_embedding.weight" in new_k and v.dim() == 2:
+                out_ch, flat = v.shape
+                patch_size = int(round((flat // 3) ** 0.5))
+                v = v.view(out_ch, 3, patch_size, patch_size)
+            if v.is_floating_point() and torch_dtype is not None:
+                v = v.to(torch_dtype)
+            remapped[new_k] = v
+
+        missing, unexpected = model.load_state_dict(remapped, strict=False)
+        if missing:
+            print(f"[Gr00tN1d6] {len(missing)} missing keys, first 5: {missing[:5]}")
+        if unexpected:
+            print(
+                f"[Gr00tN1d6] {len(unexpected)} unexpected keys, first 5: {unexpected[:5]}"
+            )
+
+        model.backbone.set_trainable_parameters(
+            tune_visual=tune_visual, tune_llm=tune_llm
+        )
+        model.action_head.set_trainable_parameters(
+            tune_projector=tune_projector, tune_diffusion_model=tune_diffusion_model
+        )
+        return model
+
+
+AutoConfig.register("Gr00tN1d6", Gr00tN1d6Config)
+AutoModel.register(Gr00tN1d6Config, Gr00tN1d6)
+
+
 COMPUTE_DTYPE = torch.bfloat16
 
 
@@ -678,8 +1017,21 @@ class Gr00tPolicy(BasePolicy):
                 return False
         return True
 
+    def _detect_model_type(self, model_path: str) -> str:
+        """Read config.json to determine model type."""
+        config_path = Path(model_path) / "config.json"
+        if config_path.exists():
+            with open(config_path) as f:
+                cfg = json.load(f)
+            return cfg.get("model_type", "gr00t_n1_5")
+        return "gr00t_n1_5"
+
     def _load_model(self, model_path):
-        model = GR00T_N1_5.from_pretrained(model_path, torch_dtype=COMPUTE_DTYPE)
+        model_type = self._detect_model_type(model_path)
+        if model_type == "Gr00tN1d6":
+            model = Gr00tN1d6.from_pretrained(model_path, torch_dtype=COMPUTE_DTYPE)
+        else:
+            model = GR00T_N1_5.from_pretrained(model_path, torch_dtype=COMPUTE_DTYPE)
         model.eval()  # Set model to eval mode
 
         # Update action_horizon to match modality config
@@ -1695,12 +2047,14 @@ class Eagle2_5_VLProcessor(ProcessorMixin):
 
         if isinstance(text, str):
             text_list = [text]
-        elif not isinstance(text, list) and not isinstance(text[0], str):
+        elif isinstance(text, list):
+            text_list = text
+        elif text is None:
+            text_list = []
+        else:
             raise ValueError(
                 "Invalid input text. Please provide a string, or a list of strings"
             )
-        elif isinstance(text, list) and isinstance(text[0], str):
-            text_list = text
 
         if images is None:
             images = []
@@ -2319,7 +2673,7 @@ class GR00TTransform(InvertibleModalityTransform):
         ]
 
         text_list = [
-            self.eagle_processor.apply_chat_template(
+            self.eagle_processor.py_apply_chat_template(
                 eagle_conversation, tokenize=False, add_generation_prompt=True
             )
         ]

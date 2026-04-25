@@ -173,6 +173,107 @@ from dataclasses import dataclass
 from typing import Optional
 
 
+try:
+    import pytorch3d.transforms as pt
+except ImportError:
+    # Minimal pytorch3d.transforms shim using scipy for rotation conversions.
+    from scipy.spatial.transform import Rotation as _Rotation
+
+    class _PtShim:
+        @staticmethod
+        def _to_scipy(
+            tensor: torch.Tensor, from_type: str, convention: str = None
+        ) -> "_Rotation":
+            arr = tensor.detach().cpu().float().numpy()
+            batch_shape = arr.shape[:-1]
+            arr_flat = arr.reshape(-1, arr.shape[-1])
+            if from_type == "euler_angles":
+                return _Rotation.from_euler(convention or "XYZ", arr_flat), batch_shape
+            elif from_type == "axis_angle":
+                return _Rotation.from_rotvec(arr_flat), batch_shape
+            elif from_type == "quaternion":
+                quat_xyzw = np.concatenate([arr_flat[:, 1:], arr_flat[:, :1]], axis=-1)
+                return _Rotation.from_quat(quat_xyzw), batch_shape
+            elif from_type == "matrix":
+                return _Rotation.from_matrix(arr_flat.reshape(-1, 3, 3)), batch_shape
+            raise ValueError(f"Unknown from_type: {from_type}")
+
+        @staticmethod
+        def _from_scipy(
+            r: "_Rotation", to_type: str, batch_shape, dtype, convention: str = None
+        ):
+            import numpy as np
+
+            if to_type == "matrix":
+                result = r.as_matrix().reshape(*batch_shape, 3, 3)
+            elif to_type == "euler_angles":
+                result = r.as_euler(convention or "XYZ").reshape(*batch_shape, 3)
+            elif to_type == "axis_angle":
+                result = r.as_rotvec().reshape(*batch_shape, 3)
+            elif to_type == "quaternion":
+                quat_xyzw = r.as_quat()
+                result = np.concatenate(
+                    [quat_xyzw[:, -1:], quat_xyzw[:, :-1]], axis=-1
+                ).reshape(*batch_shape, 4)
+            elif to_type == "rotation_6d":
+                mat = r.as_matrix().reshape(*batch_shape, 3, 3)
+                result = mat[..., :2].reshape(*batch_shape, 6)
+                return torch.tensor(result, dtype=dtype)
+            else:
+                raise ValueError(f"Unknown to_type: {to_type}")
+            return torch.tensor(result, dtype=dtype)
+
+        def euler_angles_to_matrix(
+            self, euler_angles: torch.Tensor, convention: str
+        ) -> torch.Tensor:
+            r, batch_shape = self._to_scipy(euler_angles, "euler_angles", convention)
+            return self._from_scipy(r, "matrix", batch_shape, euler_angles.dtype)
+
+        def matrix_to_euler_angles(
+            self, matrix: torch.Tensor, convention: str
+        ) -> torch.Tensor:
+            r, batch_shape = self._to_scipy(
+                matrix.reshape(*matrix.shape[:-2], 9), "matrix"
+            )
+            return self._from_scipy(
+                r, "euler_angles", batch_shape, matrix.dtype, convention
+            )
+
+        def axis_angle_to_matrix(self, axis_angle: torch.Tensor) -> torch.Tensor:
+            r, batch_shape = self._to_scipy(axis_angle, "axis_angle")
+            return self._from_scipy(r, "matrix", batch_shape, axis_angle.dtype)
+
+        def matrix_to_axis_angle(self, matrix: torch.Tensor) -> torch.Tensor:
+            r, batch_shape = self._to_scipy(
+                matrix.reshape(*matrix.shape[:-2], 9), "matrix"
+            )
+            return self._from_scipy(r, "axis_angle", batch_shape, matrix.dtype)
+
+        def quaternion_to_matrix(self, quaternion: torch.Tensor) -> torch.Tensor:
+            r, batch_shape = self._to_scipy(quaternion, "quaternion")
+            return self._from_scipy(r, "matrix", batch_shape, quaternion.dtype)
+
+        def matrix_to_quaternion(self, matrix: torch.Tensor) -> torch.Tensor:
+            r, batch_shape = self._to_scipy(
+                matrix.reshape(*matrix.shape[:-2], 9), "matrix"
+            )
+            return self._from_scipy(r, "quaternion", batch_shape, matrix.dtype)
+
+        def matrix_to_rotation_6d(self, matrix: torch.Tensor) -> torch.Tensor:
+            return matrix[..., :2].contiguous().view(*matrix.shape[:-2], 6)
+
+        def rotation_6d_to_matrix(self, d6: torch.Tensor) -> torch.Tensor:
+            a1, a2 = d6[..., :3], d6[..., 3:]
+            import torch.nn.functional as F
+
+            b1 = F.normalize(a1, dim=-1)
+            b2 = F.normalize(a2 - (b1 * a2).sum(-1, keepdim=True) * b1, dim=-1)
+            b3 = torch.cross(b1, b2, dim=-1)
+            return torch.stack([b1, b2, b3], dim=-1)
+
+    pt = _PtShim()
+
+
 def swish(x):
     return x * torch.sigmoid(x)
 
@@ -3856,6 +3957,14 @@ class FlowmatchingActionHeadConfig(PretrainedConfig):
     num_target_vision_tokens: int = field(
         default=32, metadata={"help": "Number of target vision tokens."}
     )
+    use_mask_token: bool = field(
+        default=False,
+        metadata={"help": "Use mask token instead of future tokens (N1.6 style)."},
+    )
+    max_state_dim: int = field(
+        default=64,
+        metadata={"help": "Maximum state dimension for category-specific MLP."},
+    )
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -3880,9 +3989,10 @@ class FlowmatchingActionHead(nn.Module):
         self.action_horizon = config.action_horizon
         self.num_inference_timesteps = config.num_inference_timesteps
 
+        max_state_dim = getattr(config, "max_state_dim", 64)
         self.state_encoder = CategorySpecificMLP(
             num_categories=config.max_num_embodiments,
-            input_dim=config.max_state_dim,
+            input_dim=max_state_dim,
             hidden_dim=self.hidden_size,
             output_dim=self.input_embedding_dim,
         )
@@ -3897,21 +4007,29 @@ class FlowmatchingActionHead(nn.Module):
             hidden_dim=self.hidden_size,
             output_dim=self.action_dim,
         )
-        self.future_tokens = nn.Embedding(
-            config.num_target_vision_tokens, self.input_embedding_dim
-        )
-        nn.init.normal_(self.future_tokens.weight, mean=0.0, std=0.02)
+
+        use_mask_token = getattr(config, "use_mask_token", False)
+        if use_mask_token:
+            self.mask_token = nn.Parameter(torch.zeros(1, 1, self.input_embedding_dim))
+        else:
+            self.future_tokens = nn.Embedding(
+                config.num_target_vision_tokens, self.input_embedding_dim
+            )
+            nn.init.normal_(self.future_tokens.weight, mean=0.0, std=0.02)
 
         self.vlln = (
             nn.LayerNorm(config.backbone_embedding_dim)
             if config.use_vlln
             else nn.Identity()
         )
-        self.vl_self_attention = (
-            SelfAttentionTransformer(**config.vl_self_attention_cfg)
-            if config.use_vlln
-            else nn.Identity()
-        )
+        if use_mask_token:
+            self.vl_self_attention = nn.Identity()
+        else:
+            self.vl_self_attention = (
+                SelfAttentionTransformer(**config.vl_self_attention_cfg)
+                if config.use_vlln
+                else nn.Identity()
+            )
 
         if config.add_pos_embed:
             self.position_embedding = nn.Embedding(
@@ -3919,7 +4037,9 @@ class FlowmatchingActionHead(nn.Module):
             )
             nn.init.normal_(self.position_embedding.weight, mean=0.0, std=0.02)
 
-        self.beta_dist = Beta(config.noise_beta_alpha, config.noise_beta_beta)
+        self.beta_dist = Beta(
+            config.noise_beta_alpha, config.noise_beta_beta, validate_args=False
+        )
         self.num_timestep_buckets = config.num_timestep_buckets
         self.config = config
         self.set_trainable_parameters(
@@ -4103,10 +4223,13 @@ class FlowmatchingActionHead(nn.Module):
                 action_features = action_features + pos_embs
 
             # Join vision, language, state and action embedding along sequence dimension.
-            future_tokens = self.future_tokens.weight.unsqueeze(0).expand(
-                vl_embs.shape[0], -1, -1
-            )
-            sa_embs = torch.cat((state_features, future_tokens, action_features), dim=1)
+            if getattr(self.config, "use_mask_token", False):
+                bridge_tokens = self.mask_token.expand(vl_embs.shape[0], -1, -1)
+            else:
+                bridge_tokens = self.future_tokens.weight.unsqueeze(0).expand(
+                    vl_embs.shape[0], -1, -1
+                )
+            sa_embs = torch.cat((state_features, bridge_tokens, action_features), dim=1)
             # Run model forward.
 
             model_output = self.model(
@@ -8566,6 +8689,8 @@ class OxeDroidDataConfig(BaseDataConfig):
     action_indices = list(range(16))
 
     def transform(self):
+        from .model import GR00TTransform  # Lazy import to avoid circular dependency
+
         transforms = [
             # video transforms
             VideoToTensor(apply_to=self.video_keys),
@@ -8611,8 +8736,8 @@ class OxeDroidDataConfig(BaseDataConfig):
             GR00TTransform(
                 state_horizon=len(self.observation_indices),
                 action_horizon=len(self.action_indices),
-                max_state_dim=64,
-                max_action_dim=32,
+                max_state_dim=128,
+                max_action_dim=128,
             ),
         ]
 
