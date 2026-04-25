@@ -174,6 +174,7 @@ class ModelLoader(ForgeModel):
         orig_vt_forward = model.vision_tower.forward
 
         def _vt_forward_no_bf16(hidden_states, grid_thw, bf16=False):
+            hidden_states = hidden_states.float()
             return orig_vt_forward(hidden_states, grid_thw, bf16=bf16)
 
         model.vision_tower.forward = _vt_forward_no_bf16
