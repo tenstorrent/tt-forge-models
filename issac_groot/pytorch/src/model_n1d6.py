@@ -168,6 +168,11 @@ class Gr00tN1d6ActionHead(nn.Module):
         )
         self.num_timestep_buckets = config.num_timestep_buckets
 
+    def forward(
+        self, backbone_output: BatchFeature, action_input: BatchFeature
+    ) -> BatchFeature:
+        return self.get_action(backbone_output, action_input)
+
     def process_backbone_output(self, backbone_output: BatchFeature) -> BatchFeature:
         backbone_features = backbone_output["backbone_features"]
         backbone_features = self.vlln(backbone_features)
@@ -267,6 +272,16 @@ class Gr00tN1d6(PreTrainedModel):
         self.action_head = Gr00tN1d6ActionHead(config)
 
         self.post_init()
+
+    @classmethod
+    def from_pretrained(cls, *args, **kwargs):
+        model = super().from_pretrained(*args, **kwargs)
+        # The checkpoint may store some backbone weights (e.g. top trainable LLM layers)
+        # in fp32 while frozen layers are bf16. Mixed dtypes cause matmul errors at
+        # layer boundaries. For inference (compile-only), uniform bf16 is sufficient.
+        if model.config.load_bf16:
+            model.backbone.model.to(torch.bfloat16)
+        return model
 
     def prepare_input(self, inputs: dict) -> Tuple[BatchFeature, BatchFeature]:
         backbone_inputs = self.backbone.prepare_input(inputs)

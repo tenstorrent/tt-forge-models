@@ -111,22 +111,7 @@ class EagleBackboneN1d6(torch.nn.Module):
         self.set_frozen_modules_to_eval_mode()
         keys_to_use = ["input_ids", "attention_mask", "pixel_values"]
         vl_input = {k: vl_input[k] for k in keys_to_use}
-        # DEBUG: register hook on lm_head to capture hidden_states dtype
-        lm_head = self.model.language_model.lm_head
-
-        def _pre_hook(module, args):
-            inp = args[0] if args else None
-            print(
-                f"[DEBUG lm_head] input={inp.dtype if inp is not None else None} "
-                f"weight={module.weight.dtype}"
-            )
-
-        handle = lm_head.register_forward_pre_hook(_pre_hook)
-        try:
-            outputs = self.model(**vl_input, output_hidden_states=True)
-        finally:
-            handle.remove()
-
+        outputs = self.model(**vl_input, output_hidden_states=True)
         outputs = outputs["hidden_states"][-1]
         image_mask = vl_input["input_ids"] == self.model.config.image_token_index
         attention_mask = vl_input["attention_mask"] == 1
