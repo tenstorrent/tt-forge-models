@@ -263,3 +263,7 @@ results:
   status: "PASS"
   date: "20260425_160930"
   branch: "arch-c-36-tt-xla-dev/nsmith/2026-04-22_16-58/hf-bringup-49"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[falcon_h1_34b_instruct_gguf/causal_lm/pytorch-Q4_K_M-single_device-inference]"
+  status: "PASS"
+  date: "20260425_180656"
+  branch: "arch-c-36-tt-xla-dev/nsmith/2026-04-22_16-58/hf-bringup-49"
