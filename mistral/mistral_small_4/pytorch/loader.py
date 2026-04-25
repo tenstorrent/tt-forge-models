@@ -83,19 +83,23 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The Mistral Small 4 model instance.
         """
-        from transformers import Mistral3ForConditionalGeneration
+        from transformers import AutoConfig, Mistral3ForConditionalGeneration
 
         pretrained_model_name = self._variant_config.pretrained_model_name
         if self.processor is None:
             self._load_processor(dtype_override)
 
-        model_kwargs = {}
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        # Strip MLX quantization config — not usable by standard PyTorch and causes
+        # transformers to attempt dequantization to bfloat16 (~238GB on CPU).
+        # Must delete (not set None) because pre_quantized checks hasattr().
+        if hasattr(config, "quantization_config"):
+            del config.quantization_config
+
+        model = Mistral3ForConditionalGeneration(config)
+
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model = Mistral3ForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+            model = model.to(dtype_override)
 
         model.eval()
         self.model = model
