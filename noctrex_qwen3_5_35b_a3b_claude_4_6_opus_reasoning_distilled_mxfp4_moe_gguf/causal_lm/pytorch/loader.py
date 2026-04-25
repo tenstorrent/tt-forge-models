@@ -112,13 +112,28 @@ def _patch_transformers_qwen35moe_gguf():
             model_type = hf_model.config.model_type
         if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
             model_type = "qwen35moe"
-        return orig_get_map(
+        result = orig_get_map(
             hf_model,
             processor,
             model_type=model_type,
             num_layers=num_layers,
             qual_name=qual_name,
         )
+        # qwen35moe uses fused gate_up_proj but GGUF may store separate
+        # ffn_gate_exps/ffn_up_exps tensors. Add entries so the tensor
+        # processor can write each half into the correct slice.
+        if model_type == "qwen35moe":
+            extra = {}
+            for key, val in result.items():
+                if "ffn_gate_up_exps" in key:
+                    extra.setdefault(
+                        key.replace("ffn_gate_up_exps", "ffn_gate_exps"), val
+                    )
+                    extra.setdefault(
+                        key.replace("ffn_gate_up_exps", "ffn_up_exps"), val
+                    )
+            result.update(extra)
+        return result
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
 
