@@ -5,7 +5,7 @@
 inferencerlabs/Qwen3.5-27B-MLX-9bit model loader implementation for image to text.
 """
 
-from transformers import AutoModelForImageTextToText, AutoProcessor
+from transformers import AutoModelForImageTextToText, AutoProcessor, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -66,6 +66,11 @@ class ModelLoader(ForgeModel):
 
         # MLX repos do not ship a processor; use the base model
         self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3.5-27B")
+
+        # MLX quantization config lacks quant_method; clear it to load as bf16
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        config.quantization_config = None
+        model_kwargs["config"] = config
 
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
