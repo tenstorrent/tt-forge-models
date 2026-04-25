@@ -22,6 +22,43 @@ from ....tools.utils import get_file
 from PIL import Image
 
 
+def _patch_gguf_for_glm4v_moe():
+    """
+    Patch get_gguf_hf_weights_map to handle Glm4vMoeConfig.
+
+    The GGUF metadata uses arch glm4_moe but the model is a VLM with
+    Glm4vMoeConfig. The config has no top-level num_hidden_layers; it lives
+    in text_config. We also need to remap the model_type to the GGUF arch name.
+    """
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if getattr(gguf_utils.get_gguf_hf_weights_map, "_glm4v_moe_patched", False):
+        return
+
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if hf_model is not None and num_layers is None:
+            cfg = hf_model.config
+            # Glm4vMoeConfig stores num_hidden_layers in text_config.
+            if not hasattr(cfg, "num_hidden_layers") and hasattr(cfg, "text_config"):
+                num_layers = cfg.text_config.num_hidden_layers
+        if model_type is None and hf_model is not None:
+            model_type = hf_model.config.model_type
+        # Map glm4v_moe and glm4v_moe_text to the GGUF arch name glm4moe.
+        if model_type in ("glm4v_moe", "glm4v_moe_text"):
+            model_type = "glm4moe"
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    patched_get_gguf_hf_weights_map._glm4v_moe_patched = True
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+
+_patch_gguf_for_glm4v_moe()
+
+
 class ModelVariant(StrEnum):
     """Available mradermacher GLM-4.6V GGUF model variants for image-text-to-text tasks."""
 
@@ -88,7 +125,7 @@ class ModelLoader(ForgeModel):
 
         # The GGUF metadata maps to Glm4MoeConfig (glm4_moe arch) which is not
         # recognized by AutoModelForImageTextToText. Load the config from the
-        # original vision model repo so the correct Glm46VConfig is used.
+        # original vision model repo so the correct Glm4vMoeConfig is used.
         config = AutoConfig.from_pretrained(self.PROCESSOR_MODEL)
         model_kwargs["config"] = config
 
