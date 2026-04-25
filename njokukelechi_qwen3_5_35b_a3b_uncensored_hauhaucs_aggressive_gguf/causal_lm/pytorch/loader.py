@@ -153,19 +153,28 @@ def _patch_transformers_qwen35moe_gguf():
             model_type = "qwen35moe"
         result = orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
         if model_type == "qwen35moe":
-            # Build ffn_gate_exps/ffn_up_exps -> gate_up_proj alias mappings.
-            # The fused ffn_gate_up_exps entry is in result; derive the
-            # per-tensor entries so the MoE processor can interleave them.
-            gate_up_entries = {
-                k: v
-                for k, v in result.items()
-                if _re.search(r"blk\.\d+\.ffn_gate_up_exps", k)
-            }
-            for fused_key, hf_name in gate_up_entries.items():
-                gate_key = fused_key.replace("ffn_gate_up_exps", "ffn_gate_exps")
-                up_key = fused_key.replace("ffn_gate_up_exps", "ffn_up_exps")
-                result.setdefault(gate_key, hf_name)
-                result.setdefault(up_key, hf_name)
+            # Qwen2MoeTensorProcessor.process() looks up tensor_key_mapping[m["name"]]
+            # where m["name"] is WITHOUT ".weight" (captured by GGUF_MOE_WEIGHTS_PATTERN).
+            # get_gguf_hf_weights_map adds keys WITH ".weight", causing KeyError.
+            # Fix: add without-.weight variants for all MoE expert tensors.
+            # Also derive ffn_gate_exps/ffn_up_exps aliases from the fused
+            # ffn_gate_up_exps entry, since qwen35moe GGUF stores separate gate/up
+            # tensors but HF model uses a single merged gate_up_proj.
+            new_entries = {}
+            for gguf_key, hf_name in result.items():
+                if _re.search(r"\.ffn_(?:gate|down|up)_exps\.weight$", gguf_key):
+                    base_key = gguf_key[:-7]  # strip ".weight"
+                    new_entries.setdefault(base_key, hf_name)
+                if _re.search(r"\.ffn_gate_up_exps\.weight$", gguf_key):
+                    base_key = gguf_key[:-7]  # strip ".weight"
+                    new_entries.setdefault(
+                        base_key.replace("ffn_gate_up_exps", "ffn_gate_exps"), hf_name
+                    )
+                    new_entries.setdefault(
+                        base_key.replace("ffn_gate_up_exps", "ffn_up_exps"), hf_name
+                    )
+            for k, v in new_entries.items():
+                result.setdefault(k, v)
         return result
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
