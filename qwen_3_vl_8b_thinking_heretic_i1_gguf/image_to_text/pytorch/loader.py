@@ -79,7 +79,10 @@ class ModelLoader(ForgeModel):
              num_layers for VL models whose top-level config nests the layer
              count under text_config.
           3. Wraps is_gguf_available to handle InvalidVersion when gguf is
-             installed at runtime and importlib.metadata cache is stale."""
+             installed at runtime and importlib.metadata cache is stale.
+          4. Wraps load_gguf_checkpoint to pass model_to_load through the
+             chain of older monkey-patches from other loaders that strip it."""
+        import inspect
         import importlib.util
 
         import transformers.modeling_gguf_pytorch_utils as _gguf_mod
@@ -132,6 +135,23 @@ class ModelLoader(ForgeModel):
             return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
 
         _gguf_mod.get_gguf_hf_weights_map = _compat_get_map
+
+        # --- patch 4: strip model_to_load kwarg from older monkey-patch chain ---
+        chain_top = _gguf_mod.load_gguf_checkpoint
+        try:
+            needs_compat = (
+                "model_to_load" not in inspect.signature(chain_top).parameters
+            )
+        except Exception:
+            needs_compat = False
+
+        if needs_compat:
+
+            def _compat_load_gguf(gguf_path, return_tensors=False, **kw):
+                kw.pop("model_to_load", None)
+                return chain_top(gguf_path, return_tensors=return_tensors, **kw)
+
+            _gguf_mod.load_gguf_checkpoint = _compat_load_gguf
 
     def load_model(self, *, dtype_override=None, **kwargs):
         self._apply_gguf_compat_patches()
