@@ -15,6 +15,7 @@ from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 from transformers.modeling_gguf_pytorch_utils import (
     GGUF_SUPPORTED_ARCHITECTURES,
+    get_gguf_hf_weights_map as _orig_get_gguf_hf_weights_map,
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
 )
 from typing import Optional
@@ -81,6 +82,17 @@ def _patch_qwen3next_support():
         )
 
 
+def _patched_get_gguf_hf_weights_map(hf_model, processor, model_type=None, **kwargs):
+    """Wrap get_gguf_hf_weights_map to map qwen3_next → qwen3next for gguf-py lookup."""
+    if model_type is None and hasattr(hf_model, "config"):
+        model_type = hf_model.config.model_type
+    if model_type == "qwen3_next":
+        model_type = "qwen3next"
+    return _orig_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=model_type, **kwargs
+    )
+
+
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **_kwargs):
     """Wrap load_gguf_checkpoint to add qwen3next support and fix model_type."""
     _patch_qwen3next_support()
@@ -97,6 +109,7 @@ _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 
 class ModelVariant(StrEnum):
