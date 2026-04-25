@@ -38,7 +38,8 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.C4AI_COMMAND_R_PLUS_Q4_K_M_GGUF
 
-    GGUF_FILE = "c4ai-command-r-plus-Q4_K_M.gguf/c4ai-command-r-plus-Q4_K_M-00001-of-00006.gguf"
+    GGUF_FILE = "c4ai-command-r-plus-Q4_K_M-00001-of-00006.gguf"
+    GGUF_SUBFOLDER = "c4ai-command-r-plus-Q4_K_M.gguf"
 
     sample_text = "What is the capital of France?"
 
@@ -66,6 +67,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
         tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
+        tokenizer_kwargs["subfolder"] = self.GGUF_SUBFOLDER
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -86,10 +88,13 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["subfolder"] = self.GGUF_SUBFOLDER
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
+                pretrained_model_name,
+                gguf_file=self.GGUF_FILE,
+                subfolder=self.GGUF_SUBFOLDER,
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -137,6 +142,8 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            self._variant_config.pretrained_model_name,
+            gguf_file=self.GGUF_FILE,
+            subfolder=self.GGUF_SUBFOLDER,
         )
         return self.config
