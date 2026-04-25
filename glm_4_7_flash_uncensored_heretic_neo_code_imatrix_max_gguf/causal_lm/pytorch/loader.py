@@ -119,6 +119,18 @@ def _patch_transformers_deepseek2_gguf():
 
 _patch_transformers_deepseek2_gguf()
 
+# Ensure gguf can be discovered by transformers' is_gguf_available() even when
+# installed after transformers was imported.  PACKAGE_DISTRIBUTION_MAPPING is
+# computed once at import time; gguf installed later via requirements.txt will
+# not appear in it, causing _is_package_available to fall back to
+# gguf.__version__ which gguf-py does not export → "N/A" → InvalidVersion.
+try:
+    import transformers.utils.import_utils as _iu
+
+    _iu.PACKAGE_DISTRIBUTION_MAPPING.setdefault("gguf", ["gguf"])
+except Exception:
+    pass
+
 
 class ModelVariant(StrEnum):
     """Available GLM-4.7-Flash Uncensored Heretic NEO-CODE Imatrix MAX GGUF variants."""
