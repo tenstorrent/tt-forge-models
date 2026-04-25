@@ -123,6 +123,16 @@ class ModelLoader(ForgeModel):
             HunyuanVideo15Transformer3DModel,
         )
 
+        # diffusers 0.37.1 has HunyuanVideo15Transformer3DModel but omits it from
+        # SINGLE_FILE_LOADABLE_CLASSES, so from_single_file raises ValueError.
+        from diffusers.loaders.single_file_model import SINGLE_FILE_LOADABLE_CLASSES
+
+        if "HunyuanVideo15Transformer3DModel" not in SINGLE_FILE_LOADABLE_CLASSES:
+            SINGLE_FILE_LOADABLE_CLASSES["HunyuanVideo15Transformer3DModel"] = {
+                "checkpoint_mapping_fn": lambda checkpoint, **kw: checkpoint,
+                "default_subfolder": "transformer",
+            }
+
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         gguf_file = _GGUF_FILES[self._variant]
