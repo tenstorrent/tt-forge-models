@@ -164,6 +164,14 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    # Fallback ChatML template for GGUF files that omit tokenizer.chat_template
+    _FALLBACK_CHAT_TEMPLATE = (
+        "{% for message in messages %}"
+        "<|im_start|>{{ message['role'] }}\n{{ message['content'] }}<|im_end|>\n"
+        "{% endfor %}"
+        "{% if add_generation_prompt %}<|im_start|>assistant\n{% endif %}"
+    )
+
     def _load_tokenizer(self, dtype_override=None):
         tokenizer_kwargs = {}
         if dtype_override is not None:
@@ -175,6 +183,8 @@ class ModelLoader(ForgeModel):
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
+        if not self.tokenizer.chat_template:
+            self.tokenizer.chat_template = self._FALLBACK_CHAT_TEMPLATE
 
         return self.tokenizer
 
