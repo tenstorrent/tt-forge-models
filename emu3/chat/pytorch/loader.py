@@ -17,6 +17,7 @@ from transformers import (
     AutoImageProcessor,
     AutoModel,
     AutoModelForCausalLM,
+    AutoConfig,
 )
 from huggingface_hub import snapshot_download
 
@@ -208,8 +209,16 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        # Newer transformers auto-populates rope_scaling with {'rope_theta': ..., 'rope_type': 'default'}
+        # but modeling_emu3.py expects None or {'type': ..., 'factor': ...}. Clear it so _init_rope()
+        # takes the no-scaling path.
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        config.rope_scaling = None
+
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, config=config, **model_kwargs
         )
         model.eval()
         self.model = model
