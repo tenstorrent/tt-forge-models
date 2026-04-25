@@ -128,9 +128,9 @@ class ModelLoader(ForgeModel):
         with _patch_tied_keys_for_missing_post_init():
             model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
 
-        # vision_model.to(dtype) in __init__ corrupts integer index buffers by converting
-        # torch.int64 buffers to non-integer dtypes (e.g. bfloat16). Explicitly fix the
-        # RADIO vision encoder's summary_idxs buffer.
+        # vision_model.to(dtype) in __init__ corrupts the RADIO encoder's summary_idxs buffer
+        # (an int64 index tensor that gets reinterpretted during dtype conversion).
+        # Recompute the correct values from the model's vision config.
         if (
             hasattr(model, "vision_model")
             and hasattr(model.vision_model, "radio_model")
@@ -138,9 +138,12 @@ class ModelLoader(ForgeModel):
         ):
             rm = model.vision_model.radio_model
             if rm.summary_idxs is not None:
-                rm.register_buffer(
-                    "summary_idxs", rm.summary_idxs.round().to(torch.long)
+                teachers = model.config.vision_config.args.get("teachers", [])
+                correct_idxs = torch.tensor(
+                    [i for i, t in enumerate(teachers) if t.get("use_summary", True)],
+                    dtype=torch.long,
                 )
+                rm.register_buffer("summary_idxs", correct_idxs)
 
         model.eval()
 
