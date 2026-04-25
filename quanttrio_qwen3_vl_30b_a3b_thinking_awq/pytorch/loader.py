@@ -5,6 +5,8 @@
 QuantTrio Qwen3-VL-30B-A3B-Thinking AWQ model loader implementation for image to text.
 """
 
+import gptqmodel  # noqa: F401 — must import before from_pretrained enters meta-device context
+
 from transformers import (
     Qwen3VLMoeForConditionalGeneration,
     AutoProcessor,
