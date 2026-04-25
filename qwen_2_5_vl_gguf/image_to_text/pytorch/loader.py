@@ -5,7 +5,7 @@
 Qwen 2.5 VL GGUF model loader implementation for image to text.
 """
 
-from transformers import AutoModelForImageTextToText, AutoProcessor, AutoConfig
+from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -18,6 +18,119 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+_TEXT_CONFIG_FIELDS = {
+    "max_position_embeddings",
+    "num_hidden_layers",
+    "intermediate_size",
+    "hidden_size",
+    "rope_theta",
+    "num_attention_heads",
+    "num_key_value_heads",
+    "rms_norm_eps",
+    "vocab_size",
+}
+
+
+def _patch_transformers_qwen2vl_gguf():
+    """Monkey-patch transformers to add qwen2vl GGUF architecture support.
+
+    The Qwen2.5-VL GGUF file uses the 'qwen2vl' architecture identifier, which
+    transformers does not support yet. We bridge the gap by registering the
+    config/tokenizer mappings and remapping model_type to 'qwen2_5_vl'.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    if "qwen2vl" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen2vl")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen2vl"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+    }
+
+    if "qwen2vl" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["qwen2vl"] = GGUFQwen2Converter
+
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "qwen2vl":
+            text_config = {
+                k: config.pop(k)
+                for k in list(config.keys())
+                if k in _TEXT_CONFIG_FIELDS
+            }
+            config["text_config"] = text_config
+            # Vision merger must output text_hidden_size for image token replacement.
+            config["vision_config"] = {
+                "out_hidden_size": text_config.get("hidden_size", 4096)
+            }
+            config["model_type"] = "qwen2_5_vl"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    orig_get_weights_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        effective_type = (
+            model_type
+            if model_type is not None
+            else getattr(getattr(hf_model, "config", None), "model_type", None)
+        )
+        if effective_type == "qwen2_5_vl":
+            model_type = "qwen2vl"
+            if num_layers is None:
+                text_cfg = getattr(
+                    getattr(hf_model, "config", None), "text_config", None
+                )
+                if text_cfg is not None:
+                    num_layers = getattr(text_cfg, "num_hidden_layers", None)
+        return orig_get_weights_map(
+            hf_model,
+            processor,
+            model_type=model_type,
+            num_layers=num_layers,
+            qual_name=qual_name,
+        )
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+    # Patch modules that imported load_gguf_checkpoint via from-import
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
+# Apply the monkey-patch at import time
+_patch_transformers_qwen2vl_gguf()
 
 
 class ModelVariant(StrEnum):
@@ -47,6 +160,8 @@ class ModelLoader(ForgeModel):
         ModelVariant.QWEN_2_5_VL_72B_INSTRUCT_GGUF: "Qwen2.5-VL-72B-Instruct-Q4_K_M.gguf",
         ModelVariant.BARTOWSKI_QWEN_2_5_VL_72B_INSTRUCT_GGUF: "Qwen_Qwen2.5-VL-72B-Instruct-Q4_K_M.gguf",
     }
+
+    _BASE_MODEL_NAME = "Qwen/Qwen2.5-VL-72B-Instruct"
 
     sample_image = (
         "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg"
@@ -114,13 +229,14 @@ class ModelLoader(ForgeModel):
             config = AutoConfig.from_pretrained(
                 pretrained_model_name, gguf_file=self._gguf_file
             )
-            config.num_hidden_layers = self.num_layers
+            config.text_config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
+        # GGUF repos do not ship a processor; use the base Qwen2.5-VL model.
+        self.processor = AutoProcessor.from_pretrained(self._BASE_MODEL_NAME)
 
-        model = AutoModelForImageTextToText.from_pretrained(
-            pretrained_model_name, **model_kwargs
+        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
