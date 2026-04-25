@@ -1,0 +1,1 @@
+git+https://github.com/joanrod/star-vector.git@0e083c1911760aa31bc576ca7f337a7f8ee605ec#egg=starvector
