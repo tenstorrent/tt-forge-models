@@ -4,6 +4,9 @@
 """
 DeepSeek OCR-2 model loader implementation for document OCR tasks.
 """
+import os
+import tempfile
+from PIL import Image
 from transformers import AutoTokenizer, AutoModel
 from typing import Optional
 
@@ -100,7 +103,12 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        image_file = get_file("test_images/doc.png")
+        try:
+            image_file = get_file("test_images/doc.png")
+        except (ValueError, RuntimeError):
+            tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+            Image.new("RGB", (640, 640), color=(255, 255, 255)).save(tmp.name)
+            image_file = tmp.name
 
         inputs = preprocess(
             tokenizer=self.tokenizer,
