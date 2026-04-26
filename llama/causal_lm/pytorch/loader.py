@@ -406,7 +406,9 @@ class ModelLoader(ForgeModel, PrefillInputsMixin):
         ]:
             return None
 
-        causal_lm = model.get_base_model() if hasattr(model, "get_base_model") else model
+        causal_lm = (
+            model.get_base_model() if hasattr(model, "get_base_model") else model
+        )
         shard_specs = {}
 
         if strategy == "fsdp":
