@@ -38,6 +38,11 @@ class LoRAModelMixin:
             model = model.to(dtype_override)
         return model
 
+    def load_shard_spec(self, model, **kwargs):
+        # Only unpack PEFT wrapper
+        unwrapped = model.get_base_model() if hasattr(model, "get_base_model") else model
+        return super().load_shard_spec(unwrapped, **kwargs)
+
     @classmethod
     def _get_model_info(cls, variant=None):
         info = super()._get_model_info(variant)

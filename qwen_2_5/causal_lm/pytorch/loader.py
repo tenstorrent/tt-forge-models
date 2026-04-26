@@ -285,12 +285,8 @@ class ModelLoader(ForgeModel, PrefillInputsMixin):
         return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
-        # Unwrap PEFT/LoRA wrapper to get the bare Qwen2ForCausalLM
-        causal_lm = (
-            model.get_base_model() if hasattr(model, "get_base_model") else model
-        )
         shard_specs = {}
-        for layer in causal_lm.model.layers:
+        for layer in model.model.layers:
             shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
