@@ -47,3 +47,7 @@ results:
   status: "PASS"
   date: "20260426_040418"
   branch: "ip-172-31-23-5-tt-xla-dev/ubuntu/2026-04-23_16-01/hf-bringup-15"
+- test_name: "tests/runner/test_models.py::test_all_models_torch[ahmed_salah_777_ultrasonic_v8_checkpoints_gguf/causal_lm/pytorch-ultrasonic_v8_qwen3_5_397b_a17b_mxfp4_moe-single_device-inference]"
+  status: "MODEL_TOO_LARGE"
+  date: "20260426_040637"
+  branch: "ip-172-31-23-5-tt-xla-dev/ubuntu/2026-04-23_16-01/hf-bringup-15"
