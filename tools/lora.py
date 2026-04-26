@@ -40,7 +40,9 @@ class LoRAModelMixin:
 
     def load_shard_spec(self, model, **kwargs):
         # Only unpack PEFT wrapper
-        unwrapped = model.get_base_model() if hasattr(model, "get_base_model") else model
+        unwrapped = (
+            model.get_base_model() if hasattr(model, "get_base_model") else model
+        )
         return super().load_shard_spec(unwrapped, **kwargs)
 
     @classmethod
