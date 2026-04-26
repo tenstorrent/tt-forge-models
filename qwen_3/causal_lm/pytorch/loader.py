@@ -253,7 +253,6 @@ class ModelLoader(ForgeModel):
             self.load_config()
 
         max_cache_len = getattr(self._variant_config, "max_length", None) or 128
-        self.seq_len = 1
 
         return get_static_cache_decode_inputs(
             tokenizer=self.tokenizer,
