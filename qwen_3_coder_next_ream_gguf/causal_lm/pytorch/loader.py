@@ -67,14 +67,41 @@ def _patch_qwen3next_support():
         )
 
 
+def _get_qwen3next_num_attention_heads(gguf_path, head_dim):
+    """Derive num_attention_heads from the actual attn_q tensor shape in the GGUF file.
+
+    The GGUF attention.head_count for qwen3next reflects SSM/recurrent structure
+    and does not match the actual attention q_proj output dimension.
+    """
+    try:
+        import gguf as _gguf_lib
+
+        reader = _gguf_lib.GGUFReader(gguf_path)
+        for tensor in reader.tensors:
+            if tensor.name.endswith(".attn_q.weight"):
+                # GGUF stores weights as [in_dim, out_dim]; out_dim is q proj size
+                q_out_dim = int(tensor.shape[-1])
+                return q_out_dim // head_dim
+    except Exception:
+        pass
+    return None
+
+
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
     """Wrap load_gguf_checkpoint to add qwen3next support and fix model_type."""
     _patch_qwen3next_support()
     result = _orig_load_gguf_checkpoint(
         gguf_path, return_tensors=return_tensors, **kwargs
     )
-    if result.get("config", {}).get("model_type") == "qwen3next":
-        result["config"]["model_type"] = "qwen3"
+    config = result.get("config", {})
+    if config.get("model_type") == "qwen3next":
+        config["model_type"] = "qwen3"
+        # Fix num_attention_heads: GGUF head_count reflects SSM structure, not
+        # the actual number of attention heads. Derive from attn_q tensor shape.
+        head_dim = config.get("head_dim", 128)
+        num_heads = _get_qwen3next_num_attention_heads(gguf_path, head_dim)
+        if num_heads is not None:
+            config["num_attention_heads"] = num_heads
     return result
 
 
