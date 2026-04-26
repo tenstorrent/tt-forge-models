@@ -66,6 +66,30 @@ def _patch_qwen35moe_gate_up_split():
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
 
 
+def _make_qwen35moe_tensor_processor():
+    """Build a tensor processor for qwen35moe that extends Qwen2MoeTensorProcessor.
+
+    Adds expand_dims(axis=1) for ssm_conv1d weights so the GGUF 2-D tensor
+    (conv_dim, kernel_size) matches PyTorch Conv1d's expected 3-D shape
+    (conv_dim, 1, kernel_size).
+    """
+    import numpy as np
+    from transformers.modeling_gguf_pytorch_utils import (
+        Qwen2MoeTensorProcessor,
+        GGUFTensor,
+    )
+
+    class Qwen35MoeTensorProcessor(Qwen2MoeTensorProcessor):
+        def process(self, weights, name, **kwargs):
+            if "ssm_conv1d.weight" in name:
+                # GGUF stores depthwise conv as (conv_dim, kernel_size);
+                # PyTorch Conv1d expects (conv_dim, 1, kernel_size).
+                weights = np.expand_dims(weights, axis=1)
+            return super().process(weights, name, **kwargs)
+
+    return Qwen35MoeTensorProcessor
+
+
 def _patch_transformers_qwen35moe_gguf():
     """Monkey-patch transformers to add qwen35moe GGUF architecture support.
 
@@ -106,9 +130,8 @@ def _patch_transformers_qwen35moe_gguf():
         "full_attention_interval": "full_attention_interval",
     }
 
-    # 3. Reuse qwen3moe tensor processor for qwen35moe
-    if "qwen3moe" in TENSOR_PROCESSORS:
-        TENSOR_PROCESSORS["qwen35moe"] = TENSOR_PROCESSORS["qwen3moe"]
+    # 3. Register qwen35moe-specific tensor processor (handles conv1d shape fix)
+    TENSOR_PROCESSORS["qwen35moe"] = _make_qwen35moe_tensor_processor()
 
     # 4. Register tokenizer converter
     from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
