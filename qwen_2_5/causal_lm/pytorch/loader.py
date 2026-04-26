@@ -136,7 +136,6 @@ class ModelLoader(ForgeModel, PrefillInputsMixin):
         self.tokenizer = None
         self.config = None
         self.num_layers = num_layers
-        self.seq_len = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -324,7 +323,6 @@ class ModelLoader(ForgeModel, PrefillInputsMixin):
             self.load_config()
 
         max_cache_len = getattr(self._variant_config, "max_length", None) or 128
-        self.seq_len = 1
 
         return get_static_cache_decode_inputs(
             tokenizer=self.tokenizer,

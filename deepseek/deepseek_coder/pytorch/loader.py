@@ -5,12 +5,11 @@
 DeepSeek Coder model loader implementation for causal language modeling.
 """
 
-import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 from unittest.mock import patch
 import os
-from ....tools.utils import generate_no_cache, pad_inputs
+from ....tools.utils import pad_inputs
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -56,7 +55,6 @@ class ModelLoader(ForgeModel):
         """
         super().__init__(variant)
         self.tokenizer = None
-        self.seq_len = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -122,21 +120,6 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
         padded_inputs, seq_len = pad_inputs(inputs)
-        self.seq_len = seq_len
 
         return padded_inputs
 
-    def decode_output(self, max_new_tokens, model, inputs, tokenizer):
-        """Generates text .
-
-        Args:
-            max_new_tokens (int): The maximum number of new tokens to generate.
-            model (torch.nn.Module): The language model used for token generation.
-            inputs (torch.Tensor): Input tensor of shape (batch_size, seq_len), representing tokenized text.
-            tokenizer: The tokenizer used to decode token IDs into text.
-
-        """
-        generated_text = generate_no_cache(
-            max_new_tokens, model, inputs, self.seq_len, tokenizer
-        )
-        return generated_text

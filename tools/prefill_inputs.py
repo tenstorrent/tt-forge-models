@@ -781,7 +781,6 @@ class PrefillInputsMixin:
     Requires the host class to have:
         - self.tokenizer
         - self._load_tokenizer(dtype_override=None)
-        - self.seq_len (writable)
     """
 
     def load_inputs_prefill(self, dtype_override=None, batch_size=1, seq_len=128):
@@ -794,6 +793,7 @@ class PrefillInputsMixin:
 
         Returns:
             dict: Input tensors (input_ids, attention_mask) padded to seq_len.
+                  Callers that need the sequence length can read inputs["input_ids"].shape[-1].
         """
         assert hasattr(
             self, "tokenizer"
@@ -801,9 +801,6 @@ class PrefillInputsMixin:
         assert hasattr(
             self, "_load_tokenizer"
         ), f"{type(self).__name__} must define self._load_tokenizer to use PrefillInputsMixin"
-        assert hasattr(
-            self, "seq_len"
-        ), f"{type(self).__name__} must define self.seq_len to use PrefillInputsMixin"
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
@@ -827,5 +824,4 @@ class PrefillInputsMixin:
             for key in inputs:
                 inputs[key] = cast_input_to_type(inputs[key], dtype_override)
 
-        self.seq_len = seq_len
         return inputs

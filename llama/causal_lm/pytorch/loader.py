@@ -7,7 +7,6 @@ Llama model loader implementation for causal language modeling.
 
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
-import torch
 
 from ....config import (
     LLMModelConfig,
@@ -149,7 +148,6 @@ class ModelLoader(ForgeModel, PrefillInputsMixin):
         """
         super().__init__(variant)
         self.tokenizer = None
-        self.seq_len = None
         self.config = None
         self.num_layers = num_layers
 
@@ -300,9 +298,8 @@ class ModelLoader(ForgeModel, PrefillInputsMixin):
 
         # Pad input_ids and attention_mask
         target_len = self._variant_config.max_length
-        padded_input_ids, seq_len = pad_inputs(inputs["input_ids"], target_len)
+        padded_input_ids, _ = pad_inputs(inputs["input_ids"], target_len)
         padded_attention_mask, _ = pad_inputs(inputs["attention_mask"], target_len)
-        self.seq_len = seq_len
 
         inputs["input_ids"] = padded_input_ids
         inputs["attention_mask"] = padded_attention_mask
@@ -320,7 +317,6 @@ class ModelLoader(ForgeModel, PrefillInputsMixin):
             self.load_config()
 
         max_cache_len = self._variant_config.max_length
-        self.seq_len = 1
 
         return get_static_cache_decode_inputs(
             tokenizer=self.tokenizer,
@@ -330,38 +326,6 @@ class ModelLoader(ForgeModel, PrefillInputsMixin):
             max_cache_len=max_cache_len,
             dtype=dtype_override,
         )
-
-    def decode_output(self, max_new_tokens, model, inputs, tokenizer):
-        """Generates text .
-        Args:
-            max_new_tokens (int): The maximum number of new tokens to generate.
-            model (torch.nn.Module): The language model used for token generation.
-            inputs (torch.Tensor): Input tensor of shape (batch_size, seq_len), representing tokenized text.
-            tokenizer: The tokenizer used to decode token IDs into text.
-        """
-        current_pos = self.seq_len
-
-        for _ in range(max_new_tokens):
-            logits = model(*inputs)
-
-            if isinstance(logits, (list, tuple)):
-                logits = logits[0]
-
-            next_token_logits = logits[:, current_pos - 1, :]
-            next_token_id = torch.argmax(next_token_logits, dim=-1)
-
-            if next_token_id.item() == tokenizer.eos_token_id:
-                break
-
-            # Update input_ids and attention_mask
-            inputs[0][:, current_pos] = next_token_id
-            inputs[1][:, current_pos] = 1
-
-            current_pos += 1
-
-        valid_tokens = inputs[0][:, self.seq_len : current_pos].view(-1).tolist()
-        answer = tokenizer.decode(valid_tokens, skip_special_tokens=True)
-        return answer
 
     def get_mesh_config(self, num_devices: int):
         if self._variant in [

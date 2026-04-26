@@ -5,10 +5,9 @@
 DeepSeek Math model loader implementation for causal language modeling.
 """
 
-import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 from typing import Optional
-from ....tools.utils import generate_no_cache, pad_inputs
+from ....tools.utils import pad_inputs
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -48,7 +47,6 @@ class ModelLoader(ForgeModel):
         """Initialize ModelLoader with a specified variant."""
         super().__init__(variant)
         self.tokenizer = None
-        self.seq_len = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -102,16 +100,5 @@ class ModelLoader(ForgeModel):
         input_ids = self.tokenizer.apply_chat_template(
             messages, add_generation_prompt=True, return_tensors="pt"
         )
-        inputs, seq_len = pad_inputs(input_ids)
-        self.seq_len = seq_len
+        inputs, _ = pad_inputs(input_ids)
         return inputs
-
-    def decode_output(self, max_new_tokens, model, inputs, tokenizer):
-        """Generate text output using no-cache generation loop."""
-        return generate_no_cache(
-            max_new_tokens=max_new_tokens,
-            model=model,
-            input_ids=inputs,
-            seq_len=self.seq_len,
-            tokenizer=tokenizer,
-        )

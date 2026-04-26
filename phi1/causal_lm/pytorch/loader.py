@@ -62,7 +62,6 @@ class ModelLoader(ForgeModel, PrefillInputsMixin):
         self.num_layers = num_layers
         self.model = None
         self.config = None
-        self.seq_len = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
