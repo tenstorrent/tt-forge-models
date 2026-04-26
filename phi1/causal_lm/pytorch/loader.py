@@ -18,6 +18,10 @@ from ....config import (
     Framework,
     StrEnum,
 )
+from ....tools.utils import (
+    get_static_cache_decode_inputs,
+)
+from ....tools.prefill_inputs import PrefillInputsMixin
 
 
 class ModelVariant(StrEnum):
@@ -26,7 +30,7 @@ class ModelVariant(StrEnum):
     PHI1 = "Phi_1"
 
 
-class ModelLoader(ForgeModel):
+class ModelLoader(ForgeModel, PrefillInputsMixin):
     """PHI1 model loader implementation for causal language modeling tasks."""
 
     # Dictionary of available model variants using structured configs
@@ -56,6 +60,9 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.tokenizer = None
         self.num_layers = num_layers
+        self.model = None
+        self.config = None
+        self.seq_len = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -130,7 +137,34 @@ class ModelLoader(ForgeModel):
 
         model = PhiForCausalLM.from_pretrained(pretrained_model_name, **model_kwargs)
 
+        self.model = model
+        self.config = model.config
+
         return model
+
+    def load_config(self):
+        """Load and return the configuration for the Phi-1 model variant."""
+        self.config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name
+        )
+        return self.config
+
+    def load_inputs_decode(self, dtype_override=None, batch_size=1):
+        """Load decode-step inputs (single token + static KV cache)."""
+        if self.tokenizer is None:
+            self._load_tokenizer(dtype_override=dtype_override)
+        if self.config is None:
+            self.load_config()
+
+        max_cache_len = self._variant_config.max_length
+        return get_static_cache_decode_inputs(
+            tokenizer=self.tokenizer,
+            config=self.config,
+            model=self.model,
+            batch_size=batch_size,
+            max_cache_len=max_cache_len,
+            dtype=dtype_override,
+        )
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the PHI1 model with this instance's variant settings.

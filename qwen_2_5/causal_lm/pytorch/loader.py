@@ -21,6 +21,7 @@ from ....config import (
     StrEnum,
 )
 from ....tools.utils import get_static_cache_decode_inputs
+from ....tools.prefill_inputs import PrefillInputsMixin
 
 
 class ModelVariant(StrEnum):
@@ -44,7 +45,7 @@ class ModelVariant(StrEnum):
     QWEN_2_5_MATH_7B = "Math_7B"
 
 
-class ModelLoader(ForgeModel):
+class ModelLoader(ForgeModel, PrefillInputsMixin):
     """Qwen 2.5 model loader implementation for causal language modeling tasks."""
 
     # Dictionary of available model variants using structured configs
@@ -135,6 +136,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self.config = None
         self.num_layers = num_layers
+        self.seq_len = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:

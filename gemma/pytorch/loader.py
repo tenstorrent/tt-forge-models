@@ -21,6 +21,7 @@ from ...config import (
 from ...base import ForgeModel
 from .src.model_utils import pad_inputs
 from ...tools.utils import cast_input_to_type, get_static_cache_decode_inputs
+from ...tools.prefill_inputs import PrefillInputsMixin
 
 
 class ModelVariant(StrEnum):
@@ -37,7 +38,7 @@ class ModelVariant(StrEnum):
     GEMMA_2_27B_IT = "2_27B_IT"
 
 
-class ModelLoader(ForgeModel):
+class ModelLoader(ForgeModel, PrefillInputsMixin):
     """Gemma model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
