@@ -77,7 +77,7 @@ class ModelLoader(ForgeModel):
         Returns:
             UNetMotionModel (torch.nn.Module) with LoRA weights merged.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         adapter = MotionAdapter.from_pretrained(
             MOTION_ADAPTER,
@@ -102,7 +102,7 @@ class ModelLoader(ForgeModel):
         Returns:
             dict with sample, timestep, and encoder_hidden_states tensors.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         batch_size = 1
         num_frames = 32  # must be >= 32: TT hardware SDPA requires key seq_len >= 32
