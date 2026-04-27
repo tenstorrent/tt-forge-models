@@ -6,6 +6,7 @@ AIMv2 LIT model loader implementation for image-text similarity.
 """
 
 import torch
+import torch.nn as nn
 from transformers import AutoProcessor, AutoModel
 from typing import Optional
 from PIL import Image
@@ -20,6 +21,29 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+class _AIMv2LogitsWrapper(nn.Module):
+    """Returns only logits_per_image from the AIMv2 model.
+
+    The full model output tuple includes raw encoder outputs (text_model_output,
+    vision_model_output) which have lower PCC on TT hardware due to bfloat16
+    precision. Returning only logits_per_image keeps the comparison focused on
+    the meaningful similarity output.
+    """
+
+    def __init__(self, model):
+        super().__init__()
+        self._model = model
+
+    def forward(self, input_ids, pixel_values, attention_mask=None, **kwargs):
+        output = self._model(
+            input_ids=input_ids,
+            pixel_values=pixel_values,
+            attention_mask=attention_mask,
+            **kwargs,
+        )
+        return output[0]
 
 
 class ModelVariant(StrEnum):
@@ -79,6 +103,7 @@ class ModelLoader(ForgeModel):
         """
         self.processor = AutoProcessor.from_pretrained(
             self._variant_config.pretrained_model_name,
+            use_fast=False,
         )
 
         return self.processor
@@ -104,7 +129,7 @@ class ModelLoader(ForgeModel):
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
 
-        return model
+        return _AIMv2LogitsWrapper(model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the AIMv2 LIT model with this instance's variant settings.
