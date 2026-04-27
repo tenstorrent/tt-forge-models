@@ -71,9 +71,13 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         """Load the SpeechBrain XLSR accent identification model."""
         from speechbrain.inference.interfaces import foreign_class
+
+        # SpeechBrain's wav2vec2 integration creates float32 tensors internally,
+        # so keep the model in native float32 to avoid dtype mismatches.
+        kwargs.pop("dtype_override", None)
 
         classifier = foreign_class(
             source=self._variant_config.pretrained_model_name,
@@ -85,18 +89,11 @@ class ModelLoader(ForgeModel):
         model = AccentClassifierModel(classifier)
         model.eval()
 
-        if dtype_override is not None:
-            model = model.to(dtype_override)
-
         return model
 
-    def load_inputs(self, dtype_override=None):
+    def load_inputs(self):
         """Generate synthetic 1-second audio waveform at 16kHz."""
         waveform = torch.randn(1, 16000)
         wav_lens = torch.tensor([1.0])
-
-        if dtype_override is not None:
-            waveform = waveform.to(dtype_override)
-            wav_lens = wav_lens.to(dtype_override)
 
         return [waveform, wav_lens]
