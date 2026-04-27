@@ -83,7 +83,9 @@ class ModelLoader(ForgeModel):
         }
 
         self.processor = AutoProcessor.from_pretrained(
-            self._BASE_PROCESSOR_NAME, **processor_kwargs
+            self._BASE_PROCESSOR_NAME,
+            use_fast=False,
+            **processor_kwargs,
         )
 
         return self.processor
