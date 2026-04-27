@@ -102,9 +102,11 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded processor instance
         """
-        # Load the processor
+        # use_fast=False: transformers 5.x loads CLIPImageProcessor as fast by default,
+        # which is a breaking change causing output differences. Slow processor matches
+        # the original checkpoint behavior.
         self.processor = CLIPProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, use_fast=False
         )
 
         return self.processor
