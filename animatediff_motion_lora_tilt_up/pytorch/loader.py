@@ -72,10 +72,10 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the AnimateDiff pipeline with motion adapter and tilt-up LoRA.
+        """Load the AnimateDiff UNet with motion adapter and tilt-up LoRA applied.
 
         Returns:
-            AnimateDiffPipeline with motion adapter and LoRA weights applied.
+            UNetMotionModel (torch.nn.Module) with LoRA weights fused in.
         """
         dtype = dtype_override if dtype_override is not None else torch.float32
 
@@ -91,21 +91,46 @@ class ModelLoader(ForgeModel):
         )
 
         self.pipeline.load_lora_weights(LORA_REPO)
+        self.pipeline.fuse_lora()
 
-        return self.pipeline
+        return self.pipeline.unet
 
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for text-to-video generation with tilt-up motion.
+    def load_inputs(
+        self, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
+        """Prepare synthetic UNet inputs for the motion UNet forward pass.
 
         Returns:
-            dict with prompt key.
+            dict with sample, timestep, and encoder_hidden_states tensors.
         """
-        if prompt is None:
-            prompt = (
-                "A towering lighthouse by the sea at sunset, "
-                "cinematic tilt up, smooth camera motion"
-            )
+        dtype = dtype_override if dtype_override is not None else torch.float32
+
+        batch_size = 1
+        num_frames = 16
+        in_channels = 4
+        cross_attention_dim = 768
+
+        sample = torch.randn(
+            (batch_size, in_channels, num_frames, 8, 8),
+            dtype=dtype,
+        )
+        timestep = torch.randint(0, 1000, (1,))
+        # The real pipeline repeats prompt_embeds num_frames times before calling the
+        # UNet, so encoder_hidden_states must have batch=batch*num_frames.
+        encoder_hidden_states = torch.randn(
+            (batch_size * num_frames, 77, cross_attention_dim),
+            dtype=dtype,
+        )
 
         return {
-            "prompt": prompt,
+            "sample": sample,
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states,
         }
+
+    def unpack_forward_output(self, output: Any) -> torch.Tensor:
+        if hasattr(output, "sample"):
+            return output.sample
+        elif isinstance(output, tuple):
+            return output[0]
+        return output
