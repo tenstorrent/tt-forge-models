@@ -14,7 +14,11 @@ from typing import Any, Optional
 
 import torch
 from diffusers import CosmosTransformer3DModel
+from diffusers.loaders.single_file_utils import (
+    convert_cosmos_transformer_checkpoint_to_diffusers,
+)
 from huggingface_hub import hf_hub_download
+from safetensors.torch import load_file
 
 from ...base import ForgeModel
 from ...config import (
@@ -81,10 +85,33 @@ class ModelLoader(ForgeModel):
         """Load the FP8-quantized transformer from a single safetensors file."""
         fp8_file = self._FP8_FILES[self._variant]
         fp8_path = hf_hub_download(repo_id=FP8_REPO_ID, filename=fp8_file)
-        self.transformer = CosmosTransformer3DModel.from_single_file(
-            fp8_path,
-            torch_dtype=dtype,
+
+        # from_single_file auto-detection fails for FP8 files because
+        # net.pos_embedder.dim_spatial_range is stripped during quantization.
+        # Construct the model directly with known Cosmos-Predict2-2B config and
+        # load weights manually using the standard Cosmos 2.0 key conversion.
+        self.transformer = CosmosTransformer3DModel(
+            in_channels=16,
+            out_channels=16,
+            num_attention_heads=16,
+            attention_head_dim=128,
+            num_layers=28,
+            mlp_ratio=4.0,
+            text_embed_dim=1024,
+            adaln_lora_dim=256,
+            max_size=(128, 240, 240),
+            patch_size=(1, 2, 2),
+            rope_scale=(2.0, 1.0, 1.0),
+            concat_padding_mask=True,
+            extra_pos_embed_type=None,
+            use_crossattn_projection=False,
+            crossattn_proj_in_channels=1024,
+            encoder_hidden_states_channels=1024,
         )
+        checkpoint = load_file(fp8_path)
+        converted = convert_cosmos_transformer_checkpoint_to_diffusers(checkpoint)
+        self.transformer.load_state_dict(converted, strict=False)
+        self.transformer = self.transformer.to(dtype)
         return self.transformer
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
@@ -126,10 +153,16 @@ class ModelLoader(ForgeModel):
 
         timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
 
+        # Required when concat_padding_mask=True; shape [B, 1, H, W] of all-ones
+        padding_mask = torch.ones(
+            batch_size, 1, latent_height, latent_width, dtype=dtype
+        )
+
         return {
             "hidden_states": hidden_states,
             "encoder_hidden_states": encoder_hidden_states,
             "timestep": timestep,
+            "padding_mask": padding_mask,
             "return_dict": False,
         }
 
