@@ -158,12 +158,15 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        # Limit layers to avoid OOM: 24B model with hidden_size=5120 and
+        # intermediate_size=32768 nearly fills the 4 GB DRAM per bank, leaving
+        # no room for the 40 MB/bank tilize buffers needed during inference.
+        num_layers = self.num_layers if self.num_layers is not None else 1
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, gguf_file=self.GGUF_FILE
+        )
+        config.num_hidden_layers = num_layers
+        model_kwargs["config"] = config
 
         _saved_fn = _gguf_utils.load_gguf_checkpoint
         _real_fn = _find_real_load_gguf_checkpoint(_saved_fn)
