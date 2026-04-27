@@ -107,7 +107,9 @@ class ModelLoader(ForgeModel):
 
         # Load the processor
         self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, **processor_kwargs
+            self._variant_config.pretrained_model_name,
+            use_fast=False,
+            **processor_kwargs,
         )
 
         return self.processor
