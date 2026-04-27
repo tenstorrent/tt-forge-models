@@ -105,7 +105,7 @@ class ModelLoader(ForgeModel):
         dtype = dtype_override if dtype_override is not None else torch.float32
 
         batch_size = 1
-        num_frames = 16
+        num_frames = 32  # must be >= 32: TT hardware SDPA requires key seq_len >= 32
         in_channels = 4
         cross_attention_dim = 768
 
