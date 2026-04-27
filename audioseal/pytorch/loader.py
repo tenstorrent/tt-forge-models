@@ -57,7 +57,22 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from audioseal import AudioSeal
+        import sys
+        from pathlib import Path
+
+        # The tt_forge_models root is prepended to sys.path so loader relative
+        # imports work, but that makes tt_forge_models/audioseal/ shadow the
+        # pip-installed audioseal package.  Remove it temporarily so the real
+        # package is found in site-packages.
+        _models_root = str(Path(__file__).parents[2])
+        _in_path = _models_root in sys.path
+        if _in_path:
+            sys.path.remove(_models_root)
+        try:
+            from audioseal import AudioSeal
+        finally:
+            if _in_path:
+                sys.path.insert(0, _models_root)
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
