@@ -112,6 +112,15 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, trust_remote_code=True, **model_kwargs
         ).eval()
 
+        # Patch DeepseekMoE.forward: replace data-dependent moe_infer (bincount/numpy loop)
+        # with a dense bmm over all experts, which has static shapes for torch.compile.
+        from tt_torch.torch_overrides import _deepseek_moe_forward
+
+        for mod in model.modules():
+            if type(mod).__name__ == "DeepseekMoE":
+                type(mod).forward = _deepseek_moe_forward
+                break
+
         self.config = model.config
         self.model = model
         return model
