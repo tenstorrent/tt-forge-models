@@ -7,20 +7,8 @@ AIMv2 LIT model loader implementation for image-text similarity.
 
 import torch
 from transformers import AutoProcessor, AutoModel
-import transformers.models.aimv2.modeling_aimv2 as _aimv2_mod
 from typing import Optional
 from PIL import Image
-
-# Patch _get_vector_norm to use float32 accumulation for numerical stability.
-# The default implementation sums squared bfloat16 values across 768 dims,
-# which causes precision loss that is amplified by AIMv2's large logit_scale (~115).
-def _stable_vector_norm(tensor: torch.Tensor) -> torch.Tensor:
-    orig_dtype = tensor.dtype
-    square_tensor = torch.pow(tensor.float(), 2)
-    sum_tensor = torch.sum(square_tensor, dim=-1, keepdim=True)
-    return torch.pow(sum_tensor, 0.5).to(orig_dtype)
-
-_aimv2_mod._get_vector_norm = _stable_vector_norm
 
 from ....base import ForgeModel
 from ....config import (
