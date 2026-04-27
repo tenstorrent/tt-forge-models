@@ -8,6 +8,7 @@ ASID Captioner 7B i1 GGUF model loader implementation for image to text.
 from transformers import (
     Qwen2VLForConditionalGeneration,
     AutoProcessor,
+    AutoConfig,
 )
 from typing import Optional
 
@@ -21,6 +22,38 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_transformers_qwen2vl_gguf():
+    """Monkey-patch transformers to add qwen2vl GGUF architecture support.
+
+    transformers 5.x does not support the qwen2vl GGUF architecture. This patch
+    registers the architecture, reuses qwen2's config field mapping, and uses the
+    base TensorProcessor (which skips unmapped visual encoder tensors gracefully).
+    """
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        TENSOR_PROCESSORS,
+        TensorProcessor,
+    )
+
+    if "qwen2vl" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen2vl")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen2vl"] = GGUF_TO_TRANSFORMERS_MAPPING[
+        "config"
+    ]["qwen2"].copy()
+
+    # Use base TensorProcessor: Qwen2VL has visual encoder tensors that the
+    # standard qwen2 weight map cannot handle; the base processor skips them.
+    TENSOR_PROCESSORS["qwen2vl"] = TensorProcessor
+
+
+_patch_transformers_qwen2vl_gguf()
 
 
 class ModelVariant(StrEnum):
@@ -67,12 +100,29 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs["gguf_file"] = self.GGUF_FILE
-        model_kwargs |= kwargs
 
-        # GGUF repos do not ship a processor; use the base model
+        # GGUF repos do not ship a processor; use the base model with use_fast=False
+        # to avoid FutureWarning about Qwen2VLImageProcessor fast processor default.
         self.processor = AutoProcessor.from_pretrained(
-            "AudioVisual-Caption/ASID-Captioner-7B"
+            "AudioVisual-Caption/ASID-Captioner-7B", use_fast=False
         )
+
+        # The GGUF architecture is qwen2vl; load config from the canonical
+        # Qwen2-VL-7B model because the AudioVisual-Caption repo now returns a
+        # Qwen2_5OmniConfig which is incompatible with Qwen2VLForConditionalGeneration.
+        base_config = AutoConfig.from_pretrained("Qwen/Qwen2-VL-7B-Instruct")
+
+        # Set flat num_hidden_layers so GGUF weight-map lookup can find it without
+        # diving into text_config (transformers' get_gguf_hf_weights_map expects it
+        # at the top level of config).
+        base_config.num_hidden_layers = base_config.text_config.num_hidden_layers
+
+        # Use the GGUF arch name so get_gguf_hf_weights_map finds it in
+        # gguf-py's MODEL_ARCH_NAMES ("qwen2vl" maps to MODEL_ARCH.QWEN2VL).
+        base_config.model_type = "qwen2vl"
+
+        model_kwargs["config"] = base_config
+        model_kwargs |= kwargs
 
         model = Qwen2VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -82,16 +132,12 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
+        # Use text-only inputs: the GGUF checkpoint contains only LM weights;
+        # the visual encoder is randomly initialized and not runnable on TT silicon.
         messages = [
             {
                 "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
-                    },
-                    {"type": "text", "text": "Describe this image."},
-                ],
+                "content": [{"type": "text", "text": "Describe a sunset over the ocean."}],
             }
         ]
 
