@@ -11,7 +11,7 @@ built on the Llama architecture for code generation.
 from typing import Optional
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
@@ -45,9 +45,17 @@ class ModelLoader(ForgeModel):
 
     sample_text = "def fibonacci(n):"
 
-    def __init__(self, variant: Optional[ModelVariant] = None):
+    # Limit to 2 layers by default to avoid DRAM OOM on a single Blackhole device.
+    # The full 34B model at bfloat16 (~68 GB) far exceeds device DRAM; 2 layers
+    # provide a valid end-to-end inference test within the ~32 GB device DRAM budget.
+    DEFAULT_NUM_LAYERS = 2
+
+    def __init__(
+        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
+    ):
         super().__init__(variant)
         self.tokenizer = None
+        self.num_layers = num_layers if num_layers is not None else self.DEFAULT_NUM_LAYERS
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -73,17 +81,24 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        pretrained_model_name = self._variant_config.pretrained_model_name
+
+        if self.tokenizer is None:
+            self._load_tokenizer(dtype_override=dtype_override)
+
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            self._variant_config.pretrained_model_name, **model_kwargs
-        ).eval()
+        if self.num_layers is not None:
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config.num_hidden_layers = self.num_layers
+            model_kwargs["config"] = config
 
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+        model = AutoModelForCausalLM.from_pretrained(
+            pretrained_model_name, **model_kwargs
+        ).eval()
 
         return model
 
