@@ -72,12 +72,12 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the AnimateDiff pipeline with motion adapter and pan-right LoRA.
+        """Load the AnimateDiff UNet with motion adapter and pan-right LoRA applied.
 
         Returns:
-            AnimateDiffPipeline with motion adapter and LoRA weights applied.
+            UNetMotionModel (torch.nn.Module) with LoRA weights merged.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         adapter = MotionAdapter.from_pretrained(
             MOTION_ADAPTER,
@@ -91,11 +91,15 @@ class ModelLoader(ForgeModel):
         )
 
         self.pipeline.load_lora_weights(LORA_REPO)
+        # fuse_lora() merges the LoRA delta weights into the base linear weights and
+        # removes the PEFT wrapper. Without this the wrapper's forward hook causes
+        # Error code: 13 on TT hardware.
+        self.pipeline.fuse_lora()
 
         return self.pipeline.unet
 
     def load_inputs(self, dtype_override=None, **kwargs) -> Any:
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         batch_size = 1
         num_frames = 1
@@ -109,8 +113,10 @@ class ModelLoader(ForgeModel):
             dtype=dtype,
         )
         timestep = torch.randint(0, 1000, (1,))
+        # UNetMotionModel reshapes (batch, C, frames, H, W) -> (batch*frames, C, H, W)
+        # internally; encoder_hidden_states batch dim must match.
         encoder_hidden_states = torch.randn(
-            (batch_size, 77, cross_attention_dim),
+            (batch_size * num_frames, 77, cross_attention_dim),
             dtype=dtype,
         )
 
