@@ -84,6 +84,10 @@ def _patch_transformers_qwen35moe_gguf():
                 return GGUFTensor(weights, None, {})
             if "ffn_gate_inp_shexp" in name:
                 weights = _np.expand_dims(weights, axis=0)
+            if "ssm_conv1d" in name and weights.ndim == 2:
+                # GGUF stores conv1d as [out_ch, kernel] but nn.Conv1d expects
+                # [out_ch, in_ch, kernel]; add the in_ch=1 (depthwise) dimension.
+                weights = _np.expand_dims(weights, axis=1)
             return GGUFTensor(weights, name, {})
 
     TENSOR_PROCESSORS["qwen35moe"] = Qwen35MoeTensorProcessor
@@ -143,15 +147,17 @@ def _patch_transformers_qwen35moe_gguf():
         if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
             model_type = "qwen35moe"
         result = orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+        # gate_up_proj is nn.Parameter (no .weight suffix), so the result contains
+        # "blk.N.ffn_gate_up_exps" (no suffix) mapping to "...gate_up_proj" (no suffix).
+        # But the GGUF file stores SEPARATE ffn_gate_exps and ffn_up_exps tensors, so
+        # process() looks up "blk.N.ffn_gate_exps" which is missing. Add those entries.
         extra = {}
         for k, v in list(result.items()):
-            if ".ffn_gate_up_exps.weight" in k:
-                bid = k.rsplit(".ffn_gate_up_exps.weight", 1)[0]
-                extra[f"{bid}.ffn_gate_exps"] = v
-                extra[f"{bid}.ffn_up_exps"] = v
-            elif ".ffn_down_exps.weight" in k:
-                bid = k.rsplit(".ffn_down_exps.weight", 1)[0]
-                extra[f"{bid}.ffn_down_exps"] = v
+            if ".ffn_gate_up_exps" in k:
+                prefix = k.split(".ffn_gate_up_exps")[0]
+                hf_base = v[: -len(".weight")] if v.endswith(".weight") else v
+                extra[f"{prefix}.ffn_gate_exps"] = hf_base
+                extra[f"{prefix}.ffn_up_exps"] = hf_base
         result.update(extra)
         return result
 
