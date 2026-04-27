@@ -132,10 +132,11 @@ class ModelLoader(ForgeModel):
         batch_size = 1
         config = self.transformer.config
 
-        # Use small latent dimensions for testing
+        # Use latent dims that produce >= 32 patches for TT hardware SDPA.
+        # patch_size=(1,2,2) → num_patches = (H/2)*(W/2); use 16×16 → 8×8=64 patches.
         latent_num_frames = 1
-        latent_height = 2
-        latent_width = 2
+        latent_height = 16
+        latent_width = 16
 
         in_channels = config.in_channels
         hidden_states = torch.randn(
@@ -147,13 +148,13 @@ class ModelLoader(ForgeModel):
             dtype=dtype,
         )
 
-        # Text encoder hidden states (Qwen3 0.6B embedding dimension)
+        # Text encoder hidden states; seq >= 32 for TT hardware SDPA cross-attn.
         text_embed_dim = config.text_embed_dim
-        encoder_hidden_states = torch.randn(batch_size, 8, text_embed_dim, dtype=dtype)
+        encoder_hidden_states = torch.randn(batch_size, 32, text_embed_dim, dtype=dtype)
 
         timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
 
-        # Required when concat_padding_mask=True; shape [B, 1, H, W] of all-ones
+        # Required when concat_padding_mask=True; shape [B, 1, H, W] spatial-only
         padding_mask = torch.ones(
             batch_size, 1, latent_height, latent_width, dtype=dtype
         )
