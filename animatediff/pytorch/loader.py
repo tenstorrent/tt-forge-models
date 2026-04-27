@@ -104,8 +104,11 @@ class ModelLoader(ForgeModel):
 
         batch_size = 1
         num_frames = 32  # must be >= 32: TT hardware SDPA requires key seq_len >= 32
-        height = 64
-        width = 64
+        # height//8 must be divisible by 8 (3 halving steps) and height//8/8 >=6
+        # so the mid block (at spatial S/8 where S=height//8) has >=32 tokens.
+        # Minimum: height=384 -> S=48 -> mid=6x6=36 >=32.
+        height = 384
+        width = 384
         in_channels = 4
         cross_attention_dim = 768
 
