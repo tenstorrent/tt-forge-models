@@ -53,7 +53,7 @@ class ModelLoader(ForgeModel):
     ]
 
     min_pixels = 56 * 56
-    max_pixels = 13 * 28 * 1280
+    max_pixels = 9 * 28 * 1024  # Reduced from 13*28*1280 to limit visual tokens for TT L1
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -92,7 +92,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         else:
-            model_kwargs["torch_dtype"] = torch.float32
+            model_kwargs["torch_dtype"] = torch.bfloat16
         model_kwargs |= kwargs
 
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
