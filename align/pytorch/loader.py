@@ -5,6 +5,7 @@
 ALIGN model loader implementation for image-text similarity.
 """
 import torch
+import torch.nn as nn
 from PIL import Image
 from transformers import AlignProcessor, AlignModel
 from typing import Optional
@@ -107,6 +108,10 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         model = AlignModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        # AvgPool2d(640, ceil_mode=True) on the 9x9 EfficientNet feature map
+        # produces an empty tensor on XLA when kernel > input. Replace with
+        # AdaptiveAvgPool2d(1) which is numerically equivalent for small inputs.
+        model.vision_model.pooler = nn.AdaptiveAvgPool2d(1)
         model.eval()
 
         return model
