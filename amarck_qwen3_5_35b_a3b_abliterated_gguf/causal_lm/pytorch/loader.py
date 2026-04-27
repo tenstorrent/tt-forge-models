@@ -255,17 +255,18 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
-        # Prevent segfault during torch.compile: torch_chunk_gated_delta_rule uses
-        # in-place ops with dynamic slice sizes that crash XLA's graph partition
-        # probing phase. Disabling compilation creates graph breaks instead.
+        # Prevent segfault during torch.compile: the GatedDeltaNet linear_attention
+        # layers contain conv1d and chunk_gated_delta_rule ops that crash XLA's
+        # graph partition probing phase (conv1d → TT Conv2D segfault). Disabling
+        # compilation for the entire GatedDeltaNet forward creates a CPU graph
+        # break around the full linear_attention computation instead.
         from transformers.models.qwen3_5_moe.modeling_qwen3_5_moe import (
-            torch_chunk_gated_delta_rule,
+            Qwen3_5MoeGatedDeltaNet,
         )
 
-        _disabled_rule = torch.compiler.disable(torch_chunk_gated_delta_rule)
         for module in model.modules():
-            if hasattr(module, "chunk_gated_delta_rule"):
-                module.chunk_gated_delta_rule = _disabled_rule
+            if isinstance(module, Qwen3_5MoeGatedDeltaNet):
+                module.forward = torch.compiler.disable(module.forward)
 
         self.config = model.config
         self.model = model
