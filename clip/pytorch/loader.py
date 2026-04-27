@@ -5,6 +5,7 @@
 CLIP model loader implementation for image-text similarity.
 """
 import torch
+from PIL import Image
 from transformers import CLIPProcessor, CLIPModel
 from typing import Optional
 
@@ -18,7 +19,6 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from datasets import load_dataset
 
 
 class ModelVariant(StrEnum):
@@ -151,9 +151,9 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        # Load image from HuggingFace dataset
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        # Synthetic RGB image: avoids datasets/spacy pickling bug (AttributeError:
+        # module 'spacy' has no attribute 'Language') when spacy is not installed.
+        image = Image.new("RGB", (336, 336), color=(128, 128, 128))
 
         # Define text prompts for image-text similarity
         self.text_prompts = ["a photo of a cat", "a photo of a dog"]
