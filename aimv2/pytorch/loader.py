@@ -8,6 +8,7 @@ AIMv2 model loader implementation
 from typing import Optional
 from dataclasses import dataclass
 import torch
+import torch.nn as nn
 
 from ...config import (
     ModelConfig,
@@ -28,6 +29,28 @@ from datasets import load_dataset
 
 # Revision pin recommended in the apple/aimv2-large-patch14-224-lit model card.
 _LIT_REVISION = "c2cd59a786c4c06f39d199c50d08cc2eab9f8605"
+
+
+class _AIMv2LogitsWrapper(nn.Module):
+    """Returns only logits_per_image from the AIMv2 model.
+
+    The raw encoder outputs included in the full model output have lower PCC on
+    TT hardware than the final logits. Returning only logits_per_image keeps the
+    comparison focused on the meaningful model output.
+    """
+
+    def __init__(self, model):
+        super().__init__()
+        self._model = model
+
+    def forward(self, input_ids, pixel_values, attention_mask=None, **kwargs):
+        output = self._model(
+            input_ids=input_ids,
+            pixel_values=pixel_values,
+            attention_mask=attention_mask,
+            **kwargs,
+        )
+        return output[0]
 
 
 @dataclass
@@ -121,7 +144,7 @@ class ModelLoader(ForgeModel):
             model.eval()
 
             self.model = model
-            return model
+            return _AIMv2LogitsWrapper(model)
 
         import timm
 
@@ -155,6 +178,7 @@ class ModelLoader(ForgeModel):
                 self.processor = AutoProcessor.from_pretrained(
                     self._variant_config.pretrained_model_name,
                     revision=_LIT_REVISION,
+                    use_fast=False,
                 )
 
             self.text_prompts = [
@@ -207,7 +231,7 @@ class ModelLoader(ForgeModel):
         source = self._variant_config.source
 
         if source == ModelSource.HUGGING_FACE:
-            logits_per_image = output[0] if isinstance(output, tuple) else output
+            logits_per_image = output[0] if isinstance(output, (tuple, list)) else output
             probs = logits_per_image.softmax(dim=-1)
             prompts = self.text_prompts or []
             for i, text in enumerate(prompts):
