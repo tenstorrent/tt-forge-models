@@ -112,10 +112,14 @@ class ModelLoader(ForgeModel):
             tokenize=False,
             add_generation_prompt=True,
         )
+        # The tokenizer's init_kwargs carry max_length=2048 / truncation_strategy=
+        # 'longest_first', which would silently cut the expanded image-pad token
+        # sequence. Disable truncation so all visual tokens are preserved.
         inputs = self.processor(
             text=[text],
             images=[image],
             return_tensors="pt",
+            truncation=False,
         )
 
         for key in inputs:
