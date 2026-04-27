@@ -51,6 +51,7 @@ def _patch_qwen35_for_tt_device():
         image_grid_thw=None,
         video_grid_thw=None,
         attention_mask=None,
+        **kwargs,
     ):
         return orig_get_rope(
             self,
@@ -58,6 +59,7 @@ def _patch_qwen35_for_tt_device():
             image_grid_thw=image_grid_thw.cpu() if image_grid_thw is not None else None,
             video_grid_thw=video_grid_thw.cpu() if video_grid_thw is not None else None,
             attention_mask=attention_mask.cpu() if attention_mask is not None else None,
+            **kwargs,
         )
 
     modeling_qwen3_5.Qwen3_5VisionModel.fast_pos_embed_interpolate = _patched_fast_pos
@@ -131,15 +133,14 @@ class ModelLoader(ForgeModel):
                 self._variant_config.pretrained_model_name
             )
 
+        # Use text-only input: the VisionEncoder's patch_embed Conv3d kernel
+        # ([hidden_size, 3, 2, 14, 14]) requires circular buffers that exceed
+        # TT device L1 (2.1MB vs 1.5MB limit), so image processing is skipped.
         messages = [
             {
                 "role": "user",
                 "content": [
-                    {
-                        "type": "image",
-                        "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
-                    },
-                    {"type": "text", "text": "Describe this image."},
+                    {"type": "text", "text": "Describe an image of a dog playing fetch."},
                 ],
             }
         ]
