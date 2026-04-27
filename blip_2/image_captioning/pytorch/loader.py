@@ -57,7 +57,7 @@ class ModelLoader(ForgeModel):
 
     def _load_processor(self):
         self.processor = Blip2Processor.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, use_fast=False
         )
         return self.processor
 
@@ -88,6 +88,9 @@ class ModelLoader(ForgeModel):
         for key in inputs:
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+
+        decoder_input_ids = torch.zeros((batch_size, 1), dtype=torch.long)
+        inputs["decoder_input_ids"] = decoder_input_ids
 
         if dtype_override is not None:
             for key in inputs:
