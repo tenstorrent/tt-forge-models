@@ -152,4 +152,7 @@ class ModelLoader(ForgeModel):
             return_dict=True,
             return_tensors="pt",
         )
+        # Disable KV cache: the DynamicCache output type (Qwen3_5DynamicCache)
+        # cannot be compared with torch.equal in the test framework's evaluator.
+        inputs["use_cache"] = False
         return inputs
