@@ -10,6 +10,7 @@ weights reduce detail. It is applied on top of an SDXL base pipeline.
 """
 
 import torch
+import torch.nn as nn
 from typing import Optional
 
 from ...base import ForgeModel
@@ -26,6 +27,36 @@ from .src.model_utils import load_pipe
 from ...stable_diffusion_xl.pytorch.src.model_utils import (
     stable_diffusion_preprocessing_xl,
 )
+
+
+class _UNetWrapper(nn.Module):
+    """Wraps UNet2DConditionModel to accept flat tensor args instead of added_cond_kwargs dict.
+
+    The TT XLA backend lowers inputs to StableHLO, which only supports tensors.
+    Passing added_cond_kwargs as a Python dict causes the compiler to hang. This
+    wrapper receives text_embeds and time_ids as separate tensors, builds the dict
+    internally, and returns the raw sample tensor from the UNet output.
+    """
+
+    def __init__(self, unet: nn.Module) -> None:
+        super().__init__()
+        self.unet = unet
+
+    def forward(
+        self,
+        sample: torch.Tensor,
+        timestep: torch.Tensor,
+        encoder_hidden_states: torch.Tensor,
+        text_embeds: torch.Tensor,
+        time_ids: torch.Tensor,
+    ) -> torch.Tensor:
+        added_cond_kwargs = {"text_embeds": text_embeds, "time_ids": time_ids}
+        return self.unet(
+            sample=sample,
+            timestep=timestep,
+            encoder_hidden_states=encoder_hidden_states,
+            added_cond_kwargs=added_cond_kwargs,
+        ).sample
 
 
 class ModelVariant(StrEnum):
@@ -85,13 +116,13 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the SDXL pipeline with Add Detail XL LoRA weights.
+        """Load and return a wrapped UNet for the SDXL pipeline with Add Detail XL LoRA.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            StableDiffusionXLPipeline: The pipeline with LoRA weights fused.
+            _UNetWrapper: Wrapped UNet that accepts flat tensor inputs.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -105,7 +136,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             self.pipeline.unet = self.pipeline.unet.to(dtype_override)
 
-        return self.pipeline.unet
+        return _UNetWrapper(self.pipeline.unet)
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the model.
@@ -114,7 +145,7 @@ class ModelLoader(ForgeModel):
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
 
         Returns:
-            dict: Keyword arguments for the UNet forward method.
+            dict: Flat tensor keyword arguments matching _UNetWrapper.forward signature.
         """
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
@@ -129,15 +160,20 @@ class ModelLoader(ForgeModel):
         ) = stable_diffusion_preprocessing_xl(self.pipeline, self.prompt)
 
         timestep = timesteps[0]
+        text_embeds = added_cond_kwargs["text_embeds"]
+        time_ids = added_cond_kwargs["time_ids"]
 
         if dtype_override:
             latent_model_input = latent_model_input.to(dtype_override)
             timestep = timestep.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
+            text_embeds = text_embeds.to(dtype_override)
+            time_ids = time_ids.to(dtype_override)
 
         return {
             "sample": latent_model_input,
             "timestep": timestep,
             "encoder_hidden_states": prompt_embeds,
-            "added_cond_kwargs": added_cond_kwargs,
+            "text_embeds": text_embeds,
+            "time_ids": time_ids,
         }

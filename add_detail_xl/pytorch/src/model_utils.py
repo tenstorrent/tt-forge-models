@@ -6,6 +6,8 @@
 Helper functions for Add Detail XL LoRA model loading and processing.
 """
 
+import warnings
+
 import torch
 from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler
 
@@ -27,7 +29,17 @@ def load_pipe(base_model_name, lora_model_id, lora_filename, lora_scale=1.5):
         torch_dtype=torch.float32,
         use_safetensors=True,
     )
-    pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
+    # Suppress numpy 2.0 DeprecationWarning: EulerAncestralDiscreteScheduler.__init__
+    # calls np.array() on a torch tensor, which triggers a copy-keyword warning in numpy 2.x.
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="__array__ implementation",
+            category=DeprecationWarning,
+        )
+        pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(
+            pipe.scheduler.config
+        )
     pipe.to("cpu")
 
     # Load and fuse LoRA weights
