@@ -89,20 +89,6 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
-            if hasattr(config, "text_config"):
-                config.text_config.num_hidden_layers = self.num_layers
-                if hasattr(config.text_config, "layer_types"):
-                    config.text_config.layer_types = config.text_config.layer_types[: self.num_layers]
-            else:
-                config.num_hidden_layers = self.num_layers
-                if hasattr(config, "layer_types"):
-                    config.layer_types = config.layer_types[: self.num_layers]
-            model_kwargs["config"] = config
-
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
@@ -111,6 +97,16 @@ class ModelLoader(ForgeModel):
         # indices which XLA/torch.compile cannot trace statically, causing a segfault.
         # batched_mm_experts_forward uses only static tensor ops and is XLA-compatible.
         model.config._experts_implementation = "batched_mm"
+
+        # Truncate layers after loading (not before) because GGUF loading iterates all
+        # tensors in the file and crashes if the model config has fewer layers than the
+        # file contains. Post-load truncation reduces TT device DRAM usage from ~34 GB
+        # (full model) to ~1.4 GB (2 layers), leaving headroom for activations.
+        if self.num_layers is not None:
+            model.model.layers = model.model.layers[: self.num_layers]
+            model.config.num_hidden_layers = self.num_layers
+            if hasattr(model.config, "layer_types"):
+                model.config.layer_types = model.config.layer_types[: self.num_layers]
 
         self.config = model.config
         self.model = model
