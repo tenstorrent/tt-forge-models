@@ -104,11 +104,17 @@ class ModelLoader(ForgeModel):
                 ],
             }
         ]
-        inputs = self.processor.apply_chat_template(
+
+        # Use tokenize=False to avoid model_max_length truncation cutting
+        # image tokens, which causes token-count mismatch in the processor.
+        text = self.processor.apply_chat_template(
             messages,
-            tokenize=True,
+            tokenize=False,
             add_generation_prompt=True,
-            return_dict=True,
+        )
+        inputs = self.processor(
+            text=[text],
+            images=[image],
             return_tensors="pt",
         )
 
