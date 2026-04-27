@@ -5,6 +5,8 @@
 Bartowski xlangai Jedi-3B-1080p GGUF model loader implementation for image to text.
 """
 
+import os
+
 from transformers import (
     Qwen2_5_VLForConditionalGeneration,
     AutoProcessor,
@@ -69,8 +71,15 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = self.GGUF_FILE
         model_kwargs |= kwargs
 
-        # GGUF repos do not ship a processor; use the base model
-        self.processor = AutoProcessor.from_pretrained("Qwen/Qwen2.5-VL-3B-Instruct")
+        # GGUF repos do not ship a processor; use the base model.
+        # use_fast=False avoids the Qwen2VLImageProcessor fast-processor breaking change warning.
+        self.processor = AutoProcessor.from_pretrained(
+            "Qwen/Qwen2.5-VL-3B-Instruct", use_fast=False
+        )
+
+        # Disable transformers runtime checks that use boolean-indexed tensor numel(),
+        # which evaluates to 0 under XLA tracing and causes a false mismatch error.
+        os.environ["TRANSFORMERS_DISABLE_TORCH_CHECK"] = "1"
 
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
