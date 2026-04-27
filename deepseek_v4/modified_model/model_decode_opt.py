@@ -384,11 +384,11 @@ class Compressor(nn.Module):
             if isinstance(start_pos, torch.Tensor)
             else torch.as_tensor(start_pos, dtype=torch.long, device=kv.device)
         )
-        should_compress = ((sp + 1) % ratio == 0)  # 0-d bool tensor
-        score = score + self.ape.index_select(0, (sp % ratio).view(1))
+        should_compress = ((start_pos + 1) % ratio == 0)  # 0-d bool tensor
+        score = score + self.ape.index_select(0, (start_pos % ratio).view(1))
 
         if overlap:
-            write_idx_top = (ratio + sp % ratio).view(1)
+            write_idx_top = (ratio + start_pos % ratio).view(1)
             self.kv_state[:bsz].index_copy_(1, write_idx_top, kv)
             self.score_state[:bsz].index_copy_(1, write_idx_top, score)
             kv_state = torch.cat(
@@ -404,17 +404,17 @@ class Compressor(nn.Module):
             self.kv_state[:bsz, :ratio] = new_first
             self.score_state[:bsz, :ratio] = new_first_score
         else:
-            write_idx = (sp % ratio).view(1)
+            write_idx = (start_pos % ratio).view(1)
             self.kv_state[:bsz].index_copy_(1, write_idx, kv)
             self.score_state[:bsz].index_copy_(1, write_idx, score)
             kv_compressed = (self.kv_state[:bsz] * self.score_state[:bsz].softmax(dim=1)).sum(dim=1, keepdim=True)
 
         # Always run norm + rotary; the kv_cache write is gated to compress steps via where.
         kv_n = self.norm(kv_compressed.to(dtype))
-        rope_idx = (sp + 1 - ratio).view(1)
+        rope_idx = (start_pos + 1 - ratio).view(1)
         freqs_cis = torch.index_select(self.freqs_cis, 0, rope_idx)
         apply_rotary_emb(kv_n[..., -rd:], freqs_cis)
-        write_kv_idx = (sp // ratio).view(1)
+        write_kv_idx = (start_pos // ratio).view(1)
         existing = self.kv_cache[:bsz].index_select(1, write_kv_idx)
         merged = torch.where(should_compress, kv_n, existing)
         self.kv_cache[:bsz].index_copy_(1, write_kv_idx, merged)
@@ -486,12 +486,12 @@ class Indexer(torch.nn.Module):
             if isinstance(start_pos, torch.Tensor)
             else torch.as_tensor(start_pos, dtype=torch.long, device=device)
         )
-        freqs_cis = torch.index_select(self.freqs_cis, 0, sp.view(1))
-        end_pos = sp + 1
+        freqs_cis = torch.index_select(self.freqs_cis, 0, start_pos.view(1))
+        end_pos = start_pos + 1
         q = self.wq_b(qr)
         q = q.reshape(*q.shape[:-1], self.n_local_heads, self.head_dim)
         apply_rotary_emb(q[..., -rd:], freqs_cis)
-        self.compressor(x, sp)
+        self.compressor(x, start_pos)
         weights = self.weights_proj(x) * (self.softmax_scale * self.n_heads ** -0.5)
 
         max_compressed = self.compressor.kv_cache.size(1)
@@ -612,12 +612,12 @@ class Attention(nn.Module):
             o = sparse_attn(q, kv, self.attn_sink, topk_idxs, self.softmax_scale)
         else:
             # ----- Decode: start_pos as tensor; single graph reused per step. -----
-            sp = (
+            start_pos = (
                 start_pos
                 if isinstance(start_pos, torch.Tensor)
                 else torch.as_tensor(start_pos, dtype=torch.long, device=device)
             )
-            freqs_cis = torch.index_select(self.freqs_cis, 0, sp.view(1))
+            freqs_cis = torch.index_select(self.freqs_cis, 0, start_pos.view(1))
             qr = q = self.q_norm(self.wq_a(x))
             q = self.wq_b(q)
             q = q.reshape(*q.shape[:-1], self.n_local_heads, self.head_dim)
@@ -628,22 +628,22 @@ class Attention(nn.Module):
             kv = self.kv_norm(kv)
             apply_rotary_emb(kv[..., -rd:], freqs_cis)
 
-            topk_idxs = _window_topk_idxs_decode(win, bsz, sp, device)
+            topk_idxs = _window_topk_idxs_decode(win, bsz, start_pos, device)
             if ratio:
                 offset = win
                 if self.indexer is not None:
-                    compress_topk_idxs = self.indexer(x, qr, sp, offset)
+                    compress_topk_idxs = self.indexer(x, qr, start_pos, offset)
                 else:
                     max_compressed = self.compressor.kv_cache.size(1)
                     compress_topk_idxs = _compress_topk_idxs_decode(
-                        ratio, bsz, sp, offset, max_compressed, device
+                        ratio, bsz, start_pos, offset, max_compressed, device
                     )
                 topk_idxs = torch.cat([topk_idxs, compress_topk_idxs], dim=-1)
             topk_idxs = topk_idxs.int()
 
-            self.kv_cache[:bsz].index_copy_(1, (sp % win).view(1), kv)
+            self.kv_cache[:bsz].index_copy_(1, (start_pos % win).view(1), kv)
             if ratio:
-                self.compressor(x, sp)
+                self.compressor(x, start_pos)
                 kv_full = torch.cat([self.kv_cache[:bsz], self.compressor.kv_cache[:bsz]], dim=1)
             else:
                 kv_full = self.kv_cache[:bsz]
@@ -912,22 +912,3 @@ class Transformer(nn.Module):
             h = layer(h, start_pos, input_ids)
         logits = self.head(h, self.hc_head_fn, self.hc_head_scale, self.hc_head_base, self.norm)
         return logits
-
-
-if __name__ == "__main__":
-    torch.set_default_dtype(torch.bfloat16)
-    torch.set_default_device("cuda")
-    torch.manual_seed(0)
-    args = ModelArgs(n_hash_layers=0)
-    x = torch.randint(0, args.vocab_size, (2, 128))
-    model = Transformer(args)
-
-    print(model(x).size())
-    for i in range(128, 150):
-        sp = torch.tensor(i, dtype=torch.long, device="cuda")
-        print(i, model(x[:, 0:1], sp).size())
-
-    h = torch.randn(2, 128, args.hc_mult, args.dim)
-    mtp = model.mtp[0]
-    print(mtp(h, 0, x).size())
-    print(mtp(h[:, 0:1], torch.tensor(1, dtype=torch.long, device="cuda"), x[:, 0:1]).size())
