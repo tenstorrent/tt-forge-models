@@ -95,6 +95,12 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        # MixtralExperts.forward uses a Python for-loop over dynamically-sized
+        # expert_hit = nonzero(...), which XLA/torch.compile cannot trace statically
+        # and causes a segfault during graph partition. batched_mm uses only static
+        # tensor ops and is fully XLA-compatible.
+        model.config._experts_implementation = "batched_mm"
+
         self.config = model.config
         self.model = model
         return model
