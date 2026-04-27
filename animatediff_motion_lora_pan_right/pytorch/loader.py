@@ -99,9 +99,9 @@ class ModelLoader(ForgeModel):
 
         batch_size = 1
         num_frames = 16
-        # 16x16 latent: small enough to avoid OOM, large enough that the UNet
-        # bottleneck stays at 2x2 (seq_len=4 > 1), avoiding sdpa_decode dispatch.
-        # sdpa_decode requires k_chunk_size % 32 == 0 and fails for seq_len=1.
+        # 16x16 latent keeps the UNet bottleneck at 2x2 (seq_len=4 > 1), avoiding
+        # sdpa_decode dispatch. sdpa_decode is triggered for Q seq_len=1 and requires
+        # k_chunk_size % 32 == 0; get_chunk_size(1) = 2 which fails that check.
         sample_height = 16
         sample_width = 16
         in_channels = 4
@@ -112,8 +112,11 @@ class ModelLoader(ForgeModel):
             dtype=dtype,
         )
         timestep = torch.randint(0, 1000, (1,))
+        # UNetMotionModel internally reshapes sample to (batch*num_frames, ch, H, W).
+        # AttnProcessor2_0 derives batch_size from encoder_hidden_states.shape[0], so
+        # encoder_hidden_states must have batch_size*num_frames on dim 0 to match.
         encoder_hidden_states = torch.randn(
-            (batch_size, 77, cross_attention_dim),
+            (batch_size * num_frames, 77, cross_attention_dim),
             dtype=dtype,
         )
 
