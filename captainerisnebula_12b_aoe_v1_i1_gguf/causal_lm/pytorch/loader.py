@@ -61,6 +61,9 @@ class ModelLoader(ForgeModel):
 
     GGUF_FILE = "CaptainErisNebula-12B-AOE-v1.i1-Q4_K_M.gguf"
 
+    # Limit to 2 layers by default to avoid DRAM OOM on a single device.
+    DEFAULT_NUM_LAYERS = 2
+
     sample_text = "What is your favorite city?"
 
     def __init__(
@@ -69,7 +72,7 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.tokenizer = None
         self.config = None
-        self.num_layers = num_layers
+        self.num_layers = num_layers if num_layers is not None else self.DEFAULT_NUM_LAYERS
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
