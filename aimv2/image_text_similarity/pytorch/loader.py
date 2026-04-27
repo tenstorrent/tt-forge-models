@@ -6,23 +6,21 @@ AIMv2 LIT model loader implementation for image-text similarity.
 """
 
 import torch
-from transformers import AutoProcessor, AutoModel, PreTrainedModel
+from transformers import AutoProcessor, AutoModel
+import transformers.models.aimv2.modeling_aimv2 as _aimv2_mod
 from typing import Optional
 from PIL import Image
 
-# AIMv2 model code doesn't call self.post_init() in __init__, so transformers 5.x
-# fails when _finalize_model_loading accesses all_tied_weights_keys. Patch to
-# initialize the attribute lazily if missing.
-_original_adjust_tied = PreTrainedModel._adjust_tied_keys_with_tied_pointers
+# Patch _get_vector_norm to use float32 accumulation for numerical stability.
+# The default implementation sums squared bfloat16 values across 768 dims,
+# which causes precision loss that is amplified by AIMv2's large logit_scale (~115).
+def _stable_vector_norm(tensor: torch.Tensor) -> torch.Tensor:
+    orig_dtype = tensor.dtype
+    square_tensor = torch.pow(tensor.float(), 2)
+    sum_tensor = torch.sum(square_tensor, dim=-1, keepdim=True)
+    return torch.pow(sum_tensor, 0.5).to(orig_dtype)
 
-
-def _safe_adjust_tied(self, *args, **kwargs):
-    if not hasattr(self, "all_tied_weights_keys"):
-        self.all_tied_weights_keys = {}
-    return _original_adjust_tied(self, *args, **kwargs)
-
-
-PreTrainedModel._adjust_tied_keys_with_tied_pointers = _safe_adjust_tied
+_aimv2_mod._get_vector_norm = _stable_vector_norm
 
 from ....base import ForgeModel
 from ....config import (
@@ -93,7 +91,6 @@ class ModelLoader(ForgeModel):
         """
         self.processor = AutoProcessor.from_pretrained(
             self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
         )
 
         return self.processor
@@ -110,7 +107,7 @@ class ModelLoader(ForgeModel):
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"return_dict": False, "trust_remote_code": True}
+        model_kwargs = {"return_dict": False}
 
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
