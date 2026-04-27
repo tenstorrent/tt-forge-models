@@ -110,16 +110,13 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors that can be fed to the model.
         """
+        # Use text-only inputs: the vision encoder calls grid_thw.tolist() inside
+        # fast_pos_embed_interpolate, which fails on TT silicon when the tensor is
+        # placed on the device. Skipping pixel_values avoids the vision path entirely.
         messages = [
             {
                 "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
-                    },
-                    {"type": "text", "text": "Describe this image."},
-                ],
+                "content": [{"type": "text", "text": "Describe a sunset over the ocean."}],
             }
         ]
 
