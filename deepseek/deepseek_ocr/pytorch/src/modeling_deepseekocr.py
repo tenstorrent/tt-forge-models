@@ -175,31 +175,30 @@ class DeepseekOCRModel(DeepseekV2Model):
 
                 if images_in_this_batch:
                     images_in_this_batch = torch.cat(images_in_this_batch, dim=0)
-                    # inputs_embeds[idx].masked_scatter_(
-                    #     images_seq_mask[idx].unsqueeze(-1),
-                    #     images_in_this_batch,
-                    # )
-                    # Decomposed masked_scatter_ to avoid introduction of dynamic shapes.
-                    # https://github.com/tenstorrent/tt-xla/issues/3316
-                    mask = images_seq_mask[idx].unsqueeze(-1)
-                    # Broadcast mask to same shape as data
-                    mask_broad, data = torch.broadcast_tensors(mask, inputs_embeds[idx])
-                    # Flatten all tensors to 1D
-                    mask_flat = mask_broad.reshape(-1)
-                    data_flat = data.reshape(-1)
-                    source_flat = images_in_this_batch.reshape(-1)
-                    # Convert bool mask to int for cumsum
-                    mask_i = mask_flat.long()
-                    # Expand source to same size as data:
-                    # cumsum counts Trues seen so far -> becomes index into source
+                    # Decomposed masked_scatter_ via row-level cumsum + mul+add
+                    # flat indexing. Replaces the original flatten-based
+                    # decomposition that OOM'd at cumsum on [S*D] elements (#4167)
+                    # and the gather-based decomposition that had PCC drop from
+                    # ttnn.matmul bug (tt-metal#42845).
+                    # See: https://github.com/tenstorrent/tt-xla/issues/3316
+                    #      https://github.com/tenstorrent/tt-xla/issues/4328
+                    S, D = inputs_embeds[idx].shape
+                    mask_i = images_seq_mask[idx].long()
                     source_idx = torch.cumsum(mask_i, 0) - 1
-                    source_idx = torch.clamp(source_idx, 0, source_flat.shape[0] - 1)
-                    # Gather source values for all positions (dummy values at False positions)
-                    gathered = source_flat[source_idx]
-                    # Pick: True -> source value, False -> keep original
-                    result_flat = torch.where(mask_flat, gathered, data_flat)
-                    # Reshape back to original shape
-                    inputs_embeds[idx] = result_flat.view_as(inputs_embeds[idx])
+                    source_idx = torch.clamp(
+                        source_idx, 0, images_in_this_batch.shape[0] - 1
+                    )
+                    flat_source = images_in_this_batch.reshape(-1)
+                    col_idx = torch.arange(
+                        D, device=images_in_this_batch.device, dtype=source_idx.dtype
+                    )
+                    flat_idx = source_idx.unsqueeze(-1) * D + col_idx.unsqueeze(0)
+                    gathered_rows = flat_source[flat_idx.reshape(-1)].reshape(S, D)
+                    inputs_embeds[idx] = torch.where(
+                        images_seq_mask[idx].unsqueeze(-1),
+                        gathered_rows,
+                        inputs_embeds[idx],
+                    )
 
                 idx += 1
 
