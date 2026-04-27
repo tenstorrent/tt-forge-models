@@ -11,11 +11,12 @@ Supported variants:
   (google/siglip2-base-patch16-224) model fine-tuned to classify 526 bird species.
 """
 import torch
+import torch.nn as nn
+from PIL import Image
 from transformers import (
     AutoImageProcessor,
     AutoModelForImageClassification,
 )
-from datasets import load_dataset
 from typing import Optional
 
 from ...base import ForgeModel
@@ -71,7 +72,7 @@ class ModelLoader(ForgeModel):
 
     def _load_processor(self):
         pretrained_model_name = self._variant_config.pretrained_model_name
-        self.processor = AutoImageProcessor.from_pretrained(pretrained_model_name)
+        self.processor = AutoImageProcessor.from_pretrained(pretrained_model_name, use_fast=False)
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -85,6 +86,10 @@ class ModelLoader(ForgeModel):
         model = AutoModelForImageClassification.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        # AvgPool2d with ceil_mode=True is not supported by the TT XLA backend;
+        # replace with AdaptiveAvgPool2d((1, 1)) which is equivalent for this use case.
+        if hasattr(model, "efficientnet") and hasattr(model.efficientnet, "pooler"):
+            model.efficientnet.pooler = nn.AdaptiveAvgPool2d((1, 1))
         model.eval()
 
         return model
@@ -93,8 +98,7 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        image = Image.new("RGB", (224, 224))
 
         inputs = self.processor(images=image, return_tensors="pt")
 
