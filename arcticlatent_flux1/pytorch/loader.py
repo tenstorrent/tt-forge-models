@@ -32,7 +32,7 @@ from ...config import (
 )
 
 REPO_ID = "arcticlatent/flux1"
-_REPO_BASE_URL = f"https://huggingface.co/{REPO_ID}/resolve/main"
+_REPO_BASE_URL = f"https://huggingface.co/{REPO_ID}/blob/main"
 
 # Standard FLUX.1 transformer architecture (shared by Dev, Schnell and Kontext).
 _TRANSFORMER_CONFIG = {
