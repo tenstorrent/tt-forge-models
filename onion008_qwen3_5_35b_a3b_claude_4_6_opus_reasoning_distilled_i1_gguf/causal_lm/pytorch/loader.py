@@ -111,7 +111,7 @@ def _patch_transformers_qwen35moe_gguf():
         if model_type is None:
             model_type = hf_model.config.model_type
         if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
-            model_type = "qwen35moe"
+            model_type = "qwen3moe"
         return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
