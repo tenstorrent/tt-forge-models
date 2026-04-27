@@ -103,7 +103,7 @@ class ModelLoader(ForgeModel):
         dtype = dtype_override if dtype_override is not None else torch.float32
 
         batch_size = 1
-        num_frames = 16
+        num_frames = 32  # must be >= 32: TT hardware SDPA requires key seq_len >= 32
         height = 64
         width = 64
         in_channels = 4
@@ -114,8 +114,10 @@ class ModelLoader(ForgeModel):
             dtype=dtype,
         )
         timestep = torch.randint(0, 1000, (1,))
+        # The real pipeline does repeat_interleave(num_frames) on prompt_embeds before
+        # calling the UNet, so encoder_hidden_states must have batch=batch*num_frames.
         encoder_hidden_states = torch.randn(
-            (batch_size, 77, cross_attention_dim),
+            (batch_size * num_frames, 77, cross_attention_dim),
             dtype=dtype,
         )
 
