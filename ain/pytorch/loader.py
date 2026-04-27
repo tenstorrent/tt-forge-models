@@ -133,6 +133,7 @@ class ModelLoader(ForgeModel):
         model = Qwen2VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        model.config.use_cache = False
         model.eval()
         model = Wrapper(model)
 
