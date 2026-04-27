@@ -111,7 +111,11 @@ def _patch_transformers_qwen35moe_gguf():
         if model_type is None:
             model_type = hf_model.config.model_type
         if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
-            model_type = "qwen35moe"
+            # Use qwen3moe arch for tensor name mapping: the actual GGUF files use
+            # ffn_gate_exps/ffn_up_exps (separate) not ffn_gate_up_exps (merged),
+            # and qwen3moe's name_map returns None for gate_up_proj which triggers
+            # the fallback processor to generate the correct separate mappings.
+            model_type = "qwen3moe"
         return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
