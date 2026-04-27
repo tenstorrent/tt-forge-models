@@ -12,6 +12,9 @@ Available variants:
 
 from typing import Optional
 
+import torch
+import torch.nn as nn
+
 from ...base import ForgeModel
 from ...config import (
     ModelConfig,
@@ -23,6 +26,29 @@ from ...config import (
     StrEnum,
 )
 from .src.model_utils import load_pipe
+
+
+class UNetWrapper(nn.Module):
+    """Wraps UNet2DConditionModel to accept flattened added_cond_kwargs tensors.
+
+    The TT XLA StableHLO backend cannot handle dict-typed arguments in the
+    model forward pass. This wrapper accepts text_embeds and time_ids as
+    separate tensor arguments and packs them into added_cond_kwargs before
+    calling the underlying UNet.
+    """
+
+    def __init__(self, unet):
+        super().__init__()
+        self.unet = unet
+
+    def forward(self, sample, timestep, encoder_hidden_states, text_embeds, time_ids):
+        added_cond_kwargs = {"text_embeds": text_embeds, "time_ids": time_ids}
+        return self.unet(
+            sample,
+            timestep,
+            encoder_hidden_states,
+            added_cond_kwargs=added_cond_kwargs,
+        )
 
 
 REPO_ID = "openart-custom/AlbedoBase"
@@ -65,27 +91,28 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the AlbedoBase XL UNet model.
+        """Load and return the AlbedoBase XL UNet model wrapped to accept flat tensors.
 
         Returns:
-            torch.nn.Module: The UNet2DConditionModel from the pipeline.
+            torch.nn.Module: UNetWrapper around UNet2DConditionModel.
         """
         self.pipeline = load_pipe(self._variant_config.pretrained_model_name)
 
         if dtype_override is not None:
             self.pipeline = self.pipeline.to(dtype_override)
 
-        return self.pipeline.unet
+        return UNetWrapper(self.pipeline.unet)
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the AlbedoBase XL model.
 
         Returns:
-            list: Input tensors that can be fed to the model:
-                - latent_model_input (torch.Tensor): Latent input for the UNet
-                - timestep (torch.Tensor): Timestep tensor
-                - prompt_embeds (torch.Tensor): Encoded prompt embeddings
-                - added_cond_kwargs (dict): Additional conditioning inputs
+            dict: Keyword arguments for UNetWrapper.forward:
+                - sample (torch.Tensor): Latent input for the UNet
+                - timestep (torch.Tensor): Single timestep tensor
+                - encoder_hidden_states (torch.Tensor): Encoded prompt embeddings
+                - text_embeds (torch.Tensor): Pooled text embeddings (from added_cond_kwargs)
+                - time_ids (torch.Tensor): Time IDs tensor (from added_cond_kwargs)
         """
         from ...stable_diffusion_xl.pytorch.src.model_utils import (
             stable_diffusion_preprocessing_xl,
@@ -93,6 +120,14 @@ class ModelLoader(ForgeModel):
 
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
+
+        # Convert alphas_cumprod to numpy to avoid numpy 2.0 DeprecationWarning
+        # when scheduler.set_timesteps calls np.array() on torch tensors.
+        import numpy as np
+        if isinstance(self.pipeline.scheduler.alphas_cumprod, torch.Tensor):
+            self.pipeline.scheduler.alphas_cumprod = (
+                self.pipeline.scheduler.alphas_cumprod.numpy()
+            )
 
         (
             latent_model_input,
@@ -103,9 +138,21 @@ class ModelLoader(ForgeModel):
             add_time_ids,
         ) = stable_diffusion_preprocessing_xl(self.pipeline, self.prompt)
 
+        timestep = timesteps[0]
+        text_embeds = added_cond_kwargs["text_embeds"]
+        time_ids = added_cond_kwargs["time_ids"]
+
         if dtype_override:
             latent_model_input = latent_model_input.to(dtype_override)
-            timesteps = timesteps.to(dtype_override)
+            timestep = timestep.to(dtype_override)
             prompt_embeds = prompt_embeds.to(dtype_override)
+            text_embeds = text_embeds.to(dtype_override)
+            time_ids = time_ids.to(dtype_override)
 
-        return [latent_model_input, timesteps, prompt_embeds, added_cond_kwargs]
+        return {
+            "sample": latent_model_input,
+            "timestep": timestep,
+            "encoder_hidden_states": prompt_embeds,
+            "text_embeds": text_embeds,
+            "time_ids": time_ids,
+        }
