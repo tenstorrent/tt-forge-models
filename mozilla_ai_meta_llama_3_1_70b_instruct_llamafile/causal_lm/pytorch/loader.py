@@ -91,7 +91,7 @@ def _patched_load_gguf_checkpoint(
 ):
     with _llamafile_memmap_patch(gguf_checkpoint_path):
         return _orig_load_gguf_checkpoint(
-            gguf_checkpoint_path, return_tensors=return_tensors
+            gguf_checkpoint_path, return_tensors=return_tensors, model_to_load=model_to_load
         )
 
 
