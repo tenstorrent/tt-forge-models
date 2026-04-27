@@ -99,15 +99,6 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
-        # Dequantize GPTQ int4 weights to float: the GPTQ_TORCH QuantLinear
-        # uses boolean-mask indexing that produces dynamic shapes incompatible
-        # with XLA static-shape compilation. Replace all QuantLinear layers
-        # with standard nn.Linear before handing the model to the TT compiler.
-        from gptqmodel.nn_modules.qlinear.torch import dequantize_model
-        model = dequantize_model(model)
-        if dtype_override is not None:
-            model = model.to(dtype_override)
-
         self.config = model.config
         self.model = model
         return model
