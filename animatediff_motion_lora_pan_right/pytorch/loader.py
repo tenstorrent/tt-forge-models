@@ -98,9 +98,12 @@ class ModelLoader(ForgeModel):
         dtype = dtype_override if dtype_override is not None else torch.float32
 
         batch_size = 1
-        num_frames = 1
-        sample_height = 64
-        sample_width = 64
+        num_frames = 16
+        # 16x16 latent: small enough to avoid OOM, large enough that the UNet
+        # bottleneck stays at 2x2 (seq_len=4 > 1), avoiding sdpa_decode dispatch.
+        # sdpa_decode requires k_chunk_size % 32 == 0 and fails for seq_len=1.
+        sample_height = 16
+        sample_width = 16
         in_channels = 4
         cross_attention_dim = 768
 
