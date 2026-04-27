@@ -72,12 +72,12 @@ class ModelLoader(ForgeModel):
         dtype_override: Optional[torch.dtype] = None,
         **kwargs,
     ):
-        """Load the AnimateDiff pipeline with motion adapter and pan-left LoRA.
+        """Load the AnimateDiff UNet with motion adapter and pan-left LoRA applied.
 
         Returns:
-            AnimateDiffPipeline with motion adapter and LoRA weights applied.
+            UNetMotionModel (torch.nn.Module) with LoRA weights merged.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         adapter = MotionAdapter.from_pretrained(
             MOTION_ADAPTER,
@@ -91,21 +91,49 @@ class ModelLoader(ForgeModel):
         )
 
         self.pipeline.load_lora_weights(LORA_REPO)
+        # fuse_lora() merges the LoRA delta weights into the base linear weights and
+        # removes the PEFT wrapper. Without this the wrapper's forward hook causes
+        # Error code: 13 on TT hardware.
+        self.pipeline.fuse_lora()
 
-        return self.pipeline
+        return self.pipeline.unet
 
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
-        """Prepare inputs for text-to-video generation with pan-left motion.
+    def load_inputs(
+        self, dtype_override: Optional[torch.dtype] = None, **kwargs
+    ) -> Any:
+        """Prepare synthetic UNet inputs for the motion UNet forward pass.
 
         Returns:
-            dict with prompt key.
+            dict with sample, timestep, and encoder_hidden_states tensors.
         """
-        if prompt is None:
-            prompt = (
-                "A scenic mountain landscape with clouds drifting, "
-                "cinematic pan left, smooth camera motion"
-            )
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+
+        batch_size = 1
+        num_frames = 16
+        in_channels = 4
+        cross_attention_dim = 768
+
+        sample = torch.randn(
+            (batch_size, in_channels, num_frames, 8, 8),
+            dtype=dtype,
+        )
+        timestep = torch.randint(0, 1000, (1,))
+        # UNetMotionModel reshapes (batch, C, frames, H, W) -> (batch*frames, C, H, W)
+        # internally; encoder_hidden_states batch dim must match.
+        encoder_hidden_states = torch.randn(
+            (batch_size * num_frames, 77, cross_attention_dim),
+            dtype=dtype,
+        )
 
         return {
-            "prompt": prompt,
+            "sample": sample,
+            "timestep": timestep,
+            "encoder_hidden_states": encoder_hidden_states,
         }
+
+    def unpack_forward_output(self, output: Any) -> torch.Tensor:
+        if hasattr(output, "sample"):
+            return output.sample
+        elif isinstance(output, tuple):
+            return output[0]
+        return output
