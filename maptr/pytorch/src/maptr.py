@@ -6438,8 +6438,18 @@ class MapTR(MVXTwoStageDetector):
         tmp_pos = copy.deepcopy(img_metas[0][0]["can_bus"][:3])
         tmp_angle = copy.deepcopy(img_metas[0][0]["can_bus"][-1])
 
-        img_metas[0][0]["can_bus"][-1] = 0
-        img_metas[0][0]["can_bus"][:3] = 0
+        can_bus = img_metas[0][0]["can_bus"]
+        if torch.is_tensor(can_bus):
+            img_metas[0][0]["can_bus"] = torch.cat(
+                [
+                    torch.zeros(3, dtype=can_bus.dtype, device=can_bus.device),
+                    can_bus[3:-1],
+                    torch.zeros(1, dtype=can_bus.dtype, device=can_bus.device),
+                ]
+            )
+        else:
+            can_bus[-1] = 0
+            can_bus[:3] = 0
 
         new_prev_bev, bbox_results = self.simple_test(
             img_metas[0],
