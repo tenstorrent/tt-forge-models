@@ -159,13 +159,7 @@ class ModelLoader(ForgeModel):
         config = FuyuConfig(**config_dict)
 
         # Initialize tokenizer and image processor
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name, **tokenizer_kwargs
-        )
+        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
         image_processor = FuyuImageProcessor()
         self.processor = FuyuProcessor(
             image_processor=image_processor, tokenizer=self.tokenizer

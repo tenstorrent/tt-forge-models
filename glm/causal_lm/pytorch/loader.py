@@ -109,27 +109,15 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
+    def _load_tokenizer(self):
         """Load tokenizer for the current variant.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the tokenizer's default dtype.
-
         Returns:
             The loaded tokenizer instance
         """
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        # Initialize tokenizer with dtype override if specified
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
-        # Load the tokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name, **tokenizer_kwargs
-        )
+        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
 
         # Set pad token to eos token for models
         self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -140,7 +128,6 @@ class ModelLoader(ForgeModel):
         """Load and return the model instance for this instance's variant.
 
         Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
@@ -151,9 +138,8 @@ class ModelLoader(ForgeModel):
 
         # Ensure tokenizer is loaded
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
-        # Load the model with dtype override if specified
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
@@ -180,7 +166,6 @@ class ModelLoader(ForgeModel):
         """Load and return sample inputs for the model with this instance's variant settings.
 
         Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
             batch_size: Optional batch size to override the default batch size of 1.
 
@@ -189,7 +174,7 @@ class ModelLoader(ForgeModel):
         """
         # Ensure tokenizer is initialized
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
         # For causal LM, we need both input_ids and attention_mask
         inputs = self.tokenizer(
@@ -223,7 +208,7 @@ class ModelLoader(ForgeModel):
 
         # Ensure tokenizer and config are initialized
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
         if self.config is None:
             self.load_config()
 

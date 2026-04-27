@@ -79,24 +79,14 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
+    def _load_tokenizer(self):
         """Load tokenizer for the current variant.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the tokenizer's default dtype.
-
         Returns:
             The loaded tokenizer instance
         """
 
-        # Initialize tokenizer with dtype override if specified
-        tokenizer_kwargs = {"trust_remote_code": True}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
-        # Load the tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name, trust_remote_code=True
         )
 
         return self.tokenizer
@@ -105,7 +95,6 @@ class ModelLoader(ForgeModel):
         """Load and return the PHI2 model instance for this instance's variant.
 
         Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
@@ -116,9 +105,8 @@ class ModelLoader(ForgeModel):
 
         # Ensure tokenizer is loaded
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
-        # Load the model with dtype override if specified
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
@@ -132,16 +120,12 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the PHI2 model with this instance's variant settings.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
-
         Returns:
             dict: Input tensors that can be fed to the model.
         """
         # Ensure tokenizer is initialized
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
         # Create tokenized inputs for the token classification task
         inputs = self.tokenizer(self.sample_text, return_tensors="pt")

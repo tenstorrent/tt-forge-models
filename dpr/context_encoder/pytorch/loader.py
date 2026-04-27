@@ -85,13 +85,7 @@ class ModelLoader(ForgeModel):
         """Load a DPR Context Encoder model from Hugging Face."""
 
         # Initialize tokenizer first with default or overridden dtype
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
-        self.tokenizer = DPRContextEncoderTokenizer.from_pretrained(
-            self.model_name, **tokenizer_kwargs
-        )
+        self.tokenizer = DPRContextEncoderTokenizer.from_pretrained(self.model_name)
 
         # Load pre-trained model from HuggingFace
         model_kwargs = {}

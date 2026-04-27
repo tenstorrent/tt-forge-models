@@ -68,21 +68,13 @@ def calculate_age(birth_year):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
+    def _load_tokenizer(self):
         """Load tokenizer for the current variant.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the tokenizer's default dtype.
-
         Returns:
             The loaded tokenizer instance
         """
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name
         )
 
         if self.tokenizer.pad_token is None:
@@ -94,14 +86,13 @@ def calculate_age(birth_year):
         """Load and return the Code Gemma model instance for this instance's variant.
 
         Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
             torch.nn.Module: The CodeGemma model instance.
         """
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
         model_kwargs = {"use_cache": False}
         if dtype_override is not None:
@@ -131,7 +122,7 @@ def calculate_age(birth_year):
             dict: Input tensors and attention masks that can be fed to the model.
         """
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
         input_prompt = prompt or self.sample_text
         self.tokenizer.padding_side = "right"
