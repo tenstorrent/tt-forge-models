@@ -127,4 +127,7 @@ class ModelLoader(ForgeModel):
             return_dict=True,
             return_tensors="pt",
         )
+        # Disable KV cache so past_key_values is None; Qwen3_5DynamicCache is not
+        # a pytree leaf compatible with torch.equal in the comparison evaluator.
+        inputs["use_cache"] = False
         return inputs
