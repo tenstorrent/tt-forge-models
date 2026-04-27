@@ -99,7 +99,59 @@ class ModelLoader(ForgeModel):
         if self.transform_image is None:
             self._setup_transforms()
 
+        self._patch_deformable_conv(model)
+
         return model
+
+    @staticmethod
+    def _patch_deformable_conv(model):
+        """Patch DeformableConv2d.forward to float32-cast for CPU-only bfloat16 compatibility.
+
+        torchvision.ops.deform_conv2d is not implemented for bfloat16 on CPU.
+        We cast inputs to float32 before the op and cast the result back, so the
+        CPU reference path works on CPU-only PyTorch builds.
+        """
+        from torchvision.ops import deform_conv2d
+
+        def _bf16_safe_forward(self_conv, x):
+            orig_dtype = x.dtype
+            offset = self_conv.offset_conv(x)
+            modulator = 2.0 * torch.sigmoid(self_conv.modulator_conv(x))
+            if orig_dtype == torch.bfloat16:
+                x = x.float()
+                offset = offset.float()
+                modulator = modulator.float()
+                weight = self_conv.regular_conv.weight.float()
+                bias = (
+                    self_conv.regular_conv.bias.float()
+                    if self_conv.regular_conv.bias is not None
+                    else None
+                )
+                out = deform_conv2d(
+                    input=x,
+                    offset=offset,
+                    weight=weight,
+                    bias=bias,
+                    padding=self_conv.padding,
+                    mask=modulator,
+                    stride=self_conv.stride,
+                )
+                return out.to(orig_dtype)
+            return deform_conv2d(
+                input=x,
+                offset=offset,
+                weight=self_conv.regular_conv.weight,
+                bias=self_conv.regular_conv.bias,
+                padding=self_conv.padding,
+                mask=modulator,
+                stride=self_conv.stride,
+            )
+
+        import types
+
+        for module in model.modules():
+            if type(module).__name__ == "DeformableConv2d":
+                module.forward = types.MethodType(_bf16_safe_forward, module)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.transform_image is None:
