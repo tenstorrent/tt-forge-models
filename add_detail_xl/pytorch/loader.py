@@ -9,6 +9,8 @@ level of detail in generated images. Positive weights add detail, negative
 weights reduce detail. It is applied on top of an SDXL base pipeline.
 """
 
+import warnings
+
 import torch
 import torch.nn as nn
 from typing import Optional
@@ -150,14 +152,21 @@ class ModelLoader(ForgeModel):
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)
 
-        (
-            latent_model_input,
-            timesteps,
-            prompt_embeds,
-            timestep_cond,
-            added_cond_kwargs,
-            add_time_ids,
-        ) = stable_diffusion_preprocessing_xl(self.pipeline, self.prompt)
+        # retrieve_timesteps → scheduler.set_timesteps also calls np.array(tensor)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="__array__ implementation",
+                category=DeprecationWarning,
+            )
+            (
+                latent_model_input,
+                timesteps,
+                prompt_embeds,
+                timestep_cond,
+                added_cond_kwargs,
+                add_time_ids,
+            ) = stable_diffusion_preprocessing_xl(self.pipeline, self.prompt)
 
         timestep = timesteps[0]
         text_embeds = added_cond_kwargs["text_embeds"]
