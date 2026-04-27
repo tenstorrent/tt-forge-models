@@ -98,12 +98,15 @@ class ModelLoader(ForgeModel):
         dtype = dtype_override if dtype_override is not None else torch.float32
 
         batch_size = 1
-        num_frames = 16
-        # 16x16 latent keeps the UNet bottleneck at 2x2 (seq_len=4 > 1), avoiding
-        # sdpa_decode dispatch. sdpa_decode is triggered for Q seq_len=1 and requires
-        # k_chunk_size % 32 == 0; get_chunk_size(1) = 2 which fails that check.
-        sample_height = 16
-        sample_width = 16
+        # num_frames=1 dispatches temporal attention to sdpa_decode (Q seq_len=1),
+        # where get_chunk_size(1)=2 fails the k_chunk_size%32==0 constraint. Use
+        # num_frames=2 so temporal Q seq_len=2>1, triggering regular SDPA instead.
+        num_frames = 2
+        # 64x64 latent matches what conv2d_op_width_sharded was verified to handle
+        # (via the num_frames=1 run). Smaller dims (e.g. 16x16) fall below the
+        # TT tile width of 32, causing a CB page-size assertion in conv2d.
+        sample_height = 64
+        sample_width = 64
         in_channels = 4
         cross_attention_dim = 768
 
