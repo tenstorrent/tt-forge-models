@@ -68,12 +68,35 @@ class ModelLoader(ForgeModel):
         return self.transform_image
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from ben2 import BEN_Base
+        import os
+        import sys
+
+        # tt_forge_models/ben2/ shadows the real ben2 pip package because
+        # the dynamic loader inserts models_root into sys.path[0]. Temporarily
+        # remove the models_root entry so the installed package is found first.
+        models_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        _removed = []
+        while models_root in sys.path:
+            sys.path.remove(models_root)
+            _removed.append(models_root)
+        sys.modules.pop("ben2", None)
+        try:
+            from ben2 import BEN_Base
+        finally:
+            sys.path[:0] = _removed
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model = BEN_Base.from_pretrained(pretrained_model_name)
         model.eval()
+
+        # BEN2's BasicLayer.forward creates the Swin attention mask with
+        # torch.zeros(..., device=x.device) which yields float32 regardless
+        # of the input dtype.  When the model is converted to bfloat16 that
+        # float32 mask is added to the bfloat16 attention scores, producing a
+        # float32 result.  The subsequent attn @ v then fails with
+        # "expected m1 and m2 to have the same dtype, but got: float != BF16".
+        # Keep the model and inputs in native float32 to avoid the mismatch.
 
         if self.transform_image is None:
             self._setup_transforms()
@@ -89,8 +112,7 @@ class ModelLoader(ForgeModel):
 
         inputs = self.transform_image(self.image).unsqueeze(0)
 
-        if dtype_override is not None:
-            inputs = inputs.to(dtype_override)
+        # Keep inputs in float32 to match the model (see load_model comment).
 
         if batch_size > 1:
             inputs = inputs.repeat(batch_size, 1, 1, 1)
