@@ -100,16 +100,16 @@ class ModelLoader(ForgeModel):
             "use_cache": False,
             "torch_dtype": model_dtype,
         }
-        if self._variant == ModelVariant.TINY_RANDOM_MOE:
-            # TT hardware doesn't support grouped_mm (torch.histc on Int, grouped_mm kernel);
-            # select the loop-based eager implementation instead.
-            model_kwargs["experts_implementation"] = "eager"
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name,
             **model_kwargs,
         )
+        if self._variant == ModelVariant.TINY_RANDOM_MOE:
+            # TT hardware doesn't support grouped_mm or the eager loop (nonzero+index_add_);
+            # batched_mm is fully vectorized and avoids dynamic shapes.
+            model.config._experts_implementation = "batched_mm"
         model.eval()
         return model
 
