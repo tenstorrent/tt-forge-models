@@ -66,6 +66,20 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         model = AutoModelForMaskedLM.from_pretrained(self.model_name, **model_kwargs)
+
+        # transformers 5.x init_empty_weights leaves ref_table as a meta tensor
+        # because it is a plain tensor attribute rather than a registered buffer.
+        # Re-run prepare_vocab_table() outside the meta-device context so it
+        # holds real weights before the forward pass.
+        for module in model.modules():
+            if (
+                hasattr(module, "ref_table")
+                and hasattr(module.ref_table, "device")
+                and module.ref_table.device.type == "meta"
+                and hasattr(module, "prepare_vocab_table")
+            ):
+                module.ref_table = module.prepare_vocab_table()
+
         model.eval()
         return model
 
