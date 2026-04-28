@@ -15,6 +15,7 @@ Available variants:
 from typing import Optional
 
 import torch
+import torch.nn as nn
 
 from ...base import ForgeModel
 from ...config import (
@@ -30,6 +31,28 @@ from ...stable_diffusion_xl.pytorch.src.model_utils import (
     stable_diffusion_preprocessing_xl,
 )
 from .src.model_utils import load_pipe
+
+
+class UNetWrapper(nn.Module):
+    """Wraps UNet2DConditionModel to accept flattened added_cond_kwargs tensors.
+
+    TT XLA StableHLO backend cannot handle dict-typed arguments in the model
+    forward pass. This wrapper accepts text_embeds and time_ids as separate
+    tensor kwargs and packs them into added_cond_kwargs internally.
+    """
+
+    def __init__(self, unet):
+        super().__init__()
+        self.unet = unet
+
+    def forward(self, sample, timestep, encoder_hidden_states, text_embeds, time_ids):
+        added_cond_kwargs = {"text_embeds": text_embeds, "time_ids": time_ids}
+        return self.unet(
+            sample,
+            timestep,
+            encoder_hidden_states,
+            added_cond_kwargs=added_cond_kwargs,
+        )
 
 
 class ModelVariant(StrEnum):
@@ -100,7 +123,7 @@ class ModelLoader(ForgeModel):
         for param in self.pipeline.unet.parameters():
             param.requires_grad = False
 
-        return self.pipeline.unet
+        return UNetWrapper(self.pipeline.unet)
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the LEAKCORE UNet.
@@ -139,5 +162,6 @@ class ModelLoader(ForgeModel):
             "sample": latent_model_input,
             "timestep": timestep,
             "encoder_hidden_states": prompt_embeds,
-            "added_cond_kwargs": added_cond_kwargs,
+            "text_embeds": added_cond_kwargs["text_embeds"],
+            "time_ids": added_cond_kwargs["time_ids"],
         }
