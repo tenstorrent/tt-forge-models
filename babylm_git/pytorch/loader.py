@@ -6,16 +6,23 @@ BabyLM GIT model loader implementation for multimodal causal language modeling.
 """
 
 from typing import Optional
+import torch
 import transformers
 
 # transformers 5.x removed ViTFeatureExtractor; the remote modeling_git.py imports it
-# at module level (but never calls it). Inject a shim so the import succeeds.
+# at module level (but never calls it). Inject into _objects because the _LazyModule
+# uses its own dict (_objects), not the module's __dict__, for attribute resolution.
 if not hasattr(transformers, "ViTFeatureExtractor"):
+    import sys
     from transformers import ViTImageProcessor
-    transformers.ViTFeatureExtractor = ViTImageProcessor
+    _tm = sys.modules["transformers"]
+    if hasattr(_tm, "_objects"):
+        _tm._objects["ViTFeatureExtractor"] = ViTImageProcessor
+    else:
+        _tm.ViTFeatureExtractor = ViTImageProcessor
 
 from datasets import load_dataset
-from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import AutoModelForCausalLM, AutoProcessor, PreTrainedModel
 
 from ...base import ForgeModel
 from ...config import (
@@ -77,11 +84,27 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the BabyLM GIT model instance."""
         model_name = self._variant_config.pretrained_model_name
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            trust_remote_code=True,
-            **kwargs,
-        )
+
+        # The remote modeling_git.py calls ViTModel.from_pretrained() inside __init__,
+        # which fails under transformers 5.x's meta-device init context. Strip the
+        # meta-device context so the nested from_pretrained can allocate real tensors.
+        _orig_get_init_context = PreTrainedModel.get_init_context
+
+        @classmethod  # type: ignore[misc]
+        def _no_meta_get_init_context(cls, dtype, is_quantized, _is_ds_init_called):
+            contexts = _orig_get_init_context.__func__(cls, dtype, is_quantized, _is_ds_init_called)
+            return [c for c in contexts if not isinstance(c, torch.device)]
+
+        PreTrainedModel.get_init_context = _no_meta_get_init_context
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                model_name,
+                trust_remote_code=True,
+                **kwargs,
+            )
+        finally:
+            PreTrainedModel.get_init_context = _orig_get_init_context
+
         model.eval()
 
         if dtype_override:
