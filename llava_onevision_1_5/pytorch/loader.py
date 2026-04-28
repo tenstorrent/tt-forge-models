@@ -5,8 +5,18 @@
 LLaVA-OneVision-1.5 model loader implementation for multimodal conditional generation.
 """
 
+import transformers.cache_utils as _cache_utils
 from transformers import AutoModelForCausalLM, AutoProcessor
 from typing import Optional
+
+# transformers 5.x removed SlidingWindowCache; add a stub so the model's
+# trust_remote_code module (which imports it for isinstance checks) can load.
+if not hasattr(_cache_utils, "SlidingWindowCache"):
+
+    class SlidingWindowCache:
+        pass
+
+    _cache_utils.SlidingWindowCache = SlidingWindowCache
 
 from ...base import ForgeModel
 from ...config import (
@@ -78,7 +88,9 @@ class ModelLoader(ForgeModel):
 
     def _load_processor(self):
         self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, trust_remote_code=True
+            self._variant_config.pretrained_model_name,
+            trust_remote_code=True,
+            use_fast=False,
         )
         return self.processor
 
