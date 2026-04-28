@@ -87,6 +87,11 @@ class ModelLoader(ForgeModel):
         processor_kwargs = {}
         if self._variant == ModelVariant.CURIA:
             processor_kwargs["trust_remote_code"] = True
+        if self._variant == ModelVariant.XRAY_BASE:
+            # StanfordAIMI/dinov2-base-xray-224 uses BlipImageProcessor; in
+            # transformers 5.x the fast variant is selected by default but
+            # produces different preprocessing outputs, breaking PCC.
+            processor_kwargs["use_fast"] = False
 
         self.processor = AutoImageProcessor.from_pretrained(
             pretrained_model_name, **processor_kwargs
