@@ -82,7 +82,95 @@ def _patch_file(path: Path, filename: str) -> None:
         content = _fix_visual_forward(content)
     if filename == "tokenization_chexagent.py":
         content = _fix_decode_signature(content)
+    if filename == "modeling_chexagent.py":
+        content = _fix_pixel_values_input(content)
     path.write_text(content)
+
+
+def _fix_pixel_values_input(content: str) -> str:
+    """Add pixel_values parameter to CheXagentModel and CheXagentForCausalLM forward().
+
+    Under torch.compile, transforms.ToTensor() internally creates a uint8 numpy
+    array (graph break) whose resulting uint8 tensor is then passed as a compiled
+    subgraph argument.  bridge.extract_compiled_graph segfaults when it tries to
+    compile permute/cast ops on a uint8 XLA tensor.
+
+    Fix: accept a pre-processed float pixel_values tensor so the model can call
+    self.visual.forward(pixel_values) directly, skipping URL decode + image download.
+    """
+    if "pixel_values: Optional[torch.FloatTensor] = None," in content:
+        return content
+
+    # 1. Add pixel_values param to CheXagentModel.forward() signature
+    old_model_sig = (
+        "            output_hidden_states: Optional[bool] = None,\n"
+        "            return_dict: Optional[bool] = None,\n"
+        "    ) -> Union[Tuple, BaseModelOutputWithPast]:\n"
+        "        # IMAGE: encode images\n"
+        "        if past_key_values is None and torch.any(input_ids == self.tokenizer.img_start_id):"
+    )
+    new_model_sig = (
+        "            output_hidden_states: Optional[bool] = None,\n"
+        "            return_dict: Optional[bool] = None,\n"
+        "            pixel_values: Optional[torch.FloatTensor] = None,\n"
+        "    ) -> Union[Tuple, BaseModelOutputWithPast]:\n"
+        "        # IMAGE: encode images\n"
+        "        if pixel_values is not None and past_key_values is None:\n"
+        "            bos_pos = torch.where(input_ids == self.tokenizer.img_start_id)\n"
+        "            eos_pos = torch.where(input_ids == self.tokenizer.img_end_id)\n"
+        "            assert (bos_pos[0] == eos_pos[0]).all()\n"
+        "            img_pos = torch.stack((bos_pos[0], bos_pos[1], eos_pos[1]), dim=1)\n"
+        "            images = self.visual.forward(pixel_values.to(dtype=next(self.visual.parameters()).dtype))\n"
+        "            fake_images = None\n"
+        "        elif past_key_values is None and torch.any(input_ids == self.tokenizer.img_start_id):"
+    )
+    content = content.replace(old_model_sig, new_model_sig, 1)
+
+    # 2. Add pixel_values param to CheXagentForCausalLM.forward() signature
+    old_causal_sig = (
+        "            output_hidden_states: Optional[bool] = None,\n"
+        "            return_dict: Optional[bool] = None,\n"
+        "    ) -> Union[Tuple, CausalLMOutputWithPast]:\n"
+    )
+    new_causal_sig = (
+        "            output_hidden_states: Optional[bool] = None,\n"
+        "            return_dict: Optional[bool] = None,\n"
+        "            pixel_values: Optional[torch.FloatTensor] = None,\n"
+        "    ) -> Union[Tuple, CausalLMOutputWithPast]:\n"
+    )
+    content = content.replace(old_causal_sig, new_causal_sig, 1)
+
+    # 3. Pass pixel_values through in CheXagentForCausalLM.forward() -> self.model(...)
+    old_model_call = (
+        "        outputs = self.model(\n"
+        "            input_ids=input_ids,\n"
+        "            attention_mask=attention_mask,\n"
+        "            position_ids=position_ids,\n"
+        "            past_key_values=past_key_values,\n"
+        "            inputs_embeds=inputs_embeds,\n"
+        "            use_cache=use_cache,\n"
+        "            output_attentions=output_attentions,\n"
+        "            output_hidden_states=output_hidden_states,\n"
+        "            return_dict=return_dict,\n"
+        "        )\n"
+    )
+    new_model_call = (
+        "        outputs = self.model(\n"
+        "            input_ids=input_ids,\n"
+        "            attention_mask=attention_mask,\n"
+        "            position_ids=position_ids,\n"
+        "            past_key_values=past_key_values,\n"
+        "            inputs_embeds=inputs_embeds,\n"
+        "            use_cache=use_cache,\n"
+        "            output_attentions=output_attentions,\n"
+        "            output_hidden_states=output_hidden_states,\n"
+        "            return_dict=return_dict,\n"
+        "            pixel_values=pixel_values,\n"
+        "        )\n"
+    )
+    content = content.replace(old_model_call, new_model_call, 1)
+
+    return content
 
 
 def _fix_decode_signature(content: str) -> str:
@@ -332,6 +420,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.tokenizer = None
+        self._visual_image_transform = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -405,9 +494,21 @@ class ModelLoader(ForgeModel):
             pass
 
         model.eval()
+
+        try:
+            self._visual_image_transform = model.model.visual.image_transform
+        except AttributeError:
+            pass
+
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
+        import io
+
+        import requests
+        import torch
+        from PIL import Image
+
         if self.tokenizer is None:
             self._load_tokenizer()
 
@@ -432,4 +533,27 @@ class ModelLoader(ForgeModel):
         else:
             input_ids = result
 
-        return {"input_ids": input_ids}
+        # Pre-process the image outside of torch.compile to avoid a segfault:
+        # transforms.ToTensor() uses np.array(pil, uint8) internally, which is a
+        # graph break under torch.compile.  The resulting uint8 tensor passed into
+        # the compiled subgraph causes bridge.extract_compiled_graph to segfault
+        # when compiling permute/cast ops on a uint8 XLA tensor.
+        # By providing pixel_values as a pre-processed float tensor, the model can
+        # call self.visual.forward(pixel_values) directly, bypassing URL decode
+        # and image download inside the compiled graph.
+        pixel_values = None
+        if self._visual_image_transform is not None:
+            try:
+                response = requests.get(self.sample_image_url, timeout=30)
+                response.raise_for_status()
+                pil_image = Image.open(io.BytesIO(response.content)).convert("RGB")
+                pixel_values = self._visual_image_transform(pil_image).unsqueeze(0)
+                if dtype_override is not None:
+                    pixel_values = pixel_values.to(dtype=dtype_override)
+            except Exception:
+                pixel_values = None
+
+        inputs = {"input_ids": input_ids}
+        if pixel_values is not None:
+            inputs["pixel_values"] = pixel_values
+        return inputs
