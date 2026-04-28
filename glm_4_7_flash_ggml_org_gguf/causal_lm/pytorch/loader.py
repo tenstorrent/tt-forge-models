@@ -73,6 +73,10 @@ def _patch_transformers_deepseek2_gguf():
 
     if "deepseek2" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["deepseek2"] = GGUFQwen2Converter
+    # Also register deepseek_v2 because load_gguf_checkpoint rewrites model_type
+    # from "deepseek2" to "deepseek_v2"; the tokenizer path then looks up
+    # GGUF_TO_FAST_CONVERTERS["deepseek_v2"] and would KeyError without this.
+    GGUF_TO_FAST_CONVERTERS.setdefault("deepseek_v2", GGUFQwen2Converter)
 
     orig_load = gguf_utils.load_gguf_checkpoint
 
@@ -88,8 +92,9 @@ def _patch_transformers_deepseek2_gguf():
     import transformers.models.auto.tokenization_auto as tok_auto
     import transformers.configuration_utils as config_utils
     import transformers.modeling_utils as modeling_utils
+    import transformers.tokenization_utils_tokenizers as tok_utils
 
-    for mod in (tok_auto, config_utils, modeling_utils):
+    for mod in (tok_auto, config_utils, modeling_utils, tok_utils):
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
