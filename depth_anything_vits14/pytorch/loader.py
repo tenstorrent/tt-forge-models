@@ -32,7 +32,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.BASE: ModelConfig(
-            pretrained_model_name="LiheYoung/depth_anything_vits14",
+            pretrained_model_name="LiheYoung/depth-anything-small-hf",
         ),
     }
 
@@ -58,7 +58,9 @@ class ModelLoader(ForgeModel):
 
     def _load_processor(self):
         pretrained_model_name = self._variant_config.pretrained_model_name
-        self.processor = AutoImageProcessor.from_pretrained(pretrained_model_name)
+        self.processor = AutoImageProcessor.from_pretrained(
+            pretrained_model_name, use_fast=False
+        )
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
