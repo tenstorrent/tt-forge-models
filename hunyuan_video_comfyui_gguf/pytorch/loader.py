@@ -27,7 +27,7 @@ from ...config import (
 )
 
 GGUF_REPO = "Kijai/HunyuanVideo_comfy"
-GGUF_BASE_URL = f"https://huggingface.co/{GGUF_REPO}/resolve/main"
+GGUF_BASE_URL = f"https://huggingface.co/{GGUF_REPO}/blob/main"
 
 
 class ModelVariant(StrEnum):
