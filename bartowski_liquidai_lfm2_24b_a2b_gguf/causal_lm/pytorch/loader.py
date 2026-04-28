@@ -40,8 +40,9 @@ def _find_base_load_gguf():
     if _is_original(gguf_utils.load_gguf_checkpoint):
         return gguf_utils.load_gguf_checkpoint
 
-    # Slow path: search all loaded modules for the original function object
-    for mod in sys.modules.values():
+    # Slow path: search all loaded modules for the original function object.
+    # Snapshot values() first — imports triggered during iteration can grow the dict.
+    for mod in list(sys.modules.values()):
         mod_dict = getattr(mod, "__dict__", None)
         if not mod_dict:
             continue
