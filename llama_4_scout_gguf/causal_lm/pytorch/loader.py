@@ -38,7 +38,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.LLAMA_4_SCOUT_17B_16E_INSTRUCT_GGUF
 
-    GGUF_FILE = "Llama-4-Scout-17B-16E-Instruct-Q4_K_M.gguf"
+    GGUF_FILE = "Q4_K_M/Llama-4-Scout-17B-16E-Instruct-Q4_K_M-00001-of-00002.gguf"
 
     sample_text = "What are the main advantages of mixture-of-experts models?"
 
