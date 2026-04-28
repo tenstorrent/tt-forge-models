@@ -7,7 +7,7 @@ Aesthetic Shadow model loader implementation
 
 from typing import Optional
 from dataclasses import dataclass
-from transformers import ViTForImageClassification
+from transformers import ViTForImageClassification, ViTImageProcessor
 
 from ...config import (
     ModelConfig,
@@ -103,6 +103,14 @@ class ModelLoader(ForgeModel):
 
             if hasattr(self, "model") and self.model is not None:
                 self._preprocessor.set_cached_model(self.model)
+                # RE-N-Y/aesthetic-shadow-v2 has no preprocessor_config.json,
+                # so AutoImageProcessor.from_pretrained would fail.  Build the
+                # ViTImageProcessor directly from the model's image_size.
+                image_size = self.model.config.image_size
+                self._preprocessor._image_processor = ViTImageProcessor(
+                    size={"height": image_size, "width": image_size},
+                    do_center_crop=False,
+                )
 
         return self._preprocessor.preprocess(
             image=image,
