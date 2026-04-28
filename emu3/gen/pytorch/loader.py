@@ -5,7 +5,6 @@
 Emu3-Gen model loader implementation for text-to-image generation.
 """
 
-import sys
 import torch
 from typing import Optional
 from transformers import (
@@ -15,7 +14,7 @@ from transformers import (
     AutoModel,
     AutoModelForCausalLM,
 )
-from huggingface_hub import snapshot_download
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
 
 from ....tools.utils import cast_input_to_type
 from ....base import ForgeModel
@@ -84,7 +83,7 @@ class ModelLoader(ForgeModel):
 
     def _load_image_processor(self):
         self.image_processor = AutoImageProcessor.from_pretrained(
-            self.VISION_TOKENIZER_NAME, trust_remote_code=True
+            self.VISION_TOKENIZER_NAME, trust_remote_code=True, use_fast=False
         )
         return self.image_processor
 
@@ -106,17 +105,10 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        # Import the custom Emu3Processor from the model's remote code
-        model_path = snapshot_download(
+        Emu3Processor = get_class_from_dynamic_module(
+            "processing_emu3.Emu3Processor",
             self._variant_config.pretrained_model_name,
-            allow_patterns=["processing_emu3.py"],
         )
-        sys.path.insert(0, model_path)
-        try:
-            from processing_emu3 import Emu3Processor
-        finally:
-            sys.path.remove(model_path)
-
         self.processor = Emu3Processor(
             self.image_processor, self.image_tokenizer, self.tokenizer
         )
