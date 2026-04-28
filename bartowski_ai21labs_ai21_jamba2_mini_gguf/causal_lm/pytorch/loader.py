@@ -8,6 +8,53 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_SUPPORTED_ARCHITECTURES,
+    MambaTensorProcessor,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFLlamaConverter
+
+
+def _patch_jamba_support():
+    """Register Jamba architecture in transformers 5.x GGUF support tables.
+
+    Transformers 5.x does not include 'jamba' in GGUF_CONFIG_MAPPING.
+    AI21-Jamba2-Mini GGUF stores general.architecture='jamba', so loading
+    raises ValueError without this patch.
+    """
+    _jamba_config = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "attention.head_count": "num_attention_heads",
+        # per-layer list (0 for SSM layers, 8 for attn layers); JambaConfig
+        # default of 8 is correct for the attention layers, so skip the list.
+        "attention.head_count_kv": None,
+        "ssm.conv_kernel": "mamba_d_conv",
+        # inner_size = hidden_size * mamba_expand; no direct JambaConfig field
+        "ssm.inner_size": None,
+        "ssm.state_size": "mamba_d_state",
+        "ssm.time_step_rank": "mamba_dt_rank",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "expert_count": "num_experts",
+        "expert_used_count": "num_experts_per_tok",
+    }
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "mamba" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "jamba", _jamba_config
+            )
+    if "jamba" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("jamba")
+    _gguf_utils.TENSOR_PROCESSORS.setdefault("jamba", MambaTensorProcessor)
+    # Jamba uses a llama-style SentencePiece tokenizer (tokenizer.ggml.model='llama')
+    GGUF_TO_FAST_CONVERTERS.setdefault("jamba", GGUFLlamaConverter)
+
+
+_patch_jamba_support()
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
