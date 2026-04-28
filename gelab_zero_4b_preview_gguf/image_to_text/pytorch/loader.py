@@ -5,12 +5,14 @@
 GELab-Zero-4B-preview GGUF model loader implementation for image to text.
 """
 
+import torch
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import (
     Qwen3VLConfig,
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
 )
+from transformers.models.qwen3_vl import modeling_qwen3_vl as _qwen3vl_mod
 from typing import Optional
 
 from ....base import ForgeModel
@@ -75,6 +77,87 @@ def _patch_qwen3vl_gguf_support():
 _patch_qwen3vl_gguf_support()
 
 
+# ---------------------------------------------------------------------------
+# Patch: move grid_thw / input_ids metadata to CPU for .tolist() control flow.
+#
+# TT device does not support eager Python-side tensor readback (.tolist()).
+# Four Qwen3VL methods call .tolist() on grid_thw or input_ids that may be
+# on the TT device, causing RuntimeError: Bad StatusOr access INTERNAL:13.
+# Only the control-flow metadata is moved; main computation stays on device.
+# ---------------------------------------------------------------------------
+def _patch_qwen3vl_tolist():
+    _VisionModel = _qwen3vl_mod.Qwen3VLVisionModel
+    _Model = _qwen3vl_mod.Qwen3VLModel
+
+    if getattr(_VisionModel.fast_pos_embed_interpolate, "_tolist_patched", False):
+        return
+
+    _orig_fast_pos = _VisionModel.fast_pos_embed_interpolate
+
+    def _fast_pos(self, grid_thw):
+        return _orig_fast_pos(self, grid_thw.cpu())
+
+    _fast_pos._tolist_patched = True
+    _VisionModel.fast_pos_embed_interpolate = _fast_pos
+
+    _orig_rot_pos = _VisionModel.rot_pos_emb
+
+    def _rot_pos(self, grid_thw):
+        return _orig_rot_pos(self, grid_thw.cpu())
+
+    _rot_pos._tolist_patched = True
+    _VisionModel.rot_pos_emb = _rot_pos
+
+    _orig_get_image_feat = _Model.get_image_features
+
+    def _get_image_feat(self, pixel_values, image_grid_thw=None, **kwargs):
+        # prod(-1).tolist() needs CPU; pixel_values stays on device
+        if image_grid_thw is not None:
+            image_grid_thw = image_grid_thw.cpu()
+        return _orig_get_image_feat(self, pixel_values, image_grid_thw, **kwargs)
+
+    _get_image_feat._tolist_patched = True
+    _Model.get_image_features = _get_image_feat
+
+    _orig_get_rope = _Model.get_rope_index
+
+    def _get_rope(
+        self,
+        input_ids=None,
+        image_grid_thw=None,
+        video_grid_thw=None,
+        attention_mask=None,
+        **kwargs,
+    ):
+        orig_device = input_ids.device if input_ids is not None else None
+        if input_ids is not None:
+            input_ids = input_ids.cpu()
+        if image_grid_thw is not None:
+            image_grid_thw = image_grid_thw.cpu()
+        if video_grid_thw is not None:
+            video_grid_thw = video_grid_thw.cpu()
+        if attention_mask is not None:
+            attention_mask = attention_mask.cpu()
+        position_ids, mrope_deltas = _orig_get_rope(
+            self,
+            input_ids=input_ids,
+            image_grid_thw=image_grid_thw,
+            video_grid_thw=video_grid_thw,
+            attention_mask=attention_mask,
+            **kwargs,
+        )
+        if orig_device is not None:
+            position_ids = position_ids.to(orig_device)
+            mrope_deltas = mrope_deltas.to(orig_device)
+        return position_ids, mrope_deltas
+
+    _get_rope._tolist_patched = True
+    _Model.get_rope_index = _get_rope
+
+
+_patch_qwen3vl_tolist()
+
+
 class ModelVariant(StrEnum):
     """Available GELab-Zero-4B-preview GGUF model variants for image to text."""
 
@@ -123,6 +206,10 @@ class ModelLoader(ForgeModel):
 
         # GGUF repos do not ship a processor; use the base model
         self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-4B-Instruct")
+        # Constrain input resolution so the demo image (~1376×2048) produces a
+        # manageable number of visual patches rather than 11K+.
+        self.processor.image_processor.min_pixels = 56 * 56
+        self.processor.image_processor.max_pixels = 13 * 28 * 1280
 
         # Pass the 4B base config explicitly so from_pretrained skips GGUF
         # config extraction (qwen3vl is not in transformers' GGUF config
