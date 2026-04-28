@@ -6,8 +6,10 @@ Dolphin 2.7 Mixtral 8x7B GGUF model loader implementation for causal language mo
 """
 import glob
 import os
+import re
 from typing import Optional
 
+import numpy as np
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, MixtralConfig
 
@@ -21,6 +23,106 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_transformers_mixtral_gguf():
+    """Monkey-patch transformers to handle Mixtral GGUF loading.
+
+    This GGUF file uses the old llama.cpp convention:
+    - general.architecture = "llama"  (not "mixtral")
+    - Per-expert tensors stored individually: blk.{bid}.ffn_{gate,down,up}.{eid}.weight
+
+    Transformers 5.x has two problems with this:
+    1. get_gguf_hf_weights_map raises NotImplementedError for model_type="mixtral"
+    2. No processor handles the old per-expert tensor format
+    """
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUFTensor,
+        LlamaTensorProcessor,
+        TENSOR_PROCESSORS,
+    )
+
+    if "mixtral" in TENSOR_PROCESSORS:
+        return  # already patched
+
+    GGUF_EXPERT_OLD_FORMAT_PATTERN = re.compile(
+        r"blk\.(?P<bid>\d+)\.ffn_(?P<w>gate|down|up)\.(?P<eid>\d+)\.weight$"
+    )
+    HF_W_MAP = {"gate": "w1", "up": "w3", "down": "w2"}
+
+    class MixtralTensorProcessor(LlamaTensorProcessor):
+        """Handles Mixtral GGUF files storing per-expert tensors in the old llama.cpp format."""
+
+        def process(self, weights, name: str, **kwargs):
+            if m := re.fullmatch(GGUF_EXPERT_OLD_FORMAT_PATTERN, name):
+                parsed_parameters = kwargs.get("parsed_parameters")
+                if parsed_parameters is None:
+                    return GGUFTensor(weights, name, {})
+                bid, eid = int(m["bid"]), int(m["eid"])
+                hf_w = HF_W_MAP[m["w"]]
+                hf_key = (
+                    f"model.layers.{bid}.block_sparse_moe"
+                    f".experts.{eid}.{hf_w}.weight"
+                )
+                parsed_parameters["tensors"][hf_key] = torch.from_numpy(
+                    np.copy(weights)
+                )
+                return GGUFTensor(weights, None, {})
+            return super().process(weights, name, **kwargs)
+
+    TENSOR_PROCESSORS["mixtral"] = MixtralTensorProcessor
+
+    # Patch get_gguf_hf_weights_map to accept model_type="mixtral" by remapping to "llama"
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type == "mixtral":
+            model_type = "llama"
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+    # Patch load_gguf_checkpoint to use MixtralTensorProcessor for MixtralForCausalLM
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        model_to_load = kwargs.get("model_to_load") or (
+            args[2] if len(args) >= 3 else None
+        )
+        is_mixtral = (
+            model_to_load is not None
+            and hasattr(model_to_load, "config")
+            and getattr(model_to_load.config, "model_type", "") == "mixtral"
+        )
+        if is_mixtral:
+            orig_llama = TENSOR_PROCESSORS.get("llama")
+            TENSOR_PROCESSORS["llama"] = MixtralTensorProcessor
+            try:
+                return orig_load(*args, **kwargs)
+            finally:
+                if orig_llama is not None:
+                    TENSOR_PROCESSORS["llama"] = orig_llama
+                elif "llama" in TENSOR_PROCESSORS:
+                    del TENSOR_PROCESSORS["llama"]
+        return orig_load(*args, **kwargs)
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
+_patch_transformers_mixtral_gguf()
 
 
 class ModelVariant(StrEnum):
