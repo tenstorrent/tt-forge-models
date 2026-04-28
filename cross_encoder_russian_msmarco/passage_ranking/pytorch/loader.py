@@ -37,11 +37,25 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.BASE
 
-    # Sample query-passage pairs for testing (Russian text)
+    # Sample query-passage pairs for testing (Russian text).
+    # Multiple pairs are required so the output tensor has >1 element and PCC
+    # can be computed (a single-element output yields undefined PCC = 0.0).
     sample_pairs = [
         (
             "Сколько людей живет в Москве?",
             "Москва — столица России, крупнейший город страны с населением более 12 миллионов человек.",
+        ),
+        (
+            "Какова столица Франции?",
+            "Париж является столицей и крупнейшим городом Франции.",
+        ),
+        (
+            "Что такое машинное обучение?",
+            "Машинное обучение — это раздел искусственного интеллекта, изучающий методы построения алгоритмов, способных обучаться на данных.",
+        ),
+        (
+            "Когда была основана Москва?",
+            "Рецепт приготовления борща включает свёклу, капусту, картофель и мясо.",
         ),
     ]
 
