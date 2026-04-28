@@ -96,6 +96,32 @@ class ModelLoader(ForgeModel):
         model.eval()
         self.model = model
         self.config = model.config
+
+        # Pre-compute the static boi_token position from the chat template.
+        # The model's forward uses data-dependent Python indexing (.tolist().index())
+        # that Dynamo cannot trace with fake tensors, producing wrong slices.
+        # Storing it as a Python int lets Dynamo treat the slice endpoints as
+        # constants, giving a fully-static graph for the TT backend.
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image"},
+                    {"type": "text", "text": self.sample_text},
+                ],
+            }
+        ]
+        tok_inputs = self.tokenizer.apply_chat_template(
+            messages,
+            add_generation_prompt=True,
+            return_dict=True,
+            tokenize=True,
+            return_tensors="pt",
+        )
+        model.model._boi_token_pos = int(
+            (tok_inputs["input_ids"][0] == model.config.boi_token_id).int().argmax().item()
+        )
+
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
@@ -133,5 +159,9 @@ class ModelLoader(ForgeModel):
             inputs["pixel_values"] = cast_input_to_type(
                 inputs["pixel_values"], dtype_override
             )
+
+        # Disable KV cache: DynamicCache.to_legacy_cache() was removed in
+        # transformers 5.x, and this model's remote code calls it when use_cache=True.
+        inputs["use_cache"] = False
 
         return inputs
