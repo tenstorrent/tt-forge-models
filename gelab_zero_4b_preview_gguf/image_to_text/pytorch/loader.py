@@ -5,7 +5,9 @@
 GELab-Zero-4B-preview GGUF model loader implementation for image to text.
 """
 
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import (
+    Qwen3VLConfig,
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
 )
@@ -21,6 +23,53 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+# ---------------------------------------------------------------------------
+# Patch: register "qwen3vl" as a supported GGUF architecture.
+#
+# transformers (5.x) only knows about "qwen3" and "qwen3_moe" GGUF archs.
+# Qwen3VL GGUF files identify themselves with general.architecture=qwen3vl,
+# which causes load_gguf_checkpoint to raise ValueError before reading any
+# weights.  We also need to fix get_gguf_hf_weights_map, which looks up the
+# HF model_type ("qwen3_vl") in gguf-py's MODEL_ARCH_NAMES and expects to
+# find "qwen3vl", and which tries to read config.num_hidden_layers directly
+# even though Qwen3VLConfig nests it under text_config.
+# ---------------------------------------------------------------------------
+def _patch_qwen3vl_gguf_support():
+    from transformers.integrations.ggml import GGUF_CONFIG_MAPPING
+
+    if "qwen3vl" not in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
+        # Reuse the qwen3 (text-only) config field mapping as a stand-in.
+        # The extracted config dict is never used: we pass an explicit
+        # Qwen3VLConfig to from_pretrained(), so only the architecture guard
+        # needs to pass.
+        GGUF_CONFIG_MAPPING.setdefault("qwen3vl", GGUF_CONFIG_MAPPING["qwen3"])
+        _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vl")
+
+    orig_fn = _gguf_utils.get_gguf_hf_weights_map
+    if getattr(orig_fn, "_qwen3vl_patched", False):
+        return
+
+    def _patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None and hasattr(hf_model, "config"):
+            cfg = hf_model.config
+            mt = getattr(cfg, "model_type", "")
+            if mt in ("qwen3_vl", "qwen3_vl_text"):
+                # gguf-py uses "qwen3vl" as the arch string, not "qwen3_vl"
+                model_type = "qwen3vl"
+                if num_layers is None:
+                    # num_hidden_layers lives in text_config for composite configs
+                    text_cfg = getattr(cfg, "text_config", cfg)
+                    num_layers = getattr(text_cfg, "num_hidden_layers", None)
+        return orig_fn(hf_model, processor, model_type, num_layers, qual_name)
+
+    _patched_get_gguf_hf_weights_map._qwen3vl_patched = True
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
+
+_patch_qwen3vl_gguf_support()
 
 
 class ModelVariant(StrEnum):
@@ -72,8 +121,12 @@ class ModelLoader(ForgeModel):
         # GGUF repos do not ship a processor; use the base model
         self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-4B-Instruct")
 
+        # Pass the 4B base config explicitly so from_pretrained skips GGUF
+        # config extraction (qwen3vl is not in transformers' GGUF config
+        # mapping), while still loading weights from the GGUF file.
+        config = Qwen3VLConfig.from_pretrained("Qwen/Qwen3-VL-4B-Instruct")
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, config=config, **model_kwargs
         )
         model.eval()
 
