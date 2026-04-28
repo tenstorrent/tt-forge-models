@@ -31,22 +31,27 @@ if ALL_PARALLEL_STYLES is None:
 
     mu.ALL_PARALLEL_STYLES = ["rowwise", "colwise", "headwise"]
 
-# Monkey patch Resampler for compatibility - Fixes: Resampler doesn't have _initialize_weights method in torch 2.7.0
-original_getattr = nn.Module.__getattr__
+def _apply_resampler_compat_patch():
+    # Apply once: Resampler._initialize_weights shim for torch 2.7.0+.
+    # Deferred to call time (not import time) so it doesn't mutate
+    # nn.Module.__getattr__ before other models are traced by torch.compile,
+    # which would cause SpeculationLog divergence across compilation passes.
+    if getattr(nn.Module.__getattr__, "_resampler_compat", False):
+        return
+    _orig = nn.Module.__getattr__
 
+    def _patched(self, name):
+        if name == "_initialize_weights" and self.__class__.__name__ == "Resampler":
 
-def patched_getattr(self, name):
-    if name == "_initialize_weights" and self.__class__.__name__ == "Resampler":
+            def _initialize_weights(module_self):
+                if hasattr(module_self, "_init_weights"):
+                    module_self._init_weights(module_self)
 
-        def _initialize_weights(module_self):
-            if hasattr(module_self, "_init_weights"):
-                module_self._init_weights(module_self)
+            return _initialize_weights
+        return _orig(self, name)
 
-        return _initialize_weights
-    return original_getattr(self, name)
-
-
-nn.Module.__getattr__ = patched_getattr
+    _patched._resampler_compat = True
+    nn.Module.__getattr__ = _patched
 
 
 class ModelVariant(StrEnum):
@@ -86,6 +91,7 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, **kwargs):
         """Load and return the MiniCPM-V 2.6 model instance."""
+        _apply_resampler_compat_patch()
         config = self._variant_config
 
         self.model = AutoModel.from_pretrained(
