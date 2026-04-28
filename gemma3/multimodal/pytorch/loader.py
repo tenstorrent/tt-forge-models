@@ -136,7 +136,7 @@ class ModelLoader(ForgeModel):
             )
         else:
             self.processor = AutoProcessor.from_pretrained(
-                pretrained_model_name, **kwargs
+                pretrained_model_name, use_fast=False, **kwargs
             )
 
         return self.processor
