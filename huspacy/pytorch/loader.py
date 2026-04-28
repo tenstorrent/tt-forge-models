@@ -9,10 +9,19 @@ featuring tok2vec, NER, POS tagging, dependency parsing, and lemmatization.
 This loader extracts the static word vectors (200k vectors, 100 dimensions)
 and wraps them as a PyTorch embedding model for sentence embedding generation.
 """
+import importlib.util
 import torch
 import torch.nn as nn
-import spacy
 from typing import Optional
+
+# Detect if the real spacy is installed. tt_forge_models/spacy/ is a namespace
+# package that shadows the real spacy; loader is None for namespace packages.
+_spacy_spec = importlib.util.find_spec("spacy")
+if _spacy_spec is None or _spacy_spec.loader is None:
+    raise ImportError(
+        "spacy is not installed (tt_forge_models/spacy/ namespace package detected)"
+    )
+import spacy
 
 from third_party.tt_forge_models.config import (
     ModelInfo,
