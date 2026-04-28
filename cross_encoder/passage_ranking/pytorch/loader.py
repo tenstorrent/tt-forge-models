@@ -63,11 +63,24 @@ class ModelLoader(ForgeModel):
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.MS_MARCO_MINILM_L6_V2
 
-    # Sample query-passage pairs for testing
+    # Multiple diverse pairs required: a single pair collapses output to shape (1,1),
+    # making PCC undefined (returns 0).
     sample_pairs = [
         (
             "How many people live in Berlin?",
             "Berlin had a population of 3,520,031 registered inhabitants in an area of 891.82 square kilometers.",
+        ),
+        (
+            "How many people live in Berlin?",
+            "Machine learning is a subfield of artificial intelligence.",
+        ),
+        (
+            "What is the capital of France?",
+            "Paris is the capital and most populous city of France.",
+        ),
+        (
+            "What is the capital of France?",
+            "The Amazon rainforest covers most of the Amazon basin in South America.",
         ),
     ]
 
