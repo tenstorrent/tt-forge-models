@@ -86,7 +86,7 @@ class ModelLoader(ForgeModel):
         model.eval()
 
         self.image_processor = AutoImageProcessor.from_pretrained(
-            pretrained_model_name, trust_remote_code=True
+            pretrained_model_name, trust_remote_code=True, use_fast=False
         )
 
         if dtype_override is not None:
