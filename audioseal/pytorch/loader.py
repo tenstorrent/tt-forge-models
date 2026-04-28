@@ -97,6 +97,18 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model = model.to(dtype_override)
 
+        # audioseal's internal moshi library wraps submodules with
+        # torch_compile_lazy (inductor backend by default).  When those
+        # wrappers fire with XLA tensors they fail with KeyError: 'xla'.
+        # Disable them globally via the module-level flag the library
+        # already provides for this purpose.
+        try:
+            from audioseal.libs.moshi.utils import compile as _moshi_compile
+
+            _moshi_compile._compile_disabled = True
+        except Exception:
+            pass
+
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
