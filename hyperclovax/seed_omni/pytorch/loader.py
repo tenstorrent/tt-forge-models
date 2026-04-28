@@ -10,10 +10,26 @@ import types
 import torch
 import torch.nn as nn
 import transformers.modeling_utils
+from transformers import PreTrainedModel
 from transformers.initialization import no_init_weights
 from transformers.modeling_outputs import BaseModelOutputWithPooling
 
 transformers.modeling_utils.no_init_weights = no_init_weights
+
+# HCXVisionForCausalLM.__init__ does not call post_init(), so all_tied_weights_keys
+# is never set. Patch _adjust_tied_keys_with_tied_pointers to initialize it lazily.
+_orig_adjust_tied_keys = PreTrainedModel._adjust_tied_keys_with_tied_pointers
+
+
+def _patched_adjust_tied_keys(self, *args, **kwargs):
+    if not hasattr(self, "all_tied_weights_keys"):
+        self.all_tied_weights_keys = self.get_expanded_tied_weights_keys(
+            all_submodels=False
+        )
+    return _orig_adjust_tied_keys(self, *args, **kwargs)
+
+
+PreTrainedModel._adjust_tied_keys_with_tied_pointers = _patched_adjust_tied_keys
 
 from transformers import AutoProcessor, AutoModelForCausalLM
 from PIL import Image
