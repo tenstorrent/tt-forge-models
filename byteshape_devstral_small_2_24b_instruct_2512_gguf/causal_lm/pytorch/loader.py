@@ -201,6 +201,17 @@ class ModelLoader(ForgeModel):
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
+        # XLA slice requires indices within bounds. When sliding_window > seq_len,
+        # the cache update does full_states[:, :, -sliding_window+1:, :] which is
+        # out of range for XLA (unlike Python which clamps). Set sliding_window to
+        # seq_len so the index -(seq_len-1) stays in range [-seq_len, seq_len-1].
+        if (
+            self.model is not None
+            and hasattr(self.model.config, "sliding_window")
+            and self.model.config.sliding_window is not None
+        ):
+            self.model.config.sliding_window = inputs["input_ids"].shape[1]
+
         return inputs
 
     def get_mesh_config(self, num_devices: int):
