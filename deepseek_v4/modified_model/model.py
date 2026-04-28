@@ -535,6 +535,13 @@ class Gate(nn.Module):
             self.bias = nn.Parameter(torch.empty(args.n_routed_experts, dtype=torch.float32))
 
     def forward(self, x: torch.Tensor, input_ids: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
+        # When called by the a2a sparse-MLP wrapper, input_ids may not be
+        # threaded through; for hash routing we fall back to a tensor stashed
+        # on the gate by the caller (see A2aSparseMLP wiring). Non-hash
+        # layers ignore input_ids entirely.
+        if input_ids is None and self.hash:
+            input_ids = getattr(self, "_ambient_input_ids", None)
+
         scores = linear(x.float(), self.weight.float())
         if self.score_func == "softmax":
             scores = scores.softmax(dim=-1)
@@ -549,7 +556,17 @@ class Gate(nn.Module):
             indices = self.tid2eid[input_ids]
         else:
             indices = scores.topk(self.topk, dim=-1)[1]
-        weights = original_scores.gather(1, indices)
+        # NOTE: equivalent to `original_scores.gather(1, indices)`. The
+        # `.gather` form lowers under SPMD to an all_gather + flat embedding
+        # lookup whose per-shard batch offset is lost, silently corrupting
+        # routing weights on every non-first batch-axis shard. The one-hot ×
+        # elementwise × sum form is rotation-invariant under sharding and
+        # gives correct per-shard results. Revert to `.gather` once the
+        # tt-mlir torch-gather-rewrite branch lands.
+        one_hot = F.one_hot(
+            indices.long(), num_classes=original_scores.size(-1)
+        ).to(original_scores.dtype)
+        weights = (one_hot * original_scores.unsqueeze(1)).sum(dim=-1)
         if self.score_func != "softmax":
             weights /= weights.sum(dim=-1, keepdim=True)
         weights *= self.route_scale
@@ -597,7 +614,19 @@ class MoE(nn.Module):
         assert args.n_shared_experts == 1
         self.shared_experts = Expert(args.dim, args.moe_inter_dim)
 
-    def forward(self, x: torch.Tensor, input_ids: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, input_ids: Optional[torch.Tensor] = None) -> torch.Tensor:
+        # The a2a sparse-MLP wrapper invokes the original MoE with only the
+        # hidden tensor; pull input_ids from the gate's stash (set by the
+        # wrapper for hash layers) or fall back to zeros for non-hash layers,
+        # which never read input_ids in `Gate.forward`.
+        if input_ids is None:
+            amb = getattr(self.gate, "_ambient_input_ids", None)
+            if amb is not None:
+                input_ids = amb
+            else:
+                input_ids = torch.zeros(
+                    x.shape[:-1], dtype=torch.long, device=x.device
+                )
         shape = x.size()
         x = x.view(-1, self.dim)
         weights, indices = self.gate(x, input_ids.flatten())
