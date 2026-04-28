@@ -61,25 +61,30 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         from braindecode.models import BENDR
         from huggingface_hub import hf_hub_download
-        import torch
+        from safetensors.torch import load_file
 
         model = BENDR(n_chans=20, n_outputs=2)
 
         checkpoint_path = hf_hub_download(
             repo_id=self._variant_config.pretrained_model_name,
-            filename="pytorch_model.bin",
+            filename="model.safetensors",
         )
-        checkpoint = torch.load(checkpoint_path, weights_only=True)
-        # Handle both raw state_dict and wrapped {"model_state_dict": ...} formats
-        if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
-            state_dict = checkpoint["model_state_dict"]
-        else:
-            state_dict = checkpoint
+        state_dict = load_file(checkpoint_path)
         model.load_state_dict(state_dict, strict=False)
 
         model.eval()
         if dtype_override is not None:
             model.to(dtype_override)
+            # braindecode's Contextualizer creates the start_token via torch.full()
+            # without a dtype argument, so it defaults to float32.  The subsequent
+            # torch.cat promotes the sequence tensor to float32, which then mismatches
+            # the bfloat16 transformer weights.  Fix: cast each transformer layer's
+            # input back to the requested dtype before the linear projection.
+            _dt = dtype_override
+            for layer in model.contextualizer.transformer_layers:
+                layer.register_forward_pre_hook(
+                    lambda _, inp: (inp[0].to(_dt),) + inp[1:]
+                )
 
         return model
 
