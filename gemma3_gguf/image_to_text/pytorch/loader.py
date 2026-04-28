@@ -84,7 +84,12 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
+        # GGUF repos do not ship a processor; load from the base model.
+        # use_fast=False avoids transformers 5.x breaking change for Gemma3ImageProcessor.
+        self.processor = AutoProcessor.from_pretrained(
+            "DavidAU/Gemma3-27B-it-vl-Polaris-HI16-Heretic-Uncensored-INSTRUCT",
+            use_fast=False,
+        )
 
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
