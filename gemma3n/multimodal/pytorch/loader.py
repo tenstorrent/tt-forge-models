@@ -122,17 +122,15 @@ class ModelLoader(ForgeModel):
         image_file = get_file(image_url or self.sample_image_url)
         image = Image.open(image_file).convert("RGB")
 
-        text_prompt = self.processor.apply_chat_template(
-            [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image"},
-                        {"type": "text", "text": prompt or self.sample_text},
-                    ],
-                }
-            ],
-            add_generation_prompt=True,
+        # google/gemma-3n-E2B tokenizer_config.json ships without a chat_template,
+        # so apply_chat_template raises ValueError. Build the prompt directly using
+        # the processor's image_token placeholder (<image_soft_token>) which the
+        # processor's __call__ correctly expands into the full image token sequence.
+        image_token = self.processor.image_token
+        text = prompt or self.sample_text
+        text_prompt = (
+            f"<start_of_turn>user\n{image_token}\n{text}<end_of_turn>\n"
+            "<start_of_turn>model\n"
         )
 
         inputs = self.processor(
