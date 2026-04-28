@@ -5,12 +5,43 @@
 mradermacher PlanoO Zirelum GGUF model loader implementation for causal language modeling.
 """
 
+import inspect
 from typing import Optional
 
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
+
+
+def _find_real_load_gguf():
+    """Walk the patch chain to find the original transformers load_gguf_checkpoint.
+
+    Some co-collected loaders patch gguf_utils.load_gguf_checkpoint at import
+    time with a fixed signature that drops the model_to_load kwarg added in
+    transformers 5.2.0.  Walk the _orig_load_gguf_checkpoint references in each
+    wrapper's globals until we reach a function that natively accepts it.
+    """
+    import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+    fn = _gguf_utils.load_gguf_checkpoint
+    seen = set()
+    while id(fn) not in seen:
+        seen.add(id(fn))
+        sig = inspect.signature(fn)
+        params = sig.parameters
+        has_model_to_load = "model_to_load" in params or any(
+            p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+        )
+        if has_model_to_load:
+            return fn
+        orig = fn.__globals__.get("_orig_load_gguf_checkpoint")
+        if orig is None or orig is fn:
+            return fn
+        fn = orig
+    return fn
+
+
 from ....config import (
     Framework,
     LLMModelConfig,
@@ -96,9 +127,28 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        import transformers.configuration_utils as _config_utils
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+        import transformers.models.auto.tokenization_auto as _tok_auto
+
+        real_fn = _find_real_load_gguf()
+        saved = {}
+        for mod in (_gguf_utils, _tok_auto, _config_utils):
+            if hasattr(mod, "load_gguf_checkpoint"):
+                saved[mod] = mod.load_gguf_checkpoint
+                mod.load_gguf_checkpoint = real_fn
+
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            for mod, fn in saved.items():
+                mod.load_gguf_checkpoint = fn
+
+        # Qwen3MoeExperts.forward uses a dynamic nonzero() loop that XLA cannot
+        # statically trace; batched_mm dispatches through a static matmul path.
+        model.config._experts_implementation = "batched_mm"
 
         self.config = model.config
         self.model = model
