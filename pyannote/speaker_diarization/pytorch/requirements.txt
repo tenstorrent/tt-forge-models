@@ -1,2 +1,1 @@
-pyannote.audio
-torchaudio==2.9.1
+# No extra dependencies required: torch and einops are available in the base venv.
