@@ -136,7 +136,7 @@ class ModelLoader(ForgeModel):
             )
         else:
             self.processor = AutoProcessor.from_pretrained(
-                pretrained_model_name, **kwargs
+                pretrained_model_name, use_fast=False, **kwargs
             )
 
         return self.processor
@@ -172,6 +172,22 @@ class ModelLoader(ForgeModel):
             ModelVariant.GEMMA_3_27B_IT_QAT_W4A16,
         ):
             model_kwargs["device_map"] = "cpu"
+
+        if self._variant == ModelVariant.GEMMA_3_27B_IT_QAT_COMPRESSED_TENSORS:
+            # In transformers 5.x Gemma3ForConditionalGeneration wraps its
+            # sub-models inside self.model (a Gemma3Model), so vision_tower
+            # modules are now named "model.vision_tower.*" instead of
+            # "vision_tower.*".  The compressed-tensors ignore list uses
+            # re.match() (anchored at start), so the old "re:vision_tower.*"
+            # pattern no longer matches.  Remap the ignore entries.
+            cfg = AutoConfig.from_pretrained(pretrained_model_name)
+            qcfg = getattr(cfg, "quantization_config", None)
+            if isinstance(qcfg, dict) and qcfg.get("ignore"):
+                qcfg["ignore"] = [
+                    "re:model.vision_tower.*" if e == "re:vision_tower.*" else e
+                    for e in qcfg["ignore"]
+                ]
+            model_kwargs["config"] = cfg
 
         model = Gemma3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
