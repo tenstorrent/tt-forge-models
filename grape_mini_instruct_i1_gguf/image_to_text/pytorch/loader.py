@@ -180,6 +180,7 @@ def _patch_qwen3vl_for_tt_device(model=None):
     orig_rot_pos = modeling_qwen3_vl.Qwen3VLVisionModel.rot_pos_emb
     orig_get_rope = modeling_qwen3_vl.Qwen3VLModel.get_rope_index
     orig_get_image = modeling_qwen3_vl.Qwen3VLModel.get_image_features
+    orig_get_placeholder = modeling_qwen3_vl.Qwen3VLModel.get_placeholder_mask
 
     # Pre-capture pos_embed.weight as a CPU tensor while the model is still on
     # CPU. After the model is moved to TT, we cannot read this weight in eager
@@ -300,10 +301,72 @@ def _patch_qwen3vl_for_tt_device(model=None):
             **kwargs,
         )
 
+    def _patched_get_placeholder(
+        self,
+        input_ids,
+        inputs_embeds,
+        image_features=None,
+        video_features=None,
+    ):
+        # inputs_embeds[special_image_mask].numel() is a boolean-index gather
+        # with data-dependent output shape. TT device cannot compile such ops
+        # (Error code: 13). Replace with equivalent arithmetic:
+        #   n_image_tokens * hidden_size == image_features.numel()
+        # where n_image_tokens is summed on CPU (input_ids is always CPU int64).
+        from transformers.utils import torch_compilable_check
+
+        if input_ids is None:
+            special_image_mask = inputs_embeds == self.get_input_embeddings()(
+                torch.tensor(
+                    self.config.image_token_id,
+                    dtype=torch.long,
+                    device=inputs_embeds.device,
+                )
+            )
+            special_image_mask = special_image_mask.all(-1)
+            special_video_mask = inputs_embeds == self.get_input_embeddings()(
+                torch.tensor(
+                    self.config.video_token_id,
+                    dtype=torch.long,
+                    device=inputs_embeds.device,
+                )
+            )
+            special_video_mask = special_video_mask.all(-1)
+        else:
+            special_image_mask = input_ids == self.config.image_token_id
+            special_video_mask = input_ids == self.config.video_token_id
+
+        hidden_size = inputs_embeds.shape[-1]
+
+        n_image_tokens = special_image_mask.sum()
+        special_image_mask = (
+            special_image_mask.unsqueeze(-1).expand_as(inputs_embeds).to(inputs_embeds.device)
+        )
+        if image_features is not None:
+            torch_compilable_check(
+                int(n_image_tokens.item()) * hidden_size == image_features.numel(),
+                f"Image features and image tokens do not match: "
+                f"tokens={n_image_tokens}, features shape={image_features.shape}",
+            )
+
+        n_video_tokens = special_video_mask.sum()
+        special_video_mask = (
+            special_video_mask.unsqueeze(-1).expand_as(inputs_embeds).to(inputs_embeds.device)
+        )
+        if video_features is not None:
+            torch_compilable_check(
+                int(n_video_tokens.item()) * hidden_size == video_features.numel(),
+                f"Video features and video tokens do not match: "
+                f"tokens={n_video_tokens}, features shape={video_features.shape}",
+            )
+
+        return special_image_mask, special_video_mask
+
     modeling_qwen3_vl.Qwen3VLVisionModel.fast_pos_embed_interpolate = _patched_fast_pos
     modeling_qwen3_vl.Qwen3VLVisionModel.rot_pos_emb = _patched_rot_pos
     modeling_qwen3_vl.Qwen3VLModel.get_rope_index = _patched_get_rope
     modeling_qwen3_vl.Qwen3VLModel.get_image_features = _patched_get_image
+    modeling_qwen3_vl.Qwen3VLModel.get_placeholder_mask = _patched_get_placeholder
 
 
 class ModelVariant(StrEnum):
