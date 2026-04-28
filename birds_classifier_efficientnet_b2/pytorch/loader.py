@@ -8,6 +8,7 @@ Uses dennisjooo/Birds-Classifier-EfficientNetB2, an EfficientNet-B2 model fine-t
 to classify 525 bird species.
 """
 import torch
+import torch.nn as nn
 from transformers import (
     AutoImageProcessor,
     AutoModelForImageClassification,
@@ -78,6 +79,13 @@ class ModelLoader(ForgeModel):
         model = AutoModelForImageClassification.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        # AvgPool2d(kernel_size=1408, ceil_mode=True) returns an empty tensor on
+        # XLA when the feature map (9x9 for 224x224 input) is smaller than the
+        # kernel. AdaptiveAvgPool2d(1) is the equivalent global-average-pool op
+        # and uses an ATEN kernel that XLA handles correctly.
+        model.efficientnet.pooler = nn.AdaptiveAvgPool2d(1)
+
         model.eval()
 
         return model
