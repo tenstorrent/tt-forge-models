@@ -7,8 +7,8 @@ DiT-DocLayNet model loader implementation for document layout semantic segmentat
 
 import torch
 from typing import Optional
+from PIL import Image
 from transformers import AutoImageProcessor, BeitForSemanticSegmentation
-from datasets import load_dataset
 
 from ...base import ForgeModel
 from ...config import (
@@ -57,7 +57,9 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_image_processor(self):
-        self.image_processor = AutoImageProcessor.from_pretrained("microsoft/dit-large")
+        self.image_processor = AutoImageProcessor.from_pretrained(
+            "microsoft/dit-large", use_fast=False
+        )
         return self.image_processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -80,8 +82,7 @@ class ModelLoader(ForgeModel):
         if self.image_processor is None:
             self._load_image_processor()
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        image = Image.new("RGB", (224, 224), color=(128, 128, 128))
 
         inputs = self.image_processor(images=image, return_tensors="pt")
 
