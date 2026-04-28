@@ -81,29 +81,31 @@ class ModelLoader(ForgeModel):
 
         # Transformers 5.x unconditionally initializes models on the meta device
         # (get_init_context always appends torch.device("meta"), the old
-        # low_cpu_mem_usage kwarg is now silently ignored).  EVAVisionTransformer
+        # low_cpu_mem_usage kwarg is silently ignored).  EVAVisionTransformer
         # calls .item() on a torch.linspace result during __init__ to compute
         # stochastic-depth rates, which raises
         #   "Tensor.item() cannot be called on meta tensors"
-        # Patch get_init_context to omit the meta device for this load only.
-        import transformers
-        from transformers.modeling_utils import local_torch_dtype
-        from transformers import initialization as _init
+        # Patch torch.linspace to force CPU device so .item() succeeds.
+        # The nested torch.device("cpu") context overrides the outer meta context
+        # for this specific call only; model parameters continue to use meta device
+        # (ensuring correct bfloat16 dtype after weight loading).
+        _orig_linspace = torch.linspace
 
-        _orig_get_init_context = transformers.PreTrainedModel.__dict__[
-            "get_init_context"
-        ]
+        def _cpu_linspace(*args, **kwargs):
+            with torch.device("cpu"):
+                return _orig_linspace(*args, **kwargs)
 
-        def _no_meta_get_init_context(cls, dtype, is_quantized, _is_ds_init_called):
-            return [local_torch_dtype(dtype, cls.__name__), _init.no_tie_weights()]
-
-        transformers.PreTrainedModel.get_init_context = classmethod(
-            _no_meta_get_init_context
-        )
+        torch.linspace = _cpu_linspace
         try:
             model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         finally:
-            transformers.PreTrainedModel.get_init_context = _orig_get_init_context
+            torch.linspace = _orig_linspace
+
+        # The text tower's config has dtype=float32, so the nested _from_config
+        # overrides the outer bfloat16 context; the text parameters end up float32
+        # while the vision parameters are bfloat16.  Cast the whole model to unify.
+        if dtype_override is not None:
+            model = model.to(dtype=dtype_override)
 
         model.eval()
 
