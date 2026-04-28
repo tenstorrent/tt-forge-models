@@ -8,7 +8,8 @@ KORMo-VL model loader implementation for image-text-to-text generation.
 from typing import Optional
 
 from PIL import Image
-from transformers import AutoModelForImageTextToText, AutoProcessor
+from transformers import AutoConfig, AutoModel, AutoModelForCausalLM, AutoModelForImageTextToText, AutoProcessor
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
 
 from ....base import ForgeModel
 from ....config import (
@@ -67,9 +68,31 @@ class ModelLoader(ForgeModel):
         )
         return self.processor
 
+    @staticmethod
+    def _register_kormo_classes():
+        # KORMo-VL/KORMo-VL uses the built-in llava_onevision architecture with a
+        # custom "kormo" text model whose code lives in KORMo-Team/KORMo-10B-sft.
+        # LlavaOnevisionConfig.__init__ looks up CONFIG_MAPPING["kormo"] directly
+        # before any auto_map resolution, so the class must be registered first.
+        kormo_base_repo = "KORMo-Team/KORMo-10B-sft"
+        KORMoConfig = get_class_from_dynamic_module(
+            "_configuration_kormo.KORMoConfig", kormo_base_repo
+        )
+        KORMoModel = get_class_from_dynamic_module(
+            "_modeling_kormo.KORMoModel", kormo_base_repo
+        )
+        KORMoForCausalLM = get_class_from_dynamic_module(
+            "_modeling_kormo.KORMoForCausalLM", kormo_base_repo
+        )
+        AutoConfig.register("kormo", KORMoConfig, exist_ok=True)
+        AutoModel.register(KORMoConfig, KORMoModel, exist_ok=True)
+        AutoModelForCausalLM.register(KORMoConfig, KORMoForCausalLM, exist_ok=True)
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the KORMo-VL model instance."""
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        self._register_kormo_classes()
 
         if self.processor is None:
             self._load_processor()
