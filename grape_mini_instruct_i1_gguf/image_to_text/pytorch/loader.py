@@ -181,6 +181,7 @@ def _patch_qwen3vl_for_tt_device(model=None):
     orig_get_rope = modeling_qwen3_vl.Qwen3VLModel.get_rope_index
     orig_get_image = modeling_qwen3_vl.Qwen3VLModel.get_image_features
     orig_get_placeholder = modeling_qwen3_vl.Qwen3VLModel.get_placeholder_mask
+    orig_deepstack_process = modeling_qwen3_vl.Qwen3VLTextModel._deepstack_process
 
     # Pre-capture pos_embed.weight as a CPU tensor while the model is still on
     # CPU. After the model is moved to TT, we cannot read this weight in eager
@@ -362,11 +363,35 @@ def _patch_qwen3vl_for_tt_device(model=None):
 
         return special_image_mask, special_video_mask
 
+    def _patched_deepstack_process(self, hidden_states, visual_pos_masks, visual_embeds):
+        # Original implementation uses hidden_states[visual_pos_masks, :] which is
+        # boolean advanced indexing with a data-dependent output shape. TT device
+        # cannot compile such ops (dynamic output shape, Error code: 13 / LRU cache
+        # eviction). Replace with masked_scatter which keeps all output shapes
+        # static and is compilable on TT device.
+        #
+        # hidden_states: [batch, seqlen, hidden_size]
+        # visual_pos_masks: [batch, seqlen]  (bool, True at visual token positions)
+        # visual_embeds: [n_visual_tokens, hidden_size]
+        #
+        # We want: hidden_states[visual_pos_masks, :] += visual_embeds
+        # Equivalent static-shape form:
+        #   zeros = torch.zeros_like(hidden_states)
+        #   expanded_mask = visual_pos_masks.unsqueeze(-1).expand_as(hidden_states)
+        #   zeros.masked_scatter_(expanded_mask, visual_embeds.flatten())
+        #   hidden_states = hidden_states + zeros
+        visual_pos_masks = visual_pos_masks.to(hidden_states.device)
+        visual_embeds = visual_embeds.to(hidden_states.device, hidden_states.dtype)
+        expanded_mask = visual_pos_masks.unsqueeze(-1).expand_as(hidden_states)
+        delta = torch.zeros_like(hidden_states).masked_scatter(expanded_mask, visual_embeds)
+        return hidden_states + delta
+
     modeling_qwen3_vl.Qwen3VLVisionModel.fast_pos_embed_interpolate = _patched_fast_pos
     modeling_qwen3_vl.Qwen3VLVisionModel.rot_pos_emb = _patched_rot_pos
     modeling_qwen3_vl.Qwen3VLModel.get_rope_index = _patched_get_rope
     modeling_qwen3_vl.Qwen3VLModel.get_image_features = _patched_get_image
     modeling_qwen3_vl.Qwen3VLModel.get_placeholder_mask = _patched_get_placeholder
+    modeling_qwen3_vl.Qwen3VLTextModel._deepstack_process = _patched_deepstack_process
 
 
 class ModelVariant(StrEnum):
