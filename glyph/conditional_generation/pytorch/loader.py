@@ -4,8 +4,11 @@
 """
 Glyph model loader implementation for multimodal conditional generation.
 """
+import types
+
 import torch
 from transformers import AutoProcessor, Glm4vForConditionalGeneration
+from transformers.models.glm4v.modeling_glm4v import Glm4vModel, Glm4vVisionModel
 from typing import Optional
 
 from ....base import ForgeModel
@@ -57,13 +60,65 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _patch_for_tt_device(model):
+        """Move grid_thw and token-id metadata to CPU for Python control-flow methods.
+
+        transformers' GLM4V visual encoder iterates over grid_thw in Python
+        (rot_pos_emb) and calls .tolist() on derived tensors.  On TT device
+        those operations fail with INTERNAL error code 13.  The fix mirrors
+        the Qwen3-VL pattern: keep main computation on device, move only the
+        small metadata tensors to CPU.
+        """
+        _orig_visual_fwd = Glm4vVisionModel.forward
+
+        def _patched_visual_fwd(self, hidden_states, grid_thw, **kwargs):
+            return _orig_visual_fwd(self, hidden_states, grid_thw.cpu(), **kwargs)
+
+        model.model.visual.forward = types.MethodType(_patched_visual_fwd, model.model.visual)
+
+        _orig_get_img = Glm4vModel.get_image_features
+
+        def _patched_get_img(self, pixel_values, image_grid_thw=None, **kwargs):
+            if image_grid_thw is not None:
+                image_grid_thw = image_grid_thw.cpu()
+            return _orig_get_img(self, pixel_values, image_grid_thw=image_grid_thw, **kwargs)
+
+        model.model.get_image_features = types.MethodType(_patched_get_img, model.model)
+
+        _orig_get_rope = Glm4vModel.get_rope_index
+
+        def _patched_get_rope(self, input_ids=None, image_grid_thw=None, video_grid_thw=None, attention_mask=None, **kwargs):
+            orig_device = input_ids.device if input_ids is not None else "cpu"
+            if input_ids is not None:
+                input_ids = input_ids.cpu()
+            if image_grid_thw is not None:
+                image_grid_thw = image_grid_thw.cpu()
+            if video_grid_thw is not None:
+                video_grid_thw = video_grid_thw.cpu()
+            if attention_mask is not None:
+                attention_mask = attention_mask.cpu()
+            position_ids, mrope_position_deltas = _orig_get_rope(
+                self,
+                input_ids=input_ids,
+                image_grid_thw=image_grid_thw,
+                video_grid_thw=video_grid_thw,
+                attention_mask=attention_mask,
+                **kwargs,
+            )
+            return position_ids.to(orig_device), mrope_position_deltas.to(orig_device)
+
+        model.model.get_rope_index = types.MethodType(_patched_get_rope, model.model)
+
     def _load_processor(self, dtype_override=None):
         kwargs = {}
         if dtype_override is not None:
             kwargs["torch_dtype"] = dtype_override
 
         self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, **kwargs
+            self._variant_config.pretrained_model_name,
+            use_fast=False,
+            **kwargs,
         )
 
         return self.processor
@@ -83,6 +138,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
         model.eval()
+        self._patch_for_tt_device(model)
         self.model = model
         self.config = model.config
         return model
