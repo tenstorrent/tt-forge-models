@@ -85,21 +85,33 @@ class ModelLoader(ForgeModel):
         # calls .item() on a torch.linspace result during __init__ to compute
         # stochastic-depth rates, which raises
         #   "Tensor.item() cannot be called on meta tensors"
-        # Patch torch.linspace to force CPU device so .item() succeeds.
+        # VisionRotaryEmbeddingFast.__init__ uses torch.arange to compute
+        # freqs_cos/freqs_sin as non-persistent buffers; on meta device these
+        # become meta tensors, and since persistent=False they are not in the
+        # checkpoint, so after loading they are materialized with NaN values.
+        # Patch torch.linspace and torch.arange to force CPU device so .item()
+        # succeeds and non-persistent rope buffers are computed with real values.
         # The nested torch.device("cpu") context overrides the outer meta context
-        # for this specific call only; model parameters continue to use meta device
-        # (ensuring correct bfloat16 dtype after weight loading).
+        # for these specific calls only; model parameters continue to use meta
+        # device (ensuring correct dtype after weight loading).
         _orig_linspace = torch.linspace
+        _orig_arange = torch.arange
 
         def _cpu_linspace(*args, **kwargs):
             with torch.device("cpu"):
                 return _orig_linspace(*args, **kwargs)
 
+        def _cpu_arange(*args, **kwargs):
+            with torch.device("cpu"):
+                return _orig_arange(*args, **kwargs)
+
         torch.linspace = _cpu_linspace
+        torch.arange = _cpu_arange
         try:
             model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         finally:
             torch.linspace = _orig_linspace
+            torch.arange = _orig_arange
 
         # The text tower's config has dtype=float32, so the nested _from_config
         # overrides the outer bfloat16 context; the text parameters end up float32
