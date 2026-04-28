@@ -5,7 +5,9 @@
 Emu3-Gen model loader implementation for text-to-image generation.
 """
 
+import sys
 import torch
+import transformers
 from typing import Optional
 from transformers import (
     AutoConfig,
@@ -15,6 +17,18 @@ from transformers import (
     AutoModelForCausalLM,
 )
 from transformers.dynamic_module_utils import get_class_from_dynamic_module
+
+# transformers 5.x removed is_torch_fx_available; modeling_emu3.py (remote code) still imports it.
+# Inject a shim so the remote module can load without ImportError.
+if not hasattr(transformers.utils.import_utils, "is_torch_fx_available"):
+
+    def _is_torch_fx_available():
+        return False
+
+    transformers.utils.import_utils.is_torch_fx_available = _is_torch_fx_available
+    sys.modules["transformers.utils.import_utils"].__dict__[
+        "is_torch_fx_available"
+    ] = _is_torch_fx_available
 
 from ....tools.utils import cast_input_to_type
 from ....base import ForgeModel
@@ -33,6 +47,39 @@ class ModelVariant(StrEnum):
     """Available Emu3-Gen model variants."""
 
     EMU3_GEN = "Gen"
+
+
+def _reinit_rope_caches(model: torch.nn.Module, dtype=None) -> None:
+    """Re-initialize RoPE inv_freq + cos/sin caches after from_pretrained.
+
+    transformers 5.x uses init_empty_weights() (meta device) during loading.
+    persistent=False buffers (inv_freq, cos_cached, sin_cached) are not saved
+    in the checkpoint, so they come out of from_pretrained as uninitialized
+    float32 tensors.  We recompute them here in the correct dtype so that
+    attention layers produce valid outputs.
+    """
+    target_dtype = dtype if dtype is not None else torch.float32
+    device = next(model.parameters()).device
+
+    for module in model.modules():
+        if not hasattr(module, "inv_freq"):
+            continue
+        if not hasattr(module, "base") or not hasattr(module, "dim"):
+            continue
+        # Recompute inv_freq = 1 / (base^(2k/dim)) in float32, then cast.
+        arange = torch.arange(0, module.dim, 2, dtype=torch.float32, device=device)
+        inv_freq = 1.0 / (module.base ** (arange / module.dim))
+        module.register_buffer("inv_freq", inv_freq.to(target_dtype), persistent=False)
+        # Recompute the cos/sin cache for the full max_position_embeddings.
+        max_pos = module.max_position_embeddings
+        t = torch.arange(max_pos, dtype=inv_freq.dtype, device=device)
+        freqs = torch.outer(t, inv_freq)
+        emb = torch.cat((freqs, freqs), dim=-1)
+        cos_cached = emb.cos().to(target_dtype)
+        sin_cached = emb.sin().to(target_dtype)
+        module.register_buffer("cos_cached", cos_cached, persistent=False)
+        module.register_buffer("sin_cached", sin_cached, persistent=False)
+        module.max_seq_len_cached = max_pos
 
 
 class ModelLoader(ForgeModel):
@@ -164,6 +211,12 @@ class ModelLoader(ForgeModel):
         model.eval()
         self.model = model
         self.config = model.config
+
+        # transformers 5.x uses init_empty_weights() (meta device) during loading;
+        # persistent=False buffers like inv_freq are not in the checkpoint and come
+        # out uninitialized. Recompute RoPE caches for every attention layer so that
+        # cos_cached/sin_cached are valid in the requested dtype.
+        _reinit_rope_caches(model, dtype_override)
 
         return model
 
