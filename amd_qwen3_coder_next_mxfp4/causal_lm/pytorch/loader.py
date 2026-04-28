@@ -24,10 +24,6 @@ from ....config import (
     StrEnum,
 )
 
-# AMD Quark MXFP4 weights are incompatible with standard transformers (requires quark
-# package). Load with random weights via from_config; limit layers for faster init.
-_DEFAULT_NUM_LAYERS = 4
-
 
 class ModelVariant(StrEnum):
     """Available AMD Qwen3-Coder-Next MXFP4 model variants for causal language modeling."""
@@ -55,7 +51,7 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.tokenizer = None
         self.config = None
-        self.num_layers = num_layers if num_layers is not None else _DEFAULT_NUM_LAYERS
+        self.num_layers = num_layers
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -147,6 +143,8 @@ class ModelLoader(ForgeModel):
         return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
+        # Qwen3Next uses linear_attn (GatedDeltaNet) instead of self_attn.
+        # Projections are in_proj_qkvz, in_proj_ba, and out_proj.
         shard_specs = {}
         for layer in model.model.layers:
             mlp = layer.mlp
@@ -158,10 +156,10 @@ class ModelLoader(ForgeModel):
                 shard_specs[mlp.shared_expert.gate_proj.weight] = ("model", "batch")
                 shard_specs[mlp.shared_expert.down_proj.weight] = ("batch", "model")
 
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+            attn = layer.linear_attn
+            shard_specs[attn.in_proj_qkvz.weight] = ("model", "batch")
+            shard_specs[attn.in_proj_ba.weight] = ("model", "batch")
+            shard_specs[attn.out_proj.weight] = ("batch", "model")
         shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
 
