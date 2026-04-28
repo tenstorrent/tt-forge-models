@@ -53,42 +53,6 @@ def _patch_transformers_cohere2_gguf():
 
 _patch_transformers_cohere2_gguf()
 
-
-def _patch_sliding_window_cache():
-    """Monkey-patch DynamicSlidingWindowLayer.update to clamp slice start index.
-
-    The TT backend rejects aten.slice.Tensor when the start index is more
-    negative than -tensor_size (e.g. -4095 on a 74-element tensor).  Standard
-    Python/PyTorch silently clamp the index; we replicate that here so the
-    Cohere2 sliding-window cache is compatible with the TT backend.
-    """
-    from transformers.cache_utils import DynamicSlidingWindowLayer
-
-    _orig_update = DynamicSlidingWindowLayer.update
-
-    def _patched_update(self, key_states, value_states, cache_kwargs=None):
-        from transformers.cache_utils import DynamicSlidingWindowLayer as _C
-
-        if not self.is_initialized:
-            self.lazy_initialization(key_states, value_states)
-
-        self.cumulative_length += key_states.shape[-2]
-
-        full_key_states = torch.cat([self.keys, key_states], dim=-2)
-        full_value_states = torch.cat([self.values, value_states], dim=-2)
-
-        n = full_key_states.shape[-2]
-        start = max(-(self.sliding_window - 1), -n)
-        self.keys = full_key_states[:, :, start:, :]
-        self.values = full_value_states[:, :, start:, :]
-
-        return full_key_states, full_value_states
-
-    DynamicSlidingWindowLayer.update = _patched_update
-
-
-_patch_sliding_window_cache()
-
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
