@@ -79,7 +79,32 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        # Transformers 5.x unconditionally initializes models on the meta device
+        # (get_init_context always appends torch.device("meta"), the old
+        # low_cpu_mem_usage kwarg is now silently ignored).  EVAVisionTransformer
+        # calls .item() on a torch.linspace result during __init__ to compute
+        # stochastic-depth rates, which raises
+        #   "Tensor.item() cannot be called on meta tensors"
+        # Patch get_init_context to omit the meta device for this load only.
+        import transformers
+        from transformers.modeling_utils import local_torch_dtype
+        from transformers import initialization as _init
+
+        _orig_get_init_context = transformers.PreTrainedModel.__dict__[
+            "get_init_context"
+        ]
+
+        def _no_meta_get_init_context(cls, dtype, is_quantized, _is_ds_init_called):
+            return [local_torch_dtype(dtype, cls.__name__), _init.no_tie_weights()]
+
+        transformers.PreTrainedModel.get_init_context = classmethod(
+            _no_meta_get_init_context
+        )
+        try:
+            model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        finally:
+            transformers.PreTrainedModel.get_init_context = _orig_get_init_context
+
         model.eval()
 
         return model
