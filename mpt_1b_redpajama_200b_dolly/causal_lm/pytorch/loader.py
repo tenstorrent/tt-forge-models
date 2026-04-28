@@ -78,11 +78,42 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    @staticmethod
+    def _patch_mosaic_gpt_post_init(pretrained_model_name):
+        # MosaicGPT was written before transformers 5.x made post_init() mandatory.
+        # Its __init__ never calls self.post_init(), so from_pretrained fails in
+        # _finalize_model_loading when it accesses self.all_tied_weights_keys.
+        # Patch the class once to add the missing post_init() call.
+        from transformers.dynamic_module_utils import get_class_from_dynamic_module
+        from transformers.modeling_utils import PreTrainedModel
+
+        try:
+            mosaic_cls = get_class_from_dynamic_module(
+                "mosaic_gpt.MosaicGPT", pretrained_model_name
+            )
+        except Exception:
+            return
+
+        if getattr(mosaic_cls, "_post_init_patched", False):
+            return
+
+        _orig_init = mosaic_cls.__init__
+
+        def _patched_init(self, config, _orig=_orig_init):
+            _orig(self, config)
+            if not hasattr(self, "all_tied_weights_keys"):
+                PreTrainedModel.post_init(self)
+
+        mosaic_cls.__init__ = _patched_init
+        mosaic_cls._post_init_patched = True
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
+
+        self._patch_mosaic_gpt_post_init(pretrained_model_name)
 
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
