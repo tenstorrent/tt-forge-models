@@ -4,8 +4,6 @@
 """
 Glyph model loader implementation for multimodal conditional generation.
 """
-import types
-
 import torch
 from transformers import AutoProcessor, Glm4vForConditionalGeneration
 from transformers.models.glm4v.modeling_glm4v import Glm4vModel, Glm4vVisionModel
@@ -61,21 +59,67 @@ class ModelLoader(ForgeModel):
         )
 
     @staticmethod
-    def _patch_for_tt_device(model):
-        """Move grid_thw and token-id metadata to CPU for Python control-flow methods.
+    def _patch_for_tt_device():
+        """Patch GLM4V class methods for TT device execution.
 
-        transformers' GLM4V visual encoder iterates over grid_thw in Python
-        (rot_pos_emb) and calls .tolist() on derived tensors.  On TT device
-        those operations fail with INTERNAL error code 13.  The fix mirrors
-        the Qwen3-VL pattern: keep main computation on device, move only the
-        small metadata tensors to CPU.
+        TT XLA moves all input tensors to TT device including metadata tensors
+        like image_grid_thw. Several GLM4V methods use these tensors in Python
+        control flow (.tolist(), iteration) or pass tensor elements to
+        torch.arange(). TT device 0-d tensors cause INTERNAL error code 13 in
+        those paths.
+
+        We patch at class level (matching the Qwen3.5-VLM pattern) so that:
+        - rot_pos_emb: converts grid_thw to Python ints via .cpu().tolist()
+          before any torch.arange() call, avoiding TT-device dispatch.
+        - Glm4vVisionModel.forward: moves grid_thw to CPU so that
+          cu_seqlens.tolist() and rot_pos_emb both see CPU data.
+        - get_image_features: moves image_grid_thw to CPU for split_sizes.tolist().
+        - get_rope_index: moves input_ids/image_grid_thw/video_grid_thw to CPU
+          for all .tolist() control-flow paths; returns position tensors to device.
         """
+        _orig_rot_pos = Glm4vVisionModel.rot_pos_emb
+
+        def _patched_rot_pos(self, grid_thw):
+            # Move to CPU and convert to Python scalars so torch.arange() receives
+            # Python ints and does not trigger TT device dispatch.
+            grid_list = grid_thw.cpu().tolist()
+            pos_ids = []
+            for t, h, w in grid_list:
+                hpos_ids = torch.arange(h).unsqueeze(1).expand(-1, w)
+                hpos_ids = hpos_ids.reshape(
+                    h // self.spatial_merge_size,
+                    self.spatial_merge_size,
+                    w // self.spatial_merge_size,
+                    self.spatial_merge_size,
+                )
+                hpos_ids = hpos_ids.permute(0, 2, 1, 3)
+                hpos_ids = hpos_ids.flatten()
+                wpos_ids = torch.arange(w).unsqueeze(0).expand(h, -1)
+                wpos_ids = wpos_ids.reshape(
+                    h // self.spatial_merge_size,
+                    self.spatial_merge_size,
+                    w // self.spatial_merge_size,
+                    self.spatial_merge_size,
+                )
+                wpos_ids = wpos_ids.permute(0, 2, 1, 3)
+                wpos_ids = wpos_ids.flatten()
+                pos_ids.append(torch.stack([hpos_ids, wpos_ids], dim=-1).repeat(t, 1))
+            pos_ids = torch.cat(pos_ids, dim=0)
+            # max_grid_size must be a Python int for rotary_pos_emb
+            max_grid_size = max(max(h, w) for _, h, w in grid_list)
+            rotary_pos_emb_full = self.rotary_pos_emb(max_grid_size)
+            rotary_pos_emb = rotary_pos_emb_full[pos_ids].flatten(1)
+            return rotary_pos_emb, pos_ids
+
+        Glm4vVisionModel.rot_pos_emb = _patched_rot_pos
+
         _orig_visual_fwd = Glm4vVisionModel.forward
 
         def _patched_visual_fwd(self, hidden_states, grid_thw, **kwargs):
+            # Move grid_thw to CPU so cu_seqlens.tolist() in forward body works
             return _orig_visual_fwd(self, hidden_states, grid_thw.cpu(), **kwargs)
 
-        model.model.visual.forward = types.MethodType(_patched_visual_fwd, model.model.visual)
+        Glm4vVisionModel.forward = _patched_visual_fwd
 
         _orig_get_img = Glm4vModel.get_image_features
 
@@ -84,7 +128,7 @@ class ModelLoader(ForgeModel):
                 image_grid_thw = image_grid_thw.cpu()
             return _orig_get_img(self, pixel_values, image_grid_thw=image_grid_thw, **kwargs)
 
-        model.model.get_image_features = types.MethodType(_patched_get_img, model.model)
+        Glm4vModel.get_image_features = _patched_get_img
 
         _orig_get_rope = Glm4vModel.get_rope_index
 
@@ -108,7 +152,7 @@ class ModelLoader(ForgeModel):
             )
             return position_ids.to(orig_device), mrope_position_deltas.to(orig_device)
 
-        model.model.get_rope_index = types.MethodType(_patched_get_rope, model.model)
+        Glm4vModel.get_rope_index = _patched_get_rope
 
     def _load_processor(self, dtype_override=None):
         kwargs = {}
@@ -138,7 +182,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
         model.eval()
-        self._patch_for_tt_device(model)
+        self._patch_for_tt_device()
         self.model = model
         self.config = model.config
         return model
