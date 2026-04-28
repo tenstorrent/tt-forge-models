@@ -101,8 +101,11 @@ class ModelLoader(ForgeModel):
             audio_array, sampling_rate=sampling_rate, return_tensors="pt"
         ).input_features.to(device=device, dtype=dtype)
 
-        decoder_input_ids = torch.tensor(
-            [[self.model.config.decoder_start_token_id]],
+        # seq_len=2 avoids SDPA decode path (q_seq==1 triggers sdpa_decode which
+        # requires kSeqLen%32==0; cross-attention kSeqLen=1500 fails that check)
+        decoder_input_ids = torch.full(
+            (1, 2),
+            self.model.config.decoder_start_token_id,
             dtype=torch.long,
             device=device,
         )
