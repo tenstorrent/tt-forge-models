@@ -8,6 +8,7 @@ RedHatAI Gemma 3 12B IT quantized W8A8 model loader implementation for multimoda
 from typing import Optional
 
 from transformers import (
+    AutoConfig,
     AutoProcessor,
     Gemma3ForConditionalGeneration,
 )
@@ -87,9 +88,29 @@ class ModelLoader(ForgeModel):
         model_kwargs["device_map"] = "cpu"
         model_kwargs |= kwargs
 
+        # compressed-tensors 0.15.x keeps weights in int8 by default (run_compressed=True).
+        # TT does not support int8 matmuls via this path, so set run_compressed=False to
+        # dequantize all quantized Linear weights to bfloat16 during load.
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        qc = getattr(config, "quantization_config", None)
+        if isinstance(qc, dict):
+            qc["run_compressed"] = False
+        elif qc is not None:
+            qc.run_compressed = False
+        model_kwargs["config"] = config
+
         model = Gemma3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        # compressed-tensors leaves a quantized_forward instance method bound on every
+        # quantized Linear after decompression. It accesses weight.data unconditionally,
+        # which triggers TT-XLA's __torch_function__ before compilation is ready and
+        # raises AttributeError: 'fused_0' object has no attribute 'xla_args'.
+        # Restore the class-level forward by removing the instance-level override.
+        for m in model.modules():
+            if "forward" in m.__dict__:
+                del m.__dict__["forward"]
 
         model.eval()
         self.model = model
