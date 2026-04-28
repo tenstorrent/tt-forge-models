@@ -168,7 +168,7 @@ class ModelLoader(ForgeModel):
         _patch_qwen3_5_for_tt_device()
 
         model = Qwen3_5ForConditionalGeneration.from_pretrained(
-            pretrained_model_name, dtype="auto", device_map="auto", **model_kwargs
+            pretrained_model_name, **model_kwargs
         )
         model.eval()
 
