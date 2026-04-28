@@ -4,6 +4,7 @@
 """
 bartowski openai gpt-oss 120B GGUF model loader implementation for causal language modeling.
 """
+import re
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -52,6 +53,22 @@ def _patch_gpt_oss_support():
             _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING[
                 "gpt-oss"
             ] = _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["qwen3_moe"]
+
+    # Register a tensor processor for gpt-oss so that MoE expert weights are
+    # properly fused (gate+up → gate_up_proj) when loading the GGUF checkpoint.
+    # The gpt-oss GGUF also uses 'post_attention_norm' where the standard
+    # qwen3moe GGUF name map expects 'ffn_norm', so we rename on the fly.
+    if "gpt-oss" not in _gguf_utils.TENSOR_PROCESSORS:
+        _Qwen2MoeTensorProcessor = _gguf_utils.TENSOR_PROCESSORS.get("qwen3moe")
+        if _Qwen2MoeTensorProcessor is not None:
+            _POST_ATTN_PAT = re.compile(r"(blk\.\d+\.)post_attention_norm(\..+)")
+
+            class _GptOssTensorProcessor(_Qwen2MoeTensorProcessor):
+                def process(self, weights, name, **kwargs):
+                    name = _POST_ATTN_PAT.sub(r"\1ffn_norm\2", name)
+                    return super().process(weights=weights, name=name, **kwargs)
+
+            _gguf_utils.TENSOR_PROCESSORS["gpt-oss"] = _GptOssTensorProcessor
 
 
 def _find_real_load_gguf_checkpoint():
@@ -270,9 +287,9 @@ class ModelLoader(ForgeModel):
     def load_shard_spec(self, model):
         shard_specs = {}
         for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+            # Qwen3MoE uses fused expert parameters (nn.Parameter, not nn.Linear)
+            shard_specs[layer.mlp.experts.gate_up_proj] = ("model", "batch")
+            shard_specs[layer.mlp.experts.down_proj] = ("batch", "model")
 
             shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
