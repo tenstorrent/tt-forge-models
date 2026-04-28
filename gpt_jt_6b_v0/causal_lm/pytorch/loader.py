@@ -114,6 +114,7 @@ class ModelLoader(ForgeModel):
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
+        inputs["use_cache"] = False
         return inputs
 
     def load_config(self):
