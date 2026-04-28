@@ -70,6 +70,7 @@ def _apply_tolist_patches():
     _qvlmoe.Qwen3VLMoeModel.get_rope_index = _patched_gri
 
     def _patched_gif(self, pixel_values, image_grid_thw=None, **kwargs):
+        kwargs.pop("return_dict", None)
         pixel_values = pixel_values.type(self.visual.dtype)
         vision_output = self.visual(
             pixel_values, grid_thw=image_grid_thw, return_dict=True, **kwargs
