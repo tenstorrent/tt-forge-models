@@ -391,6 +391,18 @@ class ModelLoader(ForgeModel):
         except AttributeError:
             pass
 
+        # The inner AutoModel.from_pretrained for SigLIP runs without dtype_override,
+        # so SigLIP weights are created as float32.  The outer CheXagent from_pretrained
+        # loads its own checkpoint-resident params as bfloat16 (when dtype_override is
+        # bfloat16), but non-meta SigLIP params get copy_() which preserves float32.
+        # Cast SigLIP to match the outer model dtype to prevent mismatches in attn_pool.
+        try:
+            _visual = model.model.visual
+            _target_dtype = _visual.attn_pool[0].weight.dtype
+            _visual.model.to(_target_dtype)
+        except AttributeError:
+            pass
+
         model.eval()
         return model
 
