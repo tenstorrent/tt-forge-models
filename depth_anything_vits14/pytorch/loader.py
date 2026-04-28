@@ -6,7 +6,7 @@ Depth Anything ViT-S14 model loader implementation for monocular depth estimatio
 """
 import torch
 from transformers import AutoImageProcessor, AutoModelForDepthEstimation
-from datasets import load_dataset
+from PIL import Image
 from typing import Optional
 
 from ...config import (
@@ -82,8 +82,7 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        image = Image.new("RGB", (518, 518))
 
         inputs = self.processor(images=image, return_tensors="pt")
 
