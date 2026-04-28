@@ -5,6 +5,7 @@
 abcorrea/bw-v1 model loader implementation for causal language modeling.
 """
 import torch
+from peft import AutoPeftModelForCausalLM
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -86,9 +87,14 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
+        # abcorrea/bw-v1 is a LoRA fine-tune of Qwen3-4B-Thinking.  Loading it
+        # via AutoPeftModelForCausalLM and immediately calling merge_and_unload()
+        # collapses the adapter into the base weights so the test framework
+        # receives a plain nn.Module; transformers' tie_weights() is
+        # incompatible with PEFT's ModulesToSaveWrapper.
+        model = AutoPeftModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
-        ).eval()
+        ).merge_and_unload().eval()
 
         self.config = model.config
         self.model = model
