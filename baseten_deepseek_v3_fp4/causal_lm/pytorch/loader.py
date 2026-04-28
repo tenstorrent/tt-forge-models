@@ -13,6 +13,7 @@ TensorRT-LLM to run.
 from typing import Optional
 
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.cache_utils import DynamicCache
 
 from ....base import ForgeModel
 from ....config import (
@@ -24,6 +25,22 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
+
+# transformers 5.x removed DynamicCache.get_usable_length(); restore it as a
+# compatibility shim so that the remote modeling_deepseek.py (which was written
+# against an older transformers API) continues to work.
+if not hasattr(DynamicCache, "get_usable_length"):
+
+    def _get_usable_length(self, new_seq_length: int, layer_idx: int = 0) -> int:
+        """Compatibility shim for transformers <5.x get_usable_length API."""
+        previous_seq_length = self.get_seq_length(layer_idx)
+        max_length = self.get_max_cache_shape()
+        # get_max_cache_shape returns -1 for unbounded DynamicCache
+        if max_length > 0 and previous_seq_length + new_seq_length > max_length:
+            return max_length - new_seq_length
+        return previous_seq_length
+
+    DynamicCache.get_usable_length = _get_usable_length
 
 
 class ModelVariant(StrEnum):
