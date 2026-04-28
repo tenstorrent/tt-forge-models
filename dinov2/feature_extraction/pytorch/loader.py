@@ -87,6 +87,9 @@ class ModelLoader(ForgeModel):
         processor_kwargs = {}
         if self._variant == ModelVariant.CURIA:
             processor_kwargs["trust_remote_code"] = True
+            # raidium/curia stores a BitImageProcessor config; transformers 5.x
+            # loads the fast variant by default which breaks preprocessing.
+            processor_kwargs["use_fast"] = False
 
         self.processor = AutoImageProcessor.from_pretrained(
             pretrained_model_name, **processor_kwargs
