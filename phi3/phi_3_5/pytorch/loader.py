@@ -100,6 +100,10 @@ class ModelLoader(ForgeModel):
             "use_cache": False,
             "torch_dtype": model_dtype,
         }
+        if self._variant == ModelVariant.TINY_RANDOM_MOE:
+            # TT hardware doesn't support grouped_mm (torch.histc on Int, grouped_mm kernel);
+            # select the loop-based eager implementation instead.
+            model_kwargs["experts_implementation"] = "eager"
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
