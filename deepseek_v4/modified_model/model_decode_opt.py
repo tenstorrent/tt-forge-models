@@ -727,17 +727,7 @@ class Gate(nn.Module):
             indices = self.tid2eid[input_ids]
         else:
             indices = scores.topk(self.topk, dim=-1)[1]
-        # NOTE: equivalent to `original_scores.gather(1, indices)`. The
-        # `.gather` form lowers under SPMD to an all_gather + flat embedding
-        # lookup whose per-shard batch offset is lost, silently corrupting
-        # routing weights on every non-first batch-axis shard. The one-hot ×
-        # elementwise × sum form is rotation-invariant under sharding and
-        # gives correct per-shard results. Revert to `.gather` once the
-        # tt-mlir torch-gather-rewrite branch lands.
-        one_hot = F.one_hot(
-            indices.long(), num_classes=original_scores.size(-1)
-        ).to(original_scores.dtype)
-        weights = (one_hot * original_scores.unsqueeze(1)).sum(dim=-1)
+        weights = torch.gather(original_scores, 1, indices)
         if self.score_func != "softmax":
             weights /= weights.sum(dim=-1, keepdim=True)
         weights *= self.route_scale

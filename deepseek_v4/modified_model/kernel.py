@@ -45,10 +45,9 @@ def sparse_attn(
     valid = topk_idxs != -1
     safe_idx = topk_idxs.clamp(min=0).long()
 
-    # Avoid the flat gather + reshape formulation here: it compiles incorrectly on TT.
-    batch = torch.arange(b, device=kv.device).view(b, 1, 1).expand_as(safe_idx)
-    kv_gathered = kv[batch, safe_idx]
-    kv_gathered = kv_gathered * valid.unsqueeze(-1)
+    d_kv = kv.shape[-1]
+    flat_idx = safe_idx.reshape(b, s * topk, 1).expand(b, s * topk, d_kv)
+    kv_gathered = torch.gather(kv, 1, flat_idx).reshape(b, s, topk, d_kv)
 
     scores = (
         torch.einsum("bshd,bstd->bsht", q.float(), kv_gathered.float())
