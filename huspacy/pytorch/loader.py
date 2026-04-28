@@ -11,7 +11,6 @@ and wraps them as a PyTorch embedding model for sentence embedding generation.
 """
 import torch
 import torch.nn as nn
-import spacy
 from typing import Optional
 
 from third_party.tt_forge_models.config import (
@@ -92,6 +91,17 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_nlp(self):
+        import spacy
+
+        # Guard against the tt_forge_models/spacy namespace package shadowing the real spacy
+        if not hasattr(spacy, "Language"):
+            import sys
+
+            sys.modules.pop("spacy", None)
+            raise ImportError(
+                "Real spacy package not found; the tt_forge_models/spacy directory "
+                "creates a namespace package that shadows it. Install spacy: pip install spacy"
+            )
         if self._nlp is None:
             model_name = self._variant_config.pretrained_model_name
             self._nlp = spacy.load(model_name)
