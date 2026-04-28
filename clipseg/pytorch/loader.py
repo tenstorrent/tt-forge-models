@@ -100,7 +100,7 @@ class ModelLoader(ForgeModel):
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"return_dict": False}
+        model_kwargs = {}
 
         # NOTE: Ignoring dtype_override and always using default (fp32) due to dtype mismatch
         # issue with bfloat16. See: https://github.com/tenstorrent/tt-xla/issues/1959
