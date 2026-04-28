@@ -4,6 +4,7 @@
 """
 Abhiray Huihui Qwen 3.5 9B Abliterated GGUF model loader implementation for causal language modeling.
 """
+import functools
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -20,25 +21,67 @@ from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
 
 def _patch_qwen35_support():
-    """Register qwen35 architecture and qwen3_5_text tokenizer as aliases for qwen3.
+    """Register qwen35 GGUF architecture for loading as qwen3_5_text.
 
-    Qwen 3.5 uses the same model architecture as Qwen 3 but the GGUF file
-    declares architecture as 'qwen35' and tokenizer class as 'qwen3_5_text',
-    which transformers 5.x does not yet recognise.
+    The GGUF file declares architecture 'qwen35'. Transformers 5.x has a
+    dedicated Qwen3_5ForCausalLM (model_type='qwen3_5_text') for the hybrid
+    SSM+full-attention architecture, but the GGUF loading infrastructure has
+    no qwen35 mapping. This patch wires it up without touching the venv.
     """
+    # 1. Allow 'qwen35' past the supported-architectures gate.
     if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
         GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
-    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
-        if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
-            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
-                "qwen35",
-                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
-            )
+
+    # 2. Add qwen35 → HF config-field mapping.
+    config_mapping = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING.get("config", {})
+    if "qwen35" not in config_mapping:
+        config_mapping["qwen35"] = {
+            "context_length": "max_position_embeddings",
+            "block_count": "num_hidden_layers",
+            "feed_forward_length": "intermediate_size",
+            "embedding_length": "hidden_size",
+            "rope.dimension_count": None,
+            "rope.freq_base": "rope_theta",
+            "attention.head_count": "num_attention_heads",
+            "attention.head_count_kv": "num_key_value_heads",
+            "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+            # head_dim differs from rope.dimension_count for Qwen3.5
+            "attention.key_length": "head_dim",
+            "vocab_size": "vocab_size",
+            # drives layer_types generation in Qwen3_5TextConfig.__init__
+            "full_attention_interval": "full_attention_interval",
+        }
+
+    # 3. Wire up a fast tokenizer converter (same BPE vocab as Qwen3).
     if "qwen3" in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
-        GGUF_TO_FAST_CONVERTERS.setdefault(
-            "qwen3_5_text", GGUF_TO_FAST_CONVERTERS["qwen3"]
+        GGUF_TO_FAST_CONVERTERS.setdefault("qwen3_5_text", GGUF_TO_FAST_CONVERTERS["qwen3"])
+
+    # 4. Patch get_gguf_hf_weights_map to alias qwen3_5_text → qwen35.
+    #    The gguf package already knows 'qwen35' tensor names; transformers
+    #    needs the HF model_type alias to find the right arch entry.
+    if getattr(_gguf_utils, "_qwen35_weights_map_patched", False):
+        return
+    _orig_weights_map_fn = _gguf_utils.get_gguf_hf_weights_map
+
+    @functools.wraps(_orig_weights_map_fn)
+    def _patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None and hasattr(hf_model, "config"):
+            model_type = hf_model.config.model_type
+        if model_type == "qwen3_5_text":
+            model_type = "qwen35"
+        return _orig_weights_map_fn(
+            hf_model,
+            processor,
+            model_type=model_type,
+            num_layers=num_layers,
+            qual_name=qual_name,
         )
+
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+    _gguf_utils._qwen35_weights_map_patched = True
 
 
 def _patched_load_gguf_checkpoint(*args, **kwargs):
@@ -46,7 +89,7 @@ def _patched_load_gguf_checkpoint(*args, **kwargs):
     _patch_qwen35_support()
     result = _orig_load_gguf_checkpoint(*args, **kwargs)
     if result.get("config", {}).get("model_type") == "qwen35":
-        result["config"]["model_type"] = "qwen3"
+        result["config"]["model_type"] = "qwen3_5_text"
     return result
 
 
@@ -139,7 +182,14 @@ class ModelLoader(ForgeModel):
             config = AutoConfig.from_pretrained(
                 pretrained_model_name, gguf_file=self.GGUF_FILE
             )
-            config.num_hidden_layers = self.num_layers
+            if hasattr(config, "text_config"):
+                config.text_config.num_hidden_layers = self.num_layers
+                if hasattr(config.text_config, "layer_types"):
+                    config.text_config.layer_types = config.text_config.layer_types[
+                        : self.num_layers
+                    ]
+            else:
+                config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
@@ -193,14 +243,12 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
-
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.q_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+            # Full-attention layers have self_attn; linear-attention layers have linear_attn
+            if hasattr(layer, "self_attn"):
+                shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
         shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
 
