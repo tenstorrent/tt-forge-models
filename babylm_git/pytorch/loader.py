@@ -105,6 +105,13 @@ class ModelLoader(ForgeModel):
         finally:
             PreTrainedModel.get_init_context = _orig_get_init_context
 
+        # transformers 5.x _move_missing_keys_from_meta_to_device() replaces all
+        # persistent=False buffers with torch.empty_like() (uninitialized), even when
+        # not using meta device. Re-initialize position_ids from its definition.
+        model.git.embeddings.position_ids = torch.arange(
+            model.config.max_position_embeddings
+        ).expand((1, -1))
+
         model.eval()
 
         if dtype_override:
