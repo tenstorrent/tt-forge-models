@@ -8,6 +8,52 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+# command-r GGUF architecture was not ported to transformers 5.x GGUF_CONFIG_MAPPING.
+# Patch the mapping before any from_pretrained call so load_gguf_checkpoint recognises
+# the architecture and maps GGUF keys to CohereConfig field names.
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+from transformers.integrations.ggml import GGUF_CONFIG_MAPPING as _GGUF_CONFIG_MAPPING
+
+if "command-r" not in _GGUF_CONFIG_MAPPING:
+    _GGUF_CONFIG_MAPPING["command-r"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_epsilon": "layer_norm_eps",
+        "logit_scale": "logit_scale",
+    }
+if "command-r" not in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
+    _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("command-r")
+
+# load_gguf_checkpoint sets model_type="command-r" from the GGUF general.architecture
+# field, but AutoConfig needs model_type="cohere" to select CohereConfig.
+_orig_load_gguf = _gguf_utils.load_gguf_checkpoint
+
+
+def _patched_load_gguf(gguf_path, return_tensors=False, model_to_load=None, **kwargs):
+    result = _orig_load_gguf(gguf_path, return_tensors=return_tensors, model_to_load=model_to_load, **kwargs)
+    if isinstance(result, dict) and result.get("config", {}).get("model_type") == "command-r":
+        result["config"]["model_type"] = "cohere"
+    return result
+
+
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf
+
+# configuration_utils, tokenization_auto, and tokenization_utils_tokenizers import
+# load_gguf_checkpoint by name (from .modeling_gguf_pytorch_utils import ...) so
+# patching the module attribute above is not enough — patch each call-site namespace.
+import transformers.configuration_utils as _cfg_utils
+import transformers.models.auto.tokenization_auto as _tok_auto
+import transformers.tokenization_utils_tokenizers as _tok_utils
+
+_cfg_utils.load_gguf_checkpoint = _patched_load_gguf
+_tok_auto.load_gguf_checkpoint = _patched_load_gguf
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
