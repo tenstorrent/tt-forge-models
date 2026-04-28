@@ -43,10 +43,6 @@ class FunASRNanoWrapper(torch.nn.Module):
         self.model = model  # FunASRNano instance (not AutoModel)
 
     def forward(self, speech, speech_lengths):
-        # Cast input to match the audio encoder weight dtype (SenseVoice loads as bf16)
-        first_param = next(self.model.parameters(), None)
-        if first_param is not None:
-            speech = speech.to(dtype=first_param.dtype)
         encoder_out, _ = self.model.forward_export(speech, speech_lengths)
         return encoder_out
 
@@ -133,6 +129,9 @@ class ModelLoader(ForgeModel):
         model = FunASRNanoWrapper(self._funasr_model.model)
         model.eval()
 
+        # Homogenize all parameters to float32; SenseVoice audio encoder may
+        # load with mixed float32/bfloat16 weights causing Conv1d type errors.
+        model.to(torch.float32)
         if dtype_override is not None:
             model.to(dtype_override)
 
