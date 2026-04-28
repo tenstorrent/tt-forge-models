@@ -52,6 +52,10 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         config = AutoConfig.from_pretrained(self.model_name)
 
+        # batched_mm avoids the .nonzero() Python-for-loop dispatch in the default
+        # MoE implementation, which produces dynamic shapes that XLA/TT cannot compile.
+        config._experts_implementation = "batched_mm"
+
         # Reduce model dimensions for testing
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
