@@ -20,6 +20,72 @@ from ....config import (
 )
 
 
+def _patch_glm_ocr_for_tt_device():
+    """Patch GLM-OCR methods that call .tolist() or iterate on device tensors.
+
+    TT device does not support eager tensor reads — .tolist() or iterating over
+    a TT tensor triggers a device sync that fails with Error code: 13. Move the
+    small integer metadata tensors (grid_thw, input_ids) to CPU before those
+    calls; move computed outputs (position_ids, rope_deltas) back to the
+    original device so the language model path stays on TT device.
+    """
+    try:
+        from transformers.models.glm_ocr import modeling_glm_ocr
+    except ImportError:
+        return
+
+    orig_rot_pos = modeling_glm_ocr.GlmOcrVisionModel.rot_pos_emb
+    orig_get_rope = modeling_glm_ocr.GlmOcrModel.get_rope_index
+    orig_get_image = modeling_glm_ocr.GlmOcrModel.get_image_features
+    orig_get_video = modeling_glm_ocr.GlmOcrModel.get_video_features
+
+    def _patched_rot_pos(self, grid_thw):
+        return orig_rot_pos(self, grid_thw.cpu())
+
+    def _patched_get_rope(
+        self,
+        input_ids=None,
+        image_grid_thw=None,
+        video_grid_thw=None,
+        attention_mask=None,
+        **kwargs,
+    ):
+        orig_device = input_ids.device if input_ids is not None else None
+        position_ids, rope_deltas = orig_get_rope(
+            self,
+            input_ids=input_ids.cpu() if input_ids is not None else None,
+            image_grid_thw=image_grid_thw.cpu() if image_grid_thw is not None else None,
+            video_grid_thw=video_grid_thw.cpu() if video_grid_thw is not None else None,
+            attention_mask=attention_mask.cpu() if attention_mask is not None else None,
+            **kwargs,
+        )
+        if orig_device is not None:
+            position_ids = position_ids.to(orig_device)
+            rope_deltas = rope_deltas.to(orig_device)
+        return position_ids, rope_deltas
+
+    def _patched_get_image(self, pixel_values, image_grid_thw=None, **kwargs):
+        return orig_get_image(
+            self,
+            pixel_values,
+            image_grid_thw=image_grid_thw.cpu() if image_grid_thw is not None else None,
+            **kwargs,
+        )
+
+    def _patched_get_video(self, pixel_values_videos, video_grid_thw=None, **kwargs):
+        return orig_get_video(
+            self,
+            pixel_values_videos,
+            video_grid_thw=video_grid_thw.cpu() if video_grid_thw is not None else None,
+            **kwargs,
+        )
+
+    modeling_glm_ocr.GlmOcrVisionModel.rot_pos_emb = _patched_rot_pos
+    modeling_glm_ocr.GlmOcrModel.get_rope_index = _patched_get_rope
+    modeling_glm_ocr.GlmOcrModel.get_image_features = _patched_get_image
+    modeling_glm_ocr.GlmOcrModel.get_video_features = _patched_get_video
+
+
 class ModelVariant(StrEnum):
     """Available GLM-OCR model variants for image-to-text tasks."""
 
@@ -82,7 +148,7 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded processor instance
         """
-        kwargs = {}
+        kwargs = {"use_fast": False}
         if dtype_override is not None:
             kwargs["torch_dtype"] = dtype_override
 
@@ -111,6 +177,8 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        _patch_glm_ocr_for_tt_device()
 
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
