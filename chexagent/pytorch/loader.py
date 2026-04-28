@@ -46,6 +46,7 @@ _ALL_SOURCE_FILES = (
     "modeling_chexagent.py",
     "modeling_visual.py",
     "configuration_chexagent.py",
+    "tokenization_chexagent.py",
 )
 
 
@@ -78,7 +79,30 @@ def _patch_file(path: Path, filename: str) -> None:
         content = _fix_config_pad_token_id(content)
     if filename == "modeling_visual.py":
         content = _fix_nested_from_pretrained(content)
+    if filename == "tokenization_chexagent.py":
+        content = _fix_decode_signature(content)
     path.write_text(content)
+
+
+def _fix_decode_signature(content: str) -> str:
+    """Fix _decode() call to pass spaces_between_special_tokens as keyword arg.
+
+    transformers 5.x removed spaces_between_special_tokens from the _decode
+    positional parameters.  The old code passes it as the 4th positional arg
+    which raises TypeError.  Pass it as a keyword argument instead.
+    """
+    old = (
+        "        return super()._decode(\n"
+        "            token_ids, skip_special_tokens, clean_up_tokenization_spaces, spaces_between_special_tokens, **kwargs\n"
+        "        )"
+    )
+    new = (
+        "        return super()._decode(\n"
+        "            token_ids, skip_special_tokens, clean_up_tokenization_spaces,\n"
+        "            spaces_between_special_tokens=spaces_between_special_tokens, **kwargs\n"
+        "        )"
+    )
+    return content.replace(old, new)
 
 
 def _fix_version_assert(content: str) -> str:
