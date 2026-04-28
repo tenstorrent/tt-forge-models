@@ -5,6 +5,8 @@
 GGML LLaVA v1.5 7B GGUF model loader implementation for multimodal conditional generation.
 """
 
+import re
+import torch
 from PIL import Image
 from transformers import LlavaForConditionalGeneration, AutoProcessor
 from typing import Optional
@@ -20,6 +22,111 @@ from ...config import (
     StrEnum,
 )
 from ...tools.utils import cast_input_to_type, get_file
+
+
+def _load_mmproj_weights(model, repo_id, mmproj_filename, dtype_override=None):
+    """Load vision encoder and projector weights from a LLaVA mmproj GGUF file.
+
+    The main GGUF for mys/ggml_llava-v1.5-7b contains only the LLaMA text
+    backbone.  The CLIP vision encoder and multimodal projector live in a
+    separate mmproj GGUF file.  This function reads that file and populates
+    the corresponding sub-modules of the already-constructed HF model.
+    """
+    from gguf import GGUFReader
+    from huggingface_hub import hf_hub_download
+
+    path = hf_hub_download(repo_id=repo_id, filename=mmproj_filename)
+    reader = GGUFReader(path)
+
+    state_dict = {}
+    for tensor in reader.tensors:
+        name = tensor.name
+        # GGUFReader returns float16 data for f16 files; convert to a torch tensor.
+        data = torch.from_numpy(tensor.data.copy())
+        if dtype_override is not None:
+            data = data.to(dtype_override)
+
+        # ── Multimodal projector ──────────────────────────────────────────────
+        # Projector weights are stored transposed in GGUF relative to PyTorch
+        # convention ([in, out] vs PyTorch [out, in]).
+        if name == "mm.0.weight":
+            state_dict["model.multi_modal_projector.linear_1.weight"] = data.T.contiguous()
+        elif name == "mm.0.bias":
+            state_dict["model.multi_modal_projector.linear_1.bias"] = data
+        elif name == "mm.2.weight":
+            state_dict["model.multi_modal_projector.linear_2.weight"] = data.T.contiguous()
+        elif name == "mm.2.bias":
+            state_dict["model.multi_modal_projector.linear_2.bias"] = data
+
+        # ── Vision tower embeddings ───────────────────────────────────────────
+        elif name == "v.class_embd":
+            state_dict["model.vision_tower.vision_model.embeddings.class_embedding"] = data
+        elif name == "v.patch_embd.weight":
+            # GGUF: [kH, kW, C_in, C_out] → PyTorch Conv2d: [C_out, C_in, kH, kW]
+            state_dict["model.vision_tower.vision_model.embeddings.patch_embedding.weight"] = (
+                data.permute(3, 2, 0, 1).contiguous()
+            )
+        elif name == "v.position_embd.weight":
+            # GGUF: [n_embd, n_positions] → PyTorch Embedding: [n_positions, n_embd]
+            state_dict["model.vision_tower.vision_model.embeddings.position_embedding.weight"] = (
+                data.T.contiguous()
+            )
+        elif name == "v.pre_ln.weight":
+            state_dict["model.vision_tower.vision_model.pre_layrnorm.weight"] = data
+        elif name == "v.pre_ln.bias":
+            state_dict["model.vision_tower.vision_model.pre_layrnorm.bias"] = data
+        elif name == "v.post_ln.weight":
+            state_dict["model.vision_tower.vision_model.post_layernorm.weight"] = data
+        elif name == "v.post_ln.bias":
+            state_dict["model.vision_tower.vision_model.post_layernorm.bias"] = data
+
+        # ── Vision encoder transformer blocks ─────────────────────────────────
+        elif m := re.match(r"v\.blk\.(\d+)\.(.+)", name):
+            layer_idx = int(m.group(1))
+            sub = m.group(2)
+            pfx = f"model.vision_tower.vision_model.encoder.layers.{layer_idx}"
+
+            # Attention projections: stored in PyTorch [out, in] convention.
+            if sub == "attn_q.weight":
+                state_dict[f"{pfx}.self_attn.q_proj.weight"] = data
+            elif sub == "attn_q.bias":
+                state_dict[f"{pfx}.self_attn.q_proj.bias"] = data
+            elif sub == "attn_k.weight":
+                state_dict[f"{pfx}.self_attn.k_proj.weight"] = data
+            elif sub == "attn_k.bias":
+                state_dict[f"{pfx}.self_attn.k_proj.bias"] = data
+            elif sub == "attn_v.weight":
+                state_dict[f"{pfx}.self_attn.v_proj.weight"] = data
+            elif sub == "attn_v.bias":
+                state_dict[f"{pfx}.self_attn.v_proj.bias"] = data
+            elif sub == "attn_out.weight":
+                state_dict[f"{pfx}.self_attn.out_proj.weight"] = data
+            elif sub == "attn_out.bias":
+                state_dict[f"{pfx}.self_attn.out_proj.bias"] = data
+            # Layer norms
+            elif sub == "ln1.weight":
+                state_dict[f"{pfx}.layer_norm1.weight"] = data
+            elif sub == "ln1.bias":
+                state_dict[f"{pfx}.layer_norm1.bias"] = data
+            elif sub == "ln2.weight":
+                state_dict[f"{pfx}.layer_norm2.weight"] = data
+            elif sub == "ln2.bias":
+                state_dict[f"{pfx}.layer_norm2.bias"] = data
+            # MLP: stored in PyTorch [out, in] convention.
+            elif sub == "ffn_up.weight":
+                state_dict[f"{pfx}.mlp.fc1.weight"] = data
+            elif sub == "ffn_up.bias":
+                state_dict[f"{pfx}.mlp.fc1.bias"] = data
+            elif sub == "ffn_down.weight":
+                state_dict[f"{pfx}.mlp.fc2.weight"] = data
+            elif sub == "ffn_down.bias":
+                state_dict[f"{pfx}.mlp.fc2.bias"] = data
+
+    missing, unexpected = model.load_state_dict(state_dict, strict=False)
+    # Only unexpected keys are a concern; missing keys are the text-backbone
+    # weights already loaded from the main GGUF.
+    if unexpected:
+        raise RuntimeError(f"Unexpected keys when loading mmproj: {unexpected}")
 
 
 class ModelVariant(StrEnum):
@@ -46,6 +153,12 @@ class ModelLoader(ForgeModel):
     _GGUF_FILES = {
         ModelVariant.GGML_LLAVA_V1_5_7B_Q4_K: "ggml-model-q4_k.gguf",
         ModelVariant.SECOND_STATE_LLAVA_V1_5_7B_Q4_K_M: "llava-v1.5-7b-Q4_K_M.gguf",
+    }
+
+    # Variants whose main GGUF contains only the text backbone; vision weights
+    # live in a separate mmproj GGUF file that must be loaded explicitly.
+    _MMPROJ_FILES = {
+        ModelVariant.GGML_LLAVA_V1_5_7B_Q4_K: "mmproj-model-f16.gguf",
     }
 
     PROCESSOR_MODEL = "llava-hf/llava-1.5-7b-hf"
@@ -92,9 +205,23 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.gguf_file
 
-        model = LlavaForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        mmproj_file = self._MMPROJ_FILES.get(self._variant)
+        if mmproj_file is not None:
+            # The main GGUF only has the LLaMA text backbone.  Load it with
+            # size-mismatch tolerance so the vision-encoder slots get
+            # re-initialised; then overwrite them from the mmproj GGUF.
+            model_kwargs["ignore_mismatched_sizes"] = True
+            model = LlavaForConditionalGeneration.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+            _load_mmproj_weights(
+                model, pretrained_model_name, mmproj_file, dtype_override
+            )
+            model = model.eval()
+        else:
+            model = LlavaForConditionalGeneration.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
 
         return model
 
