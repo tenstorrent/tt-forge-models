@@ -108,8 +108,16 @@ class ModelLoader(ForgeModel):
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        # Load AutoImageProcessor
-        self.processor = AutoImageProcessor.from_pretrained(pretrained_model_name)
+        processor_kwargs = {}
+        if self._variant == ModelVariant.BASE_SKIN_DISEASE:
+            # Jayanth2002/dinov2-base-finetuned-SkinDisease stores a
+            # BitImageProcessor config; in transformers 5.x the fast variant is
+            # selected by default but produces different preprocessing outputs.
+            processor_kwargs["use_fast"] = False
+
+        self.processor = AutoImageProcessor.from_pretrained(
+            pretrained_model_name, **processor_kwargs
+        )
 
         return self.processor
 
