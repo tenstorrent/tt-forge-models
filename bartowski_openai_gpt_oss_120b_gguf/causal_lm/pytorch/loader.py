@@ -81,12 +81,13 @@ def _find_real_load_gguf_checkpoint():
         if _is_real(fn):
             return fn
 
-        # Follow via module-level _orig_load_gguf_checkpoint (common pattern)
-        orig = getattr(fn, "__globals__", {}).get("_orig_load_gguf_checkpoint")
-        if orig is not None:
-            result = _search(orig, seen, depth + 1)
-            if result is not None:
-                return result
+        # Follow via any globals key that holds a callable (common pattern:
+        # _orig_load_gguf_checkpoint, orig_load, etc.)
+        for val in getattr(fn, "__globals__", {}).values():
+            if callable(val) and not isinstance(val, type) and id(val) not in seen:
+                result = _search(val, seen, depth + 1)
+                if result is not None:
+                    return result
 
         # Follow via closure cells (for wrappers that capture orig_load locally)
         for cell in getattr(fn, "__closure__", None) or ():
@@ -105,6 +106,13 @@ def _find_real_load_gguf_checkpoint():
     return result if result is not None else _gguf_utils.load_gguf_checkpoint
 
 
+# Capture the real implementation once at import time, before any of our own
+# patches are installed.  Subsequent calls to _install_gguf_patch() always
+# delegate to this pre-captured reference so we can never accidentally wrap
+# ourselves.
+_REAL_LOAD_GGUF_CHECKPOINT = _find_real_load_gguf_checkpoint()
+
+
 def _install_gguf_patch():
     """Install a forward-compatible load_gguf_checkpoint patch for gpt-oss.
 
@@ -112,11 +120,10 @@ def _install_gguf_patch():
     override any stale patch installed by a loader collected after this one.
     """
     _patch_gpt_oss_support()
-    _orig = _find_real_load_gguf_checkpoint()
 
     def _patched_load_gguf_checkpoint(*args, **kwargs):
         _patch_gpt_oss_support()
-        result = _orig(*args, **kwargs)
+        result = _REAL_LOAD_GGUF_CHECKPOINT(*args, **kwargs)
         if result.get("config", {}).get("model_type") == "gpt-oss":
             result["config"]["model_type"] = "qwen3_moe"
         return result
