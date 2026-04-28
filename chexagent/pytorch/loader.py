@@ -348,6 +348,24 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        # transformers._move_missing_keys_from_meta_to_device unconditionally
+        # overwrites ALL persistent=False buffers with empty (garbage) tensors.
+        # SiglipVisionEmbeddings.position_ids is persistent=False and absent from
+        # the checkpoint, so it ends up with garbage data.  Re-create it here,
+        # after from_pretrained is fully done, to get the correct sequential values.
+        import torch as _torch
+        try:
+            _emb = model.model.visual.model.embeddings
+            _n = _emb.position_embedding.weight.shape[0]
+            _emb.register_buffer(
+                "position_ids",
+                _torch.arange(_n).expand((1, -1)),
+                persistent=False,
+            )
+        except AttributeError:
+            pass
+
         model.eval()
         return model
 
