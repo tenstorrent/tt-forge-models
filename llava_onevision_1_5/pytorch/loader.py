@@ -5,7 +5,9 @@
 LLaVA-OneVision-1.5 model loader implementation for multimodal conditional generation.
 """
 
+import torch
 import transformers.cache_utils as _cache_utils
+import transformers.modeling_rope_utils as _rope_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor
 from typing import Optional
 
@@ -17,6 +19,22 @@ if not hasattr(_cache_utils, "SlidingWindowCache"):
         pass
 
     _cache_utils.SlidingWindowCache = SlidingWindowCache
+
+# transformers 5.x removed the 'default' key from ROPE_INIT_FUNCTIONS (the
+# default RoPE is now built into the base RotaryEmbedding class). The model's
+# custom LLaVAOneVision1_5_RotaryEmbedding still does a direct dict lookup, so
+# add a standard default-RoPE function if it's absent.
+if "default" not in _rope_utils.ROPE_INIT_FUNCTIONS:
+
+    def _compute_default_rope_parameters(config=None, device=None, seq_len=None, **kwargs):
+        base = config.rope_theta
+        partial_rotary_factor = getattr(config, "partial_rotary_factor", 1.0)
+        head_dim = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
+        dim = int(head_dim * partial_rotary_factor)
+        inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2, dtype=torch.int64).float().to(device) / dim))
+        return inv_freq, 1.0
+
+    _rope_utils.ROPE_INIT_FUNCTIONS["default"] = _compute_default_rope_parameters
 
 from ...base import ForgeModel
 from ...config import (
