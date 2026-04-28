@@ -136,6 +136,29 @@ def _patch_model_for_tt(model):
 
     MainModelClass.get_rope_index = _patched_get_rope_index
 
+    # RiceSdpaAttention: cu_seqlens is placed on TT device by the visual encoder
+    # forward, but the for-loop `attention_mask[..., cu_seqlens[i-1]:cu_seqlens[i],
+    # ...]` needs cu_seqlens entries as Python ints for slice bounds.  On TT device,
+    # that path calls aten._local_scalar_dense which hangs during D2H transfer.
+    # Move cu_seqlens to CPU before entering the loop.
+    AttnClass = type(model.model.visual.blocks[0].attn)
+    _orig_attn_fwd = AttnClass.forward
+
+    def _patched_attn_fwd(
+        self, hidden_states, cu_seqlens, rotary_pos_emb=None, position_embeddings=None
+    ):
+        if hasattr(cu_seqlens, "device") and cu_seqlens.device.type != "cpu":
+            cu_seqlens = cu_seqlens.cpu()
+        return _orig_attn_fwd(
+            self,
+            hidden_states,
+            cu_seqlens,
+            rotary_pos_emb=rotary_pos_emb,
+            position_embeddings=position_embeddings,
+        )
+
+    AttnClass.forward = _patched_attn_fwd
+
 
 class ModelVariant(StrEnum):
     """Available LLaVA-OneVision-1.5 model variants."""
