@@ -152,8 +152,12 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, gguf_file=self.GGUF_FILE
         )
         base_config = AutoConfig.from_pretrained(self._BASE_PROCESSOR_MODEL)
+        # The GGUF config lacks mrope_section (GLM-specific, not in GGUF spec).
+        # Use the base model's rope_parameters which has the correct mrope_section.
+        text_config_dict = text_config.to_dict()
+        text_config_dict["rope_parameters"] = base_config.text_config.rope_parameters
         return GlmOcrConfig(
-            text_config=text_config.to_dict(),
+            text_config=text_config_dict,
             vision_config=base_config.vision_config.to_dict(),
         )
 
