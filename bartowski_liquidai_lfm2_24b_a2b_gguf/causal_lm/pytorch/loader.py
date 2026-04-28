@@ -4,55 +4,52 @@
 """
 bartowski LiquidAI LFM2-24B-A2B GGUF model loader implementation for causal language modeling.
 """
-import inspect
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
 
 def _find_base_load_gguf():
-    """Walk the load_gguf_checkpoint wrapper chain to find the transformers original.
+    """Find the original transformers load_gguf_checkpoint function object.
 
-    Many loaders patch load_gguf_checkpoint at import time using a signature that
-    omits **kwargs (so they don't forward model_to_load introduced in transformers
-    5.x). This function walks the closure chain to find the original function from
-    transformers.modeling_gguf_pytorch_utils, which does accept model_to_load.
+    Many loaders patch gguf_utils.load_gguf_checkpoint at import time using a
+    signature that omits **kwargs, so they can't forward the model_to_load kwarg
+    introduced in transformers 5.x.  Some loaders use closures; others capture
+    the previous version as a module-level variable, making closure-walking
+    unreliable.
+
+    Instead, search sys.modules for any module that still holds a reference to
+    the real function (identified by __module__ and __qualname__).  The first
+    loader to patch will have saved the original as e.g. _orig_load_gguf_checkpoint,
+    keeping the object alive even though gguf_utils.load_gguf_checkpoint has been
+    replaced.
     """
+    import sys
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
 
-    fn = gguf_utils.load_gguf_checkpoint
-    seen = set()
+    _target_mod = "transformers.modeling_gguf_pytorch_utils"
+    _target_name = "load_gguf_checkpoint"
 
-    while fn is not None:
-        fn_id = id(fn)
-        if fn_id in seen:
-            break
-        seen.add(fn_id)
+    def _is_original(fn):
+        return (
+            getattr(fn, "__module__", "") == _target_mod
+            and getattr(fn, "__qualname__", "") == _target_name
+        )
 
-        if (
-            getattr(fn, "__module__", "") == "transformers.modeling_gguf_pytorch_utils"
-            and getattr(fn, "__qualname__", "") == "load_gguf_checkpoint"
-        ):
-            return fn
+    # Fast path: gguf_utils still holds the original (no patches yet)
+    if _is_original(gguf_utils.load_gguf_checkpoint):
+        return gguf_utils.load_gguf_checkpoint
 
-        closure = getattr(fn, "__closure__", None)
-        if not closure:
-            break
+    # Slow path: search all loaded modules for the original function object
+    for mod in sys.modules.values():
+        mod_dict = getattr(mod, "__dict__", None)
+        if not mod_dict:
+            continue
+        for val in mod_dict.values():
+            if callable(val) and _is_original(val):
+                return val
 
-        next_fn = None
-        for cell in closure:
-            try:
-                val = cell.cell_contents
-                if callable(val) and val is not fn:
-                    next_fn = val
-                    break
-            except (ValueError, AttributeError):
-                pass
-
-        if next_fn is None:
-            break
-        fn = next_fn
-
+    # Ultimate fallback (may fail if no wrapper accepts **kwargs)
     return gguf_utils.load_gguf_checkpoint
 
 
