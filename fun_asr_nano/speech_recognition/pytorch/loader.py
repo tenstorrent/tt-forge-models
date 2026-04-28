@@ -81,6 +81,9 @@ class ModelLoader(ForgeModel):
             "model": self._variant_config.pretrained_model_name,
             "trust_remote_code": True,
             "device": "cpu",
+            # The model config ships init_param_path as "Qwen3-0.6B" (missing
+            # the Qwen/ org prefix), which transformers cannot resolve.
+            "llm_conf": {"init_param_path": "Qwen/Qwen3-0.6B"},
         }
 
         self._funasr_model = AutoModel(**model_kwargs)
