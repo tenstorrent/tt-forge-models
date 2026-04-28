@@ -5,6 +5,7 @@
 DepthPro model loader implementation for monocular depth estimation.
 """
 import torch
+import torch.nn as nn
 from transformers import AutoImageProcessor, AutoModelForDepthEstimation
 from datasets import load_dataset
 from typing import Optional
@@ -19,6 +20,23 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
+
+
+class DepthProWrapper(nn.Module):
+    """Wraps DepthPro to return only predicted_depth as a plain tensor.
+
+    DepthProDepthEstimatorOutput contains both predicted_depth and field_of_view.
+    field_of_view is a single-element scalar whose PCC is undefined, which causes
+    the evaluator's min(PCCs) to collapse to 0.0 even when predicted_depth is correct.
+    """
+
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, **kwargs):
+        out = self.model(**kwargs)
+        return out.predicted_depth
 
 
 class ModelVariant(StrEnum):
@@ -72,6 +90,7 @@ class ModelLoader(ForgeModel):
         model = AutoModelForDepthEstimation.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        model = DepthProWrapper(model)
         model.eval()
 
         return model
