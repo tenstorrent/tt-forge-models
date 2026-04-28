@@ -6,6 +6,9 @@ Jina CLIP v2 model loader implementation for image-text similarity.
 """
 import math
 import torch
+import torch.nn as nn
+from functools import partial as _partial
+from torch.utils.checkpoint import checkpoint as _checkpoint
 from transformers import AutoModel, AutoProcessor
 from typing import Optional
 
@@ -65,6 +68,69 @@ def _recompute_rope_buffers(model):
 
         module.register_buffer("freqs_cos", new_cos, persistent=False)
         module.register_buffer("freqs_sin", new_sin, persistent=False)
+
+
+def _fix_eva_rope_forward_accumulation(model):
+    """Replace EVAVisionTransformer.forward_features to stop partial wrappers accumulating.
+
+    The original forward_features does on every eval call:
+      self.rope.forward = partial(self.rope.forward, patch_indices_keep=None)
+    Each call creates a new callable object; Dynamo sees the graph change and
+    recompiles, hitting the limit (18 calls > 8 limit) and producing wrong results.
+
+    Fix: replace the instance's forward_features with a closure that uses a
+    pre-created stable partial (same object every call) so Dynamo's guard is stable.
+    """
+    for eva in model.modules():
+        if type(eva).__name__ != "EVAVisionTransformer":
+            continue
+        if eva.rope is None:
+            continue
+
+        rope = eva.rope
+        orig_rope_fwd = type(rope).forward.__get__(rope, type(rope))
+        eval_fwd = _partial(orig_rope_fwd, patch_indices_keep=None)
+
+        def _fwd_feat(
+            x,
+            return_all_features=False,
+            _eva=eva,
+            _eval_fwd=eval_fwd,
+            _orig_fwd=orig_rope_fwd,
+        ):
+            x = _eva.patch_embed(x)
+            batch_size, seq_len, _ = x.size()
+            cls_tokens = _eva.cls_token.expand(batch_size, -1, -1)
+            x = torch.cat((cls_tokens, x), dim=1)
+            if _eva.pos_embed is not None:
+                x = x + _eva.pos_embed
+            x = _eva.pos_drop(x)
+            if _eva.rope is not None:
+                if _eva.training and not isinstance(_eva.patch_dropout, nn.Identity):
+                    x, patch_indices_keep = _eva.patch_dropout(x)
+                    _eva.rope.forward = _partial(
+                        _orig_fwd, patch_indices_keep=patch_indices_keep
+                    )
+                else:
+                    _eva.rope.forward = _eval_fwd
+                    x = _eva.patch_dropout(x)
+            else:
+                x = _eva.patch_dropout(x)
+            rel_pos_bias = _eva.rel_pos_bias() if _eva.rel_pos_bias is not None else None
+            for blk in _eva.blocks:
+                if _eva.grad_checkpointing:
+                    x = _checkpoint(blk, x, (rel_pos_bias,))
+                else:
+                    x = blk(x, rel_pos_bias=rel_pos_bias)
+            if not return_all_features:
+                x = _eva.norm(x)
+                if _eva.fc_norm is not None:
+                    return _eva.fc_norm(x.mean(1))
+                else:
+                    return x[:, 0]
+            return x
+
+        eva.forward_features = _fwd_feat
 
 
 class ModelVariant(StrEnum):
@@ -154,6 +220,11 @@ class ModelLoader(ForgeModel):
         # them with uninitialized (NaN) data after loading.  Recompute them on CPU
         # using the config params to restore correct values.
         _recompute_rope_buffers(model)
+
+        # forward_features re-wraps self.rope.forward with a new partial each eval
+        # call, causing Dynamo to recompile 18 times (limit=8) and fall back to eager.
+        # Replace each EVAVisionTransformer's forward_features with a stable version.
+        _fix_eva_rope_forward_accumulation(model)
 
         # The text tower's config has dtype=float32, so the nested _from_config
         # overrides the outer bfloat16 context; the text parameters end up float32
