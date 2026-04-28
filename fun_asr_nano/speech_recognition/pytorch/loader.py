@@ -121,23 +121,23 @@ class ModelLoader(ForgeModel):
 
         self._funasr_model = AutoModel(**model_kwargs)
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         """Load and return the Fun-ASR-Nano model instance."""
         if self._funasr_model is None:
-            self._load_funasr_model(dtype_override=dtype_override)
+            self._load_funasr_model()
 
         model = FunASRNanoWrapper(self._funasr_model.model)
         model.eval()
 
-        # Homogenize all parameters to float32; SenseVoice audio encoder may
-        # load with mixed float32/bfloat16 weights causing Conv1d type errors.
+        # Homogenize all parameters to float32. SenseVoice's sequence_mask
+        # always produces float32 masks; running the model in bfloat16 causes
+        # mask * input to upcast to float32, which then mismatches the
+        # bfloat16 Conv1d (fsmn_block) weights.
         model.to(torch.float32)
-        if dtype_override is not None:
-            model.to(dtype_override)
 
         return model
 
-    def load_inputs(self, dtype_override=None):
+    def load_inputs(self):
         """Load and return sample inputs for the Fun-ASR-Nano model."""
         from funasr.utils.load_utils import extract_fbank
 
@@ -152,8 +152,5 @@ class ModelLoader(ForgeModel):
 
         frontend = self._funasr_model.kwargs.get("frontend")
         speech, speech_lengths = extract_fbank(audio_array, frontend=frontend)
-
-        if dtype_override is not None:
-            speech = speech.to(dtype_override)
 
         return (speech, speech_lengths)
