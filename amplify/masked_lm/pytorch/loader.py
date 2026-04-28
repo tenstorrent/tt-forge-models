@@ -137,6 +137,65 @@ class ModelLoader(ForgeModel):
             freqs = torch.outer(t, freqs).float()
             model.freqs_cis = torch.polar(torch.ones_like(freqs), freqs)
 
+        # The hub's _att_block calls attn.view() after sdpa().transpose(1,2).
+        # sdpa().transpose() is non-contiguous and cannot be directly viewed;
+        # xformers always returned contiguous outputs, masking this bug.
+        # Patch the class to add .contiguous() before .view().
+        _block_cls = type(model.transformer_encoder[0])
+        _hub_mod = sys.modules[_block_cls.__module__]
+        _apply_rotary_emb = _hub_mod.apply_rotary_emb
+        _mem_eff_attn = _hub_mod.memory_efficient_attention
+
+        def _att_block_patched(
+            self, x, attention_mask, freqs_cis, output_attentions
+        ):
+            batch_size, seq_len, _ = x.shape
+            xq, xk, xv = self.q(x), self.k(x), self.v(x)
+            xq = xq.view(
+                batch_size, seq_len, self.config.num_attention_heads, self.d_head
+            )
+            xk = xk.view(
+                batch_size, seq_len, self.config.num_attention_heads, self.d_head
+            )
+            xv = xv.view(
+                batch_size, seq_len, self.config.num_attention_heads, self.d_head
+            )
+            xq, xk = _apply_rotary_emb(xq, xk, freqs_cis)
+            attn_weights = None
+            if output_attentions:
+                attn_weights = (
+                    xq.permute(0, 2, 1, 3) @ xk.permute(0, 2, 3, 1)
+                ) / (xq.size(-1) ** 0.5)
+                if attention_mask is not None:
+                    attn_weights = attn_weights + attention_mask
+                attn_weights = attn_weights.softmax(-1)
+            if x.is_cuda:
+                attn = _mem_eff_attn(
+                    query=xq,
+                    key=xk,
+                    value=xv,
+                    attn_bias=attention_mask,
+                    p=self.config.dropout_prob if self.training else 0,
+                )
+            else:
+                attn = F.scaled_dot_product_attention(
+                    query=xq.transpose(1, 2),
+                    key=xk.transpose(1, 2),
+                    value=xv.transpose(1, 2),
+                    attn_mask=attention_mask,
+                    dropout_p=self.config.dropout_prob if self.training else 0,
+                ).transpose(1, 2).contiguous()
+            attn_scores = self.wo(
+                attn.view(
+                    batch_size,
+                    seq_len,
+                    self.config.num_attention_heads * self.d_head,
+                )
+            )
+            return (self.resid_dropout(attn_scores), attn_weights)
+
+        _block_cls._att_block = _att_block_patched
+
         return model
 
     def load_inputs(self, dtype_override=None):
