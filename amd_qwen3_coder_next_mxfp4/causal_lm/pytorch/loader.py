@@ -143,8 +143,9 @@ class ModelLoader(ForgeModel):
         return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
-        # Qwen3Next uses linear_attn (GatedDeltaNet) instead of self_attn.
-        # Projections are in_proj_qkvz, in_proj_ba, and out_proj.
+        # Qwen3Next is a hybrid architecture: most layers use linear_attn
+        # (GatedDeltaNet, with in_proj_qkvz/in_proj_ba/out_proj) and every
+        # fourth layer uses self_attn (standard attention, with q/k/v/o_proj).
         shard_specs = {}
         for layer in model.model.layers:
             mlp = layer.mlp
@@ -156,10 +157,17 @@ class ModelLoader(ForgeModel):
                 shard_specs[mlp.shared_expert.gate_proj.weight] = ("model", "batch")
                 shard_specs[mlp.shared_expert.down_proj.weight] = ("batch", "model")
 
-            attn = layer.linear_attn
-            shard_specs[attn.in_proj_qkvz.weight] = ("model", "batch")
-            shard_specs[attn.in_proj_ba.weight] = ("model", "batch")
-            shard_specs[attn.out_proj.weight] = ("batch", "model")
+            if hasattr(layer, "linear_attn"):
+                attn = layer.linear_attn
+                shard_specs[attn.in_proj_qkvz.weight] = ("model", "batch")
+                shard_specs[attn.in_proj_ba.weight] = ("model", "batch")
+                shard_specs[attn.out_proj.weight] = ("batch", "model")
+            else:
+                attn = layer.self_attn
+                shard_specs[attn.q_proj.weight] = ("model", "batch")
+                shard_specs[attn.k_proj.weight] = ("model", "batch")
+                shard_specs[attn.v_proj.weight] = ("model", "batch")
+                shard_specs[attn.o_proj.weight] = ("batch", "model")
         shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
 
