@@ -79,6 +79,7 @@ def _patch_file(path: Path, filename: str) -> None:
         content = _fix_config_pad_token_id(content)
     if filename == "modeling_visual.py":
         content = _fix_nested_from_pretrained(content)
+        content = _fix_visual_forward(content)
     if filename == "tokenization_chexagent.py":
         content = _fix_decode_signature(content)
     path.write_text(content)
@@ -140,6 +141,30 @@ def _fix_config_pad_token_id(content: str) -> str:
         "            self.rope_scaling = None"
     )
     return content.replace(old_super, new_super)
+
+
+def _fix_visual_forward(content: str) -> str:
+    """Replace hidden_states[-1] call to work with transformers 5.x.
+
+    In transformers 4.40, SiglipEncoder collected all intermediate hidden_states
+    when output_hidden_states=True, so .hidden_states[-1] returned the encoder's
+    final pre-post_layernorm output.  In transformers 5.x the encoder no longer
+    collects them; the return is always hidden_states=None.
+
+    In both versions, encoder.last_hidden_state is the same pre-post_layernorm
+    tensor.  Call embedding and encoder directly to replicate the 4.40 behaviour.
+    """
+    old = (
+        "    def forward(self, x: torch.Tensor):\n"
+        "        # get feature\n"
+        "        x = self.model(x, output_hidden_states=True).hidden_states[-1]\n"
+    )
+    new = (
+        "    def forward(self, x: torch.Tensor):\n"
+        "        # get feature\n"
+        "        x = self.model.encoder(inputs_embeds=self.model.embeddings(x, interpolate_pos_encoding=False)).last_hidden_state\n"
+    )
+    return content.replace(old, new)
 
 
 def _fix_nested_from_pretrained(content: str) -> str:
