@@ -141,9 +141,9 @@ class ModelLoader(ForgeModel):
         if self._processor is None:
             self._load_processor()
 
-        # Generate synthetic 30-second audio at 16kHz to match Whisper's receptive field
+        # Generate synthetic 1-second audio at 16kHz
         sampling_rate = 16000
-        duration_seconds = 30
+        duration_seconds = 1
         audio_array = np.random.randn(sampling_rate * duration_seconds).astype(
             np.float32
         )
@@ -166,4 +166,7 @@ class ModelLoader(ForgeModel):
             dtype=torch.long,
         )
 
-        return [input_features, decoder_input_ids]
+        return {
+            "input_features": input_features,
+            "decoder_input_ids": decoder_input_ids,
+        }
