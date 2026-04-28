@@ -123,14 +123,14 @@ def _fix_nested_from_pretrained(content: str) -> str:
 
     transformers 5.x wraps model __init__ in torch.device("meta") to defer
     memory allocation.  CLIPModel.__init__ calls AutoModel.from_pretrained()
-    which raises AssertionError when it tries to create a second DeviceContext
-    on the TorchFunctionMode stack.  Temporarily removing the outer DeviceContext
-    from the stack allows the nested call to enter its own context normally.
+    which tries to push a second DeviceContext, conflicting with the outer one.
+    Temporarily remove the outer DeviceContext from the TorchFunctionMode stack
+    so the inner from_pretrained can push its own.  Push the outer DeviceContext
+    back on TOP afterward so torch.device.__exit__ (a C-level simple pop) finds it.
     """
     if "DeviceContext" in content:
         return content
-    # Replace either the original unpatched code or the old (broken) _saved_device patch.
-    _PATCHED_SENTINEL = "        # load model and processor\n"
+    # Replace either the original unpatched code or the old (broken) patch variants.
     old_unpatched = (
         "        super().__init__()\n"
         "        # load model and processor\n"
@@ -164,7 +164,7 @@ def _fix_nested_from_pretrained(content: str) -> str:
         "        finally:\n"
         "            _torch.set_default_device(_saved_device)"
     )
-    new = (
+    old_stack_wrong_order = (
         "        super().__init__()\n"
         "        # load model and processor\n"
         "        import torch.utils._device as _tud\n"
@@ -182,6 +182,22 @@ def _fix_nested_from_pretrained(content: str) -> str:
         "                _curr = [_pm() for _ in range(_lts())]\n"
         "                _pushm(_dc)\n"
         "                for _m in reversed(_curr): _pushm(_m)"
+    )
+    new = (
+        "        super().__init__()\n"
+        "        # load model and processor\n"
+        "        import torch.utils._device as _tud\n"
+        "        from torch._C import _len_torch_function_stack as _lts\n"
+        "        from torch.overrides import _pop_mode as _pm, _push_mode as _pushm\n"
+        "        _stack = [_pm() for _ in range(_lts())]\n"
+        "        _dc = next((_m for _m in _stack if isinstance(_m, _tud.DeviceContext)), None)\n"
+        "        _others = [_m for _m in _stack if _m is not _dc]\n"
+        "        for _m in reversed(_others): _pushm(_m)\n"
+        "        try:\n"
+        "            self.model = AutoModel.from_pretrained(vision_model_name_or_path).vision_model\n"
+        "            self.processor = AutoProcessor.from_pretrained(vision_model_name_or_path).image_processor\n"
+        "        finally:\n"
+        "            if _dc is not None: _pushm(_dc)"
     )
     for old in (old_saved_device_with_comment, old_saved_device, old_unpatched):
         if old in content:
