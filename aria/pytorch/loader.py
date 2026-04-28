@@ -9,6 +9,7 @@ from typing import Optional
 
 from PIL import Image
 from transformers import AutoModelForImageTextToText, AutoProcessor
+from transformers.utils import output_capturing
 
 from ...base import ForgeModel
 from ...config import (
@@ -21,6 +22,31 @@ from ...config import (
     StrEnum,
 )
 from ...tools.utils import get_file, cast_input_to_type
+
+
+def _patch_capture_outputs_for_compile():
+    """Fix CompileableContextVar so forward hooks work inside torch.compile subgraphs.
+
+    transformers 5.x @capture_outputs sets _active_collector via a ContextVar before
+    calling forward. Under torch.compile, compiled subgraphs execute in a copy of the
+    compilation-time context, so ContextVars set at call-time are not visible inside the
+    subgraph. Hooks then see _active_collector.get() == None and collect nothing, leaving
+    hidden_states as an empty tuple. Patching set/reset to always use global_var (not the
+    ContextVar) makes the collector visible inside compiled subgraphs while preserving
+    the @capture_outputs graph break so the vision tower continues to run eagerly.
+    """
+
+    def patched_set(value):
+        output_capturing._active_collector.global_var = value
+        output_capturing._active_collector.compiling = True
+        return None
+
+    def patched_reset(token):
+        output_capturing._active_collector.global_var = None
+        output_capturing._active_collector.compiling = False
+
+    output_capturing._active_collector.set = patched_set
+    output_capturing._active_collector.reset = patched_reset
 
 
 class ModelVariant(StrEnum):
@@ -77,6 +103,8 @@ class ModelLoader(ForgeModel):
 
         if self.processor is None:
             self._load_processor()
+
+        _patch_capture_outputs_for_compile()
 
         return model
 
