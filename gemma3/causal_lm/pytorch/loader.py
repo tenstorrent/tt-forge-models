@@ -218,7 +218,6 @@ class ModelLoader(ForgeModel):
                 prompt or self.sample_text,
                 return_tensors="pt",
                 max_length=max_length,
-                padding="max_length",
                 truncation=True,
             )
         else:
@@ -237,7 +236,6 @@ class ModelLoader(ForgeModel):
                 [input_text],
                 return_tensors="pt",
                 max_length=max_length,
-                padding="max_length",
                 truncation=True,
             )
         for key in inputs:
