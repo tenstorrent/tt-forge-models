@@ -99,6 +99,33 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        # Dequantize GPTQ int4 weights to float tensors. GPTQ_TORCH QuantLinear
+        # uses boolean-mask indexing that produces dynamic shapes incompatible with
+        # XLA static-shape compilation. Replace each TorchQuantLinear with a plain
+        # nn.Linear. Build the module map once (O(N)) to avoid the O(N²) cost of
+        # rebuilding dict(model.named_modules()) inside the loop as done in
+        # gptqmodel.dequantize_model.
+        import torch.nn as nn
+        from gptqmodel.nn_modules.qlinear.torch import TorchQuantLinear
+
+        module_map = dict(model.named_modules())
+        for name, mod in list(module_map.items()):
+            if not isinstance(mod, TorchQuantLinear):
+                continue
+            dq = nn.Linear(mod.in_features, mod.out_features, bias=mod.bias is not None)
+            dq.weight = nn.Parameter(mod.dequantize_weight().T.detach())
+            if mod.bias is not None:
+                dq.bias = nn.Parameter(mod.bias.detach())
+            if dtype_override is not None:
+                dq = dq.to(dtype_override)
+            if "." in name:
+                parent_name, child_name = name.rsplit(".", 1)
+                setattr(module_map[parent_name], child_name, dq)
+            else:
+                setattr(model, name, dq)
+        if hasattr(model.config, "quantization_config"):
+            del model.config.quantization_config
+
         self.config = model.config
         self.model = model
         return model
