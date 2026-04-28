@@ -285,6 +285,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        # Qwen3_5MoeExperts.forward() iterates experts via a Python for-loop over a
+        # dynamic nonzero() result, which XLA cannot statically trace (segfault).
+        # batched_mm replaces that loop with scatter/gather/matmul — all static ops.
+        model.config._experts_implementation = "batched_mm"
+
         self.config = model.config
         self.model = model
         return model
