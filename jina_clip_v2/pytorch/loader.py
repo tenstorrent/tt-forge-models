@@ -135,25 +135,57 @@ def _fix_eva_rope_forward_accumulation(model):
         eva.forward_features = _fwd_feat
 
 
-def _lora_linear_forward(self, input, task_id=None, residual=False):
-    """Shared LoRA linear forward for all LoRA layers.
+class LoRALinear(nn.Linear):
+    """nn.Linear subclass for LoRA-adapted linear layers.
 
-    Defined at module level (not inside a loop) so Dynamo sees the same
-    function object for every layer.  After remove_parametrizations,
-    type(self) == nn.Linear for all layers, keeping Dynamo's type guard
-    stable across 100+ linear layers.
+    All LoRA linears share this single type so Dynamo generates ONE type guard
+    (check_type_id == id(LoRALinear)) that passes for every instance, avoiding
+    the per-instance guard failures that caused 18+ recompiles with the
+    per-instance bound-method approach.  Different weight shapes still cause
+    shape-based recompiles, but the total count stays well within the limit=8.
     """
-    if task_id is not None:
-        delta_w = torch.mm(
-            self._lora_B[task_id], self._lora_A[task_id]
-        ) * self._lora_scaling
-        weights = self.weight + delta_w
-    else:
-        weights = self.weight
-    out = _F.linear(input, weights, self.bias)
-    if residual:
-        return out, input
-    return out
+
+    def forward(self, input, task_id=None, residual=False):
+        if task_id is not None:
+            delta_w = (
+                torch.mm(self._lora_B[task_id], self._lora_A[task_id])
+                * self._lora_scaling
+            )
+            weights = self.weight + delta_w
+        else:
+            weights = self.weight
+        out = _F.linear(input, weights, self.bias)
+        if residual:
+            return out, input
+        return out
+
+
+class LoRAEmbedding(nn.Embedding):
+    """nn.Embedding subclass for LoRA-adapted embedding layers.
+
+    Same rationale as LoRALinear: shared type avoids per-instance Dynamo guards.
+    For embeddings the LoRA product order is reversed (A @ B, not B @ A) because
+    the weight is stored fan_in × fan_out (vocab × embed_dim).
+    """
+
+    def forward(self, input, task_id=None):
+        if task_id is not None:
+            delta_w = (
+                torch.mm(self._lora_A[task_id], self._lora_B[task_id])
+                * self._lora_scaling
+            )
+            weights = self.weight + delta_w
+        else:
+            weights = self.weight
+        return _F.embedding(
+            input,
+            weights,
+            self.padding_idx,
+            self.max_norm,
+            self.norm_type,
+            self.scale_grad_by_freq,
+            self.sparse,
+        )
 
 
 def _fix_lora_forward_dynamo_guards(model):
@@ -161,19 +193,18 @@ def _fix_lora_forward_dynamo_guards(model):
 
     torch.nn.utils.parametrize.register_parametrization creates a unique
     Python subclass per module instance.  With 28 transformer layers each
-    having 4 LoRA-parametrized linears, Dynamo guards fail on type(self)
+    having 4+ LoRA-parametrized layers, Dynamo guards fail on type(self)
     for each unique subclass, recompiling 18+ times (>8 limit) and falling
     back to eager with wrong outputs (pcc=-1.0).
 
-    Fix: remove parametrize (restoring nn.Linear for all layers), store
-    LoRA A/B weights as registered buffers so Dynamo treats them as symbolic
-    graph inputs, and install the single module-level _lora_linear_forward so
-    Dynamo compiles once (type guard and function guard both stable).
+    Fix: remove parametrize (materialising the base weight), store LoRA A/B
+    weights as registered buffers, then change __class__ to LoRALinear /
+    LoRAEmbedding.  All processed modules share ONE type each; Dynamo creates
+    one type guard per shape variant (4-6 total) — well within limit=8.
     """
     for module in model.modules():
         if not (
-            isinstance(module, nn.Linear)
-            and hasattr(module, "parametrizations")
+            hasattr(module, "parametrizations")
             and hasattr(module.parametrizations, "weight")
             and len(module.parametrizations.weight) > 0
         ):
@@ -182,17 +213,26 @@ def _fix_lora_forward_dynamo_guards(model):
         if type(lp).__name__ != "LoRAParametrization":
             continue
 
-        # Capture LoRA state before removing parametrize
-        lora_A = lp.lora_A.detach().clone()   # [num_tasks, rank, fan_in]
-        lora_B = lp.lora_B.detach().clone()   # [num_tasks, fan_out, rank]
+        is_linear = isinstance(module, nn.Linear)
+        is_embedding = isinstance(module, nn.Embedding)
+        if not (is_linear or is_embedding):
+            continue
+
+        # Capture LoRA state before removing parametrize.
+        # Linear:    lora_A = [num_tasks, rank, fan_in],  lora_B = [num_tasks, fan_out, rank]
+        # Embedding: lora_A = [num_tasks, fan_in, rank],  lora_B = [num_tasks, rank, fan_out]
+        lora_A = lp.lora_A.detach().clone()
+        lora_B = lp.lora_B.detach().clone()
         scaling = float(lp.scaling)
 
-        # Remove parametrize → restores module.__class__ to nn.Linear (shared type)
-        # leave_parametrized=True: module.weight becomes the materialized weight
-        # (LoRAParametrization.forward is identity so base weight is unchanged)
+        # Remove parametrize — materialises the base weight (LoRAParametrization.forward
+        # is the identity, so the materialised weight equals the original weight).
         _parametrize.remove_parametrizations(module, "weight", leave_parametrized=True)
 
-        # Store LoRA weights as buffers so Dynamo treats them as symbolic inputs
+        # Remove any existing per-instance forward override left by modeling_lora.py
+        module.__dict__.pop("forward", None)
+
+        # Store LoRA weights as non-persistent buffers (symbolic graph inputs for Dynamo).
         module.register_buffer("_lora_A", lora_A, persistent=False)
         module.register_buffer("_lora_B", lora_B, persistent=False)
         module.register_buffer(
@@ -201,8 +241,8 @@ def _fix_lora_forward_dynamo_guards(model):
             persistent=False,
         )
 
-        # Install the single shared forward (replaces old per-layer new_forward)
-        module.forward = _lora_linear_forward.__get__(module, module.__class__)
+        # Change the class to the shared subclass so Dynamo sees ONE stable type.
+        module.__class__ = LoRALinear if is_linear else LoRAEmbedding
 
 
 class ModelVariant(StrEnum):
