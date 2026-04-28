@@ -4,9 +4,12 @@
 """
 Dolphin 2.7 Mixtral 8x7B GGUF model loader implementation for causal language modeling.
 """
-import torch
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+import glob
+import os
 from typing import Optional
+
+import torch
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, MixtralConfig
 
 from ....base import ForgeModel
 from ....config import (
@@ -75,6 +78,54 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    def _build_mixtral_config_from_gguf(self):
+        # transformers 5.x does not support loading Mixtral GGUF files whose
+        # general.architecture is "llama" (the old llama.cpp convention for
+        # Mixtral). AutoConfig.from_pretrained returns LlamaConfig, which
+        # silently drops the expert fields and produces garbage output.
+        # Work around by reading the GGUF metadata directly and constructing
+        # a MixtralConfig with the correct parameters.
+        try:
+            from gguf import GGUFReader
+            from transformers.modeling_gguf_pytorch_utils import _gguf_parse_value
+
+            safe_id = self._variant_config.pretrained_model_name.replace("/", "--")
+            pattern = os.path.expanduser(
+                f"~/.cache/huggingface/hub/models--{safe_id}/snapshots/**/{self.GGUF_FILE}"
+            )
+            matches = glob.glob(pattern, recursive=True)
+            if not matches:
+                return None
+            reader = GGUFReader(matches[0])
+
+            def _read(field_name):
+                f = reader.fields.get(field_name)
+                if f is None:
+                    return None
+                return _gguf_parse_value(f.parts[f.data[0]], f.types)
+
+            expert_count = _read("llama.expert_count")
+            if not expert_count or int(expert_count) == 0:
+                return None  # Not a MoE model; let AutoConfig handle it
+
+            config = MixtralConfig(
+                hidden_size=int(_read("llama.embedding_length") or 4096),
+                intermediate_size=int(_read("llama.feed_forward_length") or 14336),
+                num_hidden_layers=int(_read("llama.block_count") or 32),
+                num_attention_heads=int(_read("llama.attention.head_count") or 32),
+                num_key_value_heads=int(_read("llama.attention.head_count_kv") or 8),
+                num_local_experts=int(expert_count),
+                num_experts_per_tok=int(_read("llama.expert_used_count") or 2),
+                rms_norm_eps=float(_read("llama.attention.layer_norm_rms_epsilon") or 1e-5),
+                rope_theta=float(_read("llama.rope.freq_base") or 1000000.0),
+                vocab_size=32000,
+            )
+            if self.num_layers is not None:
+                config.num_hidden_layers = self.num_layers
+            return config
+        except Exception:
+            return None
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -87,16 +138,21 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        # Build a MixtralConfig from GGUF metadata so the model loads with the
+        # correct MoE architecture instead of being misidentified as LlamaForCausalLM.
+        mixtral_config = self._build_mixtral_config_from_gguf()
+        if mixtral_config is not None:
+            model_kwargs["config"] = mixtral_config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
+
+        # MixtralExperts.forward uses a Python for-loop whose trip count is
+        # determined at runtime by nonzero(expert_hit). XLA cannot trace a
+        # loop with a dynamic trip count, so switch to batched_mm which uses
+        # only static tensor operations (einsum, scatter).
+        model.config._experts_implementation = "batched_mm"
 
         self.config = model.config
         self.model = model
@@ -136,7 +192,11 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        mixtral_config = self._build_mixtral_config_from_gguf()
+        if mixtral_config is not None:
+            self.config = mixtral_config
+        else:
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
         return self.config
