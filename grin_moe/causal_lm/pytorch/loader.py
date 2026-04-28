@@ -12,7 +12,7 @@ from typing import Optional
 if not hasattr(DynamicCache, "get_usable_length"):
 
     def _get_usable_length(self, new_seq_length, layer_idx=None):
-        return self.get_seq_length(layer_idx)
+        return self.get_seq_length(layer_idx if layer_idx is not None else 0)
 
     DynamicCache.get_usable_length = _get_usable_length
 
