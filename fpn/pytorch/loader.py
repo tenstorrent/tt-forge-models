@@ -129,3 +129,13 @@ class ModelLoader(ForgeModel):
         feat2 = torch.rand(batch_size, 2048, 8, 8, dtype=dtype)
 
         return [feat0, feat1, feat2]
+
+    def unpack_forward_output(self, fwd_output):
+        import torch
+        from ...tools.utils import extract_tensors_recursive
+
+        tensors = []
+        extract_tensors_recursive(fwd_output, tensors)
+        if tensors:
+            return torch.cat(tensors, dim=0)
+        return fwd_output

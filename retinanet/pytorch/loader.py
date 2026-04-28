@@ -328,6 +328,17 @@ class ModelLoader(ForgeModel):
 
         return batch_t
 
+    def unpack_forward_output(self, fwd_output):
+        import torch
+        from ...tools.utils import extract_tensors_recursive
+
+        head_outputs, _anchors = fwd_output
+        tensors = []
+        extract_tensors_recursive(head_outputs, tensors)
+        if tensors:
+            return torch.cat(tensors, dim=0)
+        return head_outputs
+
     def postprocess_detections(self, outputs):
         """Run post-processing (NMS, score filtering) on CPU.
 

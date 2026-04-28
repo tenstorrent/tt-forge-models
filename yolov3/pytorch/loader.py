@@ -162,3 +162,13 @@ class ModelLoader(ForgeModel):
             dtype_override=dtype_override,
             batch_size=batch_size,
         )
+
+    def unpack_forward_output(self, fwd_output):
+        import torch
+        from ...tools.utils import extract_tensors_recursive
+
+        tensors = []
+        extract_tensors_recursive(fwd_output, tensors)
+        if tensors:
+            return torch.cat(tensors, dim=0)
+        return fwd_output

@@ -94,6 +94,16 @@ class ModelLoader(ForgeModel):
 
         return inputs
 
+    def unpack_forward_output(self, fwd_output):
+        import torch
+        from ...tools.utils import extract_tensors_recursive
+
+        tensors = []
+        extract_tensors_recursive(fwd_output.logits, tensors)
+        if tensors:
+            return torch.cat(tensors, dim=0)
+        return fwd_output
+
     def decode_output(self, co_out):
         """Helper method to decode model outputs into human-readable text.
 

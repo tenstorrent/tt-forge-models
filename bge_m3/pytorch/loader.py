@@ -91,6 +91,9 @@ class ModelLoader(ForgeModel):
 
         return forward_inputs
 
+    def unpack_forward_output(self, fwd_output):
+        return fwd_output["dense_vecs"]
+
     def load_config(self):
         """Load and return the configuration for the Bge-m3 model.
 
