@@ -70,7 +70,12 @@ class ModelLoader(ForgeModel):
         # transformers 5.x init_empty_weights leaves ref_table as a meta tensor
         # because it is a plain tensor attribute rather than a registered buffer.
         # Re-run prepare_vocab_table() outside the meta-device context so it
-        # holds real weights before the forward pass.
+        # holds real weights before the forward pass.  Also cast to model dtype
+        # so the float32 eye matrix doesn't mismatch bfloat16 projection weights.
+        try:
+            model_dtype = next(model.parameters()).dtype
+        except StopIteration:
+            model_dtype = None
         for module in model.modules():
             if (
                 hasattr(module, "ref_table")
@@ -78,7 +83,10 @@ class ModelLoader(ForgeModel):
                 and module.ref_table.device.type == "meta"
                 and hasattr(module, "prepare_vocab_table")
             ):
-                module.ref_table = module.prepare_vocab_table()
+                table = module.prepare_vocab_table()
+                if model_dtype is not None:
+                    table = table.to(dtype=model_dtype)
+                module.ref_table = table
 
         model.eval()
         return model
