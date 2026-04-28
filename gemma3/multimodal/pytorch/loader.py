@@ -174,20 +174,30 @@ class ModelLoader(ForgeModel):
             model_kwargs["device_map"] = "cpu"
 
         if self._variant == ModelVariant.GEMMA_3_4B_IT_GPTQ_4BIT_128G:
-            # compressed_tensors 0.15.x uses re.match for ignore patterns, anchoring
-            # at the start. The model's ignore list uses "re:vision_tower.*" which
-            # won't match "model.vision_tower.*" paths, causing vision encoder layers
+            # compressed_tensors 0.15.x uses re.match (anchored at start) but the
+            # checkpoint's ignore patterns like "re:vision_tower.*" don't match
+            # "model.vision_tower.*" paths, causing vision encoder layers
             # (intermediate_size=4304, not divisible by group_size 128) to be included
-            # in quantization and crash compress_model. Add ".*" prefix to fix.
-            # Also set run_compressed=False to dequantize to float before TT compilation.
+            # in quantization and crash compress_model.
+            #
+            # Also, Gemma3ForConditionalGeneration has a top-level .lm_head that is
+            # tied to embed_tokens.weight; the checkpoint only ignores "language_model.lm_head"
+            # (the inner copy) but not the outer "lm_head", so compress_model removes
+            # lm_head.weight and mark_tied_weights_as_initialized then crashes.
+            #
+            # Fix both by rewriting the ignore list, and set run_compressed=False so
+            # the model is dequantized to float before TT compilation.
             config = AutoConfig.from_pretrained(pretrained_model_name)
             qc = getattr(config, "quantization_config", None)
             if isinstance(qc, dict):
-                if qc.get("ignore"):
-                    qc["ignore"] = [
-                        f"re:.*{p[3:]}" if p.startswith("re:") else p
-                        for p in qc["ignore"]
-                    ]
+                ignore = qc.get("ignore", [])
+                ignore = [
+                    f"re:.*{p[3:]}" if p.startswith("re:") else p
+                    for p in ignore
+                ]
+                if "lm_head" not in ignore:
+                    ignore.append("lm_head")
+                qc["ignore"] = ignore
                 qc["run_compressed"] = False
             model_kwargs["config"] = config
 
