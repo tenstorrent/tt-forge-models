@@ -6,7 +6,7 @@ Manga OCR model loader implementation for image-to-text OCR tasks.
 """
 import torch
 from PIL import Image
-from transformers import VisionEncoderDecoderModel, ViTImageProcessor, AutoTokenizer
+from transformers import VisionEncoderDecoderModel, ViTImageProcessor
 from typing import Optional
 
 from ...base import ForgeModel
@@ -41,7 +41,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.processor = None
-        self.tokenizer = None
+        self.decoder_start_token_id = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -68,7 +68,7 @@ class ModelLoader(ForgeModel):
         model.eval()
 
         self.processor = ViTImageProcessor.from_pretrained(pretrained_model_name)
-        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
+        self.decoder_start_token_id = model.config.decoder_start_token_id
 
         return model
 
@@ -87,4 +87,7 @@ class ModelLoader(ForgeModel):
         if batch_size > 1:
             pixel_values = pixel_values.repeat(batch_size, 1, 1, 1)
 
-        return {"pixel_values": pixel_values}
+        start_token = self.decoder_start_token_id if self.decoder_start_token_id is not None else 2
+        decoder_input_ids = torch.full((batch_size, 1), start_token, dtype=torch.long)
+
+        return {"pixel_values": pixel_values, "decoder_input_ids": decoder_input_ids}
