@@ -90,6 +90,9 @@ class ModelLoader(ForgeModel):
                 table = module.prepare_vocab_table()
                 if model_dtype is not None:
                     table = table.to(dtype=model_dtype)
+                # ref_table is a plain attribute (not a buffer), so delete it
+                # before registering; register_buffer rejects pre-existing attrs.
+                module.__dict__.pop("ref_table", None)
                 module.register_buffer("ref_table", table, persistent=False)
 
         model.eval()
