@@ -79,11 +79,14 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     @staticmethod
-    def _patch_mosaic_gpt_post_init(pretrained_model_name):
+    def _patch_mosaic_gpt(pretrained_model_name):
         # MosaicGPT was written before transformers 5.x made post_init() mandatory.
         # Its __init__ never calls self.post_init(), so from_pretrained fails in
         # _finalize_model_loading when it accesses self.all_tied_weights_keys.
-        # Patch the class once to add the missing post_init() call.
+        # Also patch _attn_bias to reinitialize when the device changes: the test
+        # framework runs a CPU forward for the golden reference first, which sets
+        # self.attn_bias on CPU; then when compiling for XLA the cached CPU tensor
+        # conflicts with XLA fake tensors causing a device mismatch error.
         from transformers.dynamic_module_utils import get_class_from_dynamic_module
         from transformers.modeling_utils import PreTrainedModel
 
@@ -94,9 +97,10 @@ class ModelLoader(ForgeModel):
         except Exception:
             return
 
-        if getattr(mosaic_cls, "_post_init_patched", False):
+        if getattr(mosaic_cls, "_tt_patched", False):
             return
 
+        # Patch 1: call post_init() if __init__ didn't
         _orig_init = mosaic_cls.__init__
 
         def _patched_init(self, config, _orig=_orig_init):
@@ -105,7 +109,22 @@ class ModelLoader(ForgeModel):
                 PreTrainedModel.post_init(self)
 
         mosaic_cls.__init__ = _patched_init
-        mosaic_cls._post_init_patched = True
+
+        # Patch 2: reset attn_bias when device changes so XLA gets a fresh bias
+        _orig_attn_bias = mosaic_cls._attn_bias
+
+        def _device_aware_attn_bias(self, device, dtype, *args, _orig=_orig_attn_bias, **kwargs):
+            if self._attn_bias_initialized and self.attn_bias is not None:
+                try:
+                    if self.attn_bias.device.type != torch.device(device).type:
+                        self._attn_bias_initialized = False
+                        self.attn_bias = None
+                except Exception:
+                    pass
+            return _orig(self, device, dtype, *args, **kwargs)
+
+        mosaic_cls._attn_bias = _device_aware_attn_bias
+        mosaic_cls._tt_patched = True
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -113,7 +132,7 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        self._patch_mosaic_gpt_post_init(pretrained_model_name)
+        self._patch_mosaic_gpt(pretrained_model_name)
 
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
