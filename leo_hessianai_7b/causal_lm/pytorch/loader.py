@@ -100,14 +100,9 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        max_length = self._variant_config.max_length
-
         inputs = self.tokenizer(
             self.sample_text,
             return_tensors="pt",
-            padding="max_length",
-            truncation=True,
-            max_length=max_length,
         )
 
         for key in inputs:
