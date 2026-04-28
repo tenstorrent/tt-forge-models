@@ -5,11 +5,11 @@
 EfficientNet model loader implementation for image classification via HuggingFace.
 """
 import torch
+from PIL import Image
 from transformers import (
     AutoImageProcessor,
     AutoModelForImageClassification,
 )
-from datasets import load_dataset
 from typing import Optional
 
 from ....base import ForgeModel
@@ -112,8 +112,11 @@ class ModelLoader(ForgeModel):
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        # Load AutoImageProcessor
-        self.processor = AutoImageProcessor.from_pretrained(pretrained_model_name)
+        # use_fast=False: transformers 5.x loads EfficientNetImageProcessor as fast
+        # processor by default; the fast variant produces different outputs.
+        self.processor = AutoImageProcessor.from_pretrained(
+            pretrained_model_name, use_fast=False
+        )
 
         return self.processor
 
@@ -131,7 +134,6 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
-        # Load the model with dtype override if specified
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -157,9 +159,10 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        # Load dataset
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        # Use a synthetic RGB image to avoid datasets.load_dataset, which triggers
+        # a spacy namespace collision (tt_forge_models/spacy/ on sys.path is
+        # treated as real spacy by datasets._dill, causing AttributeError).
+        image = Image.new("RGB", (224, 224), color=(128, 128, 128))
 
         # Process images
         inputs = self.processor(images=image, return_tensors="pt")
