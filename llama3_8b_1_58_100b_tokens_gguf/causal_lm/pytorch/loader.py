@@ -70,7 +70,13 @@ class ModelLoader(ForgeModel):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
-        if self.tokenizer.pad_token is None:
+        if self.tokenizer.eos_token is None:
+            # GGUF loading does not map GGUF special-token metadata to HF
+            # tokenizer attributes; explicitly register the LLaMA-3 EOS token.
+            self.tokenizer.add_special_tokens(
+                {"eos_token": "<|end_of_text|>", "pad_token": "<|end_of_text|>"}
+            )
+        elif self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
         return self.tokenizer
