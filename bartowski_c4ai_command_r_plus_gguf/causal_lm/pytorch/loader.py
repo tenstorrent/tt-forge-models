@@ -38,7 +38,9 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.C4AI_COMMAND_R_PLUS_Q4_K_M_GGUF
 
-    GGUF_FILE = "c4ai-command-r-plus-Q4_K_M.gguf"
+    # Q4_K_M was split into a 6-part GGUF (not supported by transformers gguf_file arg);
+    # Q3_K_S is the highest-quality single-file GGUF still available in the repo.
+    GGUF_FILE = "c4ai-command-r-plus-Q3_K_S.gguf"
 
     sample_text = "What is the capital of France?"
 
