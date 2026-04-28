@@ -105,7 +105,6 @@ class ModelLoader(ForgeModel):
         max_length = self._variant_config.max_length
         inputs = self.tokenizer(
             dna_sequence,
-            padding="max_length",
             truncation=True,
             max_length=max_length,
             return_tensors="pt",
