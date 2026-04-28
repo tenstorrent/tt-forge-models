@@ -142,9 +142,17 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
+        # Load config and reset rope_scaling: transformers 5.x injects
+        # {'rope_theta': ..., 'rope_type': 'default'} but the remote
+        # modeling code only handles None/'linear'/'dynamic'.
+        if self.config is None:
+            self.load_config()
+        self.config.rope_scaling = None
+
         model_kwargs = {
             "trust_remote_code": True,
             "attn_implementation": "eager",
+            "config": self.config,
         }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
