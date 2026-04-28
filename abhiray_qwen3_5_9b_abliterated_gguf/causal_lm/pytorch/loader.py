@@ -48,7 +48,9 @@ def _patched_load_gguf_checkpoint(*args, **kwargs):
 _orig_get_gguf_hf_weights_map = _gguf_utils.get_gguf_hf_weights_map
 
 
-def _patched_get_gguf_hf_weights_map(hf_model, processor, model_type=None, **kwargs):
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
     # get_gguf_hf_weights_map looks up model_type in gguf.MODEL_ARCH_NAMES to find the
     # tensor-name mapping.  'qwen3_5_text' is not in MODEL_ARCH_NAMES but 'qwen35' is
     # (arch 34), so remap here so the correct GGUF tensor conventions are used.
@@ -56,7 +58,9 @@ def _patched_get_gguf_hf_weights_map(hf_model, processor, model_type=None, **kwa
         model_type = hf_model.config.model_type
     if model_type == "qwen3_5_text":
         model_type = "qwen35"
-    return _orig_get_gguf_hf_weights_map(hf_model, processor, model_type=model_type, **kwargs)
+    return _orig_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=model_type, num_layers=num_layers, qual_name=qual_name
+    )
 
 
 _patch_qwen35_support()
