@@ -79,6 +79,15 @@ class ModelLoader(ForgeModel):
             trust_remote_code=True,
             padding_side="left",
         )
+        # transformers 5.x encode(list) returns [[id], [id], ...] instead of [id, id, ...].
+        # build_const_helper expects a flat list; flatten it.
+        _orig_encode = self.tokenizer.encode
+        def _encode_flat(text, *args, **kwargs):
+            result = _orig_encode(text, *args, **kwargs)
+            if isinstance(result, list) and result and isinstance(result[0], list):
+                return [sub[0] for sub in result]
+            return result
+        self.tokenizer.encode = _encode_flat
         return self.tokenizer
 
     def _load_image_processor(self):
