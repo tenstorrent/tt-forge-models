@@ -60,6 +60,10 @@ class ModelLoader(ForgeModel):
         config.num_experts_per_tok = 2
         config.q_lora_rank = 256
 
+        # grouped_mm_experts_forward uses torch.histc with .int() on non-CPU devices,
+        # but torch.histc does not support int input. Use batched_mm which works on XLA.
+        config._experts_implementation = "batched_mm"
+
         model_kwargs = {
             "attn_implementation": "eager",
             "trust_remote_code": True,
