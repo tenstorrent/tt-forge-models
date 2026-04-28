@@ -262,9 +262,12 @@ class ModelLoader(ForgeModel):
             truncation=True,
         )
 
+        # Do not pass attention_mask: GLA uses it to trigger a cu_seqlens unpack/repad
+        # path (nonzero → index_first_axis → pad_input) that requires dynamic scatter/gather
+        # ops unsupported by the TT XLA compiler.  For a single unpadded sequence the mask
+        # is all-ones and the path is a mathematical no-op, so omitting it is safe.
         inputs = {
             "input_ids": tokenized_inputs.input_ids,
-            "attention_mask": tokenized_inputs.attention_mask,
         }
 
         for key in inputs:
