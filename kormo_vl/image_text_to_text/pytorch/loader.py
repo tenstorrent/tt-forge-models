@@ -62,9 +62,13 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
+        # use_fast=False: transformers 5.x switched LlavaOnevisionImageProcessor to
+        # fast mode by default. The fast processor produces slightly different image
+        # token counts than the slow one, causing token/feature count mismatches.
         self.processor = AutoProcessor.from_pretrained(
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
+            use_fast=False,
         )
         return self.processor
 
