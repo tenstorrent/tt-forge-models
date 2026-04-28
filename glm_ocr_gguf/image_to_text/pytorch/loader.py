@@ -99,7 +99,7 @@ class ModelLoader(ForgeModel):
         _refresh_gguf_detection()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        self.processor = AutoProcessor.from_pretrained(self._BASE_PROCESSOR_MODEL)
+        self.processor = AutoProcessor.from_pretrained(self._BASE_PROCESSOR_MODEL, use_fast=False)
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -121,7 +121,7 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.processor is None:
-            self.processor = AutoProcessor.from_pretrained(self._BASE_PROCESSOR_MODEL)
+            self.processor = AutoProcessor.from_pretrained(self._BASE_PROCESSOR_MODEL, use_fast=False)
 
         messages = [
             {
