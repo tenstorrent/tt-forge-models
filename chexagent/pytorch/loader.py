@@ -526,6 +526,19 @@ class ModelLoader(ForgeModel):
         except AttributeError:
             pass
 
+        # PhiRotaryEmbedding registers inv_freq, cos_cached, sin_cached as persistent=False
+        # buffers. from_pretrained's meta-device flow corrupts them with garbage values.
+        # Re-initialize from the stored scalar constants (dim, base) which survive as attrs.
+        for _mod in model.modules():
+            if hasattr(_mod, '_set_cos_sin_cache') and hasattr(_mod, 'dim') and hasattr(_mod, 'base'):
+                _inv = 1.0 / (_mod.base ** (_torch.arange(0, _mod.dim, 2).float() / _mod.dim))
+                _mod.register_buffer("inv_freq", _inv, persistent=False)
+                _mod._set_cos_sin_cache(
+                    seq_len=_mod.max_position_embeddings,
+                    device=_inv.device,
+                    dtype=_torch.float32,
+                )
+
         model.eval()
 
         try:
