@@ -5,10 +5,12 @@
 BU-30B model loader implementation for image to text.
 """
 
+import torch
 from transformers import (
     Qwen3VLMoeForConditionalGeneration,
     AutoProcessor,
 )
+from transformers.models.qwen3_vl_moe import modeling_qwen3_vl_moe as _qvlmoe
 from typing import Optional
 
 from ...base import ForgeModel
@@ -21,6 +23,66 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+
+def _apply_tolist_patches():
+    """Patch qwen3_vl_moe methods that call .tolist() on device tensors.
+
+    TT device tensors do not support eager Python-side readback (.tolist()).
+    These methods use .tolist() only for control-flow on grid metadata or
+    token ids, not for main model computation, so moving to CPU is safe.
+    """
+    _orig_fpe = _qvlmoe.Qwen3VLMoeVisionModel.fast_pos_embed_interpolate
+
+    def _patched_fpe(self, grid_thw):
+        return _orig_fpe(self, grid_thw.cpu())
+
+    _qvlmoe.Qwen3VLMoeVisionModel.fast_pos_embed_interpolate = _patched_fpe
+
+    _orig_rpe = _qvlmoe.Qwen3VLMoeVisionModel.rot_pos_emb
+
+    def _patched_rpe(self, grid_thw):
+        return _orig_rpe(self, grid_thw.cpu())
+
+    _qvlmoe.Qwen3VLMoeVisionModel.rot_pos_emb = _patched_rpe
+
+    _orig_gri = _qvlmoe.Qwen3VLMoeModel.get_rope_index
+
+    def _patched_gri(
+        self,
+        input_ids=None,
+        image_grid_thw=None,
+        video_grid_thw=None,
+        attention_mask=None,
+        **kwargs,
+    ):
+        orig_device = input_ids.device if input_ids is not None else torch.device("cpu")
+        position_ids, rope_deltas = _orig_gri(
+            self,
+            input_ids=input_ids.cpu() if input_ids is not None else None,
+            image_grid_thw=image_grid_thw.cpu() if image_grid_thw is not None else None,
+            video_grid_thw=video_grid_thw.cpu() if video_grid_thw is not None else None,
+            attention_mask=attention_mask.cpu() if attention_mask is not None else None,
+            **kwargs,
+        )
+        return position_ids.to(orig_device), rope_deltas.to(orig_device)
+
+    _qvlmoe.Qwen3VLMoeModel.get_rope_index = _patched_gri
+
+    def _patched_gif(self, pixel_values, image_grid_thw=None, **kwargs):
+        pixel_values = pixel_values.type(self.visual.dtype)
+        vision_output = self.visual(
+            pixel_values, grid_thw=image_grid_thw, return_dict=True, **kwargs
+        )
+        image_embeds = vision_output.pooler_output
+        split_sizes = (
+            image_grid_thw.cpu().prod(-1) // self.visual.spatial_merge_size**2
+        ).tolist()
+        image_embeds = torch.split(image_embeds, split_sizes)
+        vision_output.pooler_output = image_embeds
+        return vision_output
+
+    _qvlmoe.Qwen3VLMoeModel.get_image_features = _patched_gif
 
 
 class ModelVariant(StrEnum):
@@ -85,6 +147,8 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The BU-30B model instance for image to text.
         """
+        _apply_tolist_patches()
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {
@@ -97,6 +161,8 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
+        self.processor.image_processor.min_pixels = 56 * 56
+        self.processor.image_processor.max_pixels = 13 * 28 * 1280
 
         model = Qwen3VLMoeForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
