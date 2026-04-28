@@ -84,7 +84,7 @@ class ModelLoader(ForgeModel):
             The loaded processor instance
         """
         self.processor = CLIPSegProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, use_fast=False
         )
         return self.processor
 
