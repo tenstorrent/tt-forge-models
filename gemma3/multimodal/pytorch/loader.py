@@ -182,13 +182,13 @@ class ModelLoader(ForgeModel):
             # Also set run_compressed=False to dequantize to float before TT compilation.
             config = AutoConfig.from_pretrained(pretrained_model_name)
             qc = getattr(config, "quantization_config", None)
-            if qc is not None:
-                if getattr(qc, "ignore", None):
-                    qc.ignore = [
+            if isinstance(qc, dict):
+                if qc.get("ignore"):
+                    qc["ignore"] = [
                         f"re:.*{p[3:]}" if p.startswith("re:") else p
-                        for p in qc.ignore
+                        for p in qc["ignore"]
                     ]
-                qc.run_compressed = False
+                qc["run_compressed"] = False
             model_kwargs["config"] = config
 
         model = Gemma3ForConditionalGeneration.from_pretrained(
