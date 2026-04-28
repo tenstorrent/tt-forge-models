@@ -364,7 +364,7 @@ class ModelLoader(ForgeModel):
             "trust_remote_code": True,
         }
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         if self.tokenizer is None:
@@ -391,15 +391,16 @@ class ModelLoader(ForgeModel):
         except AttributeError:
             pass
 
-        # The inner AutoModel.from_pretrained for SigLIP runs without dtype_override,
-        # so SigLIP weights are created as float32.  The outer CheXagent from_pretrained
-        # loads its own checkpoint-resident params as bfloat16 (when dtype_override is
-        # bfloat16), but non-meta SigLIP params get copy_() which preserves float32.
-        # Cast SigLIP to match the outer model dtype to prevent mismatches in attn_pool.
+        # The inner AutoModel.from_pretrained for SigLIP loads weights as float32.
+        # CLIPModel also creates pos_embed via torch.from_numpy() which may bypass
+        # the meta context, leaving it as a real float32 tensor.  The outer
+        # from_pretrained uses copy_() for any non-meta tensors, preserving float32.
+        # Cast the entire visual module to match the checkpoint dtype (bfloat16 when
+        # dtype_override=bfloat16) to prevent mismatches in forward_resampler.
         try:
             _visual = model.model.visual
             _target_dtype = _visual.attn_pool[0].weight.dtype
-            _visual.model.to(_target_dtype)
+            _visual.to(_target_dtype)
         except AttributeError:
             pass
 
