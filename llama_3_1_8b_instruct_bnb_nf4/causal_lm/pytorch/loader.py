@@ -5,6 +5,10 @@
 Meta Llama 3.1 8B Instruct BNB NF4 model loader implementation for causal language modeling.
 """
 
+import torch
+import torch.nn as nn
+import bitsandbytes as bnb
+import bitsandbytes.functional as bnb_F
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
@@ -19,6 +23,35 @@ from ....config import (
     StrEnum,
 )
 from ....tools.utils import cast_input_to_type
+
+
+def _dequantize_bnb_model(model, dtype=torch.bfloat16):
+    """Replace all BNB Linear4bit layers with regular nn.Linear using dequantized weights.
+
+    TT hardware has no BNB/CUDA kernel support. Dequantize to bf16 so the model
+    can be moved to the XLA device via .to(device).
+    """
+    for name, module in list(model.named_modules()):
+        if not isinstance(module, bnb.nn.Linear4bit):
+            continue
+        parent_name, attr = name.rsplit(".", 1) if "." in name else ("", name)
+        parent = model.get_submodule(parent_name) if parent_name else model
+        dq_weight = bnb_F.dequantize_4bit(
+            module.weight.data,
+            module.weight.quant_state,
+            quant_type=module.weight.quant_type,
+        ).to(dtype)
+        new_linear = nn.Linear(
+            dq_weight.shape[1],
+            dq_weight.shape[0],
+            bias=module.bias is not None,
+            dtype=dtype,
+        )
+        new_linear.weight = nn.Parameter(dq_weight)
+        if module.bias is not None:
+            new_linear.bias = nn.Parameter(module.bias.to(dtype))
+        setattr(parent, attr, new_linear)
+    return model
 
 
 class ModelVariant(StrEnum):
@@ -90,6 +123,7 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        model = _dequantize_bnb_model(model, dtype=dtype_override or torch.bfloat16)
         model.eval()
         self.model = model
         self.config = model.config
@@ -102,16 +136,12 @@ class ModelLoader(ForgeModel):
         max_new_tokens: int = 256,
         prompt: Optional[str] = None,
     ):
-        max_length = self._variant_config.max_length
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
         input_text = prompt or self.sample_text
         inputs = self.tokenizer(
             [input_text],
             return_tensors="pt",
-            max_length=max_length,
-            padding="max_length",
-            truncation=True,
         )
         for key in inputs:
             inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
