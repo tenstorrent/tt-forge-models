@@ -6,7 +6,6 @@ unsloth/Apertus-8B-Instruct-2509-unsloth-bnb-4bit model loader implementation fo
 causal language modeling.
 """
 
-import bitsandbytes as bnb
 import torch
 import torch.nn as nn
 from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -30,7 +29,13 @@ def _dequantize_bnb4_to_bf16(model: nn.Module) -> nn.Module:
     BNB 4-bit weights use Params4bit which is incompatible with PyTorch 2.7's
     Parameter.__new__ check when moved to non-CUDA devices. Dequantizing to
     bfloat16 makes the model moveable to any device including TT XLA.
+
+    bitsandbytes is imported lazily here (not at module level) so the loader
+    module can be imported at test-collection time before the requirements.txt
+    installs bitsandbytes.
     """
+    import bitsandbytes as bnb
+
     replacements = []
     for name, module in model.named_modules():
         if isinstance(module, bnb.nn.Linear4bit):
