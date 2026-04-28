@@ -5,8 +5,8 @@
 CXformer model loader implementation for chest X-ray feature extraction (PyTorch).
 """
 import torch
+from PIL import Image
 from transformers import AutoImageProcessor, AutoModel
-from datasets import load_dataset
 from typing import Optional
 
 from ....base import ForgeModel
@@ -80,7 +80,7 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         self.processor = AutoImageProcessor.from_pretrained(
-            pretrained_model_name, trust_remote_code=True
+            pretrained_model_name, trust_remote_code=True, use_fast=False
         )
 
         return self.processor
@@ -120,8 +120,7 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        image = Image.new("RGB", (224, 224), color=(128, 128, 128))
 
         inputs = self.processor(images=image, return_tensors="pt")
 
