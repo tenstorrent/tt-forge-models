@@ -31,6 +31,13 @@ def _load_mmproj_weights(model, repo_id, mmproj_filename, dtype_override=None):
     backbone.  The CLIP vision encoder and multimodal projector live in a
     separate mmproj GGUF file.  This function reads that file and populates
     the corresponding sub-modules of the already-constructed HF model.
+
+    GGUFReader.Tensor.data is already reshaped as shape[::-1] (dimensions
+    reversed relative to the GGUF file header), so no explicit transpose or
+    permute is required — the numpy arrays are already in PyTorch [out, in]
+    convention.  The only naming difference to watch out for is that the
+    llama.cpp clip GGUF uses 'ffn_down' for the first (expanding) MLP layer
+    (HF fc1) and 'ffn_up' for the second (contracting) layer (HF fc2).
     """
     from gguf import GGUFReader
     from huggingface_hub import hf_hub_download
@@ -41,20 +48,18 @@ def _load_mmproj_weights(model, repo_id, mmproj_filename, dtype_override=None):
     state_dict = {}
     for tensor in reader.tensors:
         name = tensor.name
-        # GGUFReader returns float16 data for f16 files; convert to a torch tensor.
+        # tensor.data is a numpy array already in reversed-shape (PyTorch) order.
         data = torch.from_numpy(tensor.data.copy())
         if dtype_override is not None:
             data = data.to(dtype_override)
 
         # ── Multimodal projector ──────────────────────────────────────────────
-        # Projector weights are stored transposed in GGUF relative to PyTorch
-        # convention ([in, out] vs PyTorch [out, in]).
         if name == "mm.0.weight":
-            state_dict["model.multi_modal_projector.linear_1.weight"] = data.T.contiguous()
+            state_dict["model.multi_modal_projector.linear_1.weight"] = data
         elif name == "mm.0.bias":
             state_dict["model.multi_modal_projector.linear_1.bias"] = data
         elif name == "mm.2.weight":
-            state_dict["model.multi_modal_projector.linear_2.weight"] = data.T.contiguous()
+            state_dict["model.multi_modal_projector.linear_2.weight"] = data
         elif name == "mm.2.bias":
             state_dict["model.multi_modal_projector.linear_2.bias"] = data
 
@@ -62,15 +67,9 @@ def _load_mmproj_weights(model, repo_id, mmproj_filename, dtype_override=None):
         elif name == "v.class_embd":
             state_dict["model.vision_tower.vision_model.embeddings.class_embedding"] = data
         elif name == "v.patch_embd.weight":
-            # GGUF: [kH, kW, C_in, C_out] → PyTorch Conv2d: [C_out, C_in, kH, kW]
-            state_dict["model.vision_tower.vision_model.embeddings.patch_embedding.weight"] = (
-                data.permute(3, 2, 0, 1).contiguous()
-            )
+            state_dict["model.vision_tower.vision_model.embeddings.patch_embedding.weight"] = data
         elif name == "v.position_embd.weight":
-            # GGUF: [n_embd, n_positions] → PyTorch Embedding: [n_positions, n_embd]
-            state_dict["model.vision_tower.vision_model.embeddings.position_embedding.weight"] = (
-                data.T.contiguous()
-            )
+            state_dict["model.vision_tower.vision_model.embeddings.position_embedding.weight"] = data
         elif name == "v.pre_ln.weight":
             state_dict["model.vision_tower.vision_model.pre_layrnorm.weight"] = data
         elif name == "v.pre_ln.bias":
@@ -86,7 +85,6 @@ def _load_mmproj_weights(model, repo_id, mmproj_filename, dtype_override=None):
             sub = m.group(2)
             pfx = f"model.vision_tower.vision_model.encoder.layers.{layer_idx}"
 
-            # Attention projections: stored in PyTorch [out, in] convention.
             if sub == "attn_q.weight":
                 state_dict[f"{pfx}.self_attn.q_proj.weight"] = data
             elif sub == "attn_q.bias":
@@ -103,7 +101,6 @@ def _load_mmproj_weights(model, repo_id, mmproj_filename, dtype_override=None):
                 state_dict[f"{pfx}.self_attn.out_proj.weight"] = data
             elif sub == "attn_out.bias":
                 state_dict[f"{pfx}.self_attn.out_proj.bias"] = data
-            # Layer norms
             elif sub == "ln1.weight":
                 state_dict[f"{pfx}.layer_norm1.weight"] = data
             elif sub == "ln1.bias":
@@ -112,14 +109,14 @@ def _load_mmproj_weights(model, repo_id, mmproj_filename, dtype_override=None):
                 state_dict[f"{pfx}.layer_norm2.weight"] = data
             elif sub == "ln2.bias":
                 state_dict[f"{pfx}.layer_norm2.bias"] = data
-            # MLP: stored in PyTorch [out, in] convention.
-            elif sub == "ffn_up.weight":
-                state_dict[f"{pfx}.mlp.fc1.weight"] = data
-            elif sub == "ffn_up.bias":
-                state_dict[f"{pfx}.mlp.fc1.bias"] = data
+            # llama.cpp clip: ffn_down = expanding fc1, ffn_up = contracting fc2
             elif sub == "ffn_down.weight":
-                state_dict[f"{pfx}.mlp.fc2.weight"] = data
+                state_dict[f"{pfx}.mlp.fc1.weight"] = data
             elif sub == "ffn_down.bias":
+                state_dict[f"{pfx}.mlp.fc1.bias"] = data
+            elif sub == "ffn_up.weight":
+                state_dict[f"{pfx}.mlp.fc2.weight"] = data
+            elif sub == "ffn_up.bias":
                 state_dict[f"{pfx}.mlp.fc2.bias"] = data
 
     missing, unexpected = model.load_state_dict(state_dict, strict=False)
