@@ -6,6 +6,13 @@ BabyLM GIT model loader implementation for multimodal causal language modeling.
 """
 
 from typing import Optional
+import transformers
+
+# transformers 5.x removed ViTFeatureExtractor; the remote modeling_git.py imports it
+# at module level (but never calls it). Inject a shim so the import succeeds.
+if not hasattr(transformers, "ViTFeatureExtractor"):
+    from transformers import ViTImageProcessor
+    transformers.ViTFeatureExtractor = ViTImageProcessor
 
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoProcessor
