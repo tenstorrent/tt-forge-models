@@ -69,8 +69,8 @@ def _patch_transformers_lfm2moe_gguf():
 
     orig_load = gguf_utils.load_gguf_checkpoint
 
-    def patched_load_gguf_checkpoint(*args, **kwargs):
-        result = orig_load(*args, **kwargs)
+    def patched_load_gguf_checkpoint(gguf_checkpoint_path, return_tensors=False, **kwargs):
+        result = orig_load(gguf_checkpoint_path, return_tensors=return_tensors, **kwargs)
         config = result.get("config", {})
         if config.get("model_type") == "lfm2moe":
             # Translate GGUF arch name to HF model type
