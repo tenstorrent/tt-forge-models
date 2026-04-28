@@ -8,6 +8,47 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_SUPPORTED_ARCHITECTURES,
+    Gemma2TensorProcessor,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFGemmaConverter
+
+
+def _patch_gemma_v1_support():
+    """Register Gemma v1 (architecture='gemma') in transformers GGUF support tables.
+
+    Transformers 5.x dropped gemma v1 from GGUF_CONFIG_MAPPING; only gemma2/gemma3
+    are listed. The lmstudio-ai/gemma-2b-it GGUF stores general.architecture='gemma',
+    so loading raises ValueError without this patch.
+    """
+    _gemma_config = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.key_length": "head_dim",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+    }
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "gemma2" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "gemma", _gemma_config
+            )
+    if "gemma" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("gemma")
+    _gguf_utils.TENSOR_PROCESSORS.setdefault("gemma", Gemma2TensorProcessor)
+    GGUF_TO_FAST_CONVERTERS.setdefault("gemma", GGUFGemmaConverter)
+
+
+_patch_gemma_v1_support()
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -108,17 +149,15 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        messages = [
-            {
-                "role": "user",
-                "content": self.sample_text,
-            }
-        ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
+        if self.tokenizer.chat_template is not None:
+            messages = [{"role": "user", "content": self.sample_text}]
+            text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        else:
+            text = self.sample_text
         prompts = [text]
 
         inputs = self.tokenizer(
