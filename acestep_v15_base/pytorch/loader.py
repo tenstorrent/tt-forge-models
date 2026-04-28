@@ -59,17 +59,38 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import torch
         from transformers import AutoModel
+        from transformers.modeling_utils import PreTrainedModel
 
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        full_model = AutoModel.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            **model_kwargs,
-        )
+        # transformers 5.x unconditionally wraps model construction in
+        # torch.device("meta") via get_init_context().  vector_quantize_pytorch's
+        # ResidualFSQ and FSQ call .all() / .item() on tensors during __init__,
+        # which raises "Tensor.item() cannot be called on meta tensors".
+        # Temporarily remove the meta-device context so construction runs on CPU.
+        _orig = PreTrainedModel.get_init_context.__func__
+
+        @classmethod
+        def _get_init_no_meta(cls, dtype, is_quantized, _is_ds_init_called):
+            return [
+                c for c in _orig(cls, dtype, is_quantized, _is_ds_init_called)
+                if not isinstance(c, torch.device)
+            ]
+
+        PreTrainedModel.get_init_context = _get_init_no_meta
+        try:
+            full_model = AutoModel.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                **model_kwargs,
+            )
+        finally:
+            PreTrainedModel.get_init_context = classmethod(_orig)
+
         self.model = full_model.decoder
         self.model.eval()
         return self.model
