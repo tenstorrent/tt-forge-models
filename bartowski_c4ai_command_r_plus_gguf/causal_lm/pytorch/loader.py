@@ -8,6 +8,56 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+
+def _patch_transformers_command_r_gguf():
+    """Monkey-patch transformers to add command-r GGUF architecture support.
+
+    Transformers 5.x has CohereForCausalLM (model_type="cohere") but the GGUF
+    format uses "command-r" as the architecture name.  We bridge this by:
+    1. Registering "command-r" in GGUF_SUPPORTED_ARCHITECTURES.
+    2. Adding the config field mapping from GGUF key names to CohereConfig attrs.
+    3. Registering GGUFLlamaConverter for the SentencePiece tokenizer.
+    4. Translating model_type "command-r" → "cohere" in load_gguf_checkpoint output
+       so that AutoConfig can resolve CohereConfig / CohereForCausalLM.
+    """
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    import transformers.configuration_utils as config_utils
+    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFLlamaConverter
+
+    if "command-r" in gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("command-r")
+
+    gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]["command-r"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_epsilon": "layer_norm_eps",
+        "vocab_size": "vocab_size",
+    }
+
+    GGUF_TO_FAST_CONVERTERS["command-r"] = GGUFLlamaConverter
+
+    _orig = gguf_utils.load_gguf_checkpoint
+
+    def _patched(*args, **kwargs):
+        result = _orig(*args, **kwargs)
+        if result.get("config", {}).get("model_type") == "command-r":
+            result["config"]["model_type"] = "cohere"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = _patched
+    config_utils.load_gguf_checkpoint = _patched
+
+
+_patch_transformers_command_r_gguf()
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -38,7 +88,8 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.C4AI_COMMAND_R_PLUS_Q4_K_M_GGUF
 
-    GGUF_FILE = "c4ai-command-r-plus-Q4_K_M.gguf"
+    # Single-file GGUF was replaced by 6 shards; use the first shard (contains full metadata).
+    GGUF_FILE = "c4ai-command-r-plus-Q4_K_M.gguf/c4ai-command-r-plus-Q4_K_M-00001-of-00006.gguf"
 
     sample_text = "What is the capital of France?"
 
