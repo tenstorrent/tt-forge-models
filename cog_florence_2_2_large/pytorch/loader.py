@@ -60,9 +60,22 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
+        # transformers 5.x renamed additional_special_tokens to extra_special_tokens on
+        # tokenizers. The remote processor code for this model reads
+        # tokenizer.additional_special_tokens to extend the token list.
+        from transformers.tokenization_utils_base import PreTrainedTokenizerBase
+        if not hasattr(PreTrainedTokenizerBase, "additional_special_tokens"):
+            PreTrainedTokenizerBase.additional_special_tokens = property(
+                lambda self: getattr(self, "extra_special_tokens", [])
+            )
+
+        # transformers 5.x changed CLIPImageProcessor to use_fast=True by default,
+        # which produces non-square pixel_values (e.g. 480x640). The DaViT encoder
+        # asserts the feature map is square, so we keep the original slow processor.
         self.processor = AutoProcessor.from_pretrained(
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
+            use_fast=False,
         )
         return self.processor
 
@@ -74,12 +87,33 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name,
-            trust_remote_code=True,
-            attn_implementation="eager",
-            **model_kwargs,
-        )
+        # transformers 5.x moved forced_bos_token_id from PretrainedConfig to
+        # GenerationConfig. The remote configuration code for this model accesses
+        # self.forced_bos_token_id after super().__init__(), which no longer sets it.
+        from transformers import PretrainedConfig, PreTrainedModel
+        if not hasattr(PretrainedConfig, "forced_bos_token_id"):
+            PretrainedConfig.forced_bos_token_id = None
+
+        # transformers 5.x always initializes models in a torch.device("meta") context,
+        # but DaViT.__init__ calls .item() on a torch.linspace() result which is
+        # incompatible with meta tensors. Temporarily remove the meta device context.
+        _orig_get_init_context = PreTrainedModel.get_init_context.__func__
+
+        @classmethod
+        def _get_init_context_no_meta(cls, dtype, is_quantized, _is_ds_init_called):
+            contexts = _orig_get_init_context(cls, dtype, is_quantized, _is_ds_init_called)
+            return [c for c in contexts if not (isinstance(c, torch.device) and c.type == "meta")]
+
+        PreTrainedModel.get_init_context = _get_init_context_no_meta
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name,
+                trust_remote_code=True,
+                attn_implementation="eager",
+                **model_kwargs,
+            )
+        finally:
+            PreTrainedModel.get_init_context = classmethod(_orig_get_init_context)
         model.eval()
         return model
 
