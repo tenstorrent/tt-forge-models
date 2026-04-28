@@ -8,6 +8,30 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+# transformers 5.2.0 dropped the "gemma" (v1) architecture from GGUF_CONFIG_MAPPING;
+# add it back so CodeGemma GGUF files (which use architecture="gemma") can load.
+import transformers.integrations.ggml as _ggml
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+if "gemma" not in _ggml.GGUF_CONFIG_MAPPING:
+    _ggml.GGUF_CONFIG_MAPPING["gemma"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.key_length": "head_dim",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+    }
+    _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("gemma")
+
+if "gemma" not in _ggml.GGUF_TO_FAST_CONVERTERS:
+    _ggml.GGUF_TO_FAST_CONVERTERS["gemma"] = _ggml.GGUFGemmaConverter
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
