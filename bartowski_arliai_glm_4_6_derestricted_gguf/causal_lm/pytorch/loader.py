@@ -66,7 +66,9 @@ def _patch_transformers_glm4moe_gguf():
         "nextn_predict_layers": None,
     }
 
-    # 3. Register glm4moe tokenizer converter (BPE-based, same as qwen2/glm4)
+    # 3. Register glm4moe tokenizer converter (BPE-based, same as qwen2/glm4).
+    #    The tokenizer lookup uses model_type after renaming, so both the
+    #    original GGUF name ("glm4moe") and the HF name ("glm4_moe") are needed.
     from transformers.integrations.ggml import (
         GGUF_TO_FAST_CONVERTERS,
         GGUFQwen2Converter,
@@ -74,6 +76,8 @@ def _patch_transformers_glm4moe_gguf():
 
     if "glm4moe" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["glm4moe"] = GGUFQwen2Converter
+    if "glm4_moe" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["glm4_moe"] = GGUFQwen2Converter
 
     # 4. Patch load_gguf_checkpoint to fix model_type and rope_parameters.
     #    The GGUF general.architecture is "glm4moe" but the HF model_type is
