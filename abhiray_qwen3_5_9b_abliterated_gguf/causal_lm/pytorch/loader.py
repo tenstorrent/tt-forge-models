@@ -39,8 +39,24 @@ def _patched_load_gguf_checkpoint(*args, **kwargs):
     _patch_qwen35_support()
     result = _orig_load_gguf_checkpoint(*args, **kwargs)
     if result.get("config", {}).get("model_type") == "qwen35":
-        result["config"]["model_type"] = "qwen3"
+        # Qwen3.5 uses Qwen3_5ForCausalLM (hybrid SSM + full-attention), not Qwen3ForCausalLM.
+        # model_type='qwen3_5_text' routes AutoModelForCausalLM to Qwen3_5ForCausalLM.
+        result["config"]["model_type"] = "qwen3_5_text"
     return result
+
+
+_orig_get_gguf_hf_weights_map = _gguf_utils.get_gguf_hf_weights_map
+
+
+def _patched_get_gguf_hf_weights_map(hf_model, processor, model_type=None, **kwargs):
+    # get_gguf_hf_weights_map looks up model_type in gguf.MODEL_ARCH_NAMES to find the
+    # tensor-name mapping.  'qwen3_5_text' is not in MODEL_ARCH_NAMES but 'qwen35' is
+    # (arch 34), so remap here so the correct GGUF tensor conventions are used.
+    if model_type is None and hasattr(hf_model, "config"):
+        model_type = hf_model.config.model_type
+    if model_type == "qwen3_5_text":
+        model_type = "qwen35"
+    return _orig_get_gguf_hf_weights_map(hf_model, processor, model_type=model_type, **kwargs)
 
 
 _patch_qwen35_support()
@@ -48,6 +64,7 @@ _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 from ....base import ForgeModel
 from ....config import (
