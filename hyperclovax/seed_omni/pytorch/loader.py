@@ -5,6 +5,7 @@
 HyperCLOVAX SEED Omni model loader implementation for multimodal visual question answering
 """
 
+import inspect
 import types
 
 import torch
@@ -30,6 +31,29 @@ def _patched_adjust_tied_keys(self, *args, **kwargs):
 
 
 PreTrainedModel._adjust_tied_keys_with_tied_pointers = _patched_adjust_tied_keys
+
+# HCXVisionForCausalLM.tie_weights(self) has no **kwargs; transformers 5.x calls
+# tie_weights(missing_keys=..., recompute_mapping=False).  Wrap _finalize_model_loading
+# so the class gets a compatible shim before that call is made.
+_orig_finalize = PreTrainedModel._finalize_model_loading
+
+
+def _patched_finalize(model, load_config, loading_info):
+    orig_tw = type(model).tie_weights
+    sig = inspect.signature(orig_tw)
+    has_var_kw = any(
+        p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+    )
+    if not has_var_kw:
+
+        def _compat_tie_weights(self, **kwargs):
+            return orig_tw(self)
+
+        type(model).tie_weights = _compat_tie_weights
+    return _orig_finalize(model, load_config, loading_info)
+
+
+PreTrainedModel._finalize_model_loading = staticmethod(_patched_finalize)
 
 from transformers import AutoProcessor, AutoModelForCausalLM
 from PIL import Image
