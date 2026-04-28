@@ -142,8 +142,8 @@ class ModelLoader(ForgeModel):
     def load_shard_spec(self, model):
         shard_specs = {}
         for layer in model.model.layers:
+            # ApertusMLP is a non-gated MLP: up_proj -> act -> down_proj (no gate_proj)
             shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
 
             shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
