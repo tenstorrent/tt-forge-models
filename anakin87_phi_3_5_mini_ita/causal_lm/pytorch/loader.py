@@ -82,7 +82,7 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
+        model_kwargs = {"use_cache": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -114,7 +114,7 @@ class ModelLoader(ForgeModel):
         inputs = self.tokenizer(
             [text],
             return_tensors="pt",
-            padding="max_length",
+            padding=True,
             truncation=True,
             max_length=max_length,
         )
