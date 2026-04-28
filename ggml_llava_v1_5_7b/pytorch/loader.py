@@ -214,6 +214,15 @@ class ModelLoader(ForgeModel):
             _load_mmproj_weights(
                 model, pretrained_model_name, mmproj_file, dtype_override
             )
+            # The GGUF was converted with vocab_size=32000, but the LLaVA
+            # tokenizer has additional special tokens (e.g. <image> at ID
+            # 32000).  Resize the embedding table so index lookups succeed.
+            # The <image> embedding is always replaced by visual features, so
+            # the initialisation value for the new rows does not matter.
+            tokenizer_vocab_size = len(self.processor.tokenizer)
+            model_vocab_size = model.get_input_embeddings().weight.shape[0]
+            if model_vocab_size < tokenizer_vocab_size:
+                model.resize_token_embeddings(tokenizer_vocab_size)
             model = model.eval()
         else:
             model = LlavaForConditionalGeneration.from_pretrained(
