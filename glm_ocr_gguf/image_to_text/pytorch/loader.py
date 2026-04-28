@@ -42,6 +42,68 @@ def _refresh_gguf_detection():
         import_utils.is_gguf_available.cache_clear()
 
 
+def _patch_glm_ocr_gguf_support():
+    """Patch transformers to support loading GlmOcr from GGUF.
+
+    GlmOcrConfig is a composite config (text_config + vision_config) that does
+    not expose num_hidden_layers at the top level. The transformers
+    get_gguf_hf_weights_map unconditionally accesses config.num_hidden_layers
+    and uses model_type to look up the gguf architecture. We bridge both gaps
+    by wrapping get_gguf_hf_weights_map to translate model_type='glm_ocr' to
+    'glm4' and to read num_layers from text_config.
+
+    The GLM-OCR GGUF uses chatglm architecture, so we also register it as a
+    supported architecture (bartowski_glm_4_9b_chat_gguf does the same, but
+    this patch makes the loader self-contained for standalone runs).
+    """
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
+
+    if hasattr(gguf_utils, "_glm_ocr_gguf_patched"):
+        return
+    gguf_utils._glm_ocr_gguf_patched = True
+
+    if "chatglm" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("chatglm")
+        from transformers.modeling_gguf_pytorch_utils import GGUF_TO_TRANSFORMERS_MAPPING
+        GGUF_TO_TRANSFORMERS_MAPPING["config"]["chatglm"] = {
+            "context_length": "max_position_embeddings",
+            "block_count": "num_hidden_layers",
+            "feed_forward_length": "intermediate_size",
+            "embedding_length": "hidden_size",
+            "rope.freq_base": "rope_theta",
+            "attention.head_count": "num_attention_heads",
+            "attention.head_count_kv": "num_key_value_heads",
+            "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+            "attention.key_length": "head_dim",
+            "vocab_size": "vocab_size",
+        }
+        from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFQwen2Converter
+        if "chatglm" not in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS["chatglm"] = GGUFQwen2Converter
+
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = getattr(getattr(hf_model, "config", None), "model_type", None)
+        if model_type == "glm_ocr":
+            model_type = "glm4"
+            if num_layers is None:
+                try:
+                    num_layers = hf_model.config.text_config.num_hidden_layers
+                except AttributeError:
+                    pass
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+
+_patch_glm_ocr_gguf_support()
+
+
 class ModelVariant(StrEnum):
     """Available GLM-OCR GGUF model variants for image-to-text tasks."""
 
