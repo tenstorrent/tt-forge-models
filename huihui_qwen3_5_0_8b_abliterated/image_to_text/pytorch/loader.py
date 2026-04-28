@@ -239,4 +239,5 @@ class ModelLoader(ForgeModel):
             return_dict=True,
             return_tensors="pt",
         )
+        inputs["use_cache"] = False
         return inputs
