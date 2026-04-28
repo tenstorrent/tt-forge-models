@@ -94,11 +94,77 @@ class ModelLoader(ForgeModel):
                 return str(obj)
             return _original_default(self, obj)
 
+        import torch.nn as nn
+        from transformers import PreTrainedModel as _PTM
+
+        _orig_finalize = _PTM._finalize_model_loading
+
+        @staticmethod
+        def _patched_finalize(model, load_config, loading_info):
+            # GPTBERTForCausalLM skips self.post_init() (transformers 5.x requirement),
+            # so all_tied_weights_keys is never initialised. Seed it to an empty dict so
+            # _adjust_tied_keys_with_tied_pointers can populate it via pointer detection.
+            if not hasattr(model, "all_tied_weights_keys"):
+                model.all_tied_weights_keys = {}
+            for m in model.modules():
+                # _init_weights unconditionally accesses LayerNorm.bias, but layers
+                # using elementwise_affine=False have no bias. Pre-mark as initialised
+                # so _initialize_missing_keys skips them.
+                if isinstance(m, nn.LayerNorm) and not m.elementwise_affine:
+                    m._is_hf_initialized = True
+            result = _orig_finalize(model, load_config, loading_info)
+            # _move_missing_keys_from_meta_to_device fills all non-persistent buffers
+            # with torch.empty_like (garbage). Recompute position_indices after the
+            # finalize is done. The Attention config attribute stores what we need.
+            for m in model.modules():
+                if (
+                    hasattr(m, "position_indices")
+                    and hasattr(m, "make_log_bucket_position")
+                    and hasattr(m, "config")
+                ):
+                    cfg = m.config
+                    pos_idx = (
+                        torch.arange(cfg.max_position_embeddings, dtype=torch.long).unsqueeze(1)
+                        - torch.arange(cfg.max_position_embeddings, dtype=torch.long).unsqueeze(0)
+                    )
+                    pos_idx = m.make_log_bucket_position(
+                        pos_idx, cfg.position_bucket_size, cfg.max_position_embeddings
+                    )
+                    pos_idx = cfg.position_bucket_size - 1 + pos_idx
+                    m.register_buffer("position_indices", pos_idx, persistent=False)
+            return result
+
+        _PTM._finalize_model_loading = _patched_finalize
         json.JSONEncoder.default = _dtype_aware_default
         try:
             model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
         finally:
             json.JSONEncoder.default = _original_default
+            _PTM._finalize_model_loading = _orig_finalize
+
+        # DWAModules uses InPlaceSetSlice which calls torch.Tensor().set_() to create
+        # aliased storage. torch.compile/dynamo cannot trace set_() — the FakeTensor
+        # retains its empty shape, causing tensordot to see size-0 inputs.
+        # sys.modules search is unreliable because torch.ops and torch.classes also
+        # expose a DWAModules attribute and appear earlier in iteration order.  Get the
+        # class directly from the model instance and replace forward/init_accumulator
+        # with cat-based implementations that contain no reference to InPlaceSetSlice.
+        _DWA = type(model.model.dwa_modules)
+
+        def _dwa_init_accumulator(self, x):
+            self.accumulator = (None, x.unsqueeze(0))
+
+        def _dwa_forward(self, x, block_idx):
+            assert self.accumulator is not None, "call init_accumulator first"
+            _, last_slice = self.accumulator
+            v = x.unsqueeze(0)
+            new_slice = torch.cat([last_slice, v], dim=0)
+            self.accumulator = (None, new_slice)
+            return torch.tensordot(self.alphas[block_idx], new_slice, dims=1)
+
+        _DWA.init_accumulator = _dwa_init_accumulator
+        _DWA.forward = _dwa_forward
+
         model.eval()
 
         if self.tokenizer is None:
