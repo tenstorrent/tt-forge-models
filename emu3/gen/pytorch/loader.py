@@ -192,7 +192,10 @@ class ModelLoader(ForgeModel):
                 if torch.is_tensor(inputs[key]):
                     inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
-        return dict(inputs)
+        result = dict(inputs)
+        # image_size is metadata for constrained generation, not a model forward() arg
+        result.pop("image_size", None)
+        return result
 
     def decode_output(self, outputs):
         if self.processor is None:
