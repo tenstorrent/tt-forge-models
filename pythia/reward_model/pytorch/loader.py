@@ -94,8 +94,6 @@ class ModelLoader(ForgeModel):
 
         inputs = self.tokenizer(
             input_text,
-            max_length=128,
-            padding="max_length",
             truncation=True,
             return_tensors="pt",
         )
