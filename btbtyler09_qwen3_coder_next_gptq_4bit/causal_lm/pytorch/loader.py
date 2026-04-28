@@ -106,11 +106,11 @@ class ModelLoader(ForgeModel):
         # rebuilding dict(model.named_modules()) inside the loop as done in
         # gptqmodel.dequantize_model.
         import torch.nn as nn
-        from gptqmodel.nn_modules.qlinear.torch import TorchQuantLinear
+        from gptqmodel.nn_modules.qlinear import BaseQuantLinear
 
         module_map = dict(model.named_modules())
         for name, mod in list(module_map.items()):
-            if not isinstance(mod, TorchQuantLinear):
+            if not isinstance(mod, BaseQuantLinear):
                 continue
             dq = nn.Linear(mod.in_features, mod.out_features, bias=mod.bias is not None)
             dq.weight = nn.Parameter(mod.dequantize_weight().T.detach())
