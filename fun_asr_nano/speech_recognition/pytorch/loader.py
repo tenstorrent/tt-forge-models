@@ -43,6 +43,10 @@ class FunASRNanoWrapper(torch.nn.Module):
         self.model = model  # FunASRNano instance (not AutoModel)
 
     def forward(self, speech, speech_lengths):
+        # Cast input to match the audio encoder weight dtype (SenseVoice loads as bf16)
+        first_param = next(self.model.parameters(), None)
+        if first_param is not None:
+            speech = speech.to(dtype=first_param.dtype)
         encoder_out, _ = self.model.forward_export(speech, speech_lengths)
         return encoder_out
 
