@@ -42,24 +42,27 @@ def _apply_transformers5_compat() -> None:
         tu.is_tf_available = lambda: False
 
 
-def _patch_modeling_visual(model_name: str) -> None:
-    """Remove strict transformers==4.40.0 assertion from modeling_visual.py.
+_MODEL_FILES_WITH_VERSION_ASSERT = (
+    "modeling_chexagent.py",
+    "modeling_visual.py",
+)
 
-    The file shipped with the model hard-asserts the exact transformers
-    version at module import time.  The assertion is purely a developer
-    warning and has no functional effect; removing it lets the model load
-    with transformers 5.x.
+
+def _patch_model_files(model_name: str) -> None:
+    """Remove strict transformers==4.40.0 assertion from all model source files.
+
+    Both modeling_chexagent.py and modeling_visual.py hard-assert the exact
+    transformers version at module import time.  The assertions are purely
+    developer warnings with no functional effect; removing them lets the model
+    load with transformers 5.x.
     """
     from huggingface_hub import hf_hub_download
 
-    # Patch the HF hub blob (and follow the symlink to the real file).
-    hub_path = Path(hf_hub_download(model_name, "modeling_visual.py"))
-    real_path = Path(os.path.realpath(hub_path))
-    _remove_version_assert(real_path)
-
-    # Also patch the transformers_modules cache copy when it already exists,
-    # so subsequent runs (which skip the blob-copy step) still use the fix.
-    _patch_modules_cache_copy(model_name, "modeling_visual.py")
+    for filename in _MODEL_FILES_WITH_VERSION_ASSERT:
+        hub_path = Path(hf_hub_download(model_name, filename))
+        real_path = Path(os.path.realpath(hub_path))
+        _remove_version_assert(real_path)
+        _patch_modules_cache_copy(model_name, filename)
 
 
 def _remove_version_assert(path: Path) -> None:
@@ -154,7 +157,7 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         _apply_transformers5_compat()
-        _patch_modeling_visual(pretrained_model_name)
+        _patch_model_files(pretrained_model_name)
 
         model_kwargs = {
             "trust_remote_code": True,
