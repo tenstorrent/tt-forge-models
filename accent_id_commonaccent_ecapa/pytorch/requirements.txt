@@ -1,1 +1,2 @@
 speechbrain
+torchaudio==2.9.0
