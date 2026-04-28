@@ -14,6 +14,8 @@ from transformers import (
     AutoTokenizer,
     PretrainedConfig,
 )
+from transformers.tokenization_utils_tokenizers import PreTrainedTokenizerFast
+from tokenizers import AddedToken
 from typing import Optional
 from PIL import Image
 
@@ -28,6 +30,39 @@ from ...config import (
     StrEnum,
 )
 from ...tools.utils import get_file
+
+
+def _tokenizer_compat_load(pretrained_model_name, **kwargs):
+    """Load a tokenizer with a fix for transformers 5.x dict-in-special-tokens bug.
+
+    transformers 5.x does not convert dict entries in additional_special_tokens
+    (from special_tokens_map.json) to AddedToken objects before handing them to
+    the Rust tokenizer backend, causing TypeError in add_tokens().  Patch
+    _add_tokens temporarily to do the conversion.
+    """
+    _orig_add_tokens = PreTrainedTokenizerFast._add_tokens
+
+    @functools.wraps(_orig_add_tokens)
+    def _patched_add_tokens(self, new_tokens, special_tokens=False):
+        fixed = []
+        for t in new_tokens:
+            if isinstance(t, dict):
+                t = AddedToken(
+                    t["content"],
+                    lstrip=t.get("lstrip", False),
+                    rstrip=t.get("rstrip", False),
+                    single_word=t.get("single_word", False),
+                    normalized=t.get("normalized", False),
+                    special=special_tokens,
+                )
+            fixed.append(t)
+        return _orig_add_tokens(self, fixed, special_tokens=special_tokens)
+
+    PreTrainedTokenizerFast._add_tokens = _patched_add_tokens
+    try:
+        return AutoTokenizer.from_pretrained(pretrained_model_name, **kwargs)
+    finally:
+        PreTrainedTokenizerFast._add_tokens = _orig_add_tokens
 
 
 def _florence2_compat_load(pretrained_model_name, **kwargs):
@@ -103,7 +138,7 @@ class ModelLoader(ForgeModel):
 
     def _load_processor(self):
         name = self._variant_config.pretrained_model_name
-        self.tokenizer = AutoTokenizer.from_pretrained(name, trust_remote_code=True)
+        self.tokenizer = _tokenizer_compat_load(name, trust_remote_code=True)
         self.image_processor = AutoImageProcessor.from_pretrained(
             name, trust_remote_code=True, use_fast=False
         )
