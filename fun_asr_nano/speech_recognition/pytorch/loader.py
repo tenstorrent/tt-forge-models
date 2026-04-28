@@ -41,7 +41,7 @@ class FunASRNanoWrapper(torch.nn.Module):
         self.model = model
 
     def forward(self, input_features):
-        return self.model.inference(data_in=input_features)
+        return self.model.inference(input_features)
 
 
 class ModelLoader(ForgeModel):
