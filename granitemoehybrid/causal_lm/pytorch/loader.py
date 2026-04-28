@@ -54,7 +54,7 @@ def _patched_topk_gating_forward(self, hidden_states):
 
 
 def _patched_parallel_experts_forward(self, inputs, sorted_expert_ids):
-    """Uses matmul + one-hot masking instead of split-by-expert-size or gather.
+    """Uses per-expert masked matmul instead of split-by-expert-size or gather.
 
     The original GraniteMoeHybridParallelExperts.forward calls
     inputs.split(expert_size) with a Python list, requiring a device→host
@@ -65,33 +65,20 @@ def _patched_parallel_experts_forward(self, inputs, sorted_expert_ids):
     input_size] to a 2D embedding table [num_experts, output_size*input_size],
     whose row size (~3 MB) overflows the L1 CB budget on TT silicon.
 
-    Instead: flatten weight to [num_experts*output_size, input_size], matmul
-    against all inputs at once, reshape the result to
-    [T, num_experts, output_size], then mask with a per-token one-hot to
-    select each token's assigned expert.  All operations stay in tensor-land
-    with no Python-level splits or device→host transfers.
+    Instead: for each expert e (statically unrolled at trace time), compute
+    F.linear for all tokens and zero-out tokens not assigned to e via a
+    boolean mask.  The per-expert weight slices self.weight[e] are constant
+    integer-indexed and never create a dynamic gather/embedding.  All ops
+    stay in tensor-land with no Python-level splits or device→host transfers.
     """
     T = inputs.shape[0]
-
-    # [num_experts * output_size, input_size]
-    w = self.weight.view(-1, self.input_size)
-
-    # [T, num_experts * output_size]
-    all_outputs = inputs @ w.T
-
-    # [T, num_experts, output_size]
-    all_outputs = all_outputs.view(T, self.num_experts, self.output_size)
-
-    # One-hot selector [T, num_experts] — comparison avoids int64 / tolist.
-    expert_range = torch.arange(
-        self.num_experts, dtype=sorted_expert_ids.dtype, device=inputs.device
-    )
-    one_hot = (sorted_expert_ids.unsqueeze(1) == expert_range.unsqueeze(0)).to(
-        inputs.dtype
-    )
-
-    # [T, output_size]
-    return (all_outputs * one_hot.unsqueeze(2)).sum(dim=1)
+    result = torch.zeros(T, self.output_size, dtype=inputs.dtype, device=inputs.device)
+    for e in range(self.num_experts):
+        w_e = self.weight[e]  # [output_size, input_size] — static slice
+        out_e = torch.nn.functional.linear(inputs, w_e)  # [T, output_size]
+        mask_e = (sorted_expert_ids == e).to(inputs.dtype).unsqueeze(1)
+        result = result + out_e * mask_e
+    return result
 
 
 def _patch_moe_experts(model):
