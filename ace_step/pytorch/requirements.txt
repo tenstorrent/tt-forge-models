@@ -1,1 +1,1 @@
-acestep @ git+https://github.com/ace-step/ACE-Step.git
+ace-step @ git+https://github.com/ace-step/ACE-Step.git
