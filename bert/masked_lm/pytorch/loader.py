@@ -226,7 +226,7 @@ class ModelLoader(ForgeModel):
         Returns:
             The configuration object for the Bert model.
         """
-        self.config = AutoConfig.from_pretrained(
+        self.config = BertConfig.from_pretrained(
             self._variant_config.pretrained_model_name
         )
 
