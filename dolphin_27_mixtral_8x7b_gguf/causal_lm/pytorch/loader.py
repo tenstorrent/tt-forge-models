@@ -210,6 +210,10 @@ class ModelLoader(ForgeModel):
             if not expert_count or int(expert_count) == 0:
                 return None  # Not a MoE model; let AutoConfig handle it
 
+            # Read vocab_size from the tokenizer token list (most reliable source)
+            tokens_field = reader.fields.get("tokenizer.ggml.tokens")
+            vocab_size = len(tokens_field.data) if tokens_field is not None else int(_read("llama.vocab_size") or 32000)
+
             config = MixtralConfig(
                 hidden_size=int(_read("llama.embedding_length") or 4096),
                 intermediate_size=int(_read("llama.feed_forward_length") or 14336),
@@ -220,7 +224,7 @@ class ModelLoader(ForgeModel):
                 num_experts_per_tok=int(_read("llama.expert_used_count") or 2),
                 rms_norm_eps=float(_read("llama.attention.layer_norm_rms_epsilon") or 1e-5),
                 rope_theta=float(_read("llama.rope.freq_base") or 1000000.0),
-                vocab_size=32000,
+                vocab_size=vocab_size,
             )
             if self.num_layers is not None:
                 config.num_hidden_layers = self.num_layers
