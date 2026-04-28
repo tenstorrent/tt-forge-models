@@ -29,6 +29,44 @@ from ...config import (
 
 FAST3R_REPO_PATH = "/tmp/fast3r_repo"
 
+_AUTOCAST_PATCH_SENTINEL = "# PATCHED: device-agnostic autocast\n"
+
+
+def _patch_fast3r_blocks():
+    """Patch fast3r's blocks.py CUDA-only autocast to work on non-CUDA devices.
+
+    fast3r's attention code hardcodes torch.autocast("cuda", dtype=torch.bfloat16)
+    which raises RuntimeError when CUDA is unavailable. Since the model weights are
+    already loaded in bfloat16, the autocast is a no-op and we replace it with
+    contextlib.nullcontext() to allow CPU and TT-hardware execution.
+    """
+    blocks_path = os.path.join(FAST3R_REPO_PATH, "fast3r/croco/models/blocks.py")
+    with open(blocks_path) as f:
+        content = f.read()
+
+    if _AUTOCAST_PATCH_SENTINEL in content:
+        return
+
+    content = (
+        _AUTOCAST_PATCH_SENTINEL
+        + "import contextlib as _contextlib\n"
+        + content.replace(
+            'with torch.autocast("cuda", dtype=torch.bfloat16):',
+            "with _contextlib.nullcontext():",
+        )
+    )
+
+    with open(blocks_path, "w") as f:
+        f.write(content)
+
+    # Remove stale .pyc so Python recompiles from the patched source
+    pyc_path = os.path.join(
+        FAST3R_REPO_PATH,
+        "fast3r/croco/models/__pycache__/blocks.cpython-312.pyc",
+    )
+    if os.path.exists(pyc_path):
+        os.remove(pyc_path)
+
 
 def _ensure_fast3r_importable():
     """Ensure the fast3r repo is cloned, installed, and importable."""
@@ -47,6 +85,8 @@ def _ensure_fast3r_importable():
         subprocess.check_call(
             ["pip", "install", "-e", FAST3R_REPO_PATH],
         )
+
+    _patch_fast3r_blocks()
 
     if FAST3R_REPO_PATH not in sys.path:
         sys.path.insert(0, FAST3R_REPO_PATH)
@@ -109,7 +149,9 @@ class ModelLoader(ForgeModel):
 
         Fast3R's forward method expects a single `views` argument, which is a
         list of view dicts each containing an 'img' tensor and a 'true_shape'
-        metadata tensor.
+        metadata tensor.  The 'dataset', 'label', and 'instance' fields are
+        also required by fast3r's debug logging (view_name()) even when not
+        strictly used by the forward pass.
 
         Returns:
             dict: Dict with a 'views' key for model(**inputs) unpacking.
@@ -124,8 +166,11 @@ class ModelLoader(ForgeModel):
             {
                 "img": torch.randn(batch_size, 3, height, width, dtype=dtype),
                 "true_shape": torch.tensor([[height, width]]).repeat(batch_size, 1),
+                "dataset": ["synthetic"] * batch_size,
+                "label": [f"view_{i}"] * batch_size,
+                "instance": ["0"] * batch_size,
             }
-            for _ in range(num_views)
+            for i in range(num_views)
         ]
 
         return {"views": views}
