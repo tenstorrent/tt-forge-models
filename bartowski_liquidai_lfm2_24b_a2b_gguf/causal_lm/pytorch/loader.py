@@ -4,17 +4,63 @@
 """
 bartowski LiquidAI LFM2-24B-A2B GGUF model loader implementation for causal language modeling.
 """
+import inspect
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+
+def _find_base_load_gguf():
+    """Walk the load_gguf_checkpoint wrapper chain to find the transformers original.
+
+    Many loaders patch load_gguf_checkpoint at import time using a signature that
+    omits **kwargs (so they don't forward model_to_load introduced in transformers
+    5.x). This function walks the closure chain to find the original function from
+    transformers.modeling_gguf_pytorch_utils, which does accept model_to_load.
+    """
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    fn = gguf_utils.load_gguf_checkpoint
+    seen = set()
+
+    while fn is not None:
+        fn_id = id(fn)
+        if fn_id in seen:
+            break
+        seen.add(fn_id)
+
+        if (
+            getattr(fn, "__module__", "") == "transformers.modeling_gguf_pytorch_utils"
+            and getattr(fn, "__qualname__", "") == "load_gguf_checkpoint"
+        ):
+            return fn
+
+        closure = getattr(fn, "__closure__", None)
+        if not closure:
+            break
+
+        next_fn = None
+        for cell in closure:
+            try:
+                val = cell.cell_contents
+                if callable(val) and val is not fn:
+                    next_fn = val
+                    break
+            except (ValueError, AttributeError):
+                pass
+
+        if next_fn is None:
+            break
+        fn = next_fn
+
+    return gguf_utils.load_gguf_checkpoint
 
 
 def _register_lfm2moe_gguf_arch():
     """Register lfm2moe in transformers' GGUF architecture tables.
 
     Called at import time so AutoConfig.from_pretrained works during test
-    collection. Does NOT patch load_gguf_checkpoint — that wrapping is done
-    just before from_pretrained to avoid being overridden by other loaders.
+    collection.
     """
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
@@ -59,8 +105,9 @@ def _register_lfm2moe_gguf_arch():
 def _apply_lfm2moe_load_patches():
     """Wrap load_gguf_checkpoint and get_gguf_hf_weights_map for lfm2moe.
 
-    Applied just before from_pretrained so this wrapper is outermost, even
-    if other loaders have patched the same functions at import time.
+    Uses _find_base_load_gguf() to bypass any intermediate broken wrappers
+    (those that don't forward **kwargs / model_to_load), then wraps the base
+    function directly so model_to_load is always accepted.
     """
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
     import transformers.models.auto.tokenization_auto as tok_auto
@@ -68,10 +115,13 @@ def _apply_lfm2moe_load_patches():
     import transformers.modeling_utils as modeling_utils
     import transformers.tokenization_utils_tokenizers as tok_tokenizers
 
-    prev_load = gguf_utils.load_gguf_checkpoint
+    base_load = _find_base_load_gguf()
+
+    if getattr(gguf_utils.load_gguf_checkpoint, "_is_lfm2moe_wrapper", False):
+        return  # Already outermost with our wrapper; skip
 
     def _lfm2moe_load(gguf_checkpoint_path, return_tensors=False, **kwargs):
-        result = prev_load(gguf_checkpoint_path, return_tensors=return_tensors, **kwargs)
+        result = base_load(gguf_checkpoint_path, return_tensors=return_tensors, **kwargs)
         config = result.get("config", {})
         if config.get("model_type") == "lfm2moe":
             config["model_type"] = "lfm2_moe"
@@ -86,6 +136,8 @@ def _apply_lfm2moe_load_patches():
                     for i in range(n_layers)
                 ]
         return result
+
+    _lfm2moe_load._is_lfm2moe_wrapper = True
 
     gguf_utils.load_gguf_checkpoint = _lfm2moe_load
     for mod in (tok_auto, config_utils, modeling_utils, tok_tokenizers):
@@ -184,8 +236,7 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        # Re-apply load_gguf_checkpoint patch just before from_pretrained so our
-        # wrapper is outermost, regardless of import order with other loaders.
+        # Re-apply just before from_pretrained so our wrapper is outermost.
         _apply_lfm2moe_load_patches()
 
         model_kwargs = {}
