@@ -17,6 +17,8 @@ from transformers import AutoModelForCausalLM, AutoProcessor
 from transformers.dynamic_module_utils import get_class_from_dynamic_module
 from typing import Optional
 
+_MODULE_NAME = "modeling_diffusionvl_qwen2_5_vl"
+
 
 from ...base import ForgeModel
 from ...config import (
@@ -77,9 +79,13 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
+        # transformers 5.x loads Qwen2VLImageProcessor as a fast processor by
+        # default, which is a breaking change.  Use use_fast=False to preserve
+        # the original slow-processor behaviour.
         self.processor = AutoProcessor.from_pretrained(
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
+            use_fast=False,
         )
         return self.processor
 
@@ -113,7 +119,7 @@ class ModelLoader(ForgeModel):
         #    custom tie_weights() doesn't accept **kwargs.
         # Patch both before loading so from_pretrained succeeds.
         _model_cls = get_class_from_dynamic_module(
-            "modeling_diffusionvl_qwen2_5_vl.DiffusionVL_Qwen2_5_VL_ForConditionalGeneration",
+            f"{_MODULE_NAME}.DiffusionVL_Qwen2_5_VL_ForConditionalGeneration",
             pretrained_model_name,
             trust_remote_code=True,
         )
@@ -140,6 +146,59 @@ class ModelLoader(ForgeModel):
             return self.model.embed_tokens(safe_ids)
 
         _model_cls._merge_vision_text = _merge_vision_text_compat
+
+        # 4. rot_pos_emb and get_window_index iterate over grid_thw using Python
+        #    scalars (torch.arange(h), .tolist(), .item()).  On the TT device these
+        #    readbacks fail with INTERNAL: Error code: 13.  Rewrite rot_pos_emb to
+        #    use grid_thw.cpu().tolist(), and wrap get_window_index to move grid_thw
+        #    to CPU before the call (returning window_index back on the original
+        #    device so the subsequent hidden_states[window_index] indexing works).
+        _vision_xfmr_cls = get_class_from_dynamic_module(
+            f"{_MODULE_NAME}.DiffusionVL_Qwen2_5_VL_VisionTransformer",
+            pretrained_model_name,
+            trust_remote_code=True,
+        )
+
+        def _rot_pos_emb_compat(self, grid_thw):
+            pos_ids = []
+            for t, h, w in grid_thw.cpu().tolist():
+                hpos_ids = torch.arange(h).unsqueeze(1).expand(-1, w)
+                hpos_ids = hpos_ids.reshape(
+                    h // self.spatial_merge_size,
+                    self.spatial_merge_size,
+                    w // self.spatial_merge_size,
+                    self.spatial_merge_size,
+                )
+                hpos_ids = hpos_ids.permute(0, 2, 1, 3).flatten()
+                wpos_ids = torch.arange(w).unsqueeze(0).expand(h, -1)
+                wpos_ids = wpos_ids.reshape(
+                    h // self.spatial_merge_size,
+                    self.spatial_merge_size,
+                    w // self.spatial_merge_size,
+                    self.spatial_merge_size,
+                )
+                wpos_ids = wpos_ids.permute(0, 2, 1, 3).flatten()
+                pos_ids.append(torch.stack([hpos_ids, wpos_ids], dim=-1).repeat(t, 1))
+            pos_ids = torch.cat(pos_ids, dim=0)
+            max_grid_size = grid_thw[:, 1:].max()
+            rotary_pos_emb_full = self.rotary_pos_emb(max_grid_size)
+            rotary_pos_emb = rotary_pos_emb_full[pos_ids.to(grid_thw.device)].flatten(1)
+            return rotary_pos_emb
+
+        _vision_xfmr_cls.rot_pos_emb = _rot_pos_emb_compat
+
+        _orig_get_window_index = _vision_xfmr_cls.get_window_index
+        if not getattr(_orig_get_window_index, "_cpu_patched", False):
+
+            def _get_window_index_compat(self, grid_thw):
+                device = grid_thw.device
+                window_index, cu_window_seqlens = _orig_get_window_index(
+                    self, grid_thw.cpu()
+                )
+                return window_index.to(device), cu_window_seqlens
+
+            _get_window_index_compat._cpu_patched = True
+            _vision_xfmr_cls.get_window_index = _get_window_index_compat
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
