@@ -63,7 +63,7 @@ class ModelLoader(ForgeModel):
             kwargs["torch_dtype"] = dtype_override
 
         self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, **kwargs
+            self._variant_config.pretrained_model_name, use_fast=False, **kwargs
         )
 
         return self.processor
