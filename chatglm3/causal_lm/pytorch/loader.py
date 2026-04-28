@@ -7,7 +7,6 @@ ChatGLM3 model loader implementation for causal language modeling.
 import torch
 from typing import Optional
 
-import importlib
 from transformers import AutoTokenizer, AutoModel, AutoConfig
 from ....config import (
     LLMModelConfig,
@@ -19,33 +18,6 @@ from ....config import (
     StrEnum,
 )
 from ....base import ForgeModel
-
-
-def _patch_chatglm_post_init(config_module_name: str) -> None:
-    """Patch ChatGLM __init__ methods to call post_init() (required in transformers 5.x)."""
-    model_module_name = config_module_name.replace(
-        "configuration_chatglm", "modeling_chatglm"
-    )
-    try:
-        mod = importlib.import_module(model_module_name)
-    except ImportError:
-        return
-    for cls_name in ("ChatGLMForConditionalGeneration", "ChatGLMModel"):
-        cls = getattr(mod, cls_name, None)
-        if cls is None or getattr(cls, "_post_init_patched", False):
-            continue
-        orig_init = cls.__init__
-
-        def _make_patched(orig):
-            def _patched_init(self, *args, **kwargs):
-                orig(self, *args, **kwargs)
-                if not hasattr(self, "all_tied_weights_keys"):
-                    self.post_init()
-
-            return _patched_init
-
-        cls.__init__ = _make_patched(orig_init)
-        cls._post_init_patched = True
 
 
 class ModelVariant(StrEnum):
@@ -119,12 +91,8 @@ class ModelLoader(ForgeModel):
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name, trust_remote_code=True, **tokenizer_kwargs
+            pretrained_model_name, trust_remote_code=True
         )
 
         # Set pad token to eos token
@@ -153,14 +121,45 @@ class ModelLoader(ForgeModel):
         # the remote modeling code accesses config.max_length which maps to seq_length.
         if not hasattr(config, "max_length") and hasattr(config, "seq_length"):
             config.max_length = config.seq_length
+        # transformers 5.x pops use_cache from config init kwargs (generation param);
+        # the remote modeling code expects config.use_cache to exist.
+        if not hasattr(config, "use_cache"):
+            config.use_cache = True
 
-        # transformers 5.x requires models to call self.post_init() at the end of
-        # __init__ to populate all_tied_weights_keys; the remote code omits this.
-        _patch_chatglm_post_init(type(config).__module__)
+        # ChatGLM3 remote __init__ omits post_init(); transformers 5.x needs it to
+        # initialize all_tied_weights_keys. Use get_class_from_dynamic_module (which
+        # sets the module hash) so the patch survives the second module load inside
+        # AutoModel.from_pretrained.
+        auto_map = getattr(config, "auto_map", {})
+        model_class_ref = auto_map.get("AutoModel")
+        if model_class_ref:
+            try:
+                from transformers.dynamic_module_utils import (
+                    get_class_from_dynamic_module,
+                )
+
+                model_cls = get_class_from_dynamic_module(
+                    model_class_ref, pretrained_model_name
+                )
+                if not getattr(model_cls, "_tt_post_init_patched", False):
+                    orig_init = model_cls.__init__
+
+                    def _make_patched(original):
+                        def patched_init(self, cfg, *args, **kw):
+                            original(self, cfg, *args, **kw)
+                            if not hasattr(self, "all_tied_weights_keys"):
+                                self.post_init()
+
+                        return patched_init
+
+                    model_cls.__init__ = _make_patched(orig_init)
+                    model_cls._tt_post_init_patched = True
+            except Exception:
+                pass
 
         model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
