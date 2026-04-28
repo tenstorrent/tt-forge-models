@@ -358,11 +358,23 @@ class Compressor(nn.Module):
             cutoff = seqlen - remainder
             offset = ratio if overlap else 0
             if overlap and cutoff >= ratio:
-                self.kv_state[:bsz, :ratio] = kv[:, cutoff - ratio:cutoff]
-                self.score_state[:bsz, :ratio] = score[:, cutoff - ratio:cutoff] + self.ape
+                self.kv_state = torch.ops.aten.slice_scatter(
+                    self.kv_state, kv[:, cutoff - ratio:cutoff], dim=1, start=0, end=ratio
+                )
+                self.score_state = torch.ops.aten.slice_scatter(
+                    self.score_state, score[:, cutoff - ratio:cutoff] + self.ape, dim=1, start=0, end=ratio
+                )
             if remainder > 0:
-                kv, self.kv_state[:bsz, offset:offset + remainder] = kv.split([cutoff, remainder], dim=1)
-                self.score_state[:bsz, offset:offset + remainder] = score[:, cutoff:] + self.ape[:remainder]
+                kv_keep, kv_state_update = kv.split([cutoff, remainder], dim=1)
+                kv = kv_keep
+                self.kv_state = torch.ops.aten.slice_scatter(
+                    self.kv_state, kv_state_update, dim=1, start=offset, end=offset + remainder
+                )
+                self.score_state = torch.ops.aten.slice_scatter(
+                    self.score_state,
+                    score[:, cutoff:] + self.ape[:remainder],
+                    dim=1, start=offset, end=offset + remainder,
+                )
                 score = score[:, :cutoff]
             kv = kv.reshape(kv.shape[0], -1, ratio, *kv.shape[2:])
             score = score.reshape(score.shape[0], -1, ratio, *score.shape[2:]) + self.ape
@@ -375,7 +387,9 @@ class Compressor(nn.Module):
             kv = self.norm(kv.to(dtype))
             freqs_cis = self.freqs_cis[:cutoff:ratio]
             apply_rotary_emb(kv[..., -rd:], freqs_cis)
-            self.kv_cache[:bsz, :seqlen // ratio] = kv
+            self.kv_cache = torch.ops.aten.slice_scatter(
+                self.kv_cache, kv, dim=1, start=0, end=seqlen // ratio
+            )
             return kv
 
         # ----- Decode: start_pos must be a 0-d torch.long tensor. -----
@@ -389,8 +403,8 @@ class Compressor(nn.Module):
 
         if overlap:
             write_idx_top = (ratio + start_pos % ratio).view(1)
-            self.kv_state[:bsz].index_copy_(1, write_idx_top, kv)
-            self.score_state[:bsz].index_copy_(1, write_idx_top, score)
+            self.kv_state = torch.ops.aten.index_copy(self.kv_state, 1, write_idx_top, kv)
+            self.score_state = torch.ops.aten.index_copy(self.score_state, 1, write_idx_top, score)
             kv_state = torch.cat(
                 [self.kv_state[:bsz, :ratio, :d], self.kv_state[:bsz, ratio:, d:]], dim=1
             )
@@ -401,12 +415,16 @@ class Compressor(nn.Module):
             # Conditional roll: on compress steps, [:ratio] becomes the [ratio:] block.
             new_first = torch.where(should_compress, self.kv_state[:bsz, ratio:], self.kv_state[:bsz, :ratio])
             new_first_score = torch.where(should_compress, self.score_state[:bsz, ratio:], self.score_state[:bsz, :ratio])
-            self.kv_state[:bsz, :ratio] = new_first
-            self.score_state[:bsz, :ratio] = new_first_score
+            self.kv_state = torch.ops.aten.slice_scatter(
+                self.kv_state, new_first, dim=1, start=0, end=ratio
+            )
+            self.score_state = torch.ops.aten.slice_scatter(
+                self.score_state, new_first_score, dim=1, start=0, end=ratio
+            )
         else:
             write_idx = (start_pos % ratio).view(1)
-            self.kv_state[:bsz].index_copy_(1, write_idx, kv)
-            self.score_state[:bsz].index_copy_(1, write_idx, score)
+            self.kv_state = torch.ops.aten.index_copy(self.kv_state, 1, write_idx, kv)
+            self.score_state = torch.ops.aten.index_copy(self.score_state, 1, write_idx, score)
             kv_compressed = (self.kv_state[:bsz] * self.score_state[:bsz].softmax(dim=1)).sum(dim=1, keepdim=True)
 
         # Always run norm + rotary; the kv_cache write is gated to compress steps via where.
@@ -417,7 +435,7 @@ class Compressor(nn.Module):
         write_kv_idx = (start_pos // ratio).view(1)
         existing = self.kv_cache[:bsz].index_select(1, write_kv_idx)
         merged = torch.where(should_compress, kv_n, existing)
-        self.kv_cache[:bsz].index_copy_(1, write_kv_idx, merged)
+        self.kv_cache = torch.ops.aten.index_copy(self.kv_cache, 1, write_kv_idx, merged)
         return None  # decode callers ignore the return
 
 
@@ -599,12 +617,22 @@ class Attention(nn.Module):
             topk_idxs = topk_idxs.int()
 
             if seqlen <= win:
-                self.kv_cache[:bsz, :seqlen] = kv
+                new_kv_cache = torch.ops.aten.slice_scatter(
+                    self.kv_cache, kv, dim=1, start=0, end=seqlen
+                )
+                self.kv_cache = new_kv_cache
             else:
                 cutoff = seqlen % win
-                self.kv_cache[:bsz, cutoff:win], self.kv_cache[:bsz, :cutoff] = (
-                    kv[:, -win:].split([win - cutoff, cutoff], dim=1)
+                kv_tail = kv[:, -win:]
+                tail_high, tail_low = kv_tail.split([win - cutoff, cutoff], dim=1)
+                new_kv_cache = torch.ops.aten.slice_scatter(
+                    self.kv_cache, tail_high, dim=1, start=cutoff, end=win
                 )
+                new_kv_cache = torch.ops.aten.slice_scatter(
+                    new_kv_cache, tail_low, dim=1, start=0, end=cutoff
+                )
+                self.kv_cache = new_kv_cache
+
             if ratio:
                 kv_compress = self.compressor(x, start_pos)
                 if kv_compress is not None:
@@ -641,7 +669,9 @@ class Attention(nn.Module):
                 topk_idxs = torch.cat([topk_idxs, compress_topk_idxs], dim=-1)
             topk_idxs = topk_idxs.int()
 
-            self.kv_cache[:bsz].index_copy_(1, (start_pos % win).view(1), kv)
+            self.kv_cache = torch.ops.aten.index_copy(
+                self.kv_cache, 1, (start_pos % win).view(1), kv
+            )
             if ratio:
                 self.compressor(x, start_pos)
                 kv_full = torch.cat([self.kv_cache[:bsz], self.compressor.kv_cache[:bsz]], dim=1)
