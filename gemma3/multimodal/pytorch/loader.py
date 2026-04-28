@@ -173,6 +173,24 @@ class ModelLoader(ForgeModel):
         ):
             model_kwargs["device_map"] = "cpu"
 
+        if self._variant == ModelVariant.GEMMA_3_4B_IT_GPTQ_4BIT_128G:
+            # compressed_tensors 0.15.x uses re.match for ignore patterns, anchoring
+            # at the start. The model's ignore list uses "re:vision_tower.*" which
+            # won't match "model.vision_tower.*" paths, causing vision encoder layers
+            # (intermediate_size=4304, not divisible by group_size 128) to be included
+            # in quantization and crash compress_model. Add ".*" prefix to fix.
+            # Also set run_compressed=False to dequantize to float before TT compilation.
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            qc = getattr(config, "quantization_config", None)
+            if qc is not None:
+                if getattr(qc, "ignore", None):
+                    qc.ignore = [
+                        f"re:.*{p[3:]}" if p.startswith("re:") else p
+                        for p in qc.ignore
+                    ]
+                qc.run_compressed = False
+            model_kwargs["config"] = config
+
         model = Gemma3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
