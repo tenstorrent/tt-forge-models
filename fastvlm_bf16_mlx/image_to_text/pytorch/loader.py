@@ -4,9 +4,13 @@
 """
 FastVLM bf16 MLX model loader implementation for image-to-text tasks.
 """
+import re
+
 import torch
+from huggingface_hub import hf_hub_download
 from PIL import Image
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from safetensors.torch import load_file
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -79,6 +83,48 @@ class ModelLoader(ForgeModel):
         )
         return self.tokenizer
 
+    @staticmethod
+    def _remap_checkpoint_keys(state_dict: dict) -> dict:
+        """Remap mlx-community checkpoint keys to match llava_qwen.py parameter names.
+
+        The mlx-community/FastVLM-0.5B-bf16 checkpoint was saved from an MLX-converted
+        model with a different attribute layout and tensor layout than llava_qwen.py expects:
+
+        Key remapping:
+          language_model.model.X                          ->  model.X
+          language_model.lm_head.X                        ->  lm_head.X
+          mm_projector.X                                  ->  model.mm_projector.X
+          vision_tower.vision_model.patch_embed.blocks.N.X
+                                                          ->  model.vision_tower.vision_tower.model.patch_embed.N.X
+          vision_tower.vision_model.X                     ->  model.vision_tower.vision_tower.model.X
+
+        Tensor layout remapping for vision tower weights (MLX NHWC → PyTorch NCHW):
+          4D tensors: (out_c, kH, kW, in_c) -> permute(0, 3, 1, 2) -> (out_c, in_c, kH, kW)
+          3D tensors: (1, 1, C)             -> permute(2, 0, 1)     -> (C, 1, 1)
+        """
+        remapped = {}
+        for key, val in state_dict.items():
+            if key.startswith("language_model.model."):
+                new_key = "model." + key[len("language_model.model."):]
+            elif key.startswith("language_model.lm_head."):
+                new_key = "lm_head." + key[len("language_model.lm_head."):]
+            elif key.startswith("mm_projector."):
+                new_key = "model." + key
+            elif key.startswith("vision_tower.vision_model."):
+                rest = key[len("vision_tower.vision_model."):]
+                # patch_embed.blocks.N.X  ->  patch_embed.N.X
+                rest = re.sub(r"^patch_embed\.blocks\.(\d+)\.", r"patch_embed.\1.", rest)
+                new_key = "model.vision_tower.vision_tower.model." + rest
+                # Permute MLX-format weight tensors to PyTorch layout.
+                if val.dim() == 4:
+                    val = val.permute(0, 3, 1, 2).contiguous()
+                elif val.dim() == 3:
+                    val = val.permute(2, 0, 1).contiguous()
+            else:
+                new_key = key
+            remapped[new_key] = val
+        return remapped
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the FastVLM bf16 MLX model instance.
 
@@ -94,14 +140,23 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        model_kwargs = {"trust_remote_code": True}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+        # Build model from config (avoids the broken from_pretrained weight load).
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
         )
+        model = AutoModelForCausalLM.from_config(config, dtype=dtype, trust_remote_code=True)
+
+        # Load and remap the safetensors checkpoint.
+        ckpt_path = hf_hub_download(pretrained_model_name, "model.safetensors")
+        raw_sd = load_file(ckpt_path, device="cpu")
+        remapped_sd = self._remap_checkpoint_keys(raw_sd)
+        missing, unexpected = model.load_state_dict(remapped_sd, strict=False)
+
+        # Tie weights (lm_head <-> embed_tokens) after loading.
+        model.tie_weights()
+
         model.eval()
         self.model = model
         return model
