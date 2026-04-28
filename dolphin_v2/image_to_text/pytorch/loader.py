@@ -72,6 +72,7 @@ def _patch_qwen2_5_vl_tolist():
         return window_index.to(device), cu_window_seqlens
 
     def _patched_get_image_features(self, pixel_values, image_grid_thw=None, **kwargs):
+        kwargs.pop("return_dict", None)
         pixel_values = pixel_values.type(self.visual.dtype)
         vision_outputs = self.visual(pixel_values, grid_thw=image_grid_thw, return_dict=True, **kwargs)
         split_sizes = (image_grid_thw.prod(-1) // self.visual.spatial_merge_size**2).cpu().tolist()
