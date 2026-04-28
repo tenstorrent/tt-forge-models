@@ -179,9 +179,32 @@ class ModelLoader(ForgeModel):
             config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
+
+        # NVFP4 uses compressed-tensors with nvfp4-pack-quantized format.
+        # TT hardware has no FP4 data type support; dequantize to BF16 at load
+        # time by disabling compressed inference. Also remove the instance-level
+        # forward overrides that compressed-tensors attaches to each Linear —
+        # they conflict with TT-XLA's __torch_function__ dispatch.
+        if self._variant == ModelVariant.QWEN_3_EMBEDDING_8B_NVFP4:
+            config = model_kwargs.pop("config", None) or AutoConfig.from_pretrained(
+                pretrained_model_name
+            )
+            if isinstance(config.quantization_config, dict):
+                config.quantization_config["run_compressed"] = False
+            else:
+                config.quantization_config.run_compressed = False
+            model_kwargs["config"] = config
+
         model_kwargs |= kwargs
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+
+        if self._variant == ModelVariant.QWEN_3_EMBEDDING_8B_NVFP4:
+            for m in model.modules():
+                if "forward" in m.__dict__:
+                    del m.__dict__["forward"]
+            model.config.use_cache = False
+
         model.eval()
         self.model = model
         self.config = model.config
