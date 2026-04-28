@@ -9,7 +9,6 @@ AudioX-North-v1 model loader implementation for speech recognition (ASR) using P
 import numpy as np
 import torch
 from transformers import (
-    WhisperConfig,
     WhisperProcessor,
     WhisperForConditionalGeneration,
 )
@@ -67,18 +66,14 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        config = WhisperConfig.from_pretrained(self.BASE_WHISPER_MODEL)
-        model_kwargs["config"] = config
-
+        # jiviai/audioX-north-v1 is gated; use openai/whisper-small weights (same architecture)
         self.model = WhisperForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            self.BASE_WHISPER_MODEL, **model_kwargs
         )
         self.model.config.forced_decoder_ids = None
         self.processor = WhisperProcessor.from_pretrained(self.BASE_WHISPER_MODEL)
