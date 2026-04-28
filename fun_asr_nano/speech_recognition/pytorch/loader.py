@@ -113,11 +113,13 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the Fun-ASR-Nano model."""
-        # Generate a synthetic 1-second audio waveform at 16kHz
+        # Generate a synthetic 1-second audio waveform at 16kHz.
+        # FunASRNano's generate_chatml only accepts torch.Tensor (or str path),
+        # so we must provide a tensor rather than a numpy array.
         sampling_rate = 16000
         duration_seconds = 1
-        audio_array = np.random.randn(sampling_rate * duration_seconds).astype(
-            np.float32
+        audio_tensor = torch.from_numpy(
+            np.random.randn(sampling_rate * duration_seconds).astype(np.float32)
         )
 
-        return [audio_array]
+        return [audio_tensor]
