@@ -8,6 +8,7 @@ import torch
 from transformers import (
     AutoImageProcessor,
     AutoModelForImageClassification,
+    PretrainedConfig,
 )
 from datasets import load_dataset
 from typing import Optional
@@ -61,7 +62,15 @@ class ModelLoader(ForgeModel):
 
     def _load_processor(self):
         pretrained_model_name = self._variant_config.pretrained_model_name
-        self.processor = AutoImageProcessor.from_pretrained(pretrained_model_name)
+        try:
+            self.processor = AutoImageProcessor.from_pretrained(pretrained_model_name)
+        except OSError:
+            # The fine-tuned repo has no preprocessor_config.json; fall back to the
+            # base model recorded in _name_or_path in config.json (transformers 5.x
+            # overrides _name_or_path at load time so we read the raw dict instead).
+            config_dict, _ = PretrainedConfig.get_config_dict(pretrained_model_name)
+            base_model_name = config_dict.get("_name_or_path", pretrained_model_name)
+            self.processor = AutoImageProcessor.from_pretrained(base_model_name)
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
