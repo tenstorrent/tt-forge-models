@@ -104,6 +104,22 @@ def _patch_transformers_glm4moe_gguf():
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
+    # 5. Patch get_gguf_hf_weights_map to map glm4_moe -> glm4moe.
+    #    The weights-map helper uses model_type to look up the gguf-py arch
+    #    enum, but gguf-py stores the arch as "glm4moe" (not "glm4_moe").
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type == "glm4_moe":
+            model_type = "glm4moe"
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
 
 # Apply the monkey-patch at import time
 _patch_transformers_glm4moe_gguf()
