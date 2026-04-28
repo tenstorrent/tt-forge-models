@@ -195,6 +195,9 @@ class ModelLoader(ForgeModel):
         result = dict(inputs)
         # image_size is metadata for constrained generation, not a model forward() arg
         result.pop("image_size", None)
+        # transformers 5.x removed DynamicCache.get_usable_length(); disable KV cache
+        # for single forward-pass inference (fresh cache = length 0 either way)
+        result["use_cache"] = False
         return result
 
     def decode_output(self, outputs):
