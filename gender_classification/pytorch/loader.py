@@ -6,8 +6,8 @@ Gender Classification model loader implementation for image classification.
 """
 import torch
 from transformers import (
-    AutoImageProcessor,
     AutoModelForImageClassification,
+    ConvNextImageProcessor,
 )
 from datasets import load_dataset
 from typing import Optional
@@ -69,7 +69,7 @@ class ModelLoader(ForgeModel):
 
     def _load_processor(self):
         pretrained_model_name = self._variant_config.pretrained_model_name
-        self.processor = AutoImageProcessor.from_pretrained(pretrained_model_name)
+        self.processor = ConvNextImageProcessor.from_pretrained(pretrained_model_name)
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
