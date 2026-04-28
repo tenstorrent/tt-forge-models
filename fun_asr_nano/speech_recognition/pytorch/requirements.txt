@@ -1,3 +1,2 @@
 funasr
 tiktoken
-torchaudio
