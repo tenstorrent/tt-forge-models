@@ -205,6 +205,15 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
 
+        if self._variant == ModelVariant.GEMMA_3_4B_IT_GPTQ_4BIT_128G:
+            # After decompression, compressed_tensors leaves a quantized_forward
+            # instance-method bound on each Linear. That wrapper accesses weight.data
+            # unconditionally, which conflicts with TT-XLA's __torch_function__ during
+            # torch.compile. Restore the class-level forward by removing the override.
+            for m in model.modules():
+                if "forward" in m.__dict__:
+                    del m.__dict__["forward"]
+
         if is_mlx:
             self._fix_mlx_patch_embedding(model, pretrained_model_name, dtype_override)
 
