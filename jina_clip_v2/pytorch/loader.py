@@ -7,7 +7,6 @@ Jina CLIP v2 model loader implementation for image-text similarity.
 import math
 import torch
 import torch.nn as nn
-import torch.nn.functional as _F
 import torch.nn.utils.parametrize as _parametrize
 from functools import partial as _partial
 from torch.utils.checkpoint import checkpoint as _checkpoint
@@ -70,6 +69,22 @@ def _recompute_rope_buffers(model):
 
         module.register_buffer("freqs_cos", new_cos, persistent=False)
         module.register_buffer("freqs_sin", new_sin, persistent=False)
+
+
+def _recompute_xlm_roberta_rope_buffers(model):
+    """Recompute XLM-RoBERTa RotaryEmbedding.inv_freq non-persistent buffers after meta init.
+
+    Under transformers 5.x, meta device init leaves inv_freq uninitialized after
+    weight loading because persistent=False buffers are absent from the checkpoint.
+    Recompute on CPU using the module's own _compute_inv_freq method.
+    """
+    for module in model.modules():
+        if type(module).__name__ != "RotaryEmbedding":
+            continue
+        if not hasattr(module, "_compute_inv_freq"):
+            continue
+        new_inv_freq = module._compute_inv_freq(device="cpu")
+        module.register_buffer("inv_freq", new_inv_freq, persistent=False)
 
 
 def _fix_eva_rope_forward_accumulation(model):
@@ -135,73 +150,25 @@ def _fix_eva_rope_forward_accumulation(model):
         eva.forward_features = _fwd_feat
 
 
-class LoRALinear(nn.Linear):
-    """nn.Linear subclass for LoRA-adapted linear layers.
+def _merge_lora_for_default_task(model):
+    """Pre-merge LoRA delta for the default task into base weights.
 
-    All LoRA linears share this single type so Dynamo generates ONE type guard
-    (check_type_id == id(LoRALinear)) that passes for every instance, avoiding
-    the per-instance guard failures that caused 18+ recompiles with the
-    per-instance bound-method approach.  Different weight shapes still cause
-    shape-based recompiles, but the total count stays well within the limit=8.
+    mha.py and mlp.py dispatch LoRA via adapter_mask, using nonzero() for
+    dynamic batch routing and in-place scatter to write back results.  Both
+    operations produce dynamic tensor shapes that TT's static-shape compiler
+    cannot handle, yielding pcc=-1.0 text embeddings.
+
+    Fix: for inference we always use the default task (task_id=0, 'retrieval.
+    query').  Pre-merge that single delta into each LoRA-parametrized weight at
+    load time so every module becomes a plain nn.Linear / nn.Embedding.  Then
+    set _default_loraid=None on the text tower so hf_model.py never constructs
+    an adapter_mask, keeping the entire text encoder on the static code path.
     """
+    text_model = getattr(model, "text_model", None)
+    default_loraid = getattr(text_model, "_default_loraid", None)
+    if default_loraid is None:
+        return
 
-    def forward(self, input, task_id=None, residual=False):
-        if task_id is not None:
-            delta_w = (
-                torch.mm(self._lora_B[task_id], self._lora_A[task_id])
-                * self._lora_scaling
-            )
-            weights = self.weight + delta_w
-        else:
-            weights = self.weight
-        out = _F.linear(input, weights, self.bias)
-        if residual:
-            return out, input
-        return out
-
-
-class LoRAEmbedding(nn.Embedding):
-    """nn.Embedding subclass for LoRA-adapted embedding layers.
-
-    Same rationale as LoRALinear: shared type avoids per-instance Dynamo guards.
-    For embeddings the LoRA product order is reversed (A @ B, not B @ A) because
-    the weight is stored fan_in × fan_out (vocab × embed_dim).
-    """
-
-    def forward(self, input, task_id=None):
-        if task_id is not None:
-            delta_w = (
-                torch.mm(self._lora_A[task_id], self._lora_B[task_id])
-                * self._lora_scaling
-            )
-            weights = self.weight + delta_w
-        else:
-            weights = self.weight
-        return _F.embedding(
-            input,
-            weights,
-            self.padding_idx,
-            self.max_norm,
-            self.norm_type,
-            self.scale_grad_by_freq,
-            self.sparse,
-        )
-
-
-def _fix_lora_forward_dynamo_guards(model):
-    """Fix Dynamo recompile limit from LoRA parametrize-created unique subclasses.
-
-    torch.nn.utils.parametrize.register_parametrization creates a unique
-    Python subclass per module instance.  With 28 transformer layers each
-    having 4+ LoRA-parametrized layers, Dynamo guards fail on type(self)
-    for each unique subclass, recompiling 18+ times (>8 limit) and falling
-    back to eager with wrong outputs (pcc=-1.0).
-
-    Fix: remove parametrize (materialising the base weight), store LoRA A/B
-    weights as registered buffers, then change __class__ to LoRALinear /
-    LoRAEmbedding.  All processed modules share ONE type each; Dynamo creates
-    one type guard per shape variant (4-6 total) — well within limit=8.
-    """
     for module in model.modules():
         if not (
             hasattr(module, "parametrizations")
@@ -226,23 +193,26 @@ def _fix_lora_forward_dynamo_guards(model):
         scaling = float(lp.scaling)
 
         # Remove parametrize — materialises the base weight (LoRAParametrization.forward
-        # is the identity, so the materialised weight equals the original weight).
+        # is the identity, so the materialised weight equals the original base weight).
         _parametrize.remove_parametrizations(module, "weight", leave_parametrized=True)
 
-        # Remove any existing per-instance forward override left by modeling_lora.py
+        # Compute the LoRA delta for the default task and merge into the base weight.
+        if is_linear:
+            # Linear:    delta = lora_B[task] @ lora_A[task]  →  [fan_out, fan_in]
+            delta_w = torch.mm(lora_B[default_loraid], lora_A[default_loraid]) * scaling
+        else:
+            # Embedding: delta = lora_A[task] @ lora_B[task]  →  [fan_in, fan_out]
+            delta_w = torch.mm(lora_A[default_loraid], lora_B[default_loraid]) * scaling
+        module.weight = nn.Parameter(module.weight.data + delta_w)
+
+        # Remove any per-instance forward override left by modeling_lora.py so
+        # the module falls back to the plain nn.Linear / nn.Embedding forward.
         module.__dict__.pop("forward", None)
 
-        # Store LoRA weights as non-persistent buffers (symbolic graph inputs for Dynamo).
-        module.register_buffer("_lora_A", lora_A, persistent=False)
-        module.register_buffer("_lora_B", lora_B, persistent=False)
-        module.register_buffer(
-            "_lora_scaling",
-            torch.tensor(scaling, dtype=lora_A.dtype),
-            persistent=False,
-        )
-
-        # Change the class to the shared subclass so Dynamo sees ONE stable type.
-        module.__class__ = LoRALinear if is_linear else LoRAEmbedding
+    # Prevent hf_model.py from constructing adapter_mask (and triggering the
+    # nonzero / in-place-scatter path in mha.py / mlp.py).
+    if text_model is not None:
+        text_model._default_loraid = None
 
 
 class ModelVariant(StrEnum):
@@ -333,16 +303,21 @@ class ModelLoader(ForgeModel):
         # using the config params to restore correct values.
         _recompute_rope_buffers(model)
 
+        # RotaryEmbedding.inv_freq in the XLM-RoBERTa text encoder is likewise a
+        # non-persistent buffer; recompute it on CPU using the module's own helper.
+        _recompute_xlm_roberta_rope_buffers(model)
+
         # forward_features re-wraps self.rope.forward with a new partial each eval
         # call, causing Dynamo to recompile 18 times (limit=8) and fall back to eager.
         # Replace each EVAVisionTransformer's forward_features with a stable version.
         _fix_eva_rope_forward_accumulation(model)
 
-        # parametrize.register_parametrization creates a unique Python subclass per
-        # module instance.  With 100+ LoRA-parametrized linears, Dynamo guards fail on
-        # type(self) for each unique subclass (18/8 recompiles → eager, pcc=-1.0).
-        # Remove parametrize, store LoRA A/B as buffers, install a single shared forward.
-        _fix_lora_forward_dynamo_guards(model)
+        # The adapter_mask path in mha.py / mlp.py uses nonzero() (dynamic shapes) and
+        # in-place scatter — both incompatible with TT static-shape compilation (pcc=-1.0).
+        # Pre-merge the default-task LoRA delta into each base weight at load time so
+        # every LoRA module becomes a plain nn.Linear / nn.Embedding and adapter_mask
+        # is never constructed during the forward pass.
+        _merge_lora_for_default_task(model)
 
         # The text tower's config has dtype=float32, so the nested _from_config
         # overrides the outer bfloat16 context; the text parameters end up float32
