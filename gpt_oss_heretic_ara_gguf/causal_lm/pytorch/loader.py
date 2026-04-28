@@ -98,6 +98,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        # Qwen3MoeExperts default forward uses a Python for-loop over a
+        # dynamically-sized tensor, which segfaults during XLA graph tracing.
+        # batched_mm uses scatter/gather/matmul (all static ops) instead.
+        model.config._experts_implementation = "batched_mm"
+
         self.config = model.config
         self.model = model
         return model
