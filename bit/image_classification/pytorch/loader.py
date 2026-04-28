@@ -84,8 +84,11 @@ class ModelLoader(ForgeModel):
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        # Load AutoImageProcessor
-        self.processor = AutoImageProcessor.from_pretrained(pretrained_model_name)
+        # use_fast=False: transformers 5.x loads BitImageProcessor as fast by
+        # default, changing behaviour. Keep the slow processor for consistency.
+        self.processor = AutoImageProcessor.from_pretrained(
+            pretrained_model_name, use_fast=False
+        )
 
         return self.processor
 
