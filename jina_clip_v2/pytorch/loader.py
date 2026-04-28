@@ -7,6 +7,8 @@ Jina CLIP v2 model loader implementation for image-text similarity.
 import math
 import torch
 import torch.nn as nn
+import torch.nn.functional as _F
+import torch.nn.utils.parametrize as _parametrize
 from functools import partial as _partial
 from torch.utils.checkpoint import checkpoint as _checkpoint
 from transformers import AutoModel, AutoProcessor
@@ -133,6 +135,76 @@ def _fix_eva_rope_forward_accumulation(model):
         eva.forward_features = _fwd_feat
 
 
+def _lora_linear_forward(self, input, task_id=None, residual=False):
+    """Shared LoRA linear forward for all LoRA layers.
+
+    Defined at module level (not inside a loop) so Dynamo sees the same
+    function object for every layer.  After remove_parametrizations,
+    type(self) == nn.Linear for all layers, keeping Dynamo's type guard
+    stable across 100+ linear layers.
+    """
+    if task_id is not None:
+        delta_w = torch.mm(
+            self._lora_B[task_id], self._lora_A[task_id]
+        ) * self._lora_scaling
+        weights = self.weight + delta_w
+    else:
+        weights = self.weight
+    out = _F.linear(input, weights, self.bias)
+    if residual:
+        return out, input
+    return out
+
+
+def _fix_lora_forward_dynamo_guards(model):
+    """Fix Dynamo recompile limit from LoRA parametrize-created unique subclasses.
+
+    torch.nn.utils.parametrize.register_parametrization creates a unique
+    Python subclass per module instance.  With 28 transformer layers each
+    having 4 LoRA-parametrized linears, Dynamo guards fail on type(self)
+    for each unique subclass, recompiling 18+ times (>8 limit) and falling
+    back to eager with wrong outputs (pcc=-1.0).
+
+    Fix: remove parametrize (restoring nn.Linear for all layers), store
+    LoRA A/B weights as registered buffers so Dynamo treats them as symbolic
+    graph inputs, and install the single module-level _lora_linear_forward so
+    Dynamo compiles once (type guard and function guard both stable).
+    """
+    for module in model.modules():
+        if not (
+            isinstance(module, nn.Linear)
+            and hasattr(module, "parametrizations")
+            and hasattr(module.parametrizations, "weight")
+            and len(module.parametrizations.weight) > 0
+        ):
+            continue
+        lp = module.parametrizations.weight[0]
+        if type(lp).__name__ != "LoRAParametrization":
+            continue
+
+        # Capture LoRA state before removing parametrize
+        lora_A = lp.lora_A.detach().clone()   # [num_tasks, rank, fan_in]
+        lora_B = lp.lora_B.detach().clone()   # [num_tasks, fan_out, rank]
+        scaling = float(lp.scaling)
+
+        # Remove parametrize → restores module.__class__ to nn.Linear (shared type)
+        # leave_parametrized=True: module.weight becomes the materialized weight
+        # (LoRAParametrization.forward is identity so base weight is unchanged)
+        _parametrize.remove_parametrizations(module, "weight", leave_parametrized=True)
+
+        # Store LoRA weights as buffers so Dynamo treats them as symbolic inputs
+        module.register_buffer("_lora_A", lora_A, persistent=False)
+        module.register_buffer("_lora_B", lora_B, persistent=False)
+        module.register_buffer(
+            "_lora_scaling",
+            torch.tensor(scaling, dtype=lora_A.dtype),
+            persistent=False,
+        )
+
+        # Install the single shared forward (replaces old per-layer new_forward)
+        module.forward = _lora_linear_forward.__get__(module, module.__class__)
+
+
 class ModelVariant(StrEnum):
     """Available Jina CLIP v2 model variants."""
 
@@ -225,6 +297,12 @@ class ModelLoader(ForgeModel):
         # call, causing Dynamo to recompile 18 times (limit=8) and fall back to eager.
         # Replace each EVAVisionTransformer's forward_features with a stable version.
         _fix_eva_rope_forward_accumulation(model)
+
+        # parametrize.register_parametrization creates a unique Python subclass per
+        # module instance.  With 100+ LoRA-parametrized linears, Dynamo guards fail on
+        # type(self) for each unique subclass (18/8 recompiles → eager, pcc=-1.0).
+        # Remove parametrize, store LoRA A/B as buffers, install a single shared forward.
+        _fix_lora_forward_dynamo_guards(model)
 
         # The text tower's config has dtype=float32, so the nested _from_config
         # overrides the outer bfloat16 context; the text parameters end up float32
