@@ -9,7 +9,7 @@ from transformers import (
     AutoImageProcessor,
     AutoModelForImageClassification,
 )
-from datasets import load_dataset
+from PIL import Image
 from typing import Optional
 
 from ....base import ForgeModel
@@ -61,7 +61,9 @@ class ModelLoader(ForgeModel):
 
     def _load_processor(self):
         pretrained_model_name = self._variant_config.pretrained_model_name
-        self.processor = AutoImageProcessor.from_pretrained(pretrained_model_name)
+        self.processor = AutoImageProcessor.from_pretrained(
+            pretrained_model_name, use_fast=False
+        )
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -83,8 +85,7 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        image = Image.new("RGB", (224, 224))
 
         inputs = self.processor(images=image, return_tensors="pt")
 
