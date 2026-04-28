@@ -11,6 +11,108 @@ import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
+
+
+def _patch_transformers_glm4moe_gguf():
+    """Monkey-patch transformers to add glm4moe GGUF architecture support.
+
+    The GLM-4.5 Air model stores glm4moe as its GGUF architecture identifier.
+    Transformers has Glm4MoeForCausalLM (model_type=glm4_moe) but lacks GGUF
+    loading support for the glm4moe architecture name.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "glm4moe" in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # Already patched
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("glm4moe")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["glm4moe"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,  # used to compute partial_rotary_factor
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "attention.key_length": "head_dim",
+        "attention.value_length": None,
+        "expert_count": "n_routed_experts",
+        "expert_used_count": "num_experts_per_tok",
+        "expert_feed_forward_length": "moe_intermediate_size",
+        "expert_shared_count": "n_shared_experts",
+        "expert_group_count": "n_group",
+        "expert_group_used_count": "topk_group",
+        "leading_dense_block_count": "first_k_dense_replace",
+        "expert_weights_scale": "routed_scaling_factor",
+        "expert_weights_norm": "norm_topk_prob",
+    }
+
+    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFQwen2Converter
+
+    if "glm4moe" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["glm4moe"] = GGUFQwen2Converter
+
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "glm4moe":
+            config["model_type"] = "glm4_moe"
+            head_dim = config.get("head_dim", 128)
+            gguf_path = args[0] if args else kwargs.get("gguf_checkpoint_path")
+            if gguf_path is not None:
+                try:
+                    from gguf import GGUFReader
+                    from transformers.modeling_gguf_pytorch_utils import _gguf_parse_value
+
+                    reader = GGUFReader(gguf_path)
+                    for key, field in reader.fields.items():
+                        if "glm4moe.rope.dimension_count" in key:
+                            rope_dim = _gguf_parse_value(
+                                field.parts[field.data[0]], field.types
+                            )
+                            config["partial_rotary_factor"] = rope_dim / head_dim
+                            break
+                except Exception:
+                    config.setdefault("partial_rotary_factor", 0.5)
+            else:
+                config.setdefault("partial_rotary_factor", 0.5)
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    # get_gguf_hf_weights_map uses MODEL_ARCH_NAMES which stores "glm4moe" (no
+    # underscore) but the config model_type is "glm4_moe". Patch the mapper to
+    # add the same glm4_moe -> glm4moe remap that qwen2_moe -> qwen2moe has.
+    orig_get_weights_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(hf_model, processor, model_type=None, num_layers=None, qual_name=""):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type == "glm4_moe":
+            model_type = "glm4moe"
+        return orig_get_weights_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
+_patch_transformers_glm4moe_gguf()
 from ....config import (
     Framework,
     LLMModelConfig,
