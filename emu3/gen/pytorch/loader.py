@@ -109,6 +109,13 @@ class ModelLoader(ForgeModel):
             "processing_emu3.Emu3Processor",
             self._variant_config.pretrained_model_name,
         )
+        # transformers 5.x ProcessorMixin.get_attributes() now inspects __init__
+        # signatures: "vision_tokenizer" contains "tokenizer" and is counted as a
+        # third attribute, but Emu3Processor.__init__ only passes 2 args to
+        # super().__init__(). Override get_attributes to return the 2 actual attributes.
+        Emu3Processor.get_attributes = classmethod(
+            lambda cls: ["image_processor", "tokenizer"]
+        )
         self.processor = Emu3Processor(
             self.image_processor, self.image_tokenizer, self.tokenizer
         )
