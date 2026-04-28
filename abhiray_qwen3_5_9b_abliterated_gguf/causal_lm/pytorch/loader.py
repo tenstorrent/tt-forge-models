@@ -15,6 +15,8 @@ import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
     GGUF_SUPPORTED_ARCHITECTURES,
+    TENSOR_PROCESSORS,
+    MambaTensorProcessor,
 )
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
@@ -22,6 +24,9 @@ from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 def _patch_qwen35_support():
     if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
         GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
+    # qwen35 GGUFs store ssm_conv1d.weight as 2D [C, K]; nn.Conv1d needs 3D [C, 1, K].
+    # MambaTensorProcessor.process() calls np.expand_dims on ssm_conv1d.weight to fix this.
+    TENSOR_PROCESSORS.setdefault("qwen35", MambaTensorProcessor)
     for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
         if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
             _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
