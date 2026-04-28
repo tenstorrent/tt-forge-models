@@ -136,6 +136,8 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the Fun-ASR-Nano model."""
+        from funasr.utils.load_utils import extract_fbank
+
         if self._funasr_model is None:
             self._load_funasr_model()
 
@@ -146,10 +148,7 @@ class ModelLoader(ForgeModel):
         )
 
         frontend = self._funasr_model.kwargs.get("frontend")
-        speech, speech_lengths = frontend.extract_fbank(
-            torch.tensor(audio_array).unsqueeze(0),
-            torch.tensor([len(audio_array)]),
-        )
+        speech, speech_lengths = extract_fbank(audio_array, frontend=frontend)
 
         if dtype_override is not None:
             speech = speech.to(dtype_override)
