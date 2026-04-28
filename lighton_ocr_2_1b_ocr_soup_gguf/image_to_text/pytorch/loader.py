@@ -5,14 +5,18 @@
 LightOnOCR-2-1B ocr-soup GGUF model loader implementation for image-to-text OCR tasks.
 
 The GGUF checkpoint only contains the text backbone (qwen3 architecture).
-We load the vision config from the base (non-GGUF) model and combine
-them into a full LightOnOcrConfig, following the same pattern as lighton_ocr_gguf.
+Load it as Qwen3ForCausalLM, then transplant its weights into the full VL
+model loaded from the base repo so the vision encoder is included.
 """
 
 import importlib.metadata
 
 import torch
-from transformers import AutoProcessor, AutoModelForImageTextToText, AutoConfig, LightOnOcrConfig
+from transformers import (
+    AutoProcessor,
+    AutoModelForCausalLM,
+    LightOnOcrForConditionalGeneration,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -74,19 +78,6 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _build_full_config(self):
-        """Build a full LightOnOcrConfig by wrapping the GGUF text config with a vision config."""
-        _refresh_gguf_detection()
-        pretrained_model_name = self._variant_config.pretrained_model_name
-        text_config = AutoConfig.from_pretrained(
-            pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
-        base_config = AutoConfig.from_pretrained(self._BASE_PROCESSOR_MODEL)
-        return LightOnOcrConfig(
-            text_config=text_config.to_dict(),
-            vision_config=base_config.vision_config.to_dict(),
-        )
-
     def _load_processor(self, dtype_override=None):
         self.processor = AutoProcessor.from_pretrained(self._BASE_PROCESSOR_MODEL)
         return self.processor
@@ -94,22 +85,33 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         _refresh_gguf_detection()
         pretrained_model_name = self._variant_config.pretrained_model_name
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         if self.processor is None:
-            self._load_processor(dtype_override=dtype_override)
+            self._load_processor()
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs["gguf_file"] = self.GGUF_FILE
-        model_kwargs["config"] = self._build_full_config()
-        model_kwargs |= kwargs
-
-        model = AutoModelForImageTextToText.from_pretrained(
-            pretrained_model_name, **model_kwargs
+        # Load the full VL model from the base repo to get the vision encoder.
+        # The GGUF checkpoint only has the text backbone (qwen3 architecture) so
+        # we cannot load a VL model from it directly.
+        vl_model = LightOnOcrForConditionalGeneration.from_pretrained(
+            self._BASE_PROCESSOR_MODEL,
+            torch_dtype=dtype,
         )
-        model.eval()
-        return model
+
+        # Load the GGUF text decoder as Qwen3ForCausalLM.  The GGUF arch tag is
+        # "qwen3" which is supported by AutoModelForCausalLM and get_gguf_hf_weights_map.
+        gguf_lm = AutoModelForCausalLM.from_pretrained(
+            pretrained_model_name,
+            gguf_file=self.GGUF_FILE,
+            torch_dtype=dtype,
+        )
+
+        # Transplant GGUF text-backbone weights into the VL model's language_model.
+        # Keys match: Qwen3Model.state_dict() == LightOnOcrModel.language_model.state_dict()
+        vl_model.model.language_model.load_state_dict(gguf_lm.model.state_dict())
+
+        vl_model.eval()
+        return vl_model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.processor is None:
