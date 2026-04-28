@@ -73,8 +73,12 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
+        # use_fast=False suppresses the transformers FutureWarning that fires
+        # when a checkpoint saved with the slow processor is auto-upgraded.
         self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, trust_remote_code=True
+            self._variant_config.pretrained_model_name,
+            trust_remote_code=True,
+            use_fast=False,
         )
         return self.processor
 
@@ -157,7 +161,39 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
 
+        # low_cpu_mem_usage=True loads weights via meta device.  Plain tensor
+        # attributes (not register_buffer) stay on meta.  VisionRotaryEmbedding
+        # stores inv_freq as a plain attr — recompute it on CPU.
+        for module in model.modules():
+            inv = getattr(module, "inv_freq", None)
+            if isinstance(inv, torch.Tensor) and inv.device.type == "meta":
+                half_dim = inv.shape[0]
+                full_dim = half_dim * 2
+                module.inv_freq = 1.0 / 10000.0 ** (
+                    torch.arange(0, full_dim, 2, dtype=torch.float32) / full_dim
+                )
+
         return model
+
+    def _normalize_images(self, images_uint8):
+        """Normalize uint8 image patches to bfloat16 for vision_forward.
+
+        The processor returns patches of shape [num_patches, C*patch_h*patch_w]
+        as uint8.  vision_forward's else-branch asserts bfloat16, so we do the
+        rescale + per-channel normalization here rather than via add_image_preprocess
+        (which stores CPU tensors that break torch.compile / dynamo tracing).
+        """
+        ip = self.processor.image_processor
+        patch_sq = ip.patch_size ** 2
+        mean_flat = torch.tensor(
+            ip.image_mean, dtype=torch.float32
+        ).repeat_interleave(patch_sq)
+        std_flat = torch.tensor(
+            ip.image_std, dtype=torch.float32
+        ).repeat_interleave(patch_sq)
+        imgs_f = images_uint8.float() * ip.rescale_factor
+        imgs_norm = (imgs_f - mean_flat) / std_flat
+        return imgs_norm.to(torch.bfloat16)
 
     def load_inputs(self, dtype_override=None):
         if self.processor is None:
@@ -179,6 +215,18 @@ class ModelLoader(ForgeModel):
             padding=True,
             return_tensors="pt",
         )
+
+        # Processor returns raw uint8 patches under key "images".  vision_forward
+        # (with image_preprocess=None) asserts bfloat16, so normalize here.
+        if "images" in inputs and inputs["images"].dtype == torch.uint8:
+            inputs["images"] = self._normalize_images(inputs["images"])
+
+        # The model forward asserts token_type_ids.shape[1] == input_ids.shape[1]+1
+        # (it represents current + one shifted label token).  Pad with the last type.
+        if "token_type_ids" in inputs:
+            inputs["token_type_ids"] = torch.cat(
+                [inputs["token_type_ids"], inputs["token_type_ids"][..., -1:]], dim=-1
+            )
 
         if dtype_override is not None:
             if "pixel_values" in inputs:
