@@ -8,6 +8,7 @@ Gemma3 12B IT GPTQ 4-bit 128g model loader implementation for multimodal modelin
 from typing import Optional
 
 from transformers import (
+    AutoConfig,
     AutoProcessor,
     Gemma3ForConditionalGeneration,
 )
@@ -71,7 +72,11 @@ class ModelLoader(ForgeModel):
             kwargs["torch_dtype"] = dtype_override
 
         pretrained_model_name = self._variant_config.pretrained_model_name
-        self.processor = AutoProcessor.from_pretrained(pretrained_model_name, **kwargs)
+        # use_fast=False: transformers 5.x defaults to the fast Gemma3ImageProcessor,
+        # which is a breaking change vs. the slow processor the checkpoint was saved with.
+        self.processor = AutoProcessor.from_pretrained(
+            pretrained_model_name, use_fast=False, **kwargs
+        )
 
         return self.processor
 
@@ -93,9 +98,46 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        # compressed_tensors 0.15.x uses re.match (anchored at start) for ignore
+        # patterns. The checkpoint's ignore list uses "re:vision_tower.*" which
+        # doesn't match "model.vision_tower.*" module paths, so the vision encoder
+        # (intermediate_size=4304, not divisible by group_size=128) gets included
+        # in quantization and crashes compress_model. Fix by rewriting re: patterns
+        # with a ".*" prefix.
+        #
+        # Gemma3ForConditionalGeneration also has a top-level .lm_head (tied to
+        # embed_tokens.weight) that is separate from "language_model.lm_head".
+        # The checkpoint only ignores the inner one, so the outer lm_head gets
+        # quantized and mark_tied_weights_as_initialized then crashes. Add "lm_head"
+        # to cover it.
+        #
+        # Set run_compressed=False to dequantize weights to float before TT
+        # compilation (TT silicon does not accept GPTQ-packed formats).
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        qc = getattr(config, "quantization_config", None)
+        if isinstance(qc, dict):
+            ignore = qc.get("ignore", [])
+            ignore = [
+                f"re:.*{p[3:]}" if p.startswith("re:") else p
+                for p in ignore
+            ]
+            if "lm_head" not in ignore:
+                ignore.append("lm_head")
+            qc["ignore"] = ignore
+            qc["run_compressed"] = False
+        model_kwargs["config"] = config
+
         model = Gemma3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        # compressed_tensors leaves a quantized_forward instance-method bound on
+        # each Linear after decompression. It accesses weight.data unconditionally,
+        # which conflicts with TT-XLA's __torch_function__ during torch.compile.
+        # Restore the standard forward by removing the instance-level override.
+        for m in model.modules():
+            if "forward" in m.__dict__:
+                del m.__dict__["forward"]
 
         model.eval()
         self.model = model
@@ -154,7 +196,9 @@ class ModelLoader(ForgeModel):
         """Load the sharding specification for tensor parallel execution."""
         shard_specs = {}
 
-        for layer in model.vision_tower.vision_model.encoder.layers:
+        # Gemma3ForConditionalGeneration nests vision_tower and language_model
+        # under self.model (a Gemma3Model), so access via model.model.*
+        for layer in model.model.vision_tower.vision_model.encoder.layers:
             shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
@@ -163,7 +207,7 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.mlp.fc1.weight] = ("model", "batch")
             shard_specs[layer.mlp.fc2.weight] = ("batch", "model")
 
-        for layer in model.language_model.layers:
+        for layer in model.model.language_model.layers:
             shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
