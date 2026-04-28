@@ -164,6 +164,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _apply_lfm2moe_load_patches()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
