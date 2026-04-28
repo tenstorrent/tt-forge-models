@@ -100,6 +100,12 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        # Qwen3MoeExperts.forward dispatches experts via a Python for-loop over a
+        # dynamically-sized expert_hit tensor, which XLA cannot statically trace,
+        # causing a segfault during graph partition probing. batched_mm uses only
+        # static tensor ops and is XLA-compatible.
+        model.config._experts_implementation = "batched_mm"
+
         self.config = model.config
         self.model = model
         return model
