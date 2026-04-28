@@ -79,15 +79,24 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"use_cache": False}
+        # Gemma3ForConditionalGeneration.__init__ does not accept use_cache as a
+        # kwarg; set it on the nested text_config where the language model reads it.
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        if hasattr(config, "text_config"):
+            config.text_config.use_cache = False
+        else:
+            config.use_cache = False
+
+        if self.num_layers is not None:
+            if hasattr(config, "text_config"):
+                config.text_config.num_hidden_layers = self.num_layers
+            else:
+                config.num_hidden_layers = self.num_layers
+
+        model_kwargs = {"config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
