@@ -124,10 +124,16 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.ALPHA_SIM
 
     # Sample SMILES pairs (anchor, candidate) for reranking.
+    # Two pairs are required so that the batch output has numel() > 1; the PCC
+    # evaluator returns 0.0 for single-element tensors (batch=1, num_labels=1).
     sample_pairs = [
         (
             "c1snnc1C[NH2+]Cc1cc2c(s1)CCC2",
             "c1snnc1CCC[NH2+]Cc1cc2c(s1)CCC2",
+        ),
+        (
+            "CC(=O)Oc1ccccc1C(=O)O",
+            "CC(=O)Nc1ccc(O)cc1",
         ),
     ]
 
