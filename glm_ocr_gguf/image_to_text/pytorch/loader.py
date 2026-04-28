@@ -45,43 +45,53 @@ def _refresh_gguf_detection():
 def _patch_glm_ocr_gguf_support():
     """Patch transformers to support loading GlmOcr from GGUF.
 
-    GlmOcrConfig is a composite config (text_config + vision_config) that does
-    not expose num_hidden_layers at the top level. The transformers
-    get_gguf_hf_weights_map unconditionally accesses config.num_hidden_layers
-    and uses model_type to look up the gguf architecture. We bridge both gaps
-    by wrapping get_gguf_hf_weights_map to translate model_type='glm_ocr' to
-    'glm4' and to read num_layers from text_config.
+    Two gaps are bridged:
 
-    The GLM-OCR GGUF uses chatglm architecture, so we also register it as a
-    supported architecture (bartowski_glm_4_9b_chat_gguf does the same, but
-    this patch makes the loader self-contained for standalone runs).
+    1. The GLM-OCR GGUF file uses the 'glm4' architecture identifier which
+       transformers 5.x does not yet register. We add the architecture and
+       its config mapping so load_gguf_checkpoint can parse the file.
+       (glm_4_32b_0414_gguf does the same; we duplicate here so this loader
+       is self-contained when run in isolation.)
+
+    2. GlmOcrConfig is a composite config (text_config + vision_config) that
+       does not expose num_hidden_layers at the top level. The transformers
+       get_gguf_hf_weights_map unconditionally accesses config.num_hidden_layers
+       and uses model_type to look up the gguf architecture. We wrap
+       get_gguf_hf_weights_map to translate model_type='glm_ocr' → 'glm4' and
+       to read num_layers from text_config.
     """
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
-    from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
 
     if hasattr(gguf_utils, "_glm_ocr_gguf_patched"):
         return
     gguf_utils._glm_ocr_gguf_patched = True
 
-    if "chatglm" not in GGUF_SUPPORTED_ARCHITECTURES:
-        GGUF_SUPPORTED_ARCHITECTURES.append("chatglm")
-        from transformers.modeling_gguf_pytorch_utils import GGUF_TO_TRANSFORMERS_MAPPING
-        GGUF_TO_TRANSFORMERS_MAPPING["config"]["chatglm"] = {
+    # Register glm4 architecture if not already done by another loader.
+    if "glm4" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("glm4")
+        GGUF_TO_TRANSFORMERS_MAPPING["config"]["glm4"] = {
             "context_length": "max_position_embeddings",
             "block_count": "num_hidden_layers",
             "feed_forward_length": "intermediate_size",
             "embedding_length": "hidden_size",
+            "rope.dimension_count": None,
             "rope.freq_base": "rope_theta",
             "attention.head_count": "num_attention_heads",
             "attention.head_count_kv": "num_key_value_heads",
             "attention.layer_norm_rms_epsilon": "rms_norm_eps",
             "attention.key_length": "head_dim",
+            "attention.value_length": None,
             "vocab_size": "vocab_size",
         }
         from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFQwen2Converter
-        if "chatglm" not in GGUF_TO_FAST_CONVERTERS:
-            GGUF_TO_FAST_CONVERTERS["chatglm"] = GGUFQwen2Converter
+        if "glm4" not in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS["glm4"] = GGUFQwen2Converter
 
+    # Wrap get_gguf_hf_weights_map to handle GlmOcrConfig's composite layout.
     orig_get_map = gguf_utils.get_gguf_hf_weights_map
 
     def patched_get_gguf_hf_weights_map(
