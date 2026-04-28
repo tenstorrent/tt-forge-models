@@ -318,8 +318,13 @@ class ModelLoader(ForgeModel):
             {"from": "human", "value": query},
         ]
 
-        input_ids = self.tokenizer.apply_chat_template(
+        result = self.tokenizer.apply_chat_template(
             conv, add_generation_prompt=True, return_tensors="pt"
         )
+        # transformers 5.x returns BatchEncoding; older versions return a raw tensor
+        if hasattr(result, "input_ids"):
+            input_ids = result.input_ids
+        else:
+            input_ids = result
 
         return {"input_ids": input_ids}
