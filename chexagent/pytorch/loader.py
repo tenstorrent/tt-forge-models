@@ -98,10 +98,10 @@ def _fix_pixel_values_input(content: str) -> str:
     Fix: accept a pre-processed float pixel_values tensor so the model can call
     self.visual.forward(pixel_values) directly, skipping URL decode + image download.
     """
-    if "pixel_values: Optional[torch.FloatTensor] = None," in content:
+    if "i_v, a_v, b_v = i.item(), a.item(), b.item()" in content:
         return content
 
-    # 1. Add pixel_values param to CheXagentModel.forward() signature
+    # 1. Add pixel_values param to CheXagentModel.forward() signature and fix image injection
     old_model_sig = (
         "            output_hidden_states: Optional[bool] = None,\n"
         "            return_dict: Optional[bool] = None,\n"
@@ -125,6 +125,39 @@ def _fix_pixel_values_input(content: str) -> str:
         "        elif past_key_values is None and torch.any(input_ids == self.tokenizer.img_start_id):"
     )
     content = content.replace(old_model_sig, new_model_sig, 1)
+
+    # 1b. Replace in-place slice assignment with torch.cat to avoid XLA view issues.
+    # On XLA devices, `hidden_states[i][a+1:b] = images[idx]` uses two-level indexing:
+    # `hidden_states[i]` with a 0-D tensor index returns a gather result (not a view),
+    # so the subsequent slice-assign does not propagate back to `hidden_states`.
+    # Using torch.cat rebuilds the tensor without relying on view semantics.
+    old_inject = (
+        "        # IMAGE: embed positions\n"
+        "        hidden_states = inputs_embeds.clone()\n"
+        "        if fake_images is not None:\n"
+        "            hidden_states = hidden_states + images.mean() * 0\n"
+        "        elif images is not None:\n"
+        "            for idx, (i, a, b) in enumerate(img_pos):\n"
+        "                hidden_states[i][a + 1: b] = images[idx]"
+    )
+    new_inject = (
+        "        # IMAGE: embed positions\n"
+        "        hidden_states = inputs_embeds.clone()\n"
+        "        if fake_images is not None:\n"
+        "            hidden_states = hidden_states + images.mean() * 0\n"
+        "        elif images is not None:\n"
+        "            for idx, (i, a, b) in enumerate(img_pos):\n"
+        "                i_v, a_v, b_v = i.item(), a.item(), b.item()\n"
+        "                row = torch.cat([\n"
+        "                    hidden_states[i_v:i_v+1, :a_v+1, :],\n"
+        "                    images[idx:idx+1],\n"
+        "                    hidden_states[i_v:i_v+1, b_v:, :],\n"
+        "                ], dim=1)\n"
+        "                hidden_states = torch.cat(\n"
+        "                    [hidden_states[:i_v], row, hidden_states[i_v+1:]], dim=0\n"
+        "                )"
+    )
+    content = content.replace(old_inject, new_inject, 1)
 
     # 2. Add pixel_values param to CheXagentForCausalLM.forward() signature
     old_causal_sig = (
