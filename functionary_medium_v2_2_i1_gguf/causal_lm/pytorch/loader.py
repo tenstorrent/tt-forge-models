@@ -201,6 +201,8 @@ class ModelLoader(ForgeModel):
 
         config = self._build_mixtral_config(reader, dtype)
         model = MixtralForCausalLM(config).to(dtype)
+        # Use dense batched expert dispatch to avoid nonzero()/for-loop that crashes XLA
+        model.config._experts_implementation = "batched_mm"
 
         self._load_weights_from_gguf(reader, model, dtype)
 
