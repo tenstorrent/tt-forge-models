@@ -10,7 +10,7 @@ from typing import Optional
 import torch
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
-from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFLlamaConverter
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFQwen2Converter
 
 _orig_is_gguf_available = _gguf_utils.is_gguf_available
 
@@ -29,21 +29,29 @@ _gguf_utils.is_gguf_available = _patched_is_gguf_available
 
 def _patch_deepseek2_gguf_support():
     """Register deepseek2 GGUF architecture and map it to HF deepseek_v2 model type."""
-    from transformers.integrations.ggml import GGUF_CONFIG_MAPPING
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
 
-    if "deepseek2" in GGUF_CONFIG_MAPPING:
+    if "deepseek2" in GGUF_SUPPORTED_ARCHITECTURES:
         return
 
+    GGUF_SUPPORTED_ARCHITECTURES.append("deepseek2")
+
     # Map deepseek2 GGUF config keys to HF DeepseekV2Config fields.
-    GGUF_CONFIG_MAPPING["deepseek2"] = {
+    # attention.head_count_kv is intentionally omitted: in GigaChat3 MLA the GGUF
+    # stores the compressed KV head count (1), but HF needs num_key_value_heads ==
+    # num_attention_heads (32) so that repeat_kv is a no-op after kv_b_proj expansion.
+    # attention.key_length_mla is the nope head dim; rope.dimension_count is the rope head dim.
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["deepseek2"] = {
         "context_length": "max_position_embeddings",
         "block_count": "num_hidden_layers",
         "feed_forward_length": "intermediate_size",
         "embedding_length": "hidden_size",
         "rope.freq_base": "rope_theta",
-        "rope.dimension_count": None,
+        "rope.dimension_count": "qk_rope_head_dim",
         "attention.head_count": "num_attention_heads",
-        "attention.head_count_kv": "num_key_value_heads",
         "attention.layer_norm_rms_epsilon": "rms_norm_eps",
         "vocab_size": "vocab_size",
         "expert_count": "n_routed_experts",
@@ -51,30 +59,38 @@ def _patch_deepseek2_gguf_support():
         "expert_feed_forward_length": "moe_intermediate_size",
         "leading_dense_block_count": "first_k_dense_replace",
         "attention.kv_lora_rank": "kv_lora_rank",
-        "attention.key_length_mla": "qk_rope_head_dim",
+        "attention.key_length_mla": "qk_nope_head_dim",
         "attention.value_length_mla": "v_head_dim",
         "expert_shared_count": "n_shared_experts",
+        "attention.q_lora_rank": "q_lora_rank",
     }
 
-    # GGUF_SUPPORTED_ARCHITECTURES was built from GGUF_CONFIG_MAPPING at import time;
-    # append directly so load_gguf_checkpoint accepts deepseek2 files.
-    if "deepseek2" not in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
-        _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("deepseek2")
-
-    # Add tokenizer converter for deepseek2 architecture key.
-    GGUF_TO_FAST_CONVERTERS.setdefault("deepseek2", GGUFLlamaConverter)
-    GGUF_TO_FAST_CONVERTERS.setdefault("deepseek_v2", GGUFLlamaConverter)
+    GGUF_TO_FAST_CONVERTERS.setdefault("deepseek2", GGUFQwen2Converter)
+    GGUF_TO_FAST_CONVERTERS.setdefault("deepseek_v2", GGUFQwen2Converter)
 
     _orig_load = _gguf_utils.load_gguf_checkpoint
 
     def _patched_load_gguf_checkpoint(*args, **kwargs):
         result = _orig_load(*args, **kwargs)
-        # Remap deepseek2 → deepseek_v2 so AutoModelForCausalLM picks the right class.
-        if result.get("config", {}).get("model_type") == "deepseek2":
-            result["config"]["model_type"] = "deepseek_v2"
+        config = result.get("config", {})
+        if config.get("model_type") == "deepseek2":
+            config["model_type"] = "deepseek_v2"
+            # When q_lora_rank is absent from the GGUF (e.g. GigaChat3 uses a single
+            # q_proj rather than low-rank q_a/q_b), set it to None so the HF model
+            # instantiates q_proj instead of q_a_proj + q_b_proj.
+            if "q_lora_rank" not in config:
+                config["q_lora_rank"] = None
         return result
 
     _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
     _orig_get_map = _gguf_utils.get_gguf_hf_weights_map
 
