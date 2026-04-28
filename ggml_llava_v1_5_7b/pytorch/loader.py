@@ -74,7 +74,9 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
-        self.processor = AutoProcessor.from_pretrained(self.PROCESSOR_MODEL)
+        self.processor = AutoProcessor.from_pretrained(
+            self.PROCESSOR_MODEL, use_fast=False
+        )
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
