@@ -124,6 +124,19 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name, **model_kwargs
         )
 
+        # Transformers 5.x lazy loading leaves non-buffer tensor attributes as meta
+        # tensors. freqs_cis is not registered via register_buffer so it is not in
+        # the state_dict and never gets materialized; recompute it from config.
+        if hasattr(model, "freqs_cis") and model.freqs_cis.is_meta:
+            cfg = model.config
+            dim = cfg.hidden_size // cfg.num_attention_heads
+            freqs = 1.0 / (
+                10000.0 ** (torch.arange(0, dim, 2)[: (dim // 2)].float() / dim)
+            )
+            t = torch.arange(cfg.max_length)
+            freqs = torch.outer(t, freqs).float()
+            model.freqs_cis = torch.polar(torch.ones_like(freqs), freqs)
+
         return model
 
     def load_inputs(self, dtype_override=None):
