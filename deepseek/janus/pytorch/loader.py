@@ -7,8 +7,46 @@ DeepSeek Janus model loader implementation for multimodal understanding.
 
 from typing import Optional
 
+import torch
+import torch.nn as nn
 from PIL import Image
-from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel
+
+# Import janus to register the "multi_modality" architecture type with
+# AutoConfig / AutoModelForCausalLM.  The model checkpoint itself has no
+# Python files, so trust_remote_code alone cannot resolve the class.
+from janus.models import MultiModalityCausalLM, VLChatProcessor  # noqa: F401
+from janus.models import siglip_vit as _janus_siglip_vit
+
+# Fix: janus siglip_vit calls torch.linspace(...).item() during __init__.
+# Transformers 5.x always initialises models inside torch.device("meta"), so
+# every tensor created there is a meta tensor on which .item() is forbidden.
+# Redirect linspace to CPU so the stochastic-depth rates are real floats.
+_orig_linspace = torch.linspace
+
+
+def _cpu_linspace(*args, **kwargs):
+    kwargs["device"] = "cpu"
+    return _orig_linspace(*args, **kwargs)
+
+
+_janus_siglip_vit.torch.linspace = _cpu_linspace
+
+# Fix: transformers 5.x _finalize_model_loading calls
+# _adjust_tied_keys_with_tied_pointers which accesses self.all_tied_weights_keys.
+# MultiModalityConfig has tie_word_embeddings unset, so
+# get_expanded_tied_weights_keys returns {} without ever setting the attribute
+# on the outer model.  Guard against the missing attribute.
+_orig_adjust_tied = PreTrainedModel._adjust_tied_keys_with_tied_pointers
+
+
+def _patched_adjust_tied(self, missing_keys):
+    if not hasattr(self, "all_tied_weights_keys"):
+        self.all_tied_weights_keys = {}
+    _orig_adjust_tied(self, missing_keys)
+
+
+PreTrainedModel._adjust_tied_keys_with_tied_pointers = _patched_adjust_tied
 
 from ....base import ForgeModel
 from ....config import (
@@ -21,6 +59,37 @@ from ....config import (
     StrEnum,
 )
 from ....tools.utils import cast_input_to_type, get_file
+
+
+class JanusForwardWrapper(nn.Module):
+    """Wraps MultiModalityCausalLM to expose a flat forward() interface.
+
+    prepare_inputs_embeds fuses the vision tokens into the sequence, then
+    the language model runs the combined embedding through its decoder.
+    """
+
+    def __init__(self, model: MultiModalityCausalLM):
+        super().__init__()
+        self.janus = model
+
+    def forward(
+        self,
+        input_ids,
+        pixel_values,
+        attention_mask,
+        images_seq_mask,
+        images_emb_mask,
+    ):
+        inputs_embeds = self.janus.prepare_inputs_embeds(
+            input_ids=input_ids,
+            pixel_values=pixel_values,
+            images_seq_mask=images_seq_mask,
+            images_emb_mask=images_emb_mask,
+        )
+        return self.janus.language_model(
+            inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+        )
 
 
 class ModelVariant(StrEnum):
@@ -61,8 +130,11 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
-        self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, trust_remote_code=True
+        # use_fast=False avoids the transformers 5.x FutureWarning that
+        # VLMImageProcessor is now loaded as a fast processor by default.
+        self.processor = VLChatProcessor.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            use_fast=False,
         )
         return self.processor
 
@@ -70,18 +142,23 @@ class ModelLoader(ForgeModel):
         """Load and return the Janus model instance."""
         model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"trust_remote_code": True}
+        # Fix: the model config bakes in "_attn_implementation": "flash_attention_2"
+        # which requires the flash_attn package (GPU-only).  Override to "eager".
+        config = AutoConfig.from_pretrained(model_name, trust_remote_code=True)
+        config.language_config._attn_implementation = "eager"
+
+        model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(str(model_name), **model_kwargs)
-        model.eval()
+        janus_model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+        janus_model.eval()
 
         if self.processor is None:
             self._load_processor()
 
-        return model
+        return JanusForwardWrapper(janus_model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return input tensors for Janus."""
@@ -89,14 +166,31 @@ class ModelLoader(ForgeModel):
             self._load_processor()
 
         image_file = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
-        image = Image.open(image_file)
+        image = Image.open(image_file).convert("RGB")
 
-        inputs = self.processor(
-            images=image, text=self.sample_text, return_tensors="pt"
+        conversation = [
+            {
+                "role": "<|User|>",
+                "content": f"<image_placeholder>\n{self.sample_text}",
+            },
+            {"role": "<|Assistant|>", "content": ""},
+        ]
+
+        output = self.processor(
+            conversations=conversation,
+            images=[image],
+            force_batchify=True,
         )
 
+        inputs = {
+            "input_ids": output.input_ids,
+            "pixel_values": output.pixel_values,
+            "attention_mask": output.attention_mask,
+            "images_seq_mask": output.images_seq_mask,
+            "images_emb_mask": output.images_emb_mask,
+        }
+
         if dtype_override:
-            for key in inputs:
-                inputs[key] = cast_input_to_type(inputs[key], dtype_override)
+            inputs = {k: cast_input_to_type(v, dtype_override) for k, v in inputs.items()}
 
         return inputs
