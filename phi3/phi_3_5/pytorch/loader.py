@@ -81,8 +81,6 @@ class ModelLoader(ForgeModel):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
-        if self._variant == ModelVariant.TINY_RANDOM_MOE:
-            tokenizer_kwargs["trust_remote_code"] = True
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
             **tokenizer_kwargs,
@@ -102,8 +100,6 @@ class ModelLoader(ForgeModel):
             "use_cache": False,
             "torch_dtype": model_dtype,
         }
-        if self._variant == ModelVariant.TINY_RANDOM_MOE:
-            model_kwargs["trust_remote_code"] = True
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
