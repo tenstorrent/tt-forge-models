@@ -96,6 +96,9 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None):
+        import torch
+        from transformers import WhisperConfig
+
         if self._processor is None:
             self._load_processor(dtype_override=dtype_override)
 
@@ -111,5 +114,24 @@ class ModelLoader(ForgeModel):
             sampling_rate=sampling_rate,
             return_tensors="pt",
         )
+
+        if dtype_override is not None:
+            inputs = {
+                k: v.to(dtype_override) if isinstance(v, torch.Tensor) and v.dtype.is_floating_point else v
+                for k, v in inputs.items()
+            }
+
+        # Whisper is an encoder-decoder model; forward() requires decoder_input_ids.
+        # use_cache=False avoids returning EncoderDecoderCache in the output, which
+        # the comparison evaluator cannot handle via torch.equal.
+        model_config = WhisperConfig.from_pretrained(
+            self._variant_config.pretrained_model_name
+        )
+        decoder_input_ids = torch.full(
+            (1, 2), model_config.decoder_start_token_id, dtype=torch.long
+        )
+        inputs = dict(inputs)
+        inputs["decoder_input_ids"] = decoder_input_ids
+        inputs["use_cache"] = False
 
         return inputs
