@@ -168,8 +168,6 @@ class ModelLoader(ForgeModel):
             model_kwargs["device_map"] = "cpu"
         elif self._variant == ModelVariant.GEMMA_3_4B_IT_BNB_4BIT:
             model_kwargs["device_map"] = "cpu"
-        else:
-            model_kwargs["use_cache"] = False
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
@@ -182,6 +180,15 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        # transformers 5.x: use_cache must be set on config, not as a from_pretrained kwarg
+        if self._variant not in (
+            ModelVariant.GEMMA_3_1B_IT_AWQ_INT4,
+            ModelVariant.GEMMA_3_4B_IT_BNB_4BIT,
+        ):
+            if hasattr(model.config, "text_config"):
+                model.config.text_config.use_cache = False
+            elif hasattr(model.config, "use_cache"):
+                model.config.use_cache = False
         model.eval()
         self.model = model
         self.config = model.config
