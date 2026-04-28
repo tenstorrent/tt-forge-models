@@ -6,7 +6,7 @@ LLaVA-OneVision-1.5 model loader implementation for multimodal conditional gener
 """
 
 import transformers.cache_utils as _cache_utils
-from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor
 from typing import Optional
 
 # transformers 5.x removed SlidingWindowCache; add a stub so the model's
@@ -105,7 +105,13 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = "auto"
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+        # transformers 5.x no longer sets pad_token_id on sub-configs by default;
+        # pre-load and patch so the model's __init__ can read it without AttributeError.
+        config = AutoConfig.from_pretrained(model_name, trust_remote_code=True)
+        if hasattr(config, "text_config") and not hasattr(config.text_config, "pad_token_id"):
+            config.text_config.pad_token_id = None
+
+        model = AutoModelForCausalLM.from_pretrained(model_name, config=config, **model_kwargs)
         model.eval()
 
         if self.processor is None:
