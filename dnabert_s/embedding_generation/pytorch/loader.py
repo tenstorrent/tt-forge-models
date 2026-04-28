@@ -4,7 +4,9 @@
 """
 DNABERT-S model loader implementation for embedding generation.
 """
+import math
 import sys
+import types
 import torch
 import huggingface_hub
 from transformers import AutoTokenizer, AutoModel, AutoConfig
@@ -20,6 +22,107 @@ from third_party.tt_forge_models.config import (
     LLMModelConfig,
 )
 from third_party.tt_forge_models.base import ForgeModel
+
+
+def _patch_mosaic_bert_for_tt(model):
+    """Replace MosaicBERT unpad/pad scatter-gather ops with reshape equivalents.
+
+    MosaicBERT removes padding tokens via IndexFirstAxis (gather) in
+    BertEncoder.forward and BertUnpadSelfAttention.forward, then re-pads via
+    IndexPutFirstAxis (scatter).  For batch=1 with no padding all tokens are
+    present, so these operations are identity transforms.
+
+    On TT hardware the StableHLO gather is lowered via a TTNN embedding op whose
+    TTNNWorkaroundsPass inserts a TILE→ROW_MAJOR layout conversion.  That
+    conversion produces wrong values when the first tensor dimension is smaller
+    than TILE_HEIGHT (32) — exactly the case here (seq_len=7 for our DNA
+    inputs).  Replacing with reshape avoids the buggy code path while remaining
+    semantically equivalent for non-padded, batch=1 inputs.
+    """
+    import warnings
+
+    def _make_attn_forward(n_heads, head_size):
+        def patched_forward(
+            self, hidden_states, cu_seqlens, max_seqlen_in_batch, indices,
+            attn_mask, bias
+        ):
+            batch = cu_seqlens.shape[0] - 1
+            qkv = self.Wqkv(hidden_states)  # [nnz, 3*n_heads*head_size]
+            # Replace pad_input scatter with reshape (valid: batch=1, no padding)
+            qkv = qkv.reshape(batch, -1, 3, n_heads, head_size)
+            q = qkv[:, :, 0].permute(0, 2, 1, 3)  # [b, h, s, d]
+            k = qkv[:, :, 1].permute(0, 2, 3, 1)  # [b, h, d, s]
+            v = qkv[:, :, 2].permute(0, 2, 1, 3)  # [b, h, s, d]
+            scores = (
+                torch.matmul(q, k) / math.sqrt(head_size) + bias
+            )
+            probs = torch.nn.functional.softmax(scores, dim=-1)
+            probs = self.dropout(probs)
+            attention = torch.matmul(probs, v).permute(0, 2, 1, 3)  # [b, s, h, d]
+            # Replace unpad_input_only gather with reshape (valid: all tokens present)
+            return attention.reshape(hidden_states.shape[0], -1)  # [nnz, h*d]
+
+        return patched_forward
+
+    def patched_encoder_forward(
+        self, hidden_states, attention_mask,
+        output_all_encoded_layers=True, subset_mask=None
+    ):
+        extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
+        extended_attention_mask = extended_attention_mask.to(dtype=torch.float32)
+        extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
+
+        batch, seqlen = hidden_states.shape[:2]
+        # Replace unpad_input gather with reshape (valid: batch=1, no padding)
+        hidden_states = hidden_states.reshape(batch * seqlen, -1)
+        indices = torch.arange(
+            batch * seqlen, dtype=torch.int64, device=hidden_states.device
+        )
+        cu_seqlens = torch.tensor(
+            [i * seqlen for i in range(batch + 1)],
+            dtype=torch.int32, device=hidden_states.device,
+        )
+
+        if self._current_alibi_size < seqlen:
+            warnings.warn(
+                f"Increasing alibi size from {self._current_alibi_size} to {seqlen}"
+            )
+            self.rebuild_alibi_tensor(size=seqlen, device=hidden_states.device)
+        elif self.alibi.device != hidden_states.device:
+            self.alibi = self.alibi.to(hidden_states.device)
+        alibi_bias = self.alibi[:, :, :seqlen, :seqlen]
+        attn_bias = extended_attention_mask[:, :, :seqlen, :seqlen]
+        alibi_attn_mask = attn_bias + alibi_bias
+
+        all_encoder_layers = []
+        if subset_mask is None:
+            for layer_module in self.layer:
+                hidden_states = layer_module(
+                    hidden_states, cu_seqlens, seqlen, None, indices,
+                    attn_mask=attention_mask, bias=alibi_attn_mask,
+                )
+                if output_all_encoded_layers:
+                    all_encoder_layers.append(hidden_states)
+            # Replace pad_input scatter with reshape (valid: batch=1, no padding)
+            hidden_states = hidden_states.reshape(batch, seqlen, -1)
+        else:
+            raise NotImplementedError(
+                "subset_mask not supported in TT-patched BertEncoder"
+            )
+
+        if not output_all_encoded_layers:
+            all_encoder_layers.append(hidden_states)
+        return all_encoder_layers
+
+    model.encoder.forward = types.MethodType(patched_encoder_forward, model.encoder)
+    for layer in model.encoder.layer:
+        attn_self = layer.attention.self
+        attn_self.forward = types.MethodType(
+            _make_attn_forward(
+                attn_self.num_attention_heads, attn_self.attention_head_size
+            ),
+            attn_self,
+        )
 
 
 class ModelVariant(StrEnum):
@@ -92,6 +195,11 @@ class ModelLoader(ForgeModel):
         bert_layers_mod = sys.modules.get(type(model.encoder).__module__)
         if bert_layers_mod is not None:
             bert_layers_mod.flash_attn_qkvpacked_func = None
+
+        # Replace MosaicBERT scatter/gather ops with reshape equivalents.
+        # The TTNN lowering of IndexFirstAxis (gather) produces wrong values
+        # for tensors whose first dimension is smaller than TILE_HEIGHT (32).
+        _patch_mosaic_bert_for_tt(model)
 
         return model
 
