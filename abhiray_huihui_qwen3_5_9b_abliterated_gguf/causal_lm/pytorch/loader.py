@@ -5,6 +5,8 @@
 Abhiray Huihui Qwen 3.5 9B Abliterated GGUF model loader implementation for causal language modeling.
 """
 import functools
+import re as _re
+import numpy as _np
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -16,8 +18,31 @@ import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
     GGUF_SUPPORTED_ARCHITECTURES,
+    TensorProcessor as _TensorProcessor,
+    GGUFTensor as _GGUFTensor,
 )
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+
+class _Qwen35TensorProcessor(_TensorProcessor):
+    """Fix qwen35-specific tensor name and shape mismatches during GGUF loading."""
+
+    _DT_BIAS_RE = _re.compile(r"(?:model\.)?layers\.(\d+)\.linear_attn\.dt_bias$")
+
+    def perform_fallback_tensor_mapping(
+        self, gguf_to_hf_name_map, suffix, qual_name, hf_name
+    ):
+        # linear_attn.dt_bias is a bare Parameter.  gguf-py maps blk.N.ssm_dt
+        # (→ dt_proj) but never blk.N.ssm_dt.bias, so it falls through here.
+        if m := self._DT_BIAS_RE.match(hf_name):
+            n = m.group(1)
+            gguf_to_hf_name_map[f"blk.{n}.ssm_dt.bias"] = qual_name + hf_name
+
+    def process(self, weights, name, **kwargs):
+        # Conv1d weight: GGUF stores [out_ch, kern], nn.Conv1d expects [out_ch, 1, kern].
+        if name.endswith(".ssm_conv1d.weight") and weights.ndim == 2:
+            weights = _np.expand_dims(weights, axis=1)
+        return _GGUFTensor(weights, name, {})
 
 
 def _patch_qwen35_support():
@@ -57,7 +82,10 @@ def _patch_qwen35_support():
         GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
         GGUF_TO_FAST_CONVERTERS.setdefault("qwen3_5_text", GGUF_TO_FAST_CONVERTERS["qwen3"])
 
-    # 4. Patch get_gguf_hf_weights_map to alias qwen3_5_text → qwen35.
+    # 4. Register a custom TensorProcessor that fixes dt_bias name and conv1d shape.
+    _gguf_utils.TENSOR_PROCESSORS.setdefault("qwen35", _Qwen35TensorProcessor)
+
+    # 5. Patch get_gguf_hf_weights_map to alias qwen3_5_text → qwen35.
     #    The gguf package already knows 'qwen35' tensor names; transformers
     #    needs the HF model_type alias to find the right arch entry.
     if getattr(_gguf_utils, "_qwen35_weights_map_patched", False):
@@ -84,11 +112,35 @@ def _patch_qwen35_support():
     _gguf_utils._qwen35_weights_map_patched = True
 
 
+def _get_raw_gguf_arch(gguf_path):
+    """Read 'general.architecture' from GGUF metadata without going through any patch chain.
+
+    Other loaders in the same test run may have already renamed 'qwen35' → 'qwen3'
+    by the time our wrapper sees the result.  Re-reading the GGUF header is the
+    only reliable way to determine the true architecture.  GGUFReader loads only
+    the metadata on init (tensors are lazy), so this is fast.
+    """
+    try:
+        from array import array as _array
+        from gguf import GGUFReader
+        _reader = GGUFReader(gguf_path)
+        _field = _reader.fields.get("general.architecture")
+        if _field is None or not _field.data:
+            return None
+        return _array("B", list(_field.parts[_field.data[0]])).tobytes().decode()
+    except Exception:
+        return None
+
+
 def _patched_load_gguf_checkpoint(*args, **kwargs):
     """Wrap load_gguf_checkpoint to add qwen35 support and fix model_type."""
     _patch_qwen35_support()
     result = _orig_load_gguf_checkpoint(*args, **kwargs)
-    if result.get("config", {}).get("model_type") == "qwen35":
+    # Other loaders imported in the same session may have renamed 'qwen35' → 'qwen3'
+    # before our wrapper sees it.  Read the raw architecture from the GGUF header
+    # to detect qwen35 regardless of what the chain returned.
+    gguf_path = args[0] if args else kwargs.get("gguf_checkpoint_path")
+    if gguf_path and _get_raw_gguf_arch(gguf_path) == "qwen35":
         result["config"]["model_type"] = "qwen3_5_text"
     return result
 
