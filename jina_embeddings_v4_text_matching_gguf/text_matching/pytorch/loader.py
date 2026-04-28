@@ -20,6 +20,72 @@ from ....config import (
 )
 
 
+def _patch_transformers_qwen2vl_gguf():
+    """Monkey-patch transformers to add qwen2vl GGUF architecture support.
+
+    jina-embeddings-v4 GGUF files use the 'qwen2vl' architecture identifier
+    but contain only language-model tensors (no vision encoder). Transformers
+    5.2.x does not list qwen2vl in GGUF_SUPPORTED_ARCHITECTURES. We bridge
+    the gap by registering the config mapping and remapping model_type to
+    qwen2 after loading.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+    )
+
+    if "qwen2vl" in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # Already patched
+
+    # Register qwen2vl as a supported architecture.
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen2vl")
+
+    # Map qwen2vl GGUF config fields to Qwen2 HF config fields.
+    # qwen2vl uses the same LM config structure as qwen2; the only difference
+    # is rope.dimension_sections (M-RoPE) instead of rope.dimension_count.
+    # We ignore rope.dimension_sections since the loaded Qwen2Model uses
+    # standard rotary embeddings derived from head_dim automatically.
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen2vl"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.freq_base": "rope_theta",
+        "rope.dimension_sections": None,  # discard; not used by Qwen2Model
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+    }
+
+    # Use the existing qwen2 fast tokenizer converter for qwen2vl.
+    if "qwen2vl" not in GGUF_TO_FAST_CONVERTERS and "qwen2" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["qwen2vl"] = GGUF_TO_FAST_CONVERTERS["qwen2"]
+
+    # Wrap load_gguf_checkpoint to remap model_type from qwen2vl to qwen2.
+    # Several modules import load_gguf_checkpoint by value (not by module
+    # reference), so we must patch each already-bound name individually.
+    import transformers.configuration_utils as _config_utils
+    import transformers.models.auto.tokenization_auto as _tok_auto
+
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "qwen2vl":
+            config["model_type"] = "qwen2"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+    _config_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+    _tok_auto.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
 class ModelVariant(StrEnum):
     """Available Jina Embeddings v4 Text Matching GGUF model variants."""
 
@@ -60,6 +126,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _patch_transformers_qwen2vl_gguf()
+
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -72,6 +140,8 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _patch_transformers_qwen2vl_gguf()
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
@@ -91,7 +161,7 @@ class ModelLoader(ForgeModel):
 
         inputs = self.tokenizer(
             self.sample_sentences,
-            padding="max_length",
+            padding=True,
             truncation=True,
             max_length=128,
             return_tensors="pt",
