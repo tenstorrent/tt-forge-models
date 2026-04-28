@@ -4,7 +4,6 @@
 """
 bartowski openai gpt-oss 120B GGUF model loader implementation for causal language modeling.
 """
-import inspect
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -60,18 +59,25 @@ def _find_real_load_gguf_checkpoint():
 
     Other loaders install stale patches with the old signature (gguf_path,
     return_tensors=False) that do not accept the model_to_load kwarg added
-    in transformers 5.2.  We traverse __globals__ and __closure__ to reach
-    the real implementation, which does accept all kwargs.
+    in transformers 5.2.  We traverse __globals__ and __closure__ of
+    GGUF-checkpoint-related functions only (identified by name) to reach
+    the real implementation.  Using __module__ / __name__ rather than
+    inspect.getfile() avoids false positives from modules with similar
+    path fragments.
     """
+    _MOD = "transformers.modeling_gguf_pytorch_utils"
 
     def _is_real(fn):
-        try:
-            return "modeling_gguf_pytorch_utils" in inspect.getfile(fn)
-        except (TypeError, OSError):
-            return False
+        return (
+            getattr(fn, "__module__", None) == _MOD
+            and getattr(fn, "__name__", None) == "load_gguf_checkpoint"
+        )
+
+    def _is_gguf_fn(fn):
+        return callable(fn) and "load_gguf" in getattr(fn, "__name__", "")
 
     def _search(fn, seen, depth=0):
-        if depth > 20:
+        if depth > 50:
             return None
         fn_id = id(fn)
         if fn_id in seen:
@@ -81,21 +87,22 @@ def _find_real_load_gguf_checkpoint():
         if _is_real(fn):
             return fn
 
-        # Follow via any globals key that holds a callable (common pattern:
-        # _orig_load_gguf_checkpoint, orig_load, etc.)
+        # Follow GGUF-related callables in globals (covers module-level captures
+        # like `_orig_load_gguf_checkpoint = _gguf_utils.load_gguf_checkpoint`).
         for val in getattr(fn, "__globals__", {}).values():
-            if callable(val) and not isinstance(val, type) and id(val) not in seen:
+            if _is_gguf_fn(val) and id(val) not in seen:
                 result = _search(val, seen, depth + 1)
                 if result is not None:
                     return result
 
-        # Follow via closure cells (for wrappers that capture orig_load locally)
+        # Follow GGUF-related callables in closure cells (covers local captures
+        # like `orig_load = gguf_utils.load_gguf_checkpoint` inside a wrapper).
         for cell in getattr(fn, "__closure__", None) or ():
             try:
                 cell_val = cell.cell_contents
             except ValueError:
                 continue
-            if callable(cell_val) and not isinstance(cell_val, type):
+            if _is_gguf_fn(cell_val):
                 result = _search(cell_val, seen, depth + 1)
                 if result is not None:
                     return result
