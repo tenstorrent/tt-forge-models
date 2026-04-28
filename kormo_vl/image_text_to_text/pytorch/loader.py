@@ -88,11 +88,79 @@ class ModelLoader(ForgeModel):
         AutoModel.register(KORMoConfig, KORMoModel, exist_ok=True)
         AutoModelForCausalLM.register(KORMoConfig, KORMoForCausalLM, exist_ok=True)
 
+    @staticmethod
+    def _patch_llava_placeholder_mask():
+        # LlavaOnevisionModel.get_placeholder_mask calls torch_compilable_check with
+        # inputs_embeds[special_image_mask].numel() where special_image_mask is a 3D
+        # bool tensor [batch, seq_len, hidden_size]. The boolean gather forces a
+        # dynamic-size tensor onto TT device, overflowing L1 (96 MB CB vs 1.5 MB).
+        # Replace with equivalent arithmetic using n_image_tokens (computed on CPU
+        # from input_ids before the expand) times the static hidden_size dimension.
+        import torch
+        from transformers.models.llava_onevision.modeling_llava_onevision import (
+            LlavaOnevisionModel,
+        )
+        from transformers.utils import torch_compilable_check
+
+        def patched_get_placeholder_mask(
+            self, input_ids, inputs_embeds, image_features=None, video_features=None
+        ):
+            if input_ids is None:
+                special_image_mask = inputs_embeds == self.get_input_embeddings()(
+                    torch.tensor(
+                        self.config.image_token_id,
+                        dtype=torch.long,
+                        device=inputs_embeds.device,
+                    )
+                )
+                special_image_mask = special_image_mask.all(-1)
+                special_video_mask = inputs_embeds == self.get_input_embeddings()(
+                    torch.tensor(
+                        self.config.video_token_id,
+                        dtype=torch.long,
+                        device=inputs_embeds.device,
+                    )
+                )
+                special_video_mask = special_video_mask.all(-1)
+            else:
+                special_image_mask = input_ids == self.config.image_token_id
+                special_video_mask = input_ids == self.config.video_token_id
+
+            n_image_tokens = special_image_mask.sum()
+            special_image_mask = (
+                special_image_mask.unsqueeze(-1)
+                .expand_as(inputs_embeds)
+                .to(inputs_embeds.device)
+            )
+            if image_features is not None:
+                torch_compilable_check(
+                    n_image_tokens * inputs_embeds.shape[-1] == image_features.numel(),
+                    f"Image features and image tokens do not match, "
+                    f"tokens: {n_image_tokens}, features: {image_features.shape[0]}",
+                )
+
+            n_video_tokens = special_video_mask.sum()
+            special_video_mask = (
+                special_video_mask.unsqueeze(-1)
+                .expand_as(inputs_embeds)
+                .to(inputs_embeds.device)
+            )
+            if video_features is not None:
+                torch_compilable_check(
+                    n_video_tokens * inputs_embeds.shape[-1] == video_features.numel(),
+                    f"Video features and video tokens do not match, "
+                    f"tokens: {n_video_tokens}, features: {video_features.shape[0]}",
+                )
+            return special_image_mask, special_video_mask
+
+        LlavaOnevisionModel.get_placeholder_mask = patched_get_placeholder_mask
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the KORMo-VL model instance."""
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         self._register_kormo_classes()
+        self._patch_llava_placeholder_mask()
 
         if self.processor is None:
             self._load_processor()
