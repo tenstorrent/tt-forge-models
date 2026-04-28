@@ -130,7 +130,18 @@ class ModelLoader(ForgeModel):
                 special_image_mask = input_ids == self.config.image_token_id
                 special_video_mask = input_ids == self.config.video_token_id
 
-            n_image_tokens = special_image_mask.sum()
+            # Compute token counts on CPU to avoid TT device int64 comparison bug
+            # (TT gives sum=2928 instead of 2929 for input_ids==125041 on device).
+            if input_ids is not None:
+                n_image_tokens = int(
+                    (input_ids.cpu() == self.config.image_token_id).sum()
+                )
+                n_video_tokens = int(
+                    (special_video_mask.cpu()).sum()
+                )
+            else:
+                n_image_tokens = int(special_image_mask.sum())
+                n_video_tokens = int(special_video_mask.sum())
             special_image_mask = (
                 special_image_mask.unsqueeze(-1)
                 .expand_as(inputs_embeds)
@@ -143,7 +154,6 @@ class ModelLoader(ForgeModel):
                     f"tokens: {n_image_tokens}, features: {image_features.shape[0]}",
                 )
 
-            n_video_tokens = special_video_mask.sum()
             special_video_mask = (
                 special_video_mask.unsqueeze(-1)
                 .expand_as(inputs_embeds)
