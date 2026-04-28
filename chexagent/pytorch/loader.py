@@ -42,40 +42,151 @@ def _apply_transformers5_compat() -> None:
         tu.is_tf_available = lambda: False
 
 
-_MODEL_FILES_WITH_VERSION_ASSERT = (
+_ALL_SOURCE_FILES = (
     "modeling_chexagent.py",
     "modeling_visual.py",
+    "configuration_chexagent.py",
 )
 
 
 def _patch_model_files(model_name: str) -> None:
-    """Remove strict transformers==4.40.0 assertion from all model source files.
+    """Apply all transformers 5.x compatibility patches to CheXagent source files.
 
-    Both modeling_chexagent.py and modeling_visual.py hard-assert the exact
-    transformers version at module import time.  The assertions are purely
-    developer warnings with no functional effect; removing them lets the model
-    load with transformers 5.x.
+    Patches applied:
+    - modeling_chexagent.py / modeling_visual.py: remove strict transformers==4.40.0
+      assertions (purely developer warnings, no functional effect).
+    - configuration_chexagent.py: add pad_token_id=None (removed from PretrainedConfig
+      defaults in 5.x) and reset auto-populated rope_scaling default dict (model code
+      uses the old 4.40 'type'/'factor' format, not the new 'rope_type' format).
+    - modeling_visual.py: escape the outer torch.device("meta") context before calling
+      the nested AutoModel.from_pretrained for the vision encoder.
     """
     from huggingface_hub import hf_hub_download
 
-    for filename in _MODEL_FILES_WITH_VERSION_ASSERT:
+    for filename in _ALL_SOURCE_FILES:
         hub_path = Path(hf_hub_download(model_name, filename))
         real_path = Path(os.path.realpath(hub_path))
-        _remove_version_assert(real_path)
+        _patch_file(real_path, filename)
         _patch_modules_cache_copy(model_name, filename)
 
 
-def _remove_version_assert(path: Path) -> None:
+def _patch_file(path: Path, filename: str) -> None:
+    """Apply all patches appropriate for the given filename."""
     content = path.read_text()
-    if 'assert transformers.__version__' not in content:
-        return
-    patched = re.sub(
+    content = _fix_version_assert(content)
+    if filename == "configuration_chexagent.py":
+        content = _fix_config_pad_token_id(content)
+    if filename == "modeling_visual.py":
+        content = _fix_nested_from_pretrained(content)
+    path.write_text(content)
+
+
+def _fix_version_assert(content: str) -> str:
+    return re.sub(
         r'^assert transformers\.__version__ == "[^"]+",.*\n',
         "",
         content,
         flags=re.MULTILINE,
     )
-    path.write_text(patched)
+
+
+def _fix_config_pad_token_id(content: str) -> str:
+    """Add pad_token_id=None to CheXagentConfig and reset rope_scaling default dict."""
+    if "pad_token_id=None" in content:
+        return content
+    content = content.replace(
+        "bos_token_id=1,\n            eos_token_id=2,\n            **kwargs,",
+        "bos_token_id=1,\n            eos_token_id=2,\n            pad_token_id=None,\n            **kwargs,",
+    )
+    old_super = (
+        "        super().__init__(\n"
+        "            bos_token_id=bos_token_id,\n"
+        "            eos_token_id=eos_token_id,\n"
+        "            tie_word_embeddings=tie_word_embeddings,\n"
+        "            **kwargs,\n        )"
+    )
+    new_super = (
+        "        super().__init__(\n"
+        "            bos_token_id=bos_token_id,\n"
+        "            eos_token_id=eos_token_id,\n"
+        "            pad_token_id=pad_token_id,\n"
+        "            tie_word_embeddings=tie_word_embeddings,\n"
+        "            **kwargs,\n        )\n"
+        "        if isinstance(self.rope_scaling, dict) and self.rope_scaling.get('rope_type') == 'default':\n"
+        "            self.rope_scaling = None"
+    )
+    return content.replace(old_super, new_super)
+
+
+def _fix_nested_from_pretrained(content: str) -> str:
+    """Escape the meta device context before nested from_pretrained calls.
+
+    transformers 5.x wraps model __init__ in torch.device("meta") to defer
+    memory allocation.  CLIPModel.__init__ calls AutoModel.from_pretrained()
+    which raises AssertionError when it tries to create a second DeviceContext
+    on the TorchFunctionMode stack.  Temporarily removing the outer DeviceContext
+    from the stack allows the nested call to enter its own context normally.
+    """
+    if "DeviceContext" in content:
+        return content
+    # Replace either the original unpatched code or the old (broken) _saved_device patch.
+    _PATCHED_SENTINEL = "        # load model and processor\n"
+    old_unpatched = (
+        "        super().__init__()\n"
+        "        # load model and processor\n"
+        "        self.model = AutoModel.from_pretrained(vision_model_name_or_path).vision_model\n"
+        "        self.processor = AutoProcessor.from_pretrained(vision_model_name_or_path).image_processor"
+    )
+    old_saved_device = (
+        "        super().__init__()\n"
+        "        # load model and processor\n"
+        "        import torch as _torch\n"
+        "        _saved_device = _torch.get_default_device()\n"
+        "        _torch.set_default_device(\"cpu\")\n"
+        "        try:\n"
+        "            self.model = AutoModel.from_pretrained(vision_model_name_or_path).vision_model\n"
+        "            self.processor = AutoProcessor.from_pretrained(vision_model_name_or_path).image_processor\n"
+        "        finally:\n"
+        "            _torch.set_default_device(_saved_device)"
+    )
+    old_saved_device_with_comment = (
+        "        super().__init__()\n"
+        "        # load model and processor\n"
+        "        # transformers 5.x enters torch.device(\"meta\") context during from_pretrained\n"
+        "        # to avoid allocating memory; nested from_pretrained calls are blocked in that\n"
+        "        # context. Temporarily reset to CPU so the sub-model can be loaded.\n"
+        "        import torch as _torch\n"
+        "        _saved_device = _torch.get_default_device()\n"
+        "        _torch.set_default_device(\"cpu\")\n"
+        "        try:\n"
+        "            self.model = AutoModel.from_pretrained(vision_model_name_or_path).vision_model\n"
+        "            self.processor = AutoProcessor.from_pretrained(vision_model_name_or_path).image_processor\n"
+        "        finally:\n"
+        "            _torch.set_default_device(_saved_device)"
+    )
+    new = (
+        "        super().__init__()\n"
+        "        # load model and processor\n"
+        "        import torch.utils._device as _tud\n"
+        "        from torch._C import _len_torch_function_stack as _lts\n"
+        "        from torch.overrides import _pop_mode as _pm, _push_mode as _pushm\n"
+        "        _stack = [_pm() for _ in range(_lts())]\n"
+        "        _dc = next((_m for _m in _stack if isinstance(_m, _tud.DeviceContext)), None)\n"
+        "        _others = [_m for _m in _stack if _m is not _dc]\n"
+        "        for _m in reversed(_others): _pushm(_m)\n"
+        "        try:\n"
+        "            self.model = AutoModel.from_pretrained(vision_model_name_or_path).vision_model\n"
+        "            self.processor = AutoProcessor.from_pretrained(vision_model_name_or_path).image_processor\n"
+        "        finally:\n"
+        "            if _dc is not None:\n"
+        "                _curr = [_pm() for _ in range(_lts())]\n"
+        "                _pushm(_dc)\n"
+        "                for _m in reversed(_curr): _pushm(_m)"
+    )
+    for old in (old_saved_device_with_comment, old_saved_device, old_unpatched):
+        if old in content:
+            return content.replace(old, new)
+    return content
 
 
 def _patch_modules_cache_copy(model_name: str, filename: str) -> None:
@@ -102,7 +213,7 @@ def _patch_modules_cache_copy(model_name: str, filename: str) -> None:
         / filename
     )
     if modules_file.exists():
-        _remove_version_assert(modules_file)
+        _patch_file(modules_file, filename)
 
 
 class ModelVariant(StrEnum):
