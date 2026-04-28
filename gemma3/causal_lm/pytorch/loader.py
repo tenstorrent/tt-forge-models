@@ -248,7 +248,9 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             input_ids = cast_input_to_type(input_ids, dtype_override)
             attn_mask = cast_input_to_type(attn_mask, dtype_override)
-        return [input_ids, attn_mask]
+        # Return dict so keyword args are used — Gemma3ForConditionalGeneration has
+        # pixel_values as its second positional arg, so a list would misroute attn_mask.
+        return {"input_ids": input_ids, "attention_mask": attn_mask}
 
     def get_mesh_config(self, num_devices: int):
         """Get the mesh configuration for tensor parallel execution."""
