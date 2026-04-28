@@ -151,10 +151,16 @@ def _fix_nested_from_pretrained(content: str) -> str:
     Temporarily remove the outer DeviceContext from the TorchFunctionMode stack
     so the inner from_pretrained can push its own.  Push the outer DeviceContext
     back on TOP afterward so torch.device.__exit__ (a C-level simple pop) finds it.
+
+    After loading, re-create position_ids: the SiglipVisionEmbeddings registers it
+    as persistent=False so it is absent from the checkpoint and created in the inner
+    meta context.  When the outer loader materialises remaining meta tensors the
+    buffer gets uninitialized (garbage) data, causing IndexError in embedding lookup.
     """
-    if "DeviceContext" in content:
+    if "register_buffer('position_ids'" in content:
         return content
-    # Replace either the original unpatched code or the old (broken) patch variants.
+    # Replace the original unpatched code, old broken variants, or the previous
+    # correct-order variant that lacked the position_ids fix.
     old_unpatched = (
         "        super().__init__()\n"
         "        # load model and processor\n"
@@ -207,7 +213,7 @@ def _fix_nested_from_pretrained(content: str) -> str:
         "                _pushm(_dc)\n"
         "                for _m in reversed(_curr): _pushm(_m)"
     )
-    new = (
+    old_stack_correct_order = (
         "        super().__init__()\n"
         "        # load model and processor\n"
         "        import torch.utils._device as _tud\n"
@@ -223,7 +229,26 @@ def _fix_nested_from_pretrained(content: str) -> str:
         "        finally:\n"
         "            if _dc is not None: _pushm(_dc)"
     )
-    for old in (old_saved_device_with_comment, old_saved_device, old_unpatched):
+    new = (
+        "        super().__init__()\n"
+        "        # load model and processor\n"
+        "        import torch as _t\n"
+        "        import torch.utils._device as _tud\n"
+        "        from torch._C import _len_torch_function_stack as _lts\n"
+        "        from torch.overrides import _pop_mode as _pm, _push_mode as _pushm\n"
+        "        _stack = [_pm() for _ in range(_lts())]\n"
+        "        _dc = next((_m for _m in _stack if isinstance(_m, _tud.DeviceContext)), None)\n"
+        "        _others = [_m for _m in _stack if _m is not _dc]\n"
+        "        for _m in reversed(_others): _pushm(_m)\n"
+        "        try:\n"
+        "            self.model = AutoModel.from_pretrained(vision_model_name_or_path).vision_model\n"
+        "            _emb = self.model.embeddings\n"
+        "            _emb.register_buffer('position_ids', _t.arange(_emb.position_embedding.weight.shape[0]).expand((1, -1)), persistent=False)\n"
+        "            self.processor = AutoProcessor.from_pretrained(vision_model_name_or_path).image_processor\n"
+        "        finally:\n"
+        "            if _dc is not None: _pushm(_dc)"
+    )
+    for old in (old_stack_correct_order, old_stack_wrong_order, old_saved_device_with_comment, old_saved_device, old_unpatched):
         if old in content:
             return content.replace(old, new)
     return content
