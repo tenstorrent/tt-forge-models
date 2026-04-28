@@ -283,6 +283,11 @@ class ModelLoader(ForgeModel):
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
+        # Qwen3_5DynamicCache is not a pytree-registered type, so the test
+        # infrastructure's tree_map comparison fails if past_key_values is returned.
+        # Disable caching for a single forward pass — logits are unaffected.
+        inputs["use_cache"] = False
+
         return inputs
 
     def get_mesh_config(self, num_devices: int):
