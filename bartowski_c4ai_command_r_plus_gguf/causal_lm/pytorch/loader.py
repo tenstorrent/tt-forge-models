@@ -12,7 +12,11 @@ from typing import Optional
 # Patch the mapping before any from_pretrained call so load_gguf_checkpoint recognises
 # the architecture and maps GGUF keys to CohereConfig field names.
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
-from transformers.integrations.ggml import GGUF_CONFIG_MAPPING as _GGUF_CONFIG_MAPPING
+from transformers.integrations.ggml import (
+    GGUF_CONFIG_MAPPING as _GGUF_CONFIG_MAPPING,
+    GGUF_TO_FAST_CONVERTERS as _GGUF_TO_FAST_CONVERTERS,
+    GGUFGPTConverter as _GGUFGPTConverter,
+)
 
 if "command-r" not in _GGUF_CONFIG_MAPPING:
     _GGUF_CONFIG_MAPPING["command-r"] = {
@@ -28,6 +32,11 @@ if "command-r" not in _GGUF_CONFIG_MAPPING:
     }
 if "command-r" not in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
     _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("command-r")
+
+# Command R+ uses a GPT-2/BPE tokenizer; register cohere as a GPT converter
+# so convert_gguf_tokenizer can handle it after model_type is remapped to "cohere".
+if "cohere" not in _GGUF_TO_FAST_CONVERTERS:
+    _GGUF_TO_FAST_CONVERTERS["cohere"] = _GGUFGPTConverter
 
 # load_gguf_checkpoint sets model_type="command-r" from the GGUF general.architecture
 # field, but AutoConfig needs model_type="cohere" to select CohereConfig.
@@ -162,11 +171,15 @@ class ModelLoader(ForgeModel):
                 "content": self.sample_text,
             }
         ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
+        try:
+            text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        except ValueError:
+            # GGUF tokenizer for this model does not embed a chat template
+            text = self.sample_text
         prompts = [text]
 
         inputs = self.tokenizer(
