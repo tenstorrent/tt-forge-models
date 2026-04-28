@@ -69,10 +69,53 @@ def _patch_transformers_qwen2vl_gguf():
     # Wrap load_gguf_checkpoint to remap model_type from qwen2vl to qwen2.
     # Several modules import load_gguf_checkpoint by value (not by module
     # reference), so we must patch each already-bound name individually.
+    #
+    # Other GGUF loaders may already have patched gguf_utils.load_gguf_checkpoint
+    # with a wrapper that has a fixed signature (missing model_to_load). Walk
+    # the closure chain to find the actual transformers implementation, which
+    # accepts *args/**kwargs correctly.
+    import inspect
     import transformers.configuration_utils as _config_utils
     import transformers.models.auto.tokenization_auto as _tok_auto
 
-    orig_load = gguf_utils.load_gguf_checkpoint
+    def _find_real_load_gguf(fn):
+        """Unwrap loader patches to find the real transformers implementation.
+
+        Other GGUF loaders capture the original at module-level import time as
+        '_orig_load_gguf_checkpoint' in their globals dict. Walk that chain
+        until we reach a function whose source file is modeling_gguf_pytorch_utils.
+        """
+        seen = set()
+        while fn is not None and id(fn) not in seen:
+            seen.add(id(fn))
+            try:
+                src = inspect.getfile(fn)
+                if "modeling_gguf_pytorch_utils" in src:
+                    return fn
+            except (TypeError, OSError):
+                return fn
+            # Look in __globals__ for the wrapped original (common pattern:
+            # `_orig_load_gguf_checkpoint = load_gguf_checkpoint` at module level).
+            globs = getattr(fn, "__globals__", {})
+            nxt = globs.get("_orig_load_gguf_checkpoint") or globs.get("orig_load")
+            if callable(nxt) and id(nxt) not in seen:
+                fn = nxt
+                continue
+            # Fall back to closure cells.
+            closure = fn.__closure__ or ()
+            for cell in closure:
+                try:
+                    inner = cell.cell_contents
+                    if callable(inner) and id(inner) not in seen:
+                        fn = inner
+                        break
+                except ValueError:
+                    pass
+            else:
+                break
+        return fn
+
+    orig_load = _find_real_load_gguf(gguf_utils.load_gguf_checkpoint)
 
     def patched_load_gguf_checkpoint(*args, **kwargs):
         result = orig_load(*args, **kwargs)
