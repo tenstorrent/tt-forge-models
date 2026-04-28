@@ -53,16 +53,19 @@ def _patch_qwen3vl_gguf_support():
     def _patched_get_gguf_hf_weights_map(
         hf_model, processor, model_type=None, num_layers=None, qual_name=""
     ):
-        if model_type is None and hasattr(hf_model, "config"):
-            cfg = hf_model.config
-            mt = getattr(cfg, "model_type", "")
-            if mt in ("qwen3_vl", "qwen3_vl_text"):
-                # gguf-py uses "qwen3vl" as the arch string, not "qwen3_vl"
-                model_type = "qwen3vl"
-                if num_layers is None:
-                    # num_hidden_layers lives in text_config for composite configs
-                    text_cfg = getattr(cfg, "text_config", cfg)
-                    num_layers = getattr(text_cfg, "num_hidden_layers", None)
+        # model_type may already be "qwen3_vl" if a prior patch read it from
+        # hf_model.config.model_type before calling us (e.g. momix_44 does
+        # this), so we must check for the HF name regardless of None.
+        effective_mt = model_type or (
+            getattr(getattr(hf_model, "config", None), "model_type", "")
+        )
+        if effective_mt in ("qwen3_vl", "qwen3_vl_text"):
+            # gguf-py uses "qwen3vl" as the arch string, not "qwen3_vl"
+            model_type = "qwen3vl"
+            if num_layers is None and hasattr(hf_model, "config"):
+                # num_hidden_layers lives in text_config for composite configs
+                text_cfg = getattr(hf_model.config, "text_config", hf_model.config)
+                num_layers = getattr(text_cfg, "num_hidden_layers", None)
         return orig_fn(hf_model, processor, model_type, num_layers, qual_name)
 
     _patched_get_gguf_hf_weights_map._qwen3vl_patched = True
@@ -124,9 +127,16 @@ class ModelLoader(ForgeModel):
         # Pass the 4B base config explicitly so from_pretrained skips GGUF
         # config extraction (qwen3vl is not in transformers' GGUF config
         # mapping), while still loading weights from the GGUF file.
+        # ignore_mismatched_sizes=True: gguf-py's qwen3vl tensor name map
+        # incorrectly maps a [2560] text-model tensor to
+        # model.visual.merger.norm.weight (which expects [1024]); allow that
+        # one weight to be skipped rather than aborting the entire load.
         config = Qwen3VLConfig.from_pretrained("Qwen/Qwen3-VL-4B-Instruct")
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, config=config, **model_kwargs
+            pretrained_model_name,
+            config=config,
+            ignore_mismatched_sizes=True,
+            **model_kwargs,
         )
         model.eval()
 
