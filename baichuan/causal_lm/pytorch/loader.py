@@ -104,6 +104,32 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        # Transformers 5.x initializes models on meta device and materializes
+        # registered parameters/buffers from the checkpoint state_dict. The
+        # baichuan RotaryEmbedding sets inv_freq, cos_cached, and sin_cached as
+        # plain attributes (not registered buffers), so they remain meta tensors
+        # after loading. Recompute them from the shapes already stored on each
+        # RotaryEmbedding module.
+        for module in model.modules():
+            if (
+                hasattr(module, "cos_cached")
+                and hasattr(module, "sin_cached")
+                and hasattr(module, "inv_freq")
+                and isinstance(module.cos_cached, torch.Tensor)
+                and module.cos_cached.is_meta
+            ):
+                dim = module.inv_freq.shape[0] * 2
+                base = 10000
+                module.inv_freq = 1.0 / (
+                    base ** (torch.arange(0, dim, 2).float() / dim)
+                )
+                max_seq = module.max_seq_len_cached
+                t = torch.arange(max_seq, dtype=torch.float32)
+                freqs = torch.outer(t, module.inv_freq)
+                emb = torch.cat((freqs, freqs), dim=-1)
+                module.cos_cached = emb.cos()[None, None, :, :].to(torch.float32)
+                module.sin_cached = emb.sin()[None, None, :, :].to(torch.float32)
+
         self.config = model.config
         self.model = model
         return model
