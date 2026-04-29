@@ -121,7 +121,29 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model = model.to(dtype_override)
 
-        # 3. mean_pool uses (int64_tensor + 1e-20_python_float) as denominator,
+        # 3. Transformers 5.x _move_missing_keys_from_meta_to_device() unconditionally
+        #    replaces all non-persistent buffers with torch.empty_like() (uninitialized
+        #    garbage), even when the model was not loaded on meta device.  The outer
+        #    ContextualDocumentEmbeddingTransformer.from_pretrained runs this on the full
+        #    model tree, trashing the ModernBertRotaryEmbedding.{layer_type}_inv_freq
+        #    buffers that the inner ModernBERT from_pretrained had just initialized.
+        #    The CDE model's _initialize_weights is a no-op for ModernBertRotaryEmbedding,
+        #    so the buffers remain garbage.  Re-initialize them here explicitly.
+        from transformers.models.modernbert.modeling_modernbert import ModernBertRotaryEmbedding
+        from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS as _ROPE_INIT_FNS
+
+        for _module in model.modules():
+            if isinstance(_module, ModernBertRotaryEmbedding):
+                for _layer_type in _module.layer_types:
+                    _rope_init_fn = _module.compute_default_rope_parameters
+                    if _module.rope_type[_layer_type] != "default":
+                        _rope_init_fn = _ROPE_INIT_FNS[_module.rope_type[_layer_type]]
+                    _inv_freq, _ = _rope_init_fn(_module.config, layer_type=_layer_type)
+                    _inv_freq = _inv_freq.float()
+                    _module.register_buffer(f"{_layer_type}_inv_freq", _inv_freq, persistent=False)
+                    _module.register_buffer(f"{_layer_type}_original_inv_freq", _inv_freq.clone(), persistent=False)
+
+        # 4. mean_pool uses (int64_tensor + 1e-20_python_float) as denominator,
         #    which promotes bfloat16 numerators to float32 via PyTorch scalar
         #    type promotion, causing dtype mismatches in downstream linear layers.
         #    Patch mean_pool in the remote module to preserve the input dtype.
