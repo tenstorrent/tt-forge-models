@@ -7,10 +7,30 @@ DeepSeek V2 Lite GGUF model loader implementation for causal language modeling.
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFLlamaConverter
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from typing import Optional
 
 # deepseek_v2 uses a LLaMA-style BPE tokenizer; not registered in transformers 5.x
 GGUF_TO_FAST_CONVERTERS.setdefault("deepseek_v2", GGUFLlamaConverter)
+
+# transformers 5.x get_gguf_hf_weights_map has no deepseek_v2→deepseek2 mapping;
+# gguf-py uses "deepseek2" as the arch name for DeepSeek V2 models
+_orig_get_gguf_hf_weights_map = _gguf_utils.get_gguf_hf_weights_map
+
+
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name=""
+):
+    if model_type is None:
+        model_type = hf_model.config.model_type
+    if model_type == "deepseek_v2":
+        model_type = "deepseek2"
+    return _orig_get_gguf_hf_weights_map(
+        hf_model, processor, model_type, num_layers, qual_name
+    )
+
+
+_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 from ....base import ForgeModel
 from ....config import (
