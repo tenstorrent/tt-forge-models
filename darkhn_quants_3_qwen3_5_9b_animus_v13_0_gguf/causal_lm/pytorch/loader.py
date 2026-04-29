@@ -37,21 +37,45 @@ def _patch_qwen35_support():
         )
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
+def _find_real_load_gguf_checkpoint():
+    """Traverse the chain of monkey-patched load_gguf_checkpoint to find the real transformers function."""
+    fn = _orig_load_gguf_checkpoint
+    seen = set()
+    while True:
+        fid = id(fn)
+        if fid in seen:
+            break
+        seen.add(fid)
+        src = getattr(getattr(fn, "__code__", None), "co_filename", "")
+        if "tt_forge_models" not in src:
+            return fn
+        next_fn = fn.__globals__.get("_orig_load_gguf_checkpoint")
+        if next_fn is None:
+            break
+        fn = next_fn
+    return fn
+
+
+_real_load_gguf_checkpoint = _find_real_load_gguf_checkpoint()
+
+
+def _patched_load_gguf_checkpoint(*args, **kwargs):
     _patch_qwen35_support()
-    result = _orig_load_gguf_checkpoint(
-        gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
-    )
-    if result.get("config", {}).get("model_type") == "qwen35":
+    result = _real_load_gguf_checkpoint(*args, **kwargs)
+    if isinstance(result, dict) and result.get("config", {}).get("model_type") == "qwen35":
         result["config"]["model_type"] = "qwen3"
     return result
 
 
-_patch_qwen35_support()
-_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+def _apply_patches():
+    _patch_qwen35_support()
+    _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+
+_apply_patches()
 
 from ....base import ForgeModel
 from ....config import (
@@ -121,6 +145,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _apply_patches()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -203,6 +228,7 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
+        _apply_patches()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
