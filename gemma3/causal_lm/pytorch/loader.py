@@ -5,6 +5,8 @@
 Gemma3 model loader implementation for causal language modeling.
 """
 
+import torch
+import torch.nn as nn
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
@@ -19,6 +21,41 @@ from ....config import (
 )
 from ....base import ForgeModel
 from ....tools.utils import cast_input_to_type
+
+
+def _dequantize_awq_layers(model, dtype):
+    """Replace AWQ quantized linear layers with standard float nn.Linear layers.
+
+    gptqmodel's TorchAtenAwqLinear uses a CPU-only fused kernel
+    (torch.ops.aten._weight_int4pack_mm_for_cpu) and sets stateful
+    linear_mode='inference' on the first CPU forward pass.  When the TT
+    device runner subsequently calls the compiled model with TT tensors,
+    _fused_op_forward raises NotImplementedError because x.device != 'cpu'.
+    Dequantizing to float before any forward pass avoids this entirely.
+    """
+    replacements = {}
+    for name, module in model.named_modules():
+        if hasattr(module, "awq_weight_dequantize") and hasattr(module, "in_features"):
+            # Returns [in_features, out_features]; nn.Linear.weight is [out_features, in_features]
+            weight = module.awq_weight_dequantize(device="cpu", dtype=dtype)
+            has_bias = getattr(module, "bias", None) is not None
+            linear = nn.Linear(module.in_features, module.out_features, bias=has_bias)
+            linear.weight = nn.Parameter(weight.t().contiguous())
+            if has_bias:
+                linear.bias = nn.Parameter(module.bias.to(dtype))
+            replacements[name] = linear
+
+    for name, linear in replacements.items():
+        if "." in name:
+            parent_name, child_name = name.rsplit(".", 1)
+            parent = model
+            for part in parent_name.split("."):
+                parent = getattr(parent, part)
+        else:
+            parent, child_name = model, name
+        setattr(parent, child_name, linear)
+
+    return model
 
 
 class ModelVariant(StrEnum):
@@ -182,6 +219,9 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        if self._variant == ModelVariant.GEMMA_3_1B_IT_AWQ_INT4:
+            target_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+            model = _dequantize_awq_layers(model, target_dtype)
         model.eval()
         self.model = model
         self.config = model.config
