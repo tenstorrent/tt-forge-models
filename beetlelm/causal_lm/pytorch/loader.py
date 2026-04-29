@@ -5,7 +5,8 @@
 BeetleLM model loader implementation for causal language modeling.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoTokenizer, AutoConfig
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
 from typing import Optional
 
 from ....base import ForgeModel
@@ -29,6 +30,13 @@ class ModelVariant(StrEnum):
 
 class ModelLoader(ForgeModel):
     """BeetleLM model loader implementation for causal language modeling tasks."""
+
+    # BeetleLM model repos don't ship pretrained weights or tokenizers.
+    # Tokenizers live in separate repos named bpe_babylm-<l1>-babylm-<l2>.
+    _TOKENIZER_REPOS = {
+        "BeetleLM/beetlelm_deu_L1-eng_L2_balanced": "BeetleLM/bpe_babylm-eng-babylm-deu",
+        "BeetleLM/beetlelm_nld-bul_balanced": "BeetleLM/bpe_babylm-nld-babylm-bul",
+    }
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
@@ -91,15 +99,23 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded tokenizer instance
         """
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
+        pretrained_model_name = self._variant_config.pretrained_model_name
+        tokenizer_repo = self._TOKENIZER_REPOS.get(pretrained_model_name, pretrained_model_name)
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
+            tokenizer_repo,
             trust_remote_code=True,
-            **tokenizer_kwargs,
         )
+
+        # The BeetleLM tokenizer has two sets of special tokens: lowercase
+        # (<PAD> ID=1) and uppercase ([PAD] ID=32002). The uppercase ones
+        # exceed the model's vocab_size=32000. Use <PAD> for padding.
+        if (
+            self.tokenizer.pad_token_id is not None
+            and self.tokenizer.pad_token_id >= 32000
+            and "<PAD>" in self.tokenizer.get_vocab()
+        ):
+            self.tokenizer.pad_token = "<PAD>"
 
         return self.tokenizer
 
@@ -117,21 +133,22 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"trust_remote_code": True}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+        config = AutoConfig.from_pretrained(pretrained_model_name, trust_remote_code=True)
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, trust_remote_code=True
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+            config.n_layers = self.num_layers
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+        # BeetleLM HuggingFace repos contain only config + architecture code,
+        # no pretrained weights. Load the model class directly and initialize
+        # with random weights so the compiler architecture test can proceed.
+        model_class = get_class_from_dynamic_module(
+            "pico_decoder.PicoDecoderHF", pretrained_model_name
         )
+        model = model_class(config)
+
+        if dtype_override is not None:
+            model = model.to(dtype_override)
+
         model.eval()
         self.config = model.config
 
