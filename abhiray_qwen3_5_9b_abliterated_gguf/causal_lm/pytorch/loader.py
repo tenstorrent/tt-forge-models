@@ -29,10 +29,21 @@ def _patch_qwen35_support():
     TENSOR_PROCESSORS.setdefault("qwen35", MambaTensorProcessor)
     for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
         if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            qwen3_map = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"]
+            # Use a copy so we can add qwen35-specific keys without polluting the qwen3 mapping.
             _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
                 "qwen35",
-                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
+                dict(qwen3_map),
             )
+            # If a prior loader installed qwen35 as the same object as qwen3, make a copy now.
+            if _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen35"] is qwen3_map:
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen35"] = dict(qwen3_map)
+            # full_attention_interval marks Qwen3.5-9B hybrid architecture; add it to the
+            # config-section mapping so it propagates into result["config"].
+            if section == "config":
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen35"].setdefault(
+                    "full_attention_interval", "full_attention_interval"
+                )
     if "qwen3" in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
         GGUF_TO_FAST_CONVERTERS.setdefault(
@@ -43,9 +54,14 @@ def _patch_qwen35_support():
 def _patched_load_gguf_checkpoint(*args, **kwargs):
     _patch_qwen35_support()
     result = _orig_load_gguf_checkpoint(*args, **kwargs)
-    if result.get("config", {}).get("model_type") == "qwen35":
-        # Qwen3.5 uses Qwen3_5ForCausalLM (hybrid SSM + full-attention), not Qwen3ForCausalLM.
-        # model_type='qwen3_5_text' routes AutoModelForCausalLM to Qwen3_5ForCausalLM.
+    cfg = result.get("config", {})
+    # Remap to qwen3_5_text if model_type is 'qwen35' (we ran first) or 'qwen3' (a prior
+    # loader in the chain already remapped it), AND full_attention_interval is present.
+    # full_attention_interval > 0 is the reliable indicator of the Qwen3.5-9B hybrid
+    # SSM+full-attention architecture; other Qwen3.5 sizes (4B, 27B) do not have it.
+    if cfg.get("model_type") in ("qwen35", "qwen3") and cfg.get(
+        "full_attention_interval"
+    ):
         result["config"]["model_type"] = "qwen3_5_text"
     return result
 
