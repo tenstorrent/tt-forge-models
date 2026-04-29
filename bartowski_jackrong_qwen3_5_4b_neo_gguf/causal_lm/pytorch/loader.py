@@ -214,7 +214,10 @@ def _patched_load_gguf_checkpoint(*args, **kwargs):
     """Wrap load_gguf_checkpoint to add qwen35 → qwen3_5_text support."""
     _patch_qwen35_support()
     result = _orig_load_gguf_checkpoint(*args, **kwargs)
-    if result.get("config", {}).get("model_type") == "qwen35":
+    # Detect Neo hybrid by full_attention_interval, not model_type: other
+    # loaders imported before this one may already have translated "qwen35"
+    # to "qwen3", so checking model_type=="qwen35" would miss the conversion.
+    if "full_attention_interval" in result.get("config", {}):
         result["config"]["model_type"] = "qwen3_5_text"
     return result
 
