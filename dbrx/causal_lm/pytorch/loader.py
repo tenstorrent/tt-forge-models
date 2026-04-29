@@ -5,6 +5,7 @@
 DBRX model loader implementation for causal language modeling.
 """
 
+import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 
@@ -24,6 +25,58 @@ class ModelVariant(StrEnum):
     """Available DBRX model variants for causal language modeling."""
 
     TINY_RANDOM = "tiny-random"
+
+
+def _patched_dbrx_experts_forward(self, hidden_states, top_k_index, top_k_weights):
+    """Replace nonzero/for-loop MoE dispatch with a static loop over all experts.
+
+    The original DbrxExperts.forward calls nonzero() to find active experts,
+    then iterates over a dynamically-sized tensor. Both operations force a
+    device-to-host transfer on TT silicon (PJRT INTERNAL error 13).
+
+    This replacement loops over all num_experts statically and uses boolean
+    masking to zero out contributions from non-selected experts, keeping the
+    entire computation graph static and traceable by torch.compile / XLA.
+    """
+    batch_size = hidden_states.shape[0]
+    # [S, d_model] where S = batch * seq_len
+    flat_hidden = hidden_states.reshape(-1, self.ffn_hidden_size)
+    S = flat_hidden.shape[0]
+
+    next_states = torch.zeros(
+        S, self.ffn_hidden_size, dtype=flat_hidden.dtype, device=flat_hidden.device
+    )
+
+    split_expert_shape = (-1, self.ffn_hidden_size, self.hidden_size)
+
+    for expert_idx in range(self.num_experts):
+        # Boolean mask: [S, top_k] — True where this expert is chosen
+        expert_bool = top_k_index == expert_idx  # [S, top_k]
+
+        # Per-token weight for this expert; 0 for tokens not routed here
+        token_weights = (top_k_weights * expert_bool.to(top_k_weights.dtype)).sum(
+            dim=-1
+        )  # [S]
+
+        v1 = self.mlp.v1.view(split_expert_shape)[expert_idx]
+        w1 = self.mlp.w1.view(split_expert_shape)[expert_idx]
+        w2 = self.mlp.w2.view(split_expert_shape)[expert_idx]
+
+        states = self.mlp(flat_hidden, w1, v1, w2)  # [S, ffn_hidden_size]
+        states = states * token_weights[:, None]
+        next_states = next_states + states
+
+    next_states = next_states.view(batch_size, -1, self.ffn_hidden_size)
+    return next_states
+
+
+def _patch_moe_experts(model):
+    import types
+    from transformers.models.dbrx.modeling_dbrx import DbrxExperts
+
+    for module in model.modules():
+        if isinstance(module, DbrxExperts):
+            module.forward = types.MethodType(_patched_dbrx_experts_forward, module)
 
 
 class ModelLoader(ForgeModel):
@@ -87,6 +140,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         )
         model.eval()
+
+        _patch_moe_experts(model)
 
         return model
 
