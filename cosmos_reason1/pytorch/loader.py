@@ -145,7 +145,8 @@ def _patch_qwen2_5_vl_for_tt_device(model):
             if v != prev:
                 unique_cu_window.append(v)
                 prev = v
-        cu_window_seqlens = torch.tensor(unique_cu_window, device=device, dtype=torch.int32)
+        # Keep on CPU: VisionAttention uses lengths.tolist() (non-FlashAttention path)
+        cu_window_seqlens = torch.tensor(unique_cu_window, dtype=torch.int32)
 
         # --- cu_seqlens via pure Python to avoid repeat_interleave tile-padding ---
         cumsum = 0
@@ -154,7 +155,8 @@ def _patch_qwen2_5_vl_for_tt_device(model):
             for _ in range(int(t)):
                 cumsum += int(h) * int(w)
                 cu_seqlens_vals.append(cumsum)
-        cu_seqlens = torch.tensor(cu_seqlens_vals, dtype=torch.int32, device=device)
+        # Keep on CPU: VisionAttention uses lengths.tolist() for torch.split
+        cu_seqlens = torch.tensor(cu_seqlens_vals, dtype=torch.int32)
 
         # --- standard vision transformer body ---
         seq_len, _ = hidden_states.size()
