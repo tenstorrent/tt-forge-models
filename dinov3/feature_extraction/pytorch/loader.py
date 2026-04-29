@@ -107,10 +107,10 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded processor instance
         """
-        from transformers import DINOv3ViTImageProcessor
+        from transformers import DINOv3ViTImageProcessorFast
 
         pretrained_model_name = self._variant_config.pretrained_model_name
-        self.processor = DINOv3ViTImageProcessor.from_pretrained(pretrained_model_name)
+        self.processor = DINOv3ViTImageProcessorFast.from_pretrained(pretrained_model_name)
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
