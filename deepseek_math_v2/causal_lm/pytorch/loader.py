@@ -4,13 +4,15 @@
 """
 DeepSeek-Math-V2 model loader implementation for causal language modeling.
 
-Built on DeepSeek-V3.2-Exp-Base. Uses a reduced MoE configuration for testing
-since the full model is too large to load directly.
+Built on DeepSeek-V3.2-Exp-Base (671B parameters). The full model exceeds
+single-device DRAM capacity.
 """
 
 from typing import Optional
 
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import DeepseekV3Config
+from transformers.models.deepseek_v3.modeling_deepseek_v3 import DeepseekV3ForCausalLM
 
 from ....base import ForgeModel
 from ....config import (
@@ -21,6 +23,28 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
+
+# deepseek_v32 (DeepSeek-V3.2 Exp) is not in any released transformers version.
+# Map it to the V3 architecture, which is structurally compatible minus the
+# V3.2 indexer attention head (index_n_heads, index_topk, index_head_dim).
+
+
+class _DeepseekV32Config(DeepseekV3Config):
+    model_type = "deepseek_v32"
+
+
+class _DeepseekV32ForCausalLM(DeepseekV3ForCausalLM):
+    config_class = _DeepseekV32Config
+
+
+try:
+    AutoConfig.register("deepseek_v32", _DeepseekV32Config)
+except ValueError:
+    pass
+try:
+    AutoModelForCausalLM.register(_DeepseekV32Config, _DeepseekV32ForCausalLM)
+except ValueError:
+    pass
 
 
 class ModelVariant(StrEnum):
@@ -43,13 +67,10 @@ class ModelLoader(ForgeModel):
         "What is the integral of x^2 from 0 to 2?"
     )
 
-    def __init__(
-        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
-    ):
+    def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.model_name = "deepseek-ai/DeepSeek-Math-V2"
         self.tokenizer = None
-        self.num_layers = num_layers
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -66,23 +87,10 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        config = AutoConfig.from_pretrained(self.model_name, trust_remote_code=True)
-
-        # Reduce model dimensions for testing
-        if self.num_layers is not None:
-            config.num_hidden_layers = self.num_layers
-        else:
-            config.num_hidden_layers = 6
-        config.num_attention_heads = 16
-        config.hidden_size = 1024
-        config.num_key_value_heads = 16
-        config.intermediate_size = 1024 * 4
-        config.num_experts_per_tok = 2
-        config.q_lora_rank = 256
+        config = AutoConfig.from_pretrained(self.model_name)
 
         model_kwargs = {
             "attn_implementation": "eager",
-            "trust_remote_code": True,
         }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
@@ -90,9 +98,7 @@ class ModelLoader(ForgeModel):
 
         model = AutoModelForCausalLM.from_config(config, **model_kwargs)
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self.model_name, trust_remote_code=True
-        )
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
 
         return model
 
