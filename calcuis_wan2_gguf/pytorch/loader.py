@@ -130,7 +130,18 @@ class ModelLoader(ForgeModel):
             GGUFQuantizationConfig,
             WanTransformer3DModel,
         )
+        from diffusers.quantizers.gguf.utils import GGUFParameter
         from huggingface_hub import hf_hub_download
+
+        # GGUFParameter.as_tensor() calls torch.Tensor._make_subclass without
+        # DisableTorchFunctionSubclass, causing __torch_function__ to wrap the
+        # result back into GGUFParameter, which then recurses infinitely under
+        # torch.compile/dynamo.  Patch it to bypass __torch_function__ dispatch.
+        def _as_tensor_fixed(self):
+            with torch._C.DisableTorchFunctionSubclass():
+                return torch.Tensor._make_subclass(torch.Tensor, self, self.requires_grad)
+
+        GGUFParameter.as_tensor = _as_tensor_fixed
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
