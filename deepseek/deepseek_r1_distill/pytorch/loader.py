@@ -10,6 +10,8 @@ HuggingFace Transformers (the full 671B MoE model is not).
 
 from typing import Optional
 
+import torch
+import torch.nn as nn
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
@@ -149,6 +151,51 @@ class ModelLoader(ForgeModel):
         self.tokenizer.pad_token = self.tokenizer.eos_token
         return self.tokenizer
 
+    @staticmethod
+    def _dequantize_bnb_model(model, dtype=torch.bfloat16):
+        """Replace all Linear4bit layers with dequantized regular Linear layers.
+
+        BNB 4-bit models use Params4bit tensors that cannot be moved to TT
+        device via .to(). This replaces each quantized layer with an ordinary
+        nn.Linear so the model can be transferred to any device.
+        """
+        try:
+            from bitsandbytes.nn import Linear4bit
+        except ImportError:
+            return model
+
+        replacements = {
+            name: module
+            for name, module in model.named_modules()
+            if isinstance(module, Linear4bit)
+        }
+        for name, module in replacements.items():
+            qs = getattr(module.weight, "quant_state", None)
+            if qs is not None:
+                import bitsandbytes.functional as bnb_F
+
+                weight_data = bnb_F.dequantize_4bit(module.weight.data, qs).to(dtype)
+            else:
+                weight_data = module.weight.data.to(dtype)
+
+            new_linear = nn.Linear(
+                module.in_features,
+                module.out_features,
+                bias=module.bias is not None,
+                dtype=dtype,
+            )
+            new_linear.weight = nn.Parameter(weight_data)
+            if module.bias is not None:
+                new_linear.bias = nn.Parameter(module.bias.to(dtype))
+
+            parts = name.split(".")
+            parent = model
+            for part in parts[:-1]:
+                parent = getattr(parent, part)
+            setattr(parent, parts[-1], new_linear)
+
+        return model
+
     def load_model(self, *, dtype_override=None, **kwargs):
         model_kwargs = {
             "trust_remote_code": True,
@@ -162,13 +209,19 @@ class ModelLoader(ForgeModel):
             model_kwargs["subfolder"] = subfolder
         model_kwargs |= kwargs
 
-        # Quantized variants need device_map="cpu" for CPU-based loading
+        # BNB 4-bit variants: load on CPU then dequantize to bfloat16
+        # so the model can be moved to TT device (Params4bit is CUDA-only).
         if self._variant in (ModelVariant.DISTILL_QWEN_7B_UNSLOTH_BNB_4BIT,):
             model_kwargs["device_map"] = "cpu"
 
         model = AutoModelForCausalLM.from_pretrained(
             self._variant_config.pretrained_model_name, **model_kwargs
         )
+
+        if self._variant in (ModelVariant.DISTILL_QWEN_7B_UNSLOTH_BNB_4BIT,):
+            model = self._dequantize_bnb_model(
+                model, dtype=dtype_override or torch.bfloat16
+            )
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
