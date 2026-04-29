@@ -55,9 +55,12 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
+        # transformers 5.x removed do_center_crop from ViTImageProcessor.preprocess().
+        # The model expects 384x384 inputs; override size to resize directly to 384x384.
         self.processor = ViTImageProcessor.from_pretrained(
             self._variant_config.pretrained_model_name,
-            do_center_crop=True,
+            size={"height": 384, "width": 384},
+            do_center_crop=False,
         )
         return self.processor
 
