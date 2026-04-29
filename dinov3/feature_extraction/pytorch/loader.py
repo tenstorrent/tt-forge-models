@@ -45,7 +45,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.BASE: DINOv3Config(
-            pretrained_model_name="facebook/dinov3-vitb16-pretrain-lvd1689m",
+            pretrained_model_name="debajyotidasgupta/dinov3-vitb16-pretrain-lvd1689m",
             source=ModelSource.HUGGING_FACE,
         ),
         ModelVariant.LARGE: DINOv3Config(
