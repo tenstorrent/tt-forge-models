@@ -8,6 +8,8 @@ Supports the DeepSeek V3 architecture with Multi-Token Prediction (MTP),
 using a small random-weight variant for testing.
 """
 
+import sys
+import types
 from typing import Optional
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -22,6 +24,21 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
+
+
+def _stub_triton_if_missing():
+    # transformers finegrained_fp8.py imports triton at module level. On non-CUDA
+    # hardware the quantizer sets dequantize=True so actual triton kernels are never
+    # called, but the import must succeed. This stub satisfies the import without
+    # requiring the NVIDIA-only triton package.
+    if "triton" not in sys.modules:
+        tl = types.ModuleType("triton.language")
+        tl.constexpr = None  # used as function annotation; any Python object is valid
+        triton_mod = types.ModuleType("triton")
+        triton_mod.jit = lambda fn: fn
+        triton_mod.language = tl
+        sys.modules["triton"] = triton_mod
+        sys.modules["triton.language"] = tl
 
 
 class ModelVariant(StrEnum):
@@ -78,6 +95,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _stub_triton_if_missing()
         model_kwargs = {
             "trust_remote_code": True,
         }
