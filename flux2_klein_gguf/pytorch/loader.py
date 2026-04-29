@@ -25,6 +25,50 @@ from ...config import (
 )
 
 
+def _patch_gguf_parameter_torch_function():
+    # diffusers 0.37.1 GGUFParameter.__torch_function__ has two bugs:
+    #
+    # 1. Infinite recursion under torch.compile/dynamo: calls
+    #    super().__torch_function__(func, types, ...) with types containing
+    #    GGUFParameter. torch.Tensor.__torch_function__ re-dispatches to
+    #    GGUFParameter → recursion. Fix: filter cls from types before super().
+    #
+    # 2. KeyError: None when non-quantized ops (e.g. SDPA) produce results
+    #    where _extract_quant_type returns None: the original code calls
+    #    GGUFParameter(result, quant_type=None) → GGML_QUANT_SIZES[None].
+    #    Fix: skip wrapping when quant_type is None.
+    try:
+        from diffusers.quantizers.gguf.utils import GGUFParameter
+    except ImportError:
+        return
+
+    @classmethod
+    def _patched_torch_function(cls, func, types, args=(), kwargs=None):
+        if kwargs is None:
+            kwargs = {}
+        # Filter cls from types so super().__torch_function__ dispatches to
+        # torch.Tensor without re-invoking this method.
+        filtered_types = tuple(t for t in types if t is not cls)
+        result = super(GGUFParameter, cls).__torch_function__(
+            func, filtered_types, args, kwargs
+        )
+        quant_type = cls._extract_quant_type(args)
+        if quant_type is None:
+            # Don't wrap: cls(result, quant_type=None) → GGML_QUANT_SIZES[None]
+            return result
+        if isinstance(result, torch.Tensor):
+            return cls(result, quant_type=quant_type)
+        elif type(result) in (list, tuple):
+            wrapped = [
+                cls(x, quant_type=quant_type) if isinstance(x, torch.Tensor) else x
+                for x in result
+            ]
+            return type(result)(wrapped)
+        return result
+
+    GGUFParameter.__torch_function__ = _patched_torch_function
+
+
 def _dequantize_bf16_gguf_params(model):
     # The leejet GGUF mixes Q4_0 (truly quantized) and BF16 weights. The BF16
     # GGUFParameters store raw bytes (uint8, doubled last dim) and propagate
@@ -109,6 +153,10 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        # Patch GGUFParameter.__torch_function__ before loading to fix two bugs:
+        # (1) infinite recursion under torch.compile/dynamo; (2) KeyError when
+        # quant_type is None for ops like SDPA that produce non-quantized outputs.
+        _patch_gguf_parameter_torch_function()
         # Neither GGUF repo has a config.json (and the embedded metadata points to the
         # gated black-forest-labs/FLUX.2-dev repo). Use a local config derived from the
         # Klein 9B tensor shapes instead, following the same pattern as flux_srpo_gguf.
