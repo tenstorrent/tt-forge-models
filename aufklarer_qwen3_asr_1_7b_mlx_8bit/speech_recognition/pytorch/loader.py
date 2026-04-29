@@ -83,15 +83,24 @@ class ModelLoader(ForgeModel):
     def _load_model_wrapper(self, dtype_override=None):
         """Load the qwen_asr model wrapper and cache processor."""
         from qwen_asr import Qwen3ASRModel
+        from transformers import AutoConfig
 
         model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["dtype"] = dtype_override
+            model_kwargs["torch_dtype"] = dtype_override
         else:
-            model_kwargs["dtype"] = torch.float32
+            model_kwargs["torch_dtype"] = torch.float32
+
+        # The MLX-quantized config.json has quantization_config without quant_method.
+        # Transformers >=4.57 raises ValueError on this; strip it so the model
+        # loads as standard floats (weights are stored in fp32/bf16 in safetensors).
+        config = AutoConfig.from_pretrained(self._variant_config.pretrained_model_name)
+        if hasattr(config, "quantization_config"):
+            del config.quantization_config
 
         self._model_wrapper = Qwen3ASRModel.from_pretrained(
             self._variant_config.pretrained_model_name,
+            config=config,
             device_map="cpu",
             max_new_tokens=50,
             **model_kwargs,
@@ -122,6 +131,14 @@ class ModelLoader(ForgeModel):
         inputs = self._processor(
             text=[text], audio=[audio], return_tensors="pt", padding=True
         )
+
+        # Cast float tensors to match the model dtype so Conv layers don't
+        # get a float/bfloat16 mismatch.
+        if dtype_override is not None:
+            inputs = {
+                k: v.to(dtype_override) if v.is_floating_point() else v
+                for k, v in inputs.items()
+            }
 
         return [
             inputs["input_ids"],
