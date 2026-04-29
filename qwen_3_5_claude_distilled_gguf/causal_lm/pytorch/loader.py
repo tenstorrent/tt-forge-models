@@ -62,7 +62,7 @@ def _patch_transformers_qwen35_gguf():
         "ssm.conv_kernel": "linear_conv_kernel_dim",
         "ssm.state_size": None,
         "ssm.inner_size": None,
-        "ssm.time_step_rank": None,
+        "ssm.time_step_rank": "linear_num_value_heads",
         "ssm.group_count": None,
         "full_attention_interval": "full_attention_interval",
         "vocab_size": "vocab_size",
