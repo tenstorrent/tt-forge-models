@@ -131,6 +131,9 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
+        # The GGUF file has no pooler weights; disable the pooler to avoid
+        # randomly-initialized weights poisoning the PCC comparison.
+        model_kwargs["add_pooling_layer"] = False
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs).eval()
 
@@ -151,6 +154,16 @@ class ModelLoader(ForgeModel):
         )
 
         return inputs
+
+    def unpack_forward_output(self, fwd_output):
+        tensors = []
+        if hasattr(fwd_output, "last_hidden_state"):
+            tensors.append(fwd_output.last_hidden_state.flatten())
+        if hasattr(fwd_output, "pooler_output") and fwd_output.pooler_output is not None:
+            tensors.append(fwd_output.pooler_output.flatten())
+        if tensors:
+            return torch.cat(tensors, dim=0)
+        return fwd_output
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
