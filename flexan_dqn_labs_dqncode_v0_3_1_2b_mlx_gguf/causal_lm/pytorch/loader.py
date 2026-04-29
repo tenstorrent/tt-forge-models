@@ -4,14 +4,31 @@
 """
 Flexan DQN-Labs dqnCode-v0.3-1.2B-MLX GGUF model loader implementation for causal language modeling.
 """
+import numpy as np
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFGPTConverter
+from transformers.modeling_gguf_pytorch_utils import Lfm2TensorProcessor, GGUFTensor
 from typing import Optional
 
 # lfm2 GGUF uses a GPT2-style BPE tokenizer (tokenizer.ggml.model = "gpt2")
 # but is not registered in transformers' GGUF_TO_FAST_CONVERTERS.
 GGUF_TO_FAST_CONVERTERS.setdefault("lfm2", GGUFGPTConverter)
+
+# This MLX-exported GGUF stores shortconv.conv.weight as [hidden_dim, L_cache, 1]
+# (3-D) rather than the 2-D [hidden_dim, L_cache] that Lfm2TensorProcessor expects.
+# Squeeze the trailing size-1 dim before the expand so the final shape is
+# [hidden_dim, 1, L_cache] as the Conv1d weight requires.
+_orig_lfm2_process = Lfm2TensorProcessor.process
+
+
+def _patched_lfm2_process(self, weights, name, **kwargs):
+    if "shortconv.conv.weight" in name and weights.ndim == 3:
+        weights = np.squeeze(weights, axis=-1)
+    return _orig_lfm2_process(self, weights, name, **kwargs)
+
+
+Lfm2TensorProcessor.process = _patched_lfm2_process
 
 from ....base import ForgeModel
 from ....config import (
