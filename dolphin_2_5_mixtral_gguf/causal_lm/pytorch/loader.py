@@ -33,6 +33,12 @@ def _patch_mixtral_gguf_support():
         return
     _gguf_utils._mixtral_gguf_patched = True
 
+    # Mixtral uses the same SentencePiece tokenizer as Llama; register the
+    # converter so convert_gguf_tokenizer("mixtral", ...) doesn't KeyError.
+    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFLlamaConverter
+
+    GGUF_TO_FAST_CONVERTERS.setdefault("mixtral", GGUFLlamaConverter)
+
     # Patch get_gguf_hf_weights_map so that model_type='mixtral' resolves to
     # the qwen2moe tensor-name map (same GGUF tensor naming convention).
     _orig_get_map = _gguf_utils.get_gguf_hf_weights_map
