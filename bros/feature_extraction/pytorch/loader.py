@@ -80,7 +80,11 @@ class ModelLoader(ForgeModel):
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
-                            If not provided, the model will use its default dtype (typically float32).
+                            Ignored: BROS's BrosBboxEmbeddings computes scaled_bbox via
+                            bbox (torch.long) * bbox_scale (float), which always produces
+                            float32 activations. Passing bfloat16 weights causes a dtype
+                            mismatch in the bbox_projection linear layer under TT's einsum
+                            F.linear override. Keep the model in native float32.
 
         Returns:
             torch.nn.Module: The BROS model instance.
@@ -90,13 +94,7 @@ class ModelLoader(ForgeModel):
         # Initialize tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
 
-        # Load pre-trained model from HuggingFace
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
-        model = AutoModel.from_pretrained(model_name, **model_kwargs)
+        model = AutoModel.from_pretrained(model_name, **kwargs)
         model.eval()
         self.model = model
 
