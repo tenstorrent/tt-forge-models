@@ -122,7 +122,7 @@ class ModelLoader(ForgeModel):
         repo_id = self._variant_config.pretrained_model_name
         gguf_file = self._GGUF_FILES[self._variant]
         self.transformer = FluxTransformer2DModel.from_single_file(
-            f"https://huggingface.co/{repo_id}/resolve/main/{gguf_file}",
+            f"https://huggingface.co/{repo_id}/blob/main/{gguf_file}",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
