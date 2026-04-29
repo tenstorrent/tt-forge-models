@@ -56,11 +56,36 @@ def _patch_transformers_qwen35moe_gguf():
         "expert_count": "num_experts",
         "expert_used_count": "num_experts_per_tok",
         "full_attention_interval": "full_attention_interval",
+        # Qwen3.5-MoE-specific: expert and shared-expert intermediate sizes
+        "expert_feed_forward_length": "moe_intermediate_size",
+        "expert_shared_feed_forward_length": "shared_expert_intermediate_size",
+        # SSM / linear-attention dimensions
+        "ssm.conv_kernel": "linear_conv_kernel_dim",
+        "ssm.state_size": "linear_key_head_dim",
+        "ssm.group_count": "linear_num_key_heads",
+        "ssm.time_step_rank": "linear_num_value_heads",
+        "ssm.inner_size": None,  # derived (num_value_heads * head_v_dim); ignored
     }
 
-    # 3. Reuse qwen3moe tensor processor for qwen35moe
+    # 3. Custom tensor processor for qwen35moe: extends Qwen2MoeTensorProcessor
+    # (used by qwen3moe) with SSM-specific transformations needed for the
+    # DeltaNet linear-attention layers present in Qwen3.5-MoE.
     if "qwen3moe" in TENSOR_PROCESSORS:
-        TENSOR_PROCESSORS["qwen35moe"] = TENSOR_PROCESSORS["qwen3moe"]
+        import numpy as np
+        _Qwen2MoeCls = TENSOR_PROCESSORS["qwen3moe"]
+
+        class _Qwen35MoeTensorProcessor(_Qwen2MoeCls):
+            def process(self, weights, name, **kwargs):
+                # GGUF stores conv1d as [kernel, channels]; Conv1d expects
+                # [channels, 1, kernel] — insert the groups dimension.
+                if "ssm_conv1d.weight" in name:
+                    weights = np.expand_dims(weights, axis=1)
+                # GGUF stores ssm_a as -A (negative); HF model stores A_log = log(A).
+                elif name.endswith(".ssm_a"):
+                    weights = np.log(-weights)
+                return super().process(weights, name, **kwargs)
+
+        TENSOR_PROCESSORS["qwen35moe"] = _Qwen35MoeTensorProcessor
 
     # 4. Register tokenizer converter
     from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
@@ -125,11 +150,18 @@ def _patch_transformers_qwen35moe_gguf():
                 else num_layers
             )
             for i in range(num_l):
+                # Old-format GGUF stores gate and up expert weights separately;
+                # alias both to gate_up_proj so _set_moe_expert_tensor can pack them.
                 packed_key = f"blk.{i}.ffn_gate_up_exps"
                 if packed_key in result:
                     packed_hf = result[packed_key]
                     result[f"blk.{i}.ffn_gate_exps"] = packed_hf
                     result[f"blk.{i}.ffn_up_exps"] = packed_hf
+                # gguf-py maps SSM_DT to dt_proj but Qwen3.5-MoE uses dt_bias.
+                dt_gguf = f"blk.{i}.ssm_dt.bias"
+                dt_hf = f"model.layers.{i}.linear_attn.dt_bias"
+                if dt_gguf not in result:
+                    result[dt_gguf] = dt_hf
         return result
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
