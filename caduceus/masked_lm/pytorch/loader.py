@@ -307,25 +307,65 @@ def _patch_caduceus_tie_weights(model_name):
     Transformers 5.x passes recompute_mapping= to tie_weights(), but the
     upstream caduceus code overrides tie_weights without **kwargs.  We rewrite
     the cached source file so the fix survives dynamic module reloads.
+
+    transformers imports from ~/.cache/huggingface/modules/transformers_modules/,
+    NOT from the hub snapshot path returned by try_to_load_from_cache, so we
+    must patch the modules copy.
     """
     import os
-    from huggingface_hub import try_to_load_from_cache
+    from pathlib import Path
+
+    # transformers sanitizes model_name: "/" becomes a dir separator,
+    # "-" becomes "_hyphen_".
+    org, repo = model_name.split("/", 1)
+    sanitized_org = org.replace("-", "_hyphen_")
+    sanitized_repo = repo.replace("-", "_hyphen_")
+    modules_dir = (
+        Path.home()
+        / ".cache"
+        / "huggingface"
+        / "modules"
+        / "transformers_modules"
+        / sanitized_org
+        / sanitized_repo
+    )
+    if not modules_dir.is_dir():
+        return
+
+    import sys
 
     for fname in ("modeling_caduceus.py", "modeling_rcps.py"):
-        cached = try_to_load_from_cache(model_name, fname)
-        if not cached or not os.path.isfile(cached):
-            continue
-        with open(cached, "r") as f:
-            src = f.read()
-        patched = src.replace(
-            "def tie_weights(self):", "def tie_weights(self, **kwargs):"
-        )
-        patched = patched.replace(
-            "super().tie_weights()", "super().tie_weights(**kwargs)"
-        )
-        if patched != src:
-            with open(cached, "w") as f:
-                f.write(patched)
+        for fpath in modules_dir.glob(f"*/{fname}"):
+            src = fpath.read_text()
+            patched = src.replace(
+                "def tie_weights(self):", "def tie_weights(self, **kwargs):"
+            )
+            patched = patched.replace(
+                "super().tie_weights()", "super().tie_weights(**kwargs)"
+            )
+            # transformers 5.x defaults tie_word_embeddings to False when the
+            # attribute is absent from config, so super().tie_weights() skips
+            # the lm_head→embedding tying.  Explicitly tie before the super call.
+            patched = patched.replace(
+                "        else:\n            super().tie_weights(**kwargs)",
+                "        else:\n"
+                "            self.lm_head.weight = self.get_input_embeddings().weight\n"
+                "            super().tie_weights(**kwargs)",
+            )
+            if patched == src:
+                continue
+            fpath.write_text(patched)
+            # Remove stale .pyc so Python re-compiles from the patched source.
+            pyc_dir = fpath.parent / "__pycache__"
+            for pyc in pyc_dir.glob(f"{fpath.stem}.*.pyc"):
+                os.unlink(pyc)
+            # Remove the already-loaded module so the next import picks up
+            # the patched source rather than the old cached module object.
+            module_key = (
+                f"transformers_modules.{sanitized_org}.{sanitized_repo}."
+                f"{fpath.parent.name}.{fpath.stem}"
+            )
+            sys.modules.pop(module_key, None)
 
 
 class ModelVariant(StrEnum):
