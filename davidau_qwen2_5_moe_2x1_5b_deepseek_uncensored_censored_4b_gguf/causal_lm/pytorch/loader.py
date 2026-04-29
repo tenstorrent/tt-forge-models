@@ -144,6 +144,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        # Qwen2-MoE expert dispatch uses nonzero()/torch.where() in its default
+        # for-loop path, which segfaults the XLA dynamo bridge during graph
+        # partitioning.  The "batched_mm" path avoids all dynamic index ops.
+        model.config._experts_implementation = "batched_mm"
+
         self.config = model.config
         self.model = model
         return model
