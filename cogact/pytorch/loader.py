@@ -159,7 +159,16 @@ class ModelLoader(ForgeModel):
 
         inputs = self.processor(self.sample_prompt, image)
 
+        tensor_dtype = dtype_override if dtype_override is not None else torch.float32
         if dtype_override is not None:
             inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
+
+        # Pre-generate noisy_actions and timesteps with fixed values so that the
+        # CPU reference run and TT run receive identical inputs (torch.randn inside
+        # forward() would produce different tensors each call, collapsing PCC).
+        action_dim = 7
+        num_action_tokens = 16
+        inputs["noisy_actions"] = torch.zeros(1, num_action_tokens, action_dim, dtype=tensor_dtype)
+        inputs["timesteps"] = torch.zeros(1, dtype=torch.long)
 
         return inputs

@@ -182,7 +182,14 @@ class CogACTWrapper(nn.Module):
         self.vlm = vlm
         self.action_model = action_model
 
-    def forward(self, input_ids=None, attention_mask=None, pixel_values=None):
+    def forward(
+        self,
+        input_ids=None,
+        attention_mask=None,
+        pixel_values=None,
+        noisy_actions=None,
+        timesteps=None,
+    ):
         vlm_outputs = self.vlm(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -197,13 +204,21 @@ class CogACTWrapper(nn.Module):
         B = cognition_features.shape[0]
         device = cognition_features.device
         dtype = cognition_features.dtype
-        timesteps = torch.zeros(B, dtype=torch.long, device=device)
-        noisy_actions = torch.randn(
-            B,
-            self.action_model.num_action_tokens,
-            self.action_model.action_dim,
-            device=device,
-            dtype=dtype,
-        )
+
+        if noisy_actions is None:
+            noisy_actions = torch.zeros(
+                B,
+                self.action_model.num_action_tokens,
+                self.action_model.action_dim,
+                device=device,
+                dtype=dtype,
+            )
+        else:
+            noisy_actions = noisy_actions.to(device=device, dtype=dtype)
+
+        if timesteps is None:
+            timesteps = torch.zeros(B, dtype=torch.long, device=device)
+        else:
+            timesteps = timesteps.to(device=device)
 
         return self.action_model(noisy_actions, timesteps, cognition_features)
