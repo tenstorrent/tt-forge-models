@@ -106,20 +106,40 @@ def _find_real_load_gguf_checkpoint():
 
         # Follow GGUF-related callables in globals (covers module-level captures
         # like `_orig_load_gguf_checkpoint = _gguf_utils.load_gguf_checkpoint`).
-        for val in getattr(fn, "__globals__", {}).values():
-            if _is_gguf_fn(val) and id(val) not in seen:
+        # Check the KEY name in addition to the value's __name__: broken patches
+        # stored as `_orig_load_gguf_checkpoint` have __name__="_patched_…" which
+        # does NOT contain "load_gguf", so key-name matching is essential.
+        for key, val in getattr(fn, "__globals__", {}).items():
+            if (
+                callable(val)
+                and id(val) not in seen
+                and ("load_gguf" in key or _is_gguf_fn(val))
+            ):
                 result = _search(val, seen, depth + 1)
                 if result is not None:
                     return result
 
-        # Follow GGUF-related callables in closure cells (covers local captures
-        # like `orig_load = gguf_utils.load_gguf_checkpoint` inside a wrapper).
-        for cell in getattr(fn, "__closure__", None) or ():
+        # Follow callables in closure cells.  Some loaders capture the previous
+        # load_gguf_checkpoint as a closure variable whose var-name does not
+        # contain "load_gguf" (e.g. `orig_load`).  Use co_freevars for names and
+        # fall back to following any callable whose var-name contains "load" or
+        # "gguf"; the depth limit and seen set prevent infinite loops.
+        free_vars = getattr(getattr(fn, "__code__", None), "co_freevars", ())
+        for var_name, cell in zip(free_vars, getattr(fn, "__closure__", None) or ()):
             try:
                 cell_val = cell.cell_contents
             except ValueError:
                 continue
-            if _is_gguf_fn(cell_val):
+            if (
+                callable(cell_val)
+                and id(cell_val) not in seen
+                and (
+                    _is_gguf_fn(cell_val)
+                    or "load" in var_name
+                    or "gguf" in var_name
+                    or "checkpoint" in var_name
+                )
+            ):
                 result = _search(cell_val, seen, depth + 1)
                 if result is not None:
                     return result
