@@ -51,7 +51,7 @@ def _real_load_gguf_checkpoint_ctx():
 
     # Contaminated — find the saved original in sys.modules
     real_fn = None
-    for mod in sys.modules.values():
+    for mod in list(sys.modules.values()):
         orig = getattr(mod, "_orig_load_gguf_checkpoint", None)
         if orig is None or not callable(orig):
             continue
