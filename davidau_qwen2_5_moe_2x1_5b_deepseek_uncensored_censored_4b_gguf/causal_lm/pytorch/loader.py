@@ -144,14 +144,49 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
-        # Qwen2-MoE expert dispatch uses nonzero()/torch.where() in its default
-        # for-loop path, which segfaults the XLA dynamo bridge during graph
-        # partitioning.  The "batched_mm" path avoids all dynamic index ops.
-        model.config._experts_implementation = "batched_mm"
+        self._patch_experts_static(model)
 
         self.config = model.config
         self.model = model
         return model
+
+    @staticmethod
+    def _patch_experts_static(model):
+        """Replace Qwen2MoeExperts.forward with a static per-expert masked matmul.
+
+        The default eager path uses nonzero()/torch.where() which crash the XLA
+        dynamo bridge.  The batched_mm path does self.gate_up_proj[expert_ids]
+        which is lowered to an EmbeddingOp with a ~27 MB row, overflowing L1.
+        A static loop over each expert avoids both issues: self.gate_up_proj[int]
+        is a plain slice (not an embedding) and all ops are fixed-shape.
+        """
+        import types
+        import torch.nn.functional as F
+
+        def _static_forward(self, hidden_states, top_k_index, top_k_weights):
+            # hidden_states: [num_tokens, hidden_dim]
+            # top_k_index:   [num_tokens, top_k]
+            # top_k_weights: [num_tokens, top_k]
+            final = torch.zeros_like(hidden_states)
+            for eidx in range(self.num_experts):
+                # Boolean mask: which token-topk slots chose this expert
+                mask = (top_k_index == eidx).to(hidden_states.dtype)  # [num_tokens, top_k]
+                eff_weight = (top_k_weights * mask).sum(dim=-1)  # [num_tokens]
+                # Static integer index → plain 2-D slice, not an EmbeddingOp
+                gate_up_w = self.gate_up_proj[eidx]   # [2*intermediate_dim, hidden_dim]
+                down_w = self.down_proj[eidx]          # [hidden_dim, intermediate_dim]
+                gate_up_out = F.linear(hidden_states, gate_up_w)  # [num_tokens, 2*intermediate_dim]
+                gate_out, up_out = gate_up_out.chunk(2, dim=-1)
+                intermediate = self.act_fn(gate_out) * up_out
+                expert_out = F.linear(intermediate, down_w)        # [num_tokens, hidden_dim]
+                final = final + expert_out * eff_weight.unsqueeze(-1)
+            return final
+
+        for layer in model.model.layers:
+            mlp = getattr(layer, "mlp", None)
+            experts = getattr(mlp, "experts", None)
+            if experts is not None:
+                experts.forward = types.MethodType(_static_forward, experts)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
