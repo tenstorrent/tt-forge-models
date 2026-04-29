@@ -89,6 +89,15 @@ def _patch_fp8_dequantize():
     Fp8Dequantize.convert = _convert
 
 
+def _patch_dynamic_cache():
+    # transformers 5.x removed DynamicCache.get_usable_length; the remote
+    # modeling_deepseek.py was written against the older API.
+    from transformers.cache_utils import DynamicCache
+
+    if not hasattr(DynamicCache, "get_usable_length"):
+        DynamicCache.get_usable_length = lambda self, new_seq_length, layer_idx=0: self.get_seq_length(layer_idx)
+
+
 class ModelVariant(StrEnum):
     """Available DeepSeek V3 MTP model variants."""
 
@@ -145,6 +154,7 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         _stub_triton_if_missing()
         _patch_fp8_dequantize()
+        _patch_dynamic_cache()
         model_kwargs = {
             "trust_remote_code": True,
         }
