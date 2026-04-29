@@ -74,8 +74,8 @@ class ModelLoader(ForgeModel):
 
         model.eval()
 
-        if dtype_override is not None:
-            model = model.to(dtype_override)
+        # CBraMod uses torch.fft.rfft internally which does not support bfloat16;
+        # keep model in native float32 regardless of dtype_override.
 
         return model
 
@@ -85,7 +85,7 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.Tensor: Synthetic EEG tensor of shape (batch, n_channels, n_times).
         """
-        dtype = dtype_override or torch.float32
+        dtype = torch.float32
 
         torch.manual_seed(42)
 
