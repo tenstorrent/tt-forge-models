@@ -79,7 +79,7 @@ class ModelLoader(ForgeModel):
 
         repo_id = self._variant_config.pretrained_model_name
         self.transformer = Flux2Transformer2DModel.from_single_file(
-            f"https://huggingface.co/{repo_id}/resolve/main/{SAFETENSORS_FILE}",
+            f"https://huggingface.co/{repo_id}/blob/main/{SAFETENSORS_FILE}",
             torch_dtype=compute_dtype,
         )
 
