@@ -8,6 +8,7 @@ DeepSeek R1 Distill BNB 4-bit model loader implementation for causal language mo
 from typing import Optional
 
 import torch
+import torch.nn as nn
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
@@ -61,6 +62,51 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _dequantize_bnb_model(model, dtype=torch.bfloat16):
+        """Replace all Linear4bit layers with dequantized regular Linear layers.
+
+        BNB 4-bit models use Params4bit tensors that cannot be moved to TT
+        device via .to(). This replaces each quantized layer with an ordinary
+        nn.Linear so the model can be transferred to any device.
+        """
+        try:
+            from bitsandbytes.nn import Linear4bit
+        except ImportError:
+            return model
+
+        replacements = {
+            name: module
+            for name, module in model.named_modules()
+            if isinstance(module, Linear4bit)
+        }
+        for name, module in replacements.items():
+            qs = getattr(module.weight, "quant_state", None)
+            if qs is not None:
+                import bitsandbytes.functional as bnb_F
+
+                weight_data = bnb_F.dequantize_4bit(module.weight.data, qs).to(dtype)
+            else:
+                weight_data = module.weight.data.to(dtype)
+
+            new_linear = nn.Linear(
+                module.in_features,
+                module.out_features,
+                bias=module.bias is not None,
+                dtype=dtype,
+            )
+            new_linear.weight = nn.Parameter(weight_data)
+            if module.bias is not None:
+                new_linear.bias = nn.Parameter(module.bias.to(dtype))
+
+            parts = name.split(".")
+            parent = model
+            for part in parts[:-1]:
+                parent = getattr(parent, part)
+            setattr(parent, parts[-1], new_linear)
+
+        return model
+
     def _load_tokenizer(self, dtype_override=None):
         tokenizer_kwargs = {}
         if dtype_override is not None:
@@ -94,6 +140,8 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
+
+        model = self._dequantize_bnb_model(model, dtype=dtype_override or torch.bfloat16)
 
         self.config = model.config
         return model
