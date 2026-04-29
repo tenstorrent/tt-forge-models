@@ -142,7 +142,22 @@ def _register_qwen3vl_gguf_architecture():
 
     def _compat_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
         if kwargs:
-            # Weight-loading path (model_to_load present): call real function
+            # Weight-loading path (model_to_load present): call real function.
+            # Fix child traversal order for get_gguf_hf_weights_map: Qwen3VLModel
+            # registers 'visual' before 'language_model', so the generic
+            # 'norm'→'output_norm' mapping fires on visual.merger.norm first,
+            # stealing the GGUF output_norm key (size 4096) from
+            # language_model.norm (also 4096) and causing a size-mismatch error
+            # (visual.merger.norm expects 1152). Moving 'visual' to the end of
+            # _modules gives language_model priority and loads the correct weights.
+            model_to_load = kwargs.get("model_to_load")
+            qvl_backbone = getattr(model_to_load, "model", None)
+            if qvl_backbone is not None:
+                mods = getattr(qvl_backbone, "_modules", {})
+                if "visual" in mods and "language_model" in mods:
+                    keys = list(mods.keys())
+                    if keys.index("visual") < keys.index("language_model"):
+                        mods["visual"] = mods.pop("visual")
             return _real_fn(gguf_path, return_tensors=return_tensors, **kwargs)
         return _broken_chain(gguf_path, return_tensors=return_tensors)
 
@@ -394,17 +409,9 @@ class ModelLoader(ForgeModel):
         # the wrong struct level.
         config = Qwen3VLConfig.from_pretrained(self.BASE_MODEL)
 
-        # ignore_mismatched_sizes: the qwen3vl GGUF only contains LM backbone
-        # weights. The recursive get_gguf_hf_weights_map call dives into the
-        # visual merger sub-module where a parameter named 'norm' spuriously
-        # claims the 'output_norm' GGUF key (which belongs to the LM backbone).
-        # This produces one size-mismatch entry for merger.norm.
-        # Allowing the mismatch re-inits that visual parameter from the model
-        # default; both CPU and TT use the same weights so PCC is unaffected.
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name,
             config=config,
-            ignore_mismatched_sizes=True,
             **model_kwargs,
         )
         model.eval()
