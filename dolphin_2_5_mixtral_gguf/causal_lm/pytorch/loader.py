@@ -12,19 +12,32 @@ from typing import Optional
 def _patch_mixtral_gguf_support():
     """Patch transformers to support Mixtral GGUF loading.
 
-    Mixtral GGUFs use 'llama' as general.architecture but contain MoE expert
-    tensors (ffn_gate_exps, ffn_up_exps, ffn_down_exps).  Transformers' GGUF
-    loader uses the Llama tensor processor which doesn't know how to map those
-    tensors, leaving all MLP weights randomly initialised (PCC ≈ 0.13).
+    Mixtral GGUFs use 'llama' as general.architecture but store MoE weights as
+    individual per-expert tensors: blk.N.ffn_gate.K.weight / ffn_up.K / ffn_down.K
+    (one tensor per expert K, NOT the stacked _exps format).
 
-    Fix: detect llama GGUF files that have expert_count > 0 and transparently
-    substitute Qwen2MoeTensorProcessor (which handles the same expert tensor
-    format) and remap model_type to 'mixtral' so the right config class is
-    instantiated.
+    Transformers 5.x MixtralForCausalLM expects stacked expert tensors:
+      mlp.experts.gate_up_proj  [n_experts, 2*d_ff, d_model]
+      mlp.experts.down_proj     [n_experts, d_model, d_ff]
+
+    Fix:
+    1. Register 'mixtral' in GGUF_TO_FAST_CONVERTERS (tokenizer path uses
+       the same SentencePiece format as Llama).
+    2. Patch load_gguf_checkpoint to detect Mixtral GGUFs and set model_type
+       to 'mixtral' so AutoConfig/AutoModel create the right class, and swap
+       TENSOR_PROCESSORS["llama"] with MixtralTensorProcessor so the custom
+       process() method accumulates per-expert slices correctly.
+    3. Patch get_gguf_hf_weights_map to remove wrong blk.N.ffn_down_exps
+       entries (from qwen2moe arch map) and add correct per-expert GGUF keys
+       blk.N.ffn_{gate,up,down}.K.weight → mlp.experts.{gate_up_proj,down_proj}.
     """
+    import re as _re
+    import numpy as np
     import transformers.modeling_gguf_pytorch_utils as _gguf_utils
     from transformers.modeling_gguf_pytorch_utils import (
-        Qwen2MoeTensorProcessor,
+        TensorProcessor,
+        GGUFTensor,
+        LlamaTensorProcessor,
         TENSOR_PROCESSORS,
         _gguf_parse_value,
     )
@@ -39,27 +52,109 @@ def _patch_mixtral_gguf_support():
 
     GGUF_TO_FAST_CONVERTERS.setdefault("mixtral", GGUFLlamaConverter)
 
-    # Patch get_gguf_hf_weights_map so that model_type='mixtral' resolves to
-    # the qwen2moe tensor-name map (same GGUF tensor naming convention).
+    class MixtralTensorProcessor(LlamaTensorProcessor):
+        """Accumulates per-expert GGUF tensors into stacked MixtralForCausalLM expert buffers.
+
+        This GGUF stores one tensor per expert:
+          blk.N.ffn_gate.K.weight  →  gate slice of mlp.experts.gate_up_proj[K]
+          blk.N.ffn_up.K.weight    →  up slice of mlp.experts.gate_up_proj[K]
+          blk.N.ffn_down.K.weight  →  mlp.experts.down_proj[K]
+
+        Inherits Q/K attention weight permutation from LlamaTensorProcessor.
+        """
+        _GATE_P = _re.compile(r"blk\.(?P<bid>\d+)\.ffn_gate\.(?P<eid>\d+)\.weight$")
+        _UP_P = _re.compile(r"blk\.(?P<bid>\d+)\.ffn_up\.(?P<eid>\d+)\.weight$")
+        _DOWN_P = _re.compile(r"blk\.(?P<bid>\d+)\.ffn_down\.(?P<eid>\d+)\.weight$")
+
+        def __init__(self, config=None):
+            super().__init__(config=config)
+            self._n_experts = (config or {}).get("num_local_experts", 8)
+
+        def process(self, weights, name: str, **kwargs):
+            tensor_key_mapping = kwargs.get("tensor_key_mapping")
+            parsed_parameters = kwargs.get("parsed_parameters")
+
+            if tensor_key_mapping and parsed_parameters:
+                if m := _re.fullmatch(self._GATE_P, name):
+                    hf_name = tensor_key_mapping.get(name)
+                    if hf_name:
+                        self._accum_gate_up(weights, parsed_parameters, hf_name, int(m["eid"]), gate=True)
+                        return GGUFTensor(weights, None, {})
+
+                if m := _re.fullmatch(self._UP_P, name):
+                    hf_name = tensor_key_mapping.get(name)
+                    if hf_name:
+                        self._accum_gate_up(weights, parsed_parameters, hf_name, int(m["eid"]), gate=False)
+                        return GGUFTensor(weights, None, {})
+
+                if m := _re.fullmatch(self._DOWN_P, name):
+                    hf_name = tensor_key_mapping.get(name)
+                    if hf_name:
+                        self._accum_down(weights, parsed_parameters, hf_name, int(m["eid"]))
+                        return GGUFTensor(weights, None, {})
+
+            return super().process(weights, name, **kwargs)
+
+        def _accum_gate_up(self, weights, parsed_parameters, hf_name, eid, gate: bool):
+            tw = torch.from_numpy(np.copy(weights))  # [d_ff, d_model]
+            d_ff = weights.shape[0]
+            if hf_name not in parsed_parameters["tensors"]:
+                parsed_parameters["tensors"][hf_name] = torch.zeros(
+                    [self._n_experts, d_ff * 2, weights.shape[1]], dtype=tw.dtype
+                )
+            offset = 0 if gate else d_ff
+            parsed_parameters["tensors"][hf_name][eid, offset:offset + d_ff, :].copy_(tw)
+
+        def _accum_down(self, weights, parsed_parameters, hf_name, eid):
+            tw = torch.from_numpy(np.copy(weights))  # [d_model, d_ff]
+            if hf_name not in parsed_parameters["tensors"]:
+                parsed_parameters["tensors"][hf_name] = torch.zeros(
+                    [self._n_experts, weights.shape[0], weights.shape[1]], dtype=tw.dtype
+                )
+            parsed_parameters["tensors"][hf_name][eid].copy_(tw)
+
+    # Patch get_gguf_hf_weights_map: when building the tensor key map for a
+    # MixtralForCausalLM, use qwen2moe arch for non-expert lookups, then
+    # remove the wrong stacked-format _exps entries and add per-expert mappings.
     _orig_get_map = _gguf_utils.get_gguf_hf_weights_map
 
     def _patched_get_map(hf_model, processor, model_type=None, num_layers=None, qual_name=""):
         mt = model_type
         if mt is None:
             mt = getattr(getattr(hf_model, "config", None), "model_type", None)
-        if mt == "mixtral":
-            processor = Qwen2MoeTensorProcessor(config=getattr(processor, "config", {}))
-            return _orig_get_map(
-                hf_model, processor, model_type="qwen2moe",
-                num_layers=num_layers, qual_name=qual_name,
-            )
-        return _orig_get_map(hf_model, processor, model_type=model_type,
-                             num_layers=num_layers, qual_name=qual_name)
+        if mt != "mixtral":
+            return _orig_get_map(hf_model, processor, model_type=model_type, num_layers=num_layers, qual_name=qual_name)
+
+        # Build map using qwen2moe arch (has block_sparse_moe.gate, attn_*, etc.)
+        mixtral_proc = MixtralTensorProcessor(config=getattr(processor, "config", {}))
+        result_map = _orig_get_map(hf_model, mixtral_proc, model_type="qwen2moe", num_layers=num_layers, qual_name=qual_name)
+
+        # qwen2moe map resolves mlp.experts.down_proj → blk.N.ffn_down_exps (wrong
+        # for this GGUF which uses per-expert blk.N.ffn_{gate,up,down}.K.weight).
+        for k in [k for k in result_map if "_exps" in k]:
+            del result_map[k]
+
+        # Add per-expert mappings.  gate_up_proj / down_proj have no .weight
+        # suffix in the state dict, so keys also have no .weight suffix.
+        n_layers = getattr(getattr(hf_model, "config", None), "num_hidden_layers", None)
+        n_experts = getattr(getattr(hf_model, "config", None), "num_local_experts", mixtral_proc._n_experts)
+        if n_layers is not None:
+            for layer in range(n_layers):
+                pfx = qual_name
+                gate_up = f"{pfx}model.layers.{layer}.mlp.experts.gate_up_proj"
+                down = f"{pfx}model.layers.{layer}.mlp.experts.down_proj"
+                for eid in range(n_experts):
+                    result_map[f"blk.{layer}.ffn_gate.{eid}.weight"] = gate_up
+                    result_map[f"blk.{layer}.ffn_up.{eid}.weight"] = gate_up
+                    result_map[f"blk.{layer}.ffn_down.{eid}.weight"] = down
+
+        return result_map
 
     _gguf_utils.get_gguf_hf_weights_map = _patched_get_map
 
-    # Patch load_gguf_checkpoint to detect Mixtral GGUFs and use the MoE
-    # tensor processor, then fix model_type / expert config fields in result.
+    # Patch load_gguf_checkpoint to detect Mixtral GGUFs, swap in the
+    # MixtralTensorProcessor (so process() accumulates expert slices), and
+    # fix model_type / expert config fields in the returned result dict.
     _orig_load = _gguf_utils.load_gguf_checkpoint
 
     def _patched_load(gguf_path, return_tensors=False, **kwargs):
@@ -88,9 +183,10 @@ def _patch_mixtral_gguf_support():
                         )
                     )
 
+        # Swap in our processor so process() accumulates per-expert slices.
+        orig_llama_proc = TENSOR_PROCESSORS.get("llama")
         if is_mixtral:
-            orig_llama_proc = TENSOR_PROCESSORS.get("llama")
-            TENSOR_PROCESSORS["llama"] = Qwen2MoeTensorProcessor
+            TENSOR_PROCESSORS["llama"] = MixtralTensorProcessor
 
         try:
             result = _orig_load(gguf_path, return_tensors=return_tensors, **kwargs)
