@@ -167,6 +167,8 @@ class ModelLoader(ForgeModel):
             # hidden_states: [num_tokens, hidden_dim]
             # top_k_index:   [num_tokens, top_k]
             # top_k_weights: [num_tokens, top_k]
+            # Router softmax runs in float32; cast back to avoid dtype promotion.
+            top_k_weights = top_k_weights.to(hidden_states.dtype)
             final = torch.zeros_like(hidden_states)
             for eidx in range(self.num_experts):
                 # Boolean mask: which token-topk slots chose this expert
