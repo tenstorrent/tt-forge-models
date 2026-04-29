@@ -3,14 +3,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 DeepSeek V3.2 Speciale model loader implementation for causal language modeling.
-
-Uses reduced MoE configuration for testing since the full 671B parameter
-model is too large to load directly.
 """
 
-from typing import Optional
-
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.models.auto.configuration_auto import CONFIG_MAPPING
+from transformers.models.deepseek_v3.configuration_deepseek_v3 import DeepseekV3Config
 
 from ....base import ForgeModel
 from ....config import (
@@ -21,16 +18,20 @@ from ....config import (
     ModelTask,
 )
 
+# DeepSeek-V3.2-Speciale uses model_type "deepseek_v32" which is not yet in transformers 5.x;
+# register it as an alias of the structurally identical DeepseekV3Config so AutoConfig resolves it.
+if "deepseek_v32" not in CONFIG_MAPPING:
+    CONFIG_MAPPING.register("deepseek_v32", DeepseekV3Config, exist_ok=True)
+
 
 class ModelLoader(ForgeModel):
     """DeepSeek V3.2 Speciale model loader for causal language modeling."""
 
-    def __init__(self, variant=None, num_layers: Optional[int] = None):
+    def __init__(self, variant=None):
         super().__init__(variant)
         self.model_name = "deepseek-ai/DeepSeek-V3.2-Speciale"
         self.tokenizer = None
         self.text = "Please reason step by step. What is 25 multiplied by 16?"
-        self.num_layers = num_layers
 
     @classmethod
     def _get_model_info(cls, variant_name: str = None):
@@ -47,18 +48,6 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         config = AutoConfig.from_pretrained(self.model_name)
-
-        # Reduce model dimensions for testing
-        if self.num_layers is not None:
-            config.num_hidden_layers = self.num_layers
-        else:
-            config.num_hidden_layers = 6
-        config.num_attention_heads = 16
-        config.hidden_size = 1024
-        config.num_key_value_heads = 16
-        config.intermediate_size = 1024 * 4
-        config.num_experts_per_tok = 2
-        config.q_lora_rank = 256
 
         model_kwargs = {
             "attn_implementation": "eager",
