@@ -171,18 +171,28 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
-        messages = (
-            self.vllm_sample_messages
-            if self._variant == ModelVariant.VLLM_TRANSLATEGEMMA_27B_IT
-            else self.sample_messages
-        )
-        inputs = self.processor.apply_chat_template(
-            messages,
-            tokenize=True,
-            add_generation_prompt=True,
-            return_dict=True,
-            return_tensors="pt",
-        )
+        if self._variant == ModelVariant.VLLM_TRANSLATEGEMMA_27B_IT:
+            # Gemma3Processor.apply_chat_template pre-processes content assuming a
+            # list-of-dicts; the VLLM model requires a plain string, so call the
+            # tokenizer's apply_chat_template directly to bypass visual extraction.
+            text = self.processor.tokenizer.apply_chat_template(
+                self.vllm_sample_messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+            inputs = self.processor.tokenizer(
+                text,
+                return_tensors="pt",
+                return_dict=True,
+            )
+        else:
+            inputs = self.processor.apply_chat_template(
+                self.sample_messages,
+                tokenize=True,
+                add_generation_prompt=True,
+                return_dict=True,
+                return_tensors="pt",
+            )
 
         if dtype_override is not None:
             for key, value in inputs.items():
