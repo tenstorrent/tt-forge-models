@@ -47,7 +47,7 @@ class ModelLoader(ForgeModel):
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.TRANSLATEGEMMA_4B_IT
 
-    # Sample data for text translation
+    # Sample data for text translation (standard Gemma format with content as list-of-dicts)
     sample_messages = [
         {
             "role": "user",
@@ -59,6 +59,15 @@ class ModelLoader(ForgeModel):
                     "text": "V nejhorším případě i k prasknutí čočky.",
                 }
             ],
+        }
+    ]
+
+    # VLLM TranslateGemma uses a custom chat template that requires content as a
+    # plain string in <<<source>>>...<<<target>>>...<<<text>>>... format.
+    vllm_sample_messages = [
+        {
+            "role": "user",
+            "content": "<<<source>>>cs<<<target>>>de-DE<<<text>>>V nejhorším případě i k prasknutí čočky.",
         }
     ]
 
@@ -162,8 +171,13 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
+        messages = (
+            self.vllm_sample_messages
+            if self._variant == ModelVariant.VLLM_TRANSLATEGEMMA_27B_IT
+            else self.sample_messages
+        )
         inputs = self.processor.apply_chat_template(
-            self.sample_messages,
+            messages,
             tokenize=True,
             add_generation_prompt=True,
             return_dict=True,
