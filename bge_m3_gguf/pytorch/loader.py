@@ -8,6 +8,54 @@ import torch
 from transformers import AutoModel, AutoTokenizer, AutoConfig
 from typing import Optional
 
+# transformers 5.x does not include "bert" in its GGUF model-loading
+# machinery.  Register it so that AutoModel.from_pretrained(gguf_file=…)
+# can load BERT-architecture GGUF checkpoints (e.g. gpustack/bge-m3-GGUF).
+#
+# Tables patched:
+#   GGUF_CONFIG_MAPPING        – maps GGUF field names → BertConfig fields
+#   GGUF_SUPPORTED_ARCHITECTURES – architecture allow-list checked at load
+#   GGUF_CONFIG_DEFAULTS_MAPPING – type_vocab_size=1 so the single
+#                                  token-type embedding row matches the GGUF
+#   GGUF_TO_FAST_CONVERTERS    – SentencePiece converter for future callers
+#                                  (this loader bypasses GGUF tokenizer
+#                                  loading; see TOKENIZER_MODEL_NAME below)
+#
+# A custom TensorProcessor reshapes the 1-D token_types.weight stored in
+# the GGUF file ([hidden_size]) to the 2-D shape ([1, hidden_size]) that
+# BertModel's Embedding layer expects when type_vocab_size=1.
+from transformers.integrations.ggml import (
+    GGUF_CONFIG_MAPPING,
+    GGUF_CONFIG_DEFAULTS_MAPPING,
+    GGUF_TO_FAST_CONVERTERS,
+    GGUFT5Converter,
+)
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+from transformers.modeling_gguf_pytorch_utils import TensorProcessor, GGUFTensor
+
+
+class _BertTensorProcessor(TensorProcessor):
+    def process(self, weights, name, **kwargs):
+        if name == "token_types.weight" and weights.ndim == 1:
+            weights = weights.reshape(1, -1)
+        return GGUFTensor(weights, name, {})
+
+
+if "bert" not in GGUF_CONFIG_MAPPING:
+    GGUF_CONFIG_MAPPING["bert"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "attention.head_count": "num_attention_heads",
+        "attention.layer_norm_epsilon": "layer_norm_eps",
+    }
+    GGUF_CONFIG_DEFAULTS_MAPPING["bert"] = {"type_vocab_size": 1}
+    GGUF_TO_FAST_CONVERTERS["bert"] = GGUFT5Converter
+    _gguf_utils.TENSOR_PROCESSORS["bert"] = _BertTensorProcessor
+    if "bert" not in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
+        _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("bert")
+
 from ...base import ForgeModel
 from ...config import (
     ModelConfig,
@@ -60,16 +108,16 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    # The GGUF repo only ships the quantized weights file; the tokenizer
+    # files (tokenizer.json, sentencepiece.bpe.model, etc.) live on the
+    # original BAAI/bge-m3 hub page.  We load them from there so that
+    # token IDs stay inside the 250002-token vocabulary and we get the
+    # correct XLMRobertaTokenizer (not BertTokenizerFast, which appends
+    # extra special-token IDs above vocab_size).
+    TOKENIZER_MODEL_NAME = "BAAI/bge-m3"
+
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
-
+        self.tokenizer = AutoTokenizer.from_pretrained(self.TOKENIZER_MODEL_NAME)
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
