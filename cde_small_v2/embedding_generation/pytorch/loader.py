@@ -78,7 +78,73 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        # Two transformers 5.x breaking changes with this model:
+        #
+        # 1. CDE-Small-V2's __init__ calls from_pretrained for its dataset
+        #    backbone (load_embedder_and_tokenizer). Transformers 5.x always
+        #    initializes models inside torch.device("meta") via get_init_context;
+        #    nested from_pretrained calls fail inside that context with a
+        #    RuntimeError. Patch get_init_context to skip the meta device step.
+        #
+        # 2. The remote model code never calls self.post_init(), which is now
+        #    required for transformers 5.x to set all_tied_weights_keys before
+        #    _finalize_model_loading accesses it. Patch
+        #    _adjust_tied_keys_with_tied_pointers to call post_init() on first
+        #    use if the attribute is missing.
+        from transformers.modeling_utils import PreTrainedModel
+
+        _orig_get_init_context = PreTrainedModel.__dict__["get_init_context"]
+        _orig_adjust = PreTrainedModel._adjust_tied_keys_with_tied_pointers
+
+        @classmethod
+        def _no_meta_get_init_context(cls, dtype, is_quantized, _is_ds_init_called):
+            ctx = _orig_get_init_context.__func__(cls, dtype, is_quantized, _is_ds_init_called)
+            return [c for c in ctx if not isinstance(c, torch.device)]
+
+        def _patched_adjust(self, missing_keys_and_mismatched):
+            if not hasattr(self, "all_tied_weights_keys"):
+                self.post_init()
+            return _orig_adjust(self, missing_keys_and_mismatched)
+
+        PreTrainedModel.get_init_context = _no_meta_get_init_context
+        PreTrainedModel._adjust_tied_keys_with_tied_pointers = _patched_adjust
+        try:
+            model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        finally:
+            PreTrainedModel.get_init_context = _orig_get_init_context
+            PreTrainedModel._adjust_tied_keys_with_tied_pointers = _orig_adjust
+
+        # Without meta device, the nested from_pretrained for the dataset backbone
+        # loads in float32, and the outer checkpoint only overwrites the params
+        # that match its keys (leaving mismatched backbone params as float32).
+        # Explicitly cast the whole model to ensure dtype consistency.
+        if dtype_override is not None:
+            model = model.to(dtype_override)
+
+        # 3. mean_pool uses (int64_tensor + 1e-20_python_float) as denominator,
+        #    which promotes bfloat16 numerators to float32 via PyTorch scalar
+        #    type promotion, causing dtype mismatches in downstream linear layers.
+        #    Patch mean_pool in the remote module to preserve the input dtype.
+        import sys
+
+        _cde_mod = next(
+            (sys.modules[k] for k in sys.modules if "cde_hyphen_small_hyphen_v2" in k),
+            None,
+        )
+        if _cde_mod is not None and hasattr(_cde_mod, "mean_pool"):
+
+            def _mean_pool_typed(hidden_states, attention_mask):
+                B, _S, D = hidden_states.shape
+                unmasked_outputs = hidden_states * attention_mask[..., None]
+                denom = (
+                    attention_mask.sum(dim=1)[:, None].to(hidden_states.dtype) + 1e-20
+                )
+                pooled = unmasked_outputs.sum(dim=1) / denom
+                assert pooled.shape == (B, D)
+                return pooled
+
+            _cde_mod.mean_pool = _mean_pool_typed
+
         model.eval()
 
         return model
@@ -94,6 +160,18 @@ class ModelLoader(ForgeModel):
             max_length=128,
             return_tensors="pt",
         )
+
+        # ContextualDocumentEmbeddingTransformer.forward() requires dataset context
+        # tensors as positional arguments. Use the same sample sentences as the corpus.
+        dataset_inputs = self.tokenizer(
+            self.sample_sentences,
+            padding="max_length",
+            truncation=True,
+            max_length=128,
+            return_tensors="pt",
+        )
+        inputs["dataset_input_ids"] = dataset_inputs["input_ids"]
+        inputs["dataset_attention_mask"] = dataset_inputs["attention_mask"]
 
         if dtype_override is not None:
             for key, value in inputs.items():
