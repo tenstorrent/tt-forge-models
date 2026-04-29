@@ -182,9 +182,19 @@ def _patch_qwen3vl_for_tt_device(model=None):
     temporarily swap weight.data so that all torch.tensor() calls inside the
     function target CPU.
 
+    get_placeholder_mask calls inputs_embeds[bool_mask].numel() inside
+    torch_compilable_check, which produces a dynamic-shape boolean-index node in
+    the compiled XLA graph. TT backend's extract_compiled_graph → sync() rejects
+    such graphs with Error code 13. Setting TRANSFORMERS_DISABLE_TORCH_CHECK=1
+    makes torch_compilable_check return immediately so the boolean-index node is
+    never inserted.
+
     model: Qwen3VLForConditionalGeneration on CPU, used to capture
            pos_embed.weight before the model is moved to TT device.
     """
+    import os
+
+    os.environ["TRANSFORMERS_DISABLE_TORCH_CHECK"] = "1"
     try:
         from transformers.models.qwen3_vl import modeling_qwen3_vl
     except ImportError:
@@ -293,9 +303,11 @@ def _patch_qwen3vl_for_tt_device(model=None):
             )
         return patch_pos_embeds
 
+    @torch.compiler.disable
     def _patched_rot_pos(self, grid_thw):
         return orig_rot_pos(self, grid_thw.cpu())
 
+    @torch.compiler.disable
     def _patched_get_rope(
         self,
         input_ids=None,
@@ -313,11 +325,14 @@ def _patch_qwen3vl_for_tt_device(model=None):
             attention_mask=attention_mask.cpu() if attention_mask is not None else None,
             **kwargs,
         )
-        if orig_device is not None:
-            position_ids = position_ids.to(orig_device)
-            rope_deltas = rope_deltas.to(orig_device)
+        if orig_device is not None and str(orig_device.type) != "cpu":
+            import torch_xla.core.xla_model as xm
+            [position_ids, rope_deltas] = xm.send_cpu_data_to_device(
+                [position_ids, rope_deltas], orig_device
+            )
         return position_ids, rope_deltas
 
+    @torch.compiler.disable
     def _patched_get_image(self, pixel_values, image_grid_thw=None, **kwargs):
         return orig_get_image(
             self,
