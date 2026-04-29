@@ -68,17 +68,18 @@ _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 #
 # Fixes applied here:
 #   (a) RoPE forward: skip `* attention_scaling` when it equals 1.0 (standard case)
-#       to avoid the 0-dim complex constant.
+#       to avoid the 0-dim complex constant.  The class is DeepseekV2RotaryEmbedding;
+#       its forward is decorated @torch.no_grad() @dynamic_rope_update, so we must
+#       re-apply dynamic_rope_update to our replacement to properly replace the closure
+#       that dynamic_rope_update captured over the original body.
 #   (b) apply_rotary_emb: replace complex-mul with real arithmetic by extracting
 #       .real (cos) and .imag (sin) from freqs_cis.  stablehlo.real/imag ARE handled
 #       by ComplexDataTypeConversion, so the only complex op remaining is polar→complex
 #       which is also handled.
 try:
     from transformers.models.deepseek_v2 import modeling_deepseek_v2 as _dsv2
+    from transformers.modeling_rope_utils import dynamic_rope_update
 
-    _orig_rope_forward = _dsv2.DeepseekV2YarnRotaryEmbedding.forward
-
-    @torch.no_grad()
     def _rope_forward_no_unit_scale(self, x, position_ids):
         inv_freq_expanded = (
             self.inv_freq[None, :, None]
@@ -100,16 +101,14 @@ try:
                 freqs_cis = freqs_cis * self.attention_scaling
         return freqs_cis
 
-    _dsv2.DeepseekV2YarnRotaryEmbedding.forward = _rope_forward_no_unit_scale
+    # Re-apply the original decorator chain so dynamic_rope_update captures our body
+    # instead of the old one (it stores rope_forward as a closure variable).
+    _dsv2.DeepseekV2RotaryEmbedding.forward = torch.no_grad()(
+        dynamic_rope_update(_rope_forward_no_unit_scale)
+    )
 
     def _apply_rotary_emb_real(xq, xk, freqs_cis):
-        """Real-arithmetic replacement for DeepSeek V2's complex RoPE application.
-
-        Instead of view_as_complex → complex mul → view_as_real, extract cos/sin from
-        freqs_cis using .real/.imag (lowered to stablehlo.real/imag which ComplexDataTypeConversion
-        handles) and apply the rotation with real arithmetic.
-        """
-        cos = freqs_cis.real.unsqueeze(1)  # [batch, 1, seq, qk_rope_head_dim]
+        cos = freqs_cis.real.unsqueeze(1)  # [batch, 1, seq, qk_rope_head_dim/2]
         sin = freqs_cis.imag.unsqueeze(1)
 
         xq_r = xq.float().reshape(*xq.shape[:-1], -1, 2)
