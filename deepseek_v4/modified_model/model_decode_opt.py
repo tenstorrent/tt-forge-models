@@ -970,10 +970,12 @@ class Transformer(nn.Module):
             self.hc_head_scale = nn.Parameter(torch.empty(1))
 
     @torch.inference_mode()
-    def forward(self, input_ids: torch.Tensor, start_pos=0):
+    def forward(self, input_ids: torch.Tensor, start_pos=0, return_hidden_states: bool = False):
         h = self.embed(input_ids)
         h = h.unsqueeze(2).repeat(1, 1, self.hc_mult, 1)
         for layer in self.layers:
             h = layer(h, start_pos, input_ids)
         logits = self.head(h, self.hc_head_fn, self.hc_head_scale, self.hc_head_base, self.norm)
+        if return_hidden_states:
+            return h, logits
         return logits
