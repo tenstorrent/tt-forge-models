@@ -67,7 +67,7 @@ def _patch_transformers_qwen35moe_gguf():
                 weights = _np.expand_dims(weights, axis=1)
             return super().process(weights, name, **kwargs)
 
-    TENSOR_PROCESSORS["qwen35moe"] = _Qwen35MoeTensorProcessor()
+    TENSOR_PROCESSORS["qwen35moe"] = _Qwen35MoeTensorProcessor
 
     from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
