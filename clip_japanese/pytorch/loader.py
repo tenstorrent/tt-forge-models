@@ -5,6 +5,7 @@
 CLIP Japanese model loader implementation for image-text similarity.
 """
 import torch
+from PIL import Image
 from transformers import AutoImageProcessor, AutoModel, AutoTokenizer
 from transformers.modeling_utils import PreTrainedModel
 from typing import Optional
@@ -19,7 +20,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from datasets import load_dataset
+from ...tools.utils import get_file
 
 
 class ModelVariant(StrEnum):
@@ -146,9 +147,10 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        # Load image from HuggingFace dataset
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        # Load a sample image; avoid load_dataset which triggers a dill/spacy
+        # namespace-package conflict with tt_forge_models/spacy/.
+        image_path = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
+        image = Image.open(str(image_path)).convert("RGB")
 
         # Define text prompts for image-text similarity (Japanese)
         self.text_prompts = ["猫", "犬", "象"]
