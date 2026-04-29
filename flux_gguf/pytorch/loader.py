@@ -94,8 +94,14 @@ class ModelLoader(ForgeModel):
             **load_kwargs,
         )
 
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
+        # Dequantize GGUF weights to plain tensors so that torch.compile
+        # can trace the model without hitting GGUFParameter.__torch_function__
+        # infinite recursion. After dequantizing, cast to compute_dtype since
+        # Q8_0 dequantization produces float16 internally regardless of requested dtype.
+        # Note: dequantize() does not clear model.is_quantized so we use
+        # torch.nn.Module.to() directly to bypass the diffusers dtype-cast guard.
+        self.transformer = self.transformer.dequantize()
+        torch.nn.Module.to(self.transformer, compute_dtype)
 
         return self.transformer
 
