@@ -19,7 +19,6 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from datasets import load_dataset
 
 
 class ModelVariant(StrEnum):
@@ -114,9 +113,8 @@ class ModelLoader(ForgeModel):
             )
             self.tokenizer = get_tokenizer(_TOKENIZER_NAME[self._variant])
 
-        # Load image from HuggingFace dataset
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        # Use a synthetic image to avoid datasets._dill / spacy namespace collision
+        image = Image.new("RGB", (224, 224))
 
         self.text_prompts = ["a photo of a cat", "a photo of a dog"]
 
