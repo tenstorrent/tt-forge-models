@@ -110,17 +110,17 @@ def _patch_transformers_chatglm_gguf():
     GGUF_TO_FAST_CONVERTERS["glm4"] = GGUFChatGLMConverter
 
     # 4. Patch load_gguf_checkpoint to remap model_type and compute partial_rotary_factor.
-    # We remap to "glm" (GlmForCausalLM, 2 norms/layer) not "glm4" (Glm4ForCausalLM,
-    # 4 norms/layer). The GLM-4-9B-chat chatglm GGUF has no post_self_attn_layernorm
-    # or post_mlp_layernorm tensors, so Glm4ForCausalLM would apply RMSNorm with
-    # default weight=1 (non-identity: divides by RMS), corrupting outputs.
+    # We remap to "glm4" so that gguf-py can resolve the tensor name map (gguf-py knows
+    # "glm4" but not "glm"). The extra Glm4ForCausalLM norms (post_self_attn_layernorm,
+    # post_mlp_layernorm) are fixed to identity in _patch_extra_norms() after loading,
+    # since the chatglm GGUF has no tensors for them (default weight=1 is non-identity RMSNorm).
     orig_load = gguf_utils.load_gguf_checkpoint
 
     def patched_load_gguf_checkpoint(*args, **kwargs):
         result = orig_load(*args, **kwargs)
         config = result.get("config", {})
         if config.get("model_type") == "chatglm":
-            config["model_type"] = "glm"
+            config["model_type"] = "glm4"
             head_dim = config.get("head_dim", 128)
             if hasattr(args[0] if args else None, "__fspath__") or isinstance(
                 args[0] if args else None, str
@@ -214,6 +214,22 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    def _patch_extra_norms(self, model):
+        """Replace Glm4-specific post-attention/post-MLP norms with nn.Identity().
+
+        The chatglm GGUF has no attn_post_norm or ffn_post_norm tensors, so
+        Glm4ForCausalLM's post_self_attn_layernorm and post_mlp_layernorm are
+        initialized with weight=1. RMSNorm(x, weight=1) = x/rms(x) (NOT identity),
+        which corrupts activations. Identity() restores correct GlmForCausalLM semantics.
+        """
+        import torch.nn as nn
+
+        for layer in model.model.layers:
+            if hasattr(layer, "post_self_attn_layernorm"):
+                layer.post_self_attn_layernorm = nn.Identity()
+            if hasattr(layer, "post_mlp_layernorm"):
+                layer.post_mlp_layernorm = nn.Identity()
+
     def _patch_fused_qkv(self, model):
         """Manually split fused attn_qkv tensors into separate q/k/v projections.
 
@@ -286,6 +302,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        self._patch_extra_norms(model)
         self._patch_fused_qkv(model)
 
         self.config = model.config
