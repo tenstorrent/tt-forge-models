@@ -1,6 +1,8 @@
 # NeMo ASR dependencies – all safe to install without upgrading torch.
 # nemo_toolkit itself is in requirements.nodeps.txt (to avoid the torch>=2.6.0
 # transitive dep replacing the tt-xla custom torch build).
+# numba 0.63.x requires numpy<=2.3; pin here to prevent numpy 2.4 from being pulled in.
+numpy<2.4
 hydra-core<=1.3.2,>1.3
 omegaconf<=2.3
 antlr4-python3-runtime==4.9.3
