@@ -6,7 +6,14 @@ EXAONE 3.5 AWQ model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import transformers.utils.generic as _tug
 from typing import Optional
+
+# transformers.utils.generic.check_model_inputs was added after 5.2.0;
+# it is an alias for merge_with_config_defaults (deprecated in 5.7.0).
+if not hasattr(_tug, "check_model_inputs"):
+    from transformers.utils.generic import merge_with_config_defaults
+    _tug.check_model_inputs = merge_with_config_defaults
 
 from ....base import ForgeModel
 from ....config import (
