@@ -38,22 +38,69 @@ def _patch_qwen35_support():
 
 
 def _find_real_load_gguf_checkpoint():
-    """Traverse the chain of monkey-patched load_gguf_checkpoint to find the real transformers function."""
+    """Traverse the chain of monkey-patched load_gguf_checkpoint to find the real transformers function.
+
+    Various loaders capture the previous function under different variable names:
+    - module-level: ``from ... import load_gguf_checkpoint as _orig_load_gguf_checkpoint``
+    - inside a patch function: ``orig_load = gguf_utils.load_gguf_checkpoint``
+
+    The latter uses a closure variable, not a module global, so we must check
+    both __globals__ and __closure__/__code__.co_freevars.
+    """
+    import importlib.util as _iutil
+
+    spec = _iutil.find_spec("transformers.modeling_gguf_pytorch_utils")
+    target_file = spec.origin if spec is not None else None
+
+    _ORIG_NAMES = (
+        "_orig_load_gguf_checkpoint",
+        "orig_load",
+        "_real_load_gguf_checkpoint",
+        "orig_fn",
+    )
+
     fn = _orig_load_gguf_checkpoint
-    seen = set()
-    while True:
+    seen: set = set()
+    while fn is not None:
         fid = id(fn)
         if fid in seen:
             break
         seen.add(fid)
-        src = getattr(getattr(fn, "__code__", None), "co_filename", "")
-        if "tt_forge_models" not in src:
+
+        co = getattr(fn, "__code__", None)
+        co_filename = getattr(co, "co_filename", "") if co else ""
+
+        # Found the real transformers function (by exact file path or by absence of tt_forge_models)
+        if target_file and co_filename == target_file:
             return fn
-        next_fn = fn.__globals__.get("_orig_load_gguf_checkpoint")
-        if next_fn is None:
-            break
+        if not target_file and "tt_forge_models" not in co_filename:
+            return fn
+
+        # Try globals (module-level ``from ... import ... as _orig_load_gguf_checkpoint``)
+        next_fn = None
+        for name in _ORIG_NAMES:
+            v = fn.__globals__.get(name)
+            if v is not None and callable(v) and id(v) != fid and id(v) not in seen:
+                next_fn = v
+                break
+
+        # Try closure (inner function capturing ``orig_load = gguf_utils.load_gguf_checkpoint``)
+        if next_fn is None and fn.__closure__:
+            freevars = getattr(co, "co_freevars", ()) if co else ()
+            for i, name in enumerate(freevars):
+                if name in _ORIG_NAMES:
+                    try:
+                        v = fn.__closure__[i].cell_contents
+                        if callable(v) and id(v) != fid and id(v) not in seen:
+                            next_fn = v
+                            break
+                    except ValueError:
+                        pass
+
         fn = next_fn
-    return fn
+
+    # Fallback: couldn't traverse to real function; return captured orig (best effort)
+    return _orig_load_gguf_checkpoint
 
 
 _real_load_gguf_checkpoint = _find_real_load_gguf_checkpoint()
