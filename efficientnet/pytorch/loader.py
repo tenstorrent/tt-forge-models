@@ -8,6 +8,7 @@ EfficientNet model loader implementation
 import torch
 from typing import Optional
 from dataclasses import dataclass
+import numpy as np
 from PIL import Image
 from torchvision import transforms
 
@@ -476,7 +477,13 @@ class ModelLoader(ForgeModel):
             # Avoid load_dataset: it triggers datasets._dill serialization which
             # checks spacy.Language, but tt_forge_models/spacy/ shadows the real
             # spacy package when tt_forge_models/ is on sys.path.
-            image = Image.new("RGB", (528, 528))
+            # Use a deterministic random image; a constant image creates spatially
+            # uniform feature maps whose PCC is dominated by SAME-padding border
+            # artifacts, causing spuriously low PCC on bfloat16.
+            rng = np.random.default_rng(seed=42)
+            image = Image.fromarray(
+                rng.integers(0, 256, (528, 528, 3), dtype=np.uint8)
+            )
         return self.input_preprocess(
             image=image,
             dtype_override=dtype_override,
