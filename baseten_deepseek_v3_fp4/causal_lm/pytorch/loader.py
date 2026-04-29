@@ -10,8 +10,10 @@ for testing since the full 397B parameter model requires multi-GPU hosts with
 TensorRT-LLM to run.
 """
 
+import types
 from typing import Optional
 
+import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from transformers.cache_utils import DynamicCache
 
@@ -41,6 +43,44 @@ if not hasattr(DynamicCache, "get_usable_length"):
         return previous_seq_length
 
     DynamicCache.get_usable_length = _get_usable_length
+
+
+def _moe_infer_batched(self, x, topk_ids, topk_weight):
+    """Batched-matmul replacement for DeepseekV3MoE.moe_infer.
+
+    The original moe_infer converts tokens_per_expert to numpy for loop
+    control, which breaks torch.compile / XLA tracing.  This version stacks
+    all expert weights into [E, *, *] tensors and uses a single bmm to
+    evaluate every expert simultaneously, eliminating all data-dependent
+    control flow.
+    """
+    T, H = x.shape
+    E = self.experts_per_rank
+    experts = self.experts[
+        self.ep_rank * E : (self.ep_rank + 1) * E
+    ]
+
+    # Stack weights: [E, I, H] / [E, H, I]
+    gate_w = torch.stack([e.gate_proj.weight for e in experts], dim=0)  # [E, I, H]
+    up_w = torch.stack([e.up_proj.weight for e in experts], dim=0)      # [E, I, H]
+    down_w = torch.stack([e.down_proj.weight for e in experts], dim=0)  # [E, H, I]
+
+    x_fp = x.to(gate_w.dtype)
+    x_exp = x_fp.unsqueeze(0).expand(E, -1, -1)          # [E, T, H]
+    gate_out = torch.bmm(x_exp, gate_w.transpose(1, 2))  # [E, T, I]
+    up_out = torch.bmm(x_exp, up_w.transpose(1, 2))      # [E, T, I]
+    act = torch.nn.functional.silu(gate_out) * up_out    # [E, T, I]
+    expert_outs = torch.bmm(act, down_w.transpose(1, 2)) # [E, T, H]
+
+    # Build per-token routing weights: [T, E]
+    routing = torch.zeros(T, E, dtype=topk_weight.dtype, device=x.device)
+    routing.scatter_add_(1, topk_ids, topk_weight)
+
+    # Weighted sum over experts: [T, E, H] * [T, E, 1] → [T, H]
+    final_out = (
+        expert_outs.permute(1, 0, 2) * routing.unsqueeze(-1).to(expert_outs.dtype)
+    ).sum(dim=1)
+    return final_out.to(x.dtype)
 
 
 class ModelVariant(StrEnum):
@@ -131,6 +171,10 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_config(config, **model_kwargs)
+
+        for module in model.modules():
+            if module.__class__.__name__ == "DeepseekV3MoE":
+                module.moe_infer = types.MethodType(_moe_infer_batched, module)
 
         return model
 
