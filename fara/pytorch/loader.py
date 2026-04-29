@@ -5,7 +5,7 @@
 Fara model loader implementation for vision-language tasks.
 """
 import torch
-from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
+from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, AutoConfig
 from typing import Optional
 
 
@@ -85,7 +85,7 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"low_cpu_mem_usage": True, "use_cache": False}
+        model_kwargs = {"low_cpu_mem_usage": True}
 
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
@@ -93,8 +93,11 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
 
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        config.text_config.use_cache = False
+
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, config=config, **model_kwargs
         )
         model.eval()
         model = Wrapper(model)
