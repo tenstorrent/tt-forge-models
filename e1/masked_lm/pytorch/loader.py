@@ -32,12 +32,32 @@ E1_REPO_PATH = "/tmp/e1_repo"
 E1_REPO_URL = "https://github.com/Profluent-AI/E1.git"
 
 
+def _patch_e1_xla_compat():
+    """Patch varlen_flex_attention.py: replace torch.Tensor([scalar_xla_tensor]).to(device)
+    with scalar_xla_tensor.reshape(1).  The original pattern fails under XLA/Dynamo tracing
+    because materialising a FakeTensor to build a Python list is unsupported."""
+    vfa_path = os.path.join(
+        E1_REPO_PATH, "src", "E1", "model", "varlen_flex_attention.py"
+    )
+    if not os.path.isfile(vfa_path):
+        return
+    with open(vfa_path) as f:
+        src = f.read()
+    old = "torch.Tensor([padding_tokens]).to(device)"
+    new = "padding_tokens.reshape(1)"
+    if old in src:
+        with open(vfa_path, "w") as f:
+            f.write(src.replace(old, new))
+
+
 def _ensure_e1_importable():
     """Ensure the Profluent-AI/E1 repo is cloned and importable."""
     if not os.path.isdir(E1_REPO_PATH):
         subprocess.check_call(
             ["git", "clone", "--filter=blob:none", E1_REPO_URL, E1_REPO_PATH]
         )
+
+    _patch_e1_xla_compat()
 
     src_path = os.path.join(E1_REPO_PATH, "src")
     if src_path not in sys.path:
