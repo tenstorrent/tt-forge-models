@@ -128,6 +128,15 @@ class ModelLoader(ForgeModel):
         finally:
             PreTrainedModel._adjust_tied_keys_with_tied_pointers = _orig_adjust
 
+        # When transformers 5.x creates the model on meta device during from_pretrained,
+        # non-persistent buffers (like RotaryEmbeddingCat.pos_embed) cannot be filled
+        # via .copy_() on a meta tensor and are left uninitialised (garbage/NaN) after
+        # materialisation. Call init_non_persistent_buffers() on every module that
+        # provides one to recompute those buffers on the real device.
+        for module in model.modules():
+            if hasattr(module, "init_non_persistent_buffers"):
+                module.init_non_persistent_buffers()
+
         model.eval()
 
         return model
