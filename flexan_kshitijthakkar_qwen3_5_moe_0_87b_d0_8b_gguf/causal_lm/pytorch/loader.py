@@ -103,6 +103,11 @@ def _patch_transformers_qwen35moe_gguf():
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
     # 6. Patch get_gguf_hf_weights_map to handle qwen3_5_moe_text -> qwen35moe
+    # and add old-format GGUF tensor aliases: the Flexan GGUF stores gate and up
+    # expert projections as separate ffn_gate_exps / ffn_up_exps tensors (old GGUF
+    # convention), while the gguf-py qwen35moe name map and HF model expect packed
+    # ffn_gate_up_exps (gate+up concatenated along dim 1).  Adding the aliases lets
+    # Qwen2MoeTensorProcessor._set_moe_expert_tensor pack them into gate_up_proj.
     orig_get_map = gguf_utils.get_gguf_hf_weights_map
 
     def patched_get_gguf_hf_weights_map(
@@ -112,7 +117,20 @@ def _patch_transformers_qwen35moe_gguf():
             model_type = hf_model.config.model_type
         if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
             model_type = "qwen35moe"
-        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+        result = orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+        if model_type == "qwen35moe":
+            num_l = (
+                hf_model.config.num_hidden_layers
+                if num_layers is None
+                else num_layers
+            )
+            for i in range(num_l):
+                packed_key = f"blk.{i}.ffn_gate_up_exps"
+                if packed_key in result:
+                    packed_hf = result[packed_key]
+                    result[f"blk.{i}.ffn_gate_exps"] = packed_hf
+                    result[f"blk.{i}.ffn_up_exps"] = packed_hf
+        return result
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
 

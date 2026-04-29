@@ -112,7 +112,20 @@ def _patch_transformers_qwen35moe_gguf():
             model_type = hf_model.config.model_type
         if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
             model_type = "qwen35moe"
-        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+        result = orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+        if model_type == "qwen35moe":
+            num_l = (
+                hf_model.config.num_hidden_layers
+                if num_layers is None
+                else num_layers
+            )
+            for i in range(num_l):
+                packed_key = f"blk.{i}.ffn_gate_up_exps"
+                if packed_key in result:
+                    packed_hf = result[packed_key]
+                    result[f"blk.{i}.ffn_gate_exps"] = packed_hf
+                    result[f"blk.{i}.ffn_up_exps"] = packed_hf
+        return result
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
 
