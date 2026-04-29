@@ -6,7 +6,11 @@ DeepSeek V2 Lite GGUF model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFLlamaConverter
 from typing import Optional
+
+# deepseek_v2 uses a LLaMA-style BPE tokenizer; not registered in transformers 5.x
+GGUF_TO_FAST_CONVERTERS.setdefault("deepseek_v2", GGUFLlamaConverter)
 
 from ....base import ForgeModel
 from ....config import (
