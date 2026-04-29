@@ -5,6 +5,7 @@
 BiRefNet model loader implementation for dichotomous image segmentation
 """
 
+import sys
 from typing import Optional
 
 import torch
@@ -81,6 +82,31 @@ class ModelLoader(ForgeModel):
         )
         return self.transform_image
 
+    @staticmethod
+    def _patch_deform_conv2d_bf16_cpu():
+        """Patch birefnet module's deform_conv2d to support BF16 on CPU.
+
+        torchvision.ops.deform_conv2d raises NotImplementedError for BFloat16
+        on CPU. BiRefNet imports deform_conv2d at module level; replace that
+        reference with a wrapper that casts to float32 on CPU only.
+        """
+        from torchvision.ops import deform_conv2d as _orig
+
+        def _bf16_safe(input, offset, weight, bias=None, stride=1, padding=0, dilation=1, mask=None):
+            if input.device.type == "cpu" and input.dtype == torch.bfloat16:
+                result = _orig(
+                    input.float(), offset.float(), weight.float(),
+                    bias.float() if bias is not None else None,
+                    stride, padding, dilation,
+                    mask.float() if mask is not None else None,
+                )
+                return result.bfloat16()
+            return _orig(input, offset, weight, bias, stride, padding, dilation, mask)
+
+        for name, mod in sys.modules.items():
+            if "birefnet" in name and hasattr(mod, "deform_conv2d"):
+                mod.deform_conv2d = _bf16_safe
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -93,6 +119,8 @@ class ModelLoader(ForgeModel):
         model = AutoModelForImageSegmentation.from_pretrained(
             pretrained_model_name, trust_remote_code=True, **model_kwargs
         )
+
+        self._patch_deform_conv2d_bf16_cpu()
 
         torch.set_float32_matmul_precision(["high", "highest"][0])
 
