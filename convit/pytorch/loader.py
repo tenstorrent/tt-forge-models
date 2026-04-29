@@ -8,6 +8,7 @@ ConViT model loader implementation
 from typing import Optional
 from dataclasses import dataclass
 import timm
+import torch
 
 from ...config import (
     ModelConfig,
@@ -78,6 +79,26 @@ class ModelLoader(ForgeModel):
 
         model = timm.create_model(model_name, pretrained=True)
         model.eval()
+
+        # ConViT lazily computes rel_indices (relative position bias) as a
+        # plain tensor attribute (not a registered buffer) during the first
+        # forward pass. When model.to(device) is called to move to XLA, plain
+        # attributes are skipped, leaving rel_indices on CPU while all
+        # parameters move to XLA. This causes a device mismatch during dynamo
+        # FakeTensor tracing. Pre-compute and register as buffers so they are
+        # properly moved with model.to().
+        with torch.no_grad():
+            dummy = torch.zeros(1, 3, 224, 224)
+            model(dummy)
+        for module in model.modules():
+            if (
+                hasattr(module, "rel_indices")
+                and isinstance(module.rel_indices, torch.Tensor)
+                and "rel_indices" not in dict(module.named_buffers(recurse=False))
+            ):
+                rel_idx = module.rel_indices.detach().clone()
+                module.__dict__.pop("rel_indices", None)
+                module.register_buffer("rel_indices", rel_idx)
 
         self.model = model
 
