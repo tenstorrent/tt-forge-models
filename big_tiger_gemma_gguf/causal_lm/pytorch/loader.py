@@ -44,8 +44,8 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.BIG_TIGER_GEMMA_27B_V3_GGUF
 
     _GGUF_FILES = {
-        ModelVariant.BIG_TIGER_GEMMA_27B_V3_GGUF: "Big-Tiger-Gemma-27B-v3-Q4_K_M.gguf",
-        ModelVariant.BIG_TIGER_GEMMA_27B_V1_GGUF: "Big-Tiger-Gemma-27B-v1-Q4_K_M.gguf",
+        ModelVariant.BIG_TIGER_GEMMA_27B_V3_GGUF: "TheDrummer_Big-Tiger-Gemma-27B-v3-Q4_K_M.gguf",
+        ModelVariant.BIG_TIGER_GEMMA_27B_V1_GGUF: "Big-Tiger-Gemma-27B-v1c-Q4_K_M.gguf",
     }
 
     sample_text = "What is your favorite city?"
