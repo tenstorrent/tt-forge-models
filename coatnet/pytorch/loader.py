@@ -19,11 +19,12 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
+from PIL import Image
+
 from ...tools.utils import (
     VisionPreprocessor,
     VisionPostprocessor,
 )
-from datasets import load_dataset
 
 
 @dataclass
@@ -104,8 +105,7 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None, batch_size=1, image=None):
         if image is None:
-            dataset = load_dataset("huggingface/cats-image", split="test")
-            image = dataset[0]["image"]
+            image = Image.new("RGB", (224, 224))
 
         if self._preprocessor is None:
             model_name = self._variant_config.pretrained_model_name
