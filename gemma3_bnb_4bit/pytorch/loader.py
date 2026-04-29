@@ -37,7 +37,9 @@ def _dequantize_bnb_4bit(model):
     for name, module in model.named_modules():
         if isinstance(module, Linear4bit):
             with torch.no_grad():
-                weight = module.weight.dequantize()
+                weight = module.weight.dequantize().reshape(
+                    module.out_features, module.in_features
+                )
             has_bias = module.bias is not None
             new_layer = torch.nn.Linear(
                 module.in_features,
