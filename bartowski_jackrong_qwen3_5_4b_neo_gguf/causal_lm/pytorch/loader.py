@@ -3,10 +3,18 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 bartowski Jackrong Qwen3.5-4B-Neo GGUF model loader implementation for causal language modeling.
+
+Qwen3.5-4B-Neo is a hybrid SSM/full-attention model (GGUF architecture "qwen35")
+that alternates GatedDeltaNet linear-attention layers with periodic full-attention
+layers every 4 blocks.  Transformers 5.2 ships Qwen3_5ForCausalLM which models
+this architecture, but the GGUF loader has no config-field or tensor-name mapping
+for "qwen35".  This loader monkey-patches that gap.
 """
 import importlib.metadata
+import re
 from typing import Optional
 
+import numpy as np
 import torch
 import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
@@ -15,7 +23,9 @@ import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 from transformers.modeling_gguf_pytorch_utils import (
-    GGUF_SUPPORTED_ARCHITECTURES,
+    GGUFTensor,
+    TensorProcessor,
+    TENSOR_PROCESSORS,
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
 )
 
@@ -30,35 +40,182 @@ from ....config import (
     StrEnum,
 )
 
+# ── GGUF config-field mapping for the "qwen35" architecture ─────────────────
 
-def _patch_qwen35_support():
-    """Register qwen35 architecture and qwen3_5_text tokenizer as aliases for qwen3.
+_QWEN35_CONFIG_MAPPING = {
+    "context_length": "max_position_embeddings",
+    "block_count": "num_hidden_layers",
+    "feed_forward_length": "intermediate_size",
+    "embedding_length": "hidden_size",
+    "rope.dimension_count": None,       # covered by partial_rotary_factor default
+    "rope.dimension_sections": None,    # VLM-only; unused for text GGUF
+    "rope.freq_base": "rope_theta",
+    "attention.head_count": "num_attention_heads",
+    "attention.head_count_kv": "num_key_value_heads",
+    "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+    "attention.key_length": "head_dim",
+    "attention.value_length": None,     # same as head_dim; redundant
+    # SSM / GatedDeltaNet parameters
+    "ssm.conv_kernel": "linear_conv_kernel_dim",
+    "ssm.state_size": "linear_value_head_dim",      # head_v_dim
+    "ssm.group_count": "linear_num_key_heads",      # num_k_heads
+    "ssm.time_step_rank": "linear_num_value_heads", # num_v_heads
+    "ssm.inner_size": None,             # redundant (= num_v_heads * head_v_dim)
+    # Hybrid schedule: Qwen3_5TextConfig converts this to a layer_types list
+    "full_attention_interval": "full_attention_interval",
+    "vocab_size": "vocab_size",
+}
 
-    Qwen 3.5 uses the same model architecture as Qwen 3 but the GGUF file
-    declares architecture as 'qwen35' and tokenizer class as 'qwen3_5_text',
-    which transformers 5.x does not yet recognise.
+
+# ── Tensor processor ─────────────────────────────────────────────────────────
+
+class _Qwen35TensorProcessor(TensorProcessor):
+    """Map GGUF "qwen35" tensor names to Qwen3_5ForCausalLM HF state-dict names.
+
+    gguf-py's get_tensor_name_map returns a pass-through (no-op) for arch 34
+    ("qwen35"), so every tensor falls through to perform_fallback_tensor_mapping.
     """
+
+    # (pattern matching HF base name, GGUF component, append_suffix)
+    # append_suffix=True  → GGUF key = "blk.N.<comp><suffix>"
+    # append_suffix=False → GGUF key = "blk.N.<comp>" exactly (comp already
+    #                       encodes the trailing suffix, e.g. "ssm_dt.bias")
+    _LAYER_PATTERNS: list[tuple] = [
+        # Linear-attention (GatedDeltaNet) layers
+        (re.compile(r"model\.layers\.(\d+)\.linear_attn\.in_proj_qkv$"), "attn_qkv", True),
+        (re.compile(r"model\.layers\.(\d+)\.linear_attn\.in_proj_z$"),   "attn_gate", True),
+        (re.compile(r"model\.layers\.(\d+)\.linear_attn\.in_proj_b$"),   "ssm_beta", True),
+        (re.compile(r"model\.layers\.(\d+)\.linear_attn\.in_proj_a$"),   "ssm_alpha", True),
+        (re.compile(r"model\.layers\.(\d+)\.linear_attn\.conv1d$"),      "ssm_conv1d", True),
+        # dt_bias ends in "_bias" not ".bias", so get_gguf_hf_weights_map passes
+        # suffix="" here; full GGUF name is "ssm_dt.bias"
+        (re.compile(r"model\.layers\.(\d+)\.linear_attn\.dt_bias$"),     "ssm_dt.bias", False),
+        # A_log has no .weight/.bias suffix; GGUF name is bare "ssm_a"
+        (re.compile(r"model\.layers\.(\d+)\.linear_attn\.A_log$"),       "ssm_a", False),
+        (re.compile(r"model\.layers\.(\d+)\.linear_attn\.norm$"),        "ssm_norm", True),
+        (re.compile(r"model\.layers\.(\d+)\.linear_attn\.out_proj$"),    "ssm_out", True),
+        # Full-attention layers
+        (re.compile(r"model\.layers\.(\d+)\.self_attn\.q_proj$"),        "attn_q", True),
+        (re.compile(r"model\.layers\.(\d+)\.self_attn\.k_proj$"),        "attn_k", True),
+        (re.compile(r"model\.layers\.(\d+)\.self_attn\.v_proj$"),        "attn_v", True),
+        (re.compile(r"model\.layers\.(\d+)\.self_attn\.o_proj$"),        "attn_output", True),
+        (re.compile(r"model\.layers\.(\d+)\.self_attn\.q_norm$"),        "attn_q_norm", True),
+        (re.compile(r"model\.layers\.(\d+)\.self_attn\.k_norm$"),        "attn_k_norm", True),
+        # Shared across all layer types
+        (re.compile(r"model\.layers\.(\d+)\.input_layernorm$"),          "attn_norm", True),
+        (re.compile(r"model\.layers\.(\d+)\.post_attention_layernorm$"), "post_attention_norm", True),
+        (re.compile(r"model\.layers\.(\d+)\.mlp\.gate_proj$"),           "ffn_gate", True),
+        (re.compile(r"model\.layers\.(\d+)\.mlp\.up_proj$"),             "ffn_up", True),
+        (re.compile(r"model\.layers\.(\d+)\.mlp\.down_proj$"),           "ffn_down", True),
+    ]
+
+    _GLOBAL_MAP: dict[str, tuple] = {
+        "model.embed_tokens": ("token_embd", True),
+        "model.norm":         ("output_norm", True),
+        "lm_head":            ("output", True),
+    }
+
+    def perform_fallback_tensor_mapping(
+        self,
+        gguf_to_hf_name_map: dict,
+        suffix: str,
+        qual_name: str,
+        hf_name: str,
+    ) -> None:
+        base_name = hf_name[: -len(suffix)] if suffix else hf_name
+
+        for pattern, gguf_comp, append_suffix in self._LAYER_PATTERNS:
+            m = pattern.match(base_name)
+            if m:
+                bid = m.group(1)
+                gguf_key = f"blk.{bid}.{gguf_comp}"
+                if append_suffix:
+                    gguf_key += suffix
+                gguf_to_hf_name_map[gguf_key] = qual_name + hf_name
+                return
+
+        for hf_prefix, (gguf_comp, append_suffix) in self._GLOBAL_MAP.items():
+            if base_name == hf_prefix:
+                gguf_to_hf_name_map[gguf_comp + (suffix if append_suffix else "")] = (
+                    qual_name + hf_name
+                )
+                return
+
+    def process(self, weights: np.ndarray, name: str, **kwargs) -> GGUFTensor:
+        if "ssm_a" in name and ".weight" not in name:
+            # GGUF stores ssm_a as raw positive values following -exp(A_log)
+            # convention; convert to A_log = log(-ssm_a).
+            weights = np.log(-weights)
+        elif "ssm_conv1d.weight" in name:
+            # After dequantize, shape is (out_channels=8192, kernel_size=4).
+            # PyTorch depthwise Conv1d expects (out_channels, 1, kernel_size).
+            weights = np.expand_dims(weights, axis=1)
+        return GGUFTensor(weights, name, {})
+
+
+# ── Patch installation ────────────────────────────────────────────────────────
+
+_orig_get_gguf_hf_weights_map = None
+
+
+def _patch_qwen35_support() -> None:
+    """Register qwen35 GGUF architecture with the transformers GGUF loader.
+
+    qwen35 is the GGUF architecture name for the Qwen3.5-Neo hybrid
+    (GatedDeltaNet + full attention).  Transformers 5.2 models this as
+    Qwen3_5ForCausalLM with model_type="qwen3_5_text", but the GGUF loader
+    has neither the config-field mapping nor the tensor-name mapping for it.
+    """
+    global _orig_get_gguf_hf_weights_map
+    from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
+
     if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
         GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
-    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
-        if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
-            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
-                "qwen35",
-                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
-            )
+
+    # Config-field mapping: replaces the qwen3-copy that was set previously
+    cfg_map = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]
+    cfg_map["qwen35"] = _QWEN35_CONFIG_MAPPING
+
+    # Tokenizer fast-converter: qwen35 uses the same BPE format as qwen3
     if "qwen3" in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
         GGUF_TO_FAST_CONVERTERS.setdefault(
             "qwen3_5_text", GGUF_TO_FAST_CONVERTERS["qwen3"]
         )
 
+    # Tensor processor
+    TENSOR_PROCESSORS["qwen35"] = _Qwen35TensorProcessor
+
+    # Patch get_gguf_hf_weights_map so that when the model already carries
+    # model_type="qwen3_5_text" (after config loading), the gguf-py arch
+    # lookup still finds arch 34 ("qwen35").
+    if _orig_get_gguf_hf_weights_map is None:
+        _orig_get_gguf_hf_weights_map = _gguf_utils.get_gguf_hf_weights_map
+
+        def _patched_get_gguf_hf_weights_map(
+            hf_model, processor, model_type=None, num_layers=None, qual_name=""
+        ):
+            if model_type is None:
+                model_type = hf_model.config.model_type
+            if model_type == "qwen3_5_text":
+                model_type = "qwen35"
+            return _orig_get_gguf_hf_weights_map(
+                hf_model,
+                processor,
+                model_type=model_type,
+                num_layers=num_layers,
+                qual_name=qual_name,
+            )
+
+        _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
 
 def _patched_load_gguf_checkpoint(*args, **kwargs):
-    """Wrap load_gguf_checkpoint to add qwen35 support and fix model_type."""
+    """Wrap load_gguf_checkpoint to add qwen35 → qwen3_5_text support."""
     _patch_qwen35_support()
     result = _orig_load_gguf_checkpoint(*args, **kwargs)
     if result.get("config", {}).get("model_type") == "qwen35":
-        result["config"]["model_type"] = "qwen3"
+        result["config"]["model_type"] = "qwen3_5_text"
     return result
 
 
@@ -67,6 +224,9 @@ _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+
+# ── Model definition ──────────────────────────────────────────────────────────
 
 
 class ModelVariant(StrEnum):
@@ -93,7 +253,7 @@ class ModelLoader(ForgeModel):
 
     @staticmethod
     def _fix_gguf_version_detection():
-        """Fix gguf version detection when installed at runtime by RequirementsManager.
+        """Fix stale PACKAGE_DISTRIBUTION_MAPPING when gguf is installed late.
 
         transformers caches PACKAGE_DISTRIBUTION_MAPPING at import time. When gguf
         is installed later, the mapping is stale and version detection falls back to
@@ -200,6 +360,7 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
+        self._fix_gguf_version_detection()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
