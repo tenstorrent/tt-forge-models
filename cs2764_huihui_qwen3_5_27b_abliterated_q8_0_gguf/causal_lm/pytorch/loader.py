@@ -98,11 +98,19 @@ def _patch_qwen35_support():
 
 
 def _patched_load_gguf_checkpoint(*args, **kwargs):
-    """Wrap load_gguf_checkpoint to add qwen35 → qwen3_5_text support."""
+    """Wrap load_gguf_checkpoint to add qwen35 → qwen3_5_text support.
+
+    Some loaders imported before this one (e.g. bartowski_coniccat_qwen3_5_27b_writer_gguf)
+    incorrectly map qwen35 → qwen3 inside the inner call chain.  We detect qwen35 by the
+    presence of full_attention_interval in the config dict, which is only produced by our
+    SSM-aware _QWEN35_CONFIG_MAPPING and never by the plain qwen3 mapping.
+    """
     _patch_qwen35_support()
     result = _orig_load_gguf_checkpoint(*args, **kwargs)
-    if result.get("config", {}).get("model_type") == "qwen35":
-        result["config"]["model_type"] = "qwen3_5_text"
+    config = result.get("config", {})
+    model_type = config.get("model_type", "")
+    if model_type in ("qwen35", "qwen3") and "full_attention_interval" in config:
+        config["model_type"] = "qwen3_5_text"
     return result
 
 
