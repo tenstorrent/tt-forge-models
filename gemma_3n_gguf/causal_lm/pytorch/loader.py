@@ -94,6 +94,22 @@ def _patch_transformers_gemma3n_gguf():
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
+    # 6. Patch get_gguf_hf_weights_map to map gemma3n_text -> gemma3n for gguf-py lookup.
+    # transformers handles gemma3_text -> gemma3 internally, but gemma3n_text is not yet
+    # registered, so get_gguf_hf_weights_map raises NotImplementedError for gemma3n models.
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type == "gemma3n_text":
+            model_type = "gemma3n"
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
 
 # Apply the monkey-patch at import time
 _patch_transformers_gemma3n_gguf()
