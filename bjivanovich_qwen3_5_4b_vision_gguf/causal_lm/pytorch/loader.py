@@ -108,6 +108,10 @@ def _register_qwen35_vision_config():
         from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
         if "qwen3" in GGUF_TO_FAST_CONVERTERS:
             GGUF_TO_FAST_CONVERTERS["qwen35"] = GGUF_TO_FAST_CONVERTERS["qwen3"]
+            # The tokenizer loading path uses model_type ("qwen3_5_text") as the
+            # GGUF_TO_FAST_CONVERTERS key when the model_type has been remapped by
+            # _patched_load.  Register it here so the loader works in isolation.
+            GGUF_TO_FAST_CONVERTERS.setdefault("qwen3_5_text", GGUF_TO_FAST_CONVERTERS["qwen3"])
     except ImportError:
         pass
 
