@@ -58,7 +58,7 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         from nemo.collections.speechlm2.models import SALM
 
-        model = SALM.restore_from(
+        model = SALM.from_pretrained(
             self._variant_config.pretrained_model_name,
         )
         model.eval()
