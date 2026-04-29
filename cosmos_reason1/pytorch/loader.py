@@ -27,26 +27,28 @@ def _patch_qwen2_5_vl_for_tt_device():
 
     Two classes of issues are fixed:
 
-    1. .tolist() on TT tensors: get_rope_index and get_image_features call
-       .tolist() on grid_thw / input_ids. TT device does not support eager
-       tensor reads, so these tensors are moved to CPU first.
+    1. .tolist() on TT tensors: get_rope_index, get_image_features, rot_pos_emb,
+       and get_window_index call .tolist() on grid_thw / input_ids. TT device
+       does not support eager tensor reads, so these tensors are moved to CPU
+       before the call.
 
-    2. torch.repeat_interleave tile-padding: the vision transformer forward
-       uses repeat_interleave to build cu_seqlens. On TT device the output is
-       padded to the next multiple of 32 (e.g. 2204→2208), producing wrong
-       split sizes. The vision forward is replaced with a reimplementation
-       that computes cu_seqlens via pure Python arithmetic on CPU values,
-       bypassing repeat_interleave on TT.
+    2. torch.repeat_interleave tile-padding: the vision transformer forward uses
+       repeat_interleave to build cu_seqlens. On TT device the output VALUE is
+       tile-padded (e.g. 2204→2208), corrupting split_with_sizes in the vision
+       attention. The fix clamps cu_seqlens to hidden_states.shape[0] inside
+       Qwen2_5_VLVisionAttention.forward at the point of use, before
+       lengths.tolist() reads the value back to Python.
     """
     try:
         from transformers.models.qwen2_5_vl import modeling_qwen2_5_vl
     except ImportError:
         return
 
-    orig_rot_pos = modeling_qwen2_5_vl.Qwen2_5_VisionTransformerPretrainedModel.rot_pos_emb
-    orig_get_window = modeling_qwen2_5_vl.Qwen2_5_VisionTransformerPretrainedModel.get_window_index
     orig_get_rope = modeling_qwen2_5_vl.Qwen2_5_VLModel.get_rope_index
     orig_get_image = modeling_qwen2_5_vl.Qwen2_5_VLModel.get_image_features
+    orig_rot_pos = modeling_qwen2_5_vl.Qwen2_5_VisionTransformerPretrainedModel.rot_pos_emb
+    orig_get_window = modeling_qwen2_5_vl.Qwen2_5_VisionTransformerPretrainedModel.get_window_index
+    orig_vis_attn_fwd = modeling_qwen2_5_vl.Qwen2_5_VLVisionAttention.forward
 
     def _patched_get_rope(
         self,
@@ -78,77 +80,39 @@ def _patch_qwen2_5_vl_for_tt_device():
             **kwargs,
         )
 
-    def _patched_vis_fwd(self, hidden_states, grid_thw, **kwargs):
-        from transformers.modeling_outputs import BaseModelOutputWithPooling
+    def _patched_rot_pos(self, grid_thw):
+        return orig_rot_pos(self, grid_thw.cpu() if grid_thw is not None else grid_thw)
 
-        kwargs.pop("return_dict", None)
+    def _patched_get_window(self, grid_thw):
+        return orig_get_window(self, grid_thw.cpu() if grid_thw is not None else grid_thw)
 
-        # Move grid_thw to CPU. XLAExecutor promotes all CPU subgraph inputs to
-        # XLA at compiled-subgraph boundaries; torch.repeat_interleave on TT then
-        # tile-pads its output (e.g. seq_len 2204 → 2208), corrupting cu_seqlens
-        # and causing split_with_sizes to fail. Computing cu_seqlens via pure
-        # Python arithmetic avoids repeat_interleave on device entirely.
-        grid_thw_cpu = grid_thw.cpu() if grid_thw.device.type != "cpu" else grid_thw
-        grid_thw_vals = grid_thw_cpu.tolist()  # [[t, h, w], ...]
-
-        cumsum = 0
-        cu_seqlens_vals = [0]
-        for t, h, w in grid_thw_vals:
-            for _ in range(int(t)):
-                cumsum += int(h) * int(w)
-                cu_seqlens_vals.append(cumsum)
-        cu_seqlens = torch.tensor(cu_seqlens_vals, dtype=torch.int32)
-
-        window_index, cu_window_seqlens = orig_get_window(self, grid_thw_cpu)
-        rotary_pos_emb = orig_rot_pos(self, grid_thw_cpu)
-
-        hidden_states = self.patch_embed(hidden_states)
-
-        cu_window_seqlens = torch.tensor(
-            cu_window_seqlens,
-            device=hidden_states.device,
-            dtype=torch.int32,
-        )
-        cu_window_seqlens = torch.unique_consecutive(cu_window_seqlens)
-
-        seq_len, _ = hidden_states.size()
-        hidden_states = hidden_states.reshape(
-            seq_len // self.spatial_merge_unit, self.spatial_merge_unit, -1
-        )
-        hidden_states = hidden_states[window_index, :, :]
-        hidden_states = hidden_states.reshape(seq_len, -1)
-        rotary_pos_emb = rotary_pos_emb.reshape(
-            seq_len // self.spatial_merge_unit, self.spatial_merge_unit, -1
-        )
-        rotary_pos_emb = rotary_pos_emb[window_index, :, :]
-        rotary_pos_emb = rotary_pos_emb.reshape(seq_len, -1)
-        emb = torch.cat((rotary_pos_emb, rotary_pos_emb), dim=-1)
-        position_embeddings = (emb.cos(), emb.sin())
-
-        for layer_num, blk in enumerate(self.blocks):
-            if layer_num in self.fullatt_block_indexes:
-                cu_seqlens_now = cu_seqlens
-            else:
-                cu_seqlens_now = cu_window_seqlens
-            hidden_states = blk(
-                hidden_states,
-                cu_seqlens=cu_seqlens_now,
-                position_embeddings=position_embeddings,
-                **kwargs,
-            )
-
-        merged_hidden_states = self.merger(hidden_states)
-        reverse_indices = torch.argsort(window_index)
-        merged_hidden_states = merged_hidden_states[reverse_indices, :]
-
-        return BaseModelOutputWithPooling(
-            last_hidden_state=hidden_states,
-            pooler_output=merged_hidden_states,
+    def _patched_vis_attn_fwd(
+        self,
+        hidden_states,
+        cu_seqlens=None,
+        rotary_pos_emb=None,
+        position_embeddings=None,
+        **kwargs,
+    ):
+        if cu_seqlens is not None:
+            # TT repeat_interleave tile-pads tensor VALUES (e.g. 2204 → 2208),
+            # corrupting split_with_sizes. Clamp to actual seq len before
+            # lengths.tolist() reads the value back to Python.
+            cu_seqlens = torch.clamp(cu_seqlens, max=hidden_states.shape[0])
+        return orig_vis_attn_fwd(
+            self,
+            hidden_states,
+            cu_seqlens=cu_seqlens,
+            rotary_pos_emb=rotary_pos_emb,
+            position_embeddings=position_embeddings,
+            **kwargs,
         )
 
-    modeling_qwen2_5_vl.Qwen2_5_VisionTransformerPretrainedModel.forward = _patched_vis_fwd
     modeling_qwen2_5_vl.Qwen2_5_VLModel.get_rope_index = _patched_get_rope
     modeling_qwen2_5_vl.Qwen2_5_VLModel.get_image_features = _patched_get_image
+    modeling_qwen2_5_vl.Qwen2_5_VisionTransformerPretrainedModel.rot_pos_emb = _patched_rot_pos
+    modeling_qwen2_5_vl.Qwen2_5_VisionTransformerPretrainedModel.get_window_index = _patched_get_window
+    modeling_qwen2_5_vl.Qwen2_5_VLVisionAttention.forward = _patched_vis_attn_fwd
 
 
 class ModelVariant(StrEnum):
