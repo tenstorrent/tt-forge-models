@@ -10,7 +10,17 @@ model is too large to load directly.
 
 from typing import Optional
 
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+import torch
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, DynamicCache
+
+# transformers 5.x removed DynamicCache.get_usable_length; the custom
+# modeling_deepseek.py still calls it, so restore as an alias.
+if not hasattr(DynamicCache, "get_usable_length"):
+
+    def _get_usable_length(self, new_seq_length: int, layer_idx: int = 0) -> int:
+        return self.get_seq_length(layer_idx)
+
+    DynamicCache.get_usable_length = _get_usable_length
 
 from ....base import ForgeModel
 from ....config import (
@@ -70,6 +80,22 @@ class ModelLoader(ForgeModel):
 
         model = AutoModelForCausalLM.from_config(config, **model_kwargs)
         model.eval()
+
+        # Patch moe_infer to avoid .cpu().numpy() dispatch which fails under TT XLA.
+        # Replace with static per-expert masked matmul so dynamo can unroll the loop.
+        def _static_moe_infer(self_moe, x, topk_ids, topk_weight):
+            out = torch.zeros_like(x)
+            for i in range(self_moe.experts_per_rank):
+                mask = (topk_ids == i)  # [num_tokens, num_experts_per_tok]
+                weight = (mask * topk_weight.to(x.dtype)).sum(dim=-1, keepdim=True)
+                expert_out = self_moe.experts[i](x)
+                out = out + expert_out * weight
+            return out
+
+        for module in model.modules():
+            if hasattr(module, "moe_infer") and hasattr(module, "experts_per_rank"):
+                type(module).moe_infer = _static_moe_infer
+                break  # patch the class once; all instances share it
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.model_name, trust_remote_code=True
