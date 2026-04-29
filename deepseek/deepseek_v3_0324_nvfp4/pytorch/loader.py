@@ -74,6 +74,10 @@ class ModelLoader(ForgeModel):
             config.num_experts_per_tok = 2
             config.q_lora_rank = 256
             config.use_flash_attention = False
+            # transformers 5.x removed DynamicCache.get_usable_length; disable
+            # KV cache to avoid the deprecated cache API in this model's remote
+            # forward code.
+            config.use_cache = False
 
             model_kwargs = {"attn_implementation": "eager", "trust_remote_code": True}
             if dtype_override is not None:
