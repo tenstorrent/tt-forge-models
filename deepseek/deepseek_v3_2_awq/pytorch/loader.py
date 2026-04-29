@@ -12,6 +12,10 @@ from typing import Optional
 
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
+from .src import (
+    model_utils as _model_utils,
+)  # noqa: F401  # registers "deepseek_v32" model type
+
 from ....base import ForgeModel
 from ....config import (
     Framework,
@@ -46,7 +50,11 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        config = AutoConfig.from_pretrained(self.model_name, trust_remote_code=True)
+        config = AutoConfig.from_pretrained(self.model_name)
+
+        # batched_mm avoids the .nonzero() Python-for-loop dispatch in the default
+        # MoE implementation, which produces dynamic shapes that XLA/TT cannot compile.
+        config._experts_implementation = "batched_mm"
 
         # Reduce model dimensions for testing
         if self.num_layers is not None:
@@ -62,7 +70,6 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {
             "attn_implementation": "eager",
-            "trust_remote_code": True,
         }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
@@ -70,9 +77,7 @@ class ModelLoader(ForgeModel):
 
         model = AutoModelForCausalLM.from_config(config, **model_kwargs)
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self.model_name, trust_remote_code=True
-        )
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
 
         return model
 
