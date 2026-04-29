@@ -87,6 +87,14 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         model = AutoModel.from_pretrained(model_name, **model_kwargs)
+
+        # transformers 5.x uses init_empty_weights (meta device) during
+        # from_pretrained; non-persistent buffers like token_type_ids are never
+        # written by the checkpoint and come out uninitialized. Reset them.
+        for module in model.modules():
+            if hasattr(module, "token_type_ids"):
+                module.token_type_ids.zero_()
+
         model.eval()
 
         self.model = model
