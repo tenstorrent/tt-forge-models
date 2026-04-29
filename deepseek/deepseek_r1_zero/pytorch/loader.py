@@ -69,6 +69,13 @@ class ModelLoader(ForgeModel):
 
         model = AutoModelForCausalLM.from_config(config, **model_kwargs)
 
+        # grouped_mm uses torch.histc on Int tensors when device.type != "cpu"
+        # (moe.py:270). Under TT's XLA device, this fails because CPU histc
+        # does not support Int. batched_mm uses vectorized matmul that works
+        # on non-CUDA hardware.
+        model.config._experts_implementation = "batched_mm"
+        model.config.use_cache = False
+
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
 
         return model
