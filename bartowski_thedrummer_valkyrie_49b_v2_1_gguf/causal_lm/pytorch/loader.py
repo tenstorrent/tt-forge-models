@@ -8,6 +8,51 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+
+def _patch_deci_gguf_arch():
+    """Patch transformers to map the 'deci' GGUF architecture to 'llama'.
+
+    The Valkyrie 49B v2.1 GGUF uses general.architecture = 'deci' (DeciLM),
+    which is a Llama-based architecture. Transformers 5.x has 'deci' in
+    GGUF_CONFIG_MAPPING and GGUF_TO_FAST_CONVERTERS (GGUFLlamaConverter),
+    but not in AutoConfig's CONFIG_MAPPING. AutoTokenizer.from_pretrained
+    and AutoConfig.from_pretrained both call AutoConfig.for_model(model_type=
+    'deci') which raises ValueError. The fix: patch load_gguf_checkpoint to
+    remap model_type 'deci' -> 'llama' before it reaches AutoConfig.
+    """
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if getattr(gguf_utils, "_deci_arch_patched", False):
+        return
+
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "deci":
+            config["model_type"] = "llama"
+            # DeciLM stores per-layer values as lists; LlamaConfig expects scalars.
+            # Use the max non-zero value as an approximation for each field.
+            for key in ("num_attention_heads", "num_key_value_heads", "intermediate_size"):
+                if isinstance(config.get(key), list):
+                    non_zero = [v for v in config[key] if v != 0]
+                    config[key] = max(non_zero) if non_zero else config[key][0]
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+    gguf_utils._deci_arch_patched = True
+
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+
+    for mod in (tok_auto, config_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
+_patch_deci_gguf_arch()
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
