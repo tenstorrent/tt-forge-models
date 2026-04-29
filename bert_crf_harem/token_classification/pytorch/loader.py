@@ -6,6 +6,7 @@ BERT-CRF model loader implementation for token classification (Portuguese NER).
 """
 
 import torch
+import torchcrf
 from transformers import AutoModelForTokenClassification, BertTokenizer, PreTrainedModel
 from third_party.tt_forge_models.config import (
     ModelInfo,
@@ -155,6 +156,18 @@ class ModelLoader(ForgeModel):
         # bfloat16. Cast everything to dtype_override for consistency.
         if dtype_override is not None:
             model = model.to(dtype_override)
+
+        # pytorch-crf 0.7.2 creates uint8 default masks in CRF.decode and uses them
+        # in torch.where inside _viterbi_decode. In PyTorch 2.x torch.where requires
+        # boolean predicates; uint8 causes TorchRuntimeError during torch.compile.
+        # Patch _viterbi_decode to cast mask to bool before the torch.where calls.
+        _orig_viterbi = torchcrf.CRF._viterbi_decode
+
+        def _patched_viterbi(self_crf, emissions, mask):
+            return _orig_viterbi(self_crf, emissions, mask.bool())
+
+        torchcrf.CRF._viterbi_decode = _patched_viterbi
+
         self.model = model
         model.eval()
         return model
