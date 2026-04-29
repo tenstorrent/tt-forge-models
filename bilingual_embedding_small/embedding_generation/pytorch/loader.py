@@ -73,18 +73,33 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        # transformers 5.x removed is_decoder from PretrainedConfig; patch it
-        # onto the config object before the model __init__ reads it.
+        # transformers 5.x removed is_decoder and add_cross_attention from
+        # PretrainedConfig; BilingualConfig relies on inheriting those defaults.
+        # Patch them onto the config before model __init__ reads them. Also set
+        # return_dict on the config directly — passing return_dict=False to
+        # from_pretrained with a pre-built config causes it to land in model
+        # __init__ kwargs rather than being consumed as a config attribute.
         config = AutoConfig.from_pretrained(pretrained_model_name, trust_remote_code=True)
         if not hasattr(config, "is_decoder"):
             config.is_decoder = False
+        if not hasattr(config, "add_cross_attention"):
+            config.add_cross_attention = False
+        config.return_dict = False
 
-        model_kwargs = {"return_dict": False, "trust_remote_code": True, "config": config}
+        model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
             model_kwargs["dtype"] = dtype_override
         model_kwargs |= kwargs
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+
+        # transformers 5.x uses init_empty_weights (meta device) during
+        # from_pretrained; non-persistent buffers like token_type_ids are never
+        # written by the checkpoint and come out uninitialized. Reset them.
+        for module in model.modules():
+            if hasattr(module, "token_type_ids"):
+                module.token_type_ids.zero_()
+
         model.eval()
 
         return model
