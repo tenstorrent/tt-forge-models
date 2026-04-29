@@ -197,7 +197,9 @@ class ModelLoader(ForgeModel):
             self._load_tokenizer()
 
         # Load the sample image
-        image_file = get_file("test_images/doc.png")
+        image_file = get_file(
+            "https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/invoice.png"
+        )
 
         # Process the image and prompt using the preprocess function
         inputs = preprocess(
