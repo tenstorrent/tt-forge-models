@@ -181,6 +181,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        # Qwen3_5DynamicCache is not a transformers.Cache subclass, so the test
+        # evaluator cannot convert it during PCC comparison. Disable caching so
+        # the model returns only logits (no past_key_values in the output).
+        model.config.use_cache = False
+
         self.config = model.config
         self.model = model
         return model
