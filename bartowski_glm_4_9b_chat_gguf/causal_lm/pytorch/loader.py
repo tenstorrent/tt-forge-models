@@ -210,6 +210,55 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    def _patch_fused_qkv(self, model):
+        """Manually split fused attn_qkv tensors into separate q/k/v projections.
+
+        The GGUF file stores attention weights as blk.N.attn_qkv.weight (fused),
+        but Glm4ForCausalLM expects separate q_proj, k_proj, v_proj. The gguf-py
+        tensor name map routes attn_qkv → qkv_proj (a name that doesn't exist in
+        Glm4ForCausalLM), so those projections are randomly initialized. We fix
+        this by reading the raw GGUF tensors and splitting them here.
+        """
+        import pathlib
+        from gguf import GGUFReader, dequantize
+        import numpy as np
+
+        # Locate the GGUF file on disk
+        hub_root = pathlib.Path.home() / ".cache" / "huggingface" / "hub"
+        candidates = list(hub_root.rglob(self.GGUF_FILE))
+        if not candidates:
+            raise FileNotFoundError(f"Cannot find {self.GGUF_FILE} under {hub_root}")
+        gguf_path = candidates[0]
+
+        reader = GGUFReader(str(gguf_path))
+        tensors = {t.name: t for t in reader.tensors}
+
+        config = model.config
+        q_size = config.num_attention_heads * config.head_dim
+        kv_size = config.num_key_value_heads * config.head_dim
+        dtype = next(model.parameters()).dtype
+
+        for layer_idx, layer in enumerate(model.model.layers):
+            prefix = f"blk.{layer_idx}"
+
+            # Split fused QKV weight: (q_size + kv_size + kv_size, hidden)
+            weight_name = f"{prefix}.attn_qkv.weight"
+            if weight_name in tensors:
+                t = tensors[weight_name]
+                w = torch.from_numpy(np.copy(dequantize(t.data, t.tensor_type))).to(dtype)
+                layer.self_attn.q_proj.weight.data = w[:q_size]
+                layer.self_attn.k_proj.weight.data = w[q_size : q_size + kv_size]
+                layer.self_attn.v_proj.weight.data = w[q_size + kv_size :]
+
+            # Split fused QKV bias
+            bias_name = f"{prefix}.attn_qkv.bias"
+            if bias_name in tensors:
+                t = tensors[bias_name]
+                b = torch.from_numpy(np.copy(dequantize(t.data, t.tensor_type))).to(dtype)
+                layer.self_attn.q_proj.bias.data = b[:q_size]
+                layer.self_attn.k_proj.bias.data = b[q_size : q_size + kv_size]
+                layer.self_attn.v_proj.bias.data = b[q_size + kv_size :]
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -232,6 +281,8 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
+
+        self._patch_fused_qkv(model)
 
         self.config = model.config
         self.model = model
