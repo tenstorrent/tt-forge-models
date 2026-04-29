@@ -184,8 +184,22 @@ def _register_deepseek2_gguf():
         result = _real_load(
             gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
         )
-        if result.get("config", {}).get("model_type") == "deepseek2":
-            result["config"]["model_type"] = "deepseek_v2"
+        cfg = result.get("config", {})
+        if cfg.get("model_type") == "deepseek2":
+            cfg["model_type"] = "deepseek_v2"
+            # head_count_kv=1 in GGUF is the MLA compressed rank (1 token per KV),
+            # not the expanded KV head count.  MLA expands to num_attention_heads.
+            cfg["num_key_value_heads"] = cfg.get("num_attention_heads", 16)
+            # key_length_mla stores qk_nope_head_dim + qk_rope_head_dim (total key
+            # head dim after MLA expansion).  Subtract the RoPE portion to get the
+            # true qk_nope_head_dim that the model weights were built with.
+            rope_dim = cfg.get("qk_rope_head_dim", 64)
+            if "qk_nope_head_dim" in cfg:
+                cfg["qk_nope_head_dim"] = cfg["qk_nope_head_dim"] - rope_dim
+            # This GGUF stores a single fused Q matrix (attn_q.weight) rather than
+            # the two LoRA factors (attn_q_a + attn_q_b).  Signal that by setting
+            # q_lora_rank=None so transformers uses q_proj instead of q_a/q_b.
+            cfg["q_lora_rank"] = None
         return result
 
     return _deepseek_load
