@@ -22,17 +22,38 @@ BIOMEDPARSE_CACHE_DIR = Path.home() / ".cache" / "biomedparse"
 
 
 def _ensure_repo_cloned():
-    """Clone the BiomedParse repo to cache if not already present.
+    """Clone the BiomedParse repo (main branch) to cache if not already present.
 
     Returns:
         Path: Path to the cloned repository.
     """
     repo_dir = BIOMEDPARSE_CACHE_DIR / "BiomedParse"
 
+    if repo_dir.exists():
+        # Verify it's on the main branch (not v2 which lacks modeling/)
+        result = subprocess.run(
+            ["git", "-C", str(repo_dir), "symbolic-ref", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0 or result.stdout.strip() != "main":
+            import shutil
+
+            shutil.rmtree(repo_dir)
+
     if not repo_dir.exists():
         BIOMEDPARSE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
         subprocess.run(
-            ["git", "clone", "--depth", "1", BIOMEDPARSE_REPO_URL, str(repo_dir)],
+            [
+                "git",
+                "clone",
+                "--depth",
+                "1",
+                "--branch",
+                "main",
+                BIOMEDPARSE_REPO_URL,
+                str(repo_dir),
+            ],
             check=True,
         )
 
