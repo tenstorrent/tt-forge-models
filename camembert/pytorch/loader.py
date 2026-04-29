@@ -26,7 +26,7 @@ class ModelVariant(StrEnum):
 
     CAMEMBERT_BASE = "Base"
     CAMEMBERT_BASE_LEGACY = "Base Legacy"
-    TINY_RANDOM = "Tiny Random"
+    TINY_RANDOM = "Tiny-Random"
 
 
 class ModelLoader(ForgeModel):
