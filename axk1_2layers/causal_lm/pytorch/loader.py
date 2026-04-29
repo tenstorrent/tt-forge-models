@@ -92,6 +92,9 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        # DynamicCache.get_usable_length was removed in transformers 5.x; the
+        # model's custom code calls it only when use_cache=True.
+        model.config.use_cache = False
         model.eval()
         return model
 
@@ -99,14 +102,9 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        max_length = self._variant_config.max_length
-
         inputs = self.tokenizer(
             self.sample_text,
             return_tensors="pt",
-            padding="max_length",
-            truncation=True,
-            max_length=max_length,
         )
 
         for key in inputs:
