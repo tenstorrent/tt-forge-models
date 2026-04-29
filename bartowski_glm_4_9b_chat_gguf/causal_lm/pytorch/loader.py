@@ -99,24 +99,28 @@ def _patch_transformers_chatglm_gguf():
             )
             return tokenizer
 
-    # Register for both "chatglm" (native GGUF architecture key) and "glm4"
-    # (the key after patched_load_gguf_checkpoint remaps chatglm → glm4).
-    # Other loaders (e.g. gpt_oss_swallow) capture the remapping patch via
-    # their _orig_load_gguf_checkpoint and install it on
-    # tokenization_utils_tokenizers.load_gguf_checkpoint, so the tokenizer
-    # loading path sees architecture="glm4". GGUFChatGLMConverter handles
-    # both 2-tuple and 3-tuple merges correctly.
+    # Register for "chatglm" (native GGUF architecture key), "glm" (after
+    # patched_load_gguf_checkpoint remaps chatglm → glm), and "glm4" (legacy
+    # key used in older runs). Other loaders (e.g. gpt_oss_swallow) capture
+    # the remapping patch via their _orig_load_gguf_checkpoint and install it
+    # on tokenization_utils_tokenizers.load_gguf_checkpoint, so the tokenizer
+    # loading path sees the remapped architecture name.
     GGUF_TO_FAST_CONVERTERS["chatglm"] = GGUFChatGLMConverter
+    GGUF_TO_FAST_CONVERTERS["glm"] = GGUFChatGLMConverter
     GGUF_TO_FAST_CONVERTERS["glm4"] = GGUFChatGLMConverter
 
-    # 4. Patch load_gguf_checkpoint to remap model_type and compute partial_rotary_factor
+    # 4. Patch load_gguf_checkpoint to remap model_type and compute partial_rotary_factor.
+    # We remap to "glm" (GlmForCausalLM, 2 norms/layer) not "glm4" (Glm4ForCausalLM,
+    # 4 norms/layer). The GLM-4-9B-chat chatglm GGUF has no post_self_attn_layernorm
+    # or post_mlp_layernorm tensors, so Glm4ForCausalLM would apply RMSNorm with
+    # default weight=1 (non-identity: divides by RMS), corrupting outputs.
     orig_load = gguf_utils.load_gguf_checkpoint
 
     def patched_load_gguf_checkpoint(*args, **kwargs):
         result = orig_load(*args, **kwargs)
         config = result.get("config", {})
         if config.get("model_type") == "chatglm":
-            config["model_type"] = "glm4"
+            config["model_type"] = "glm"
             head_dim = config.get("head_dim", 128)
             if hasattr(args[0] if args else None, "__fspath__") or isinstance(
                 args[0] if args else None, str
@@ -214,9 +218,9 @@ class ModelLoader(ForgeModel):
         """Manually split fused attn_qkv tensors into separate q/k/v projections.
 
         The GGUF file stores attention weights as blk.N.attn_qkv.weight (fused),
-        but Glm4ForCausalLM expects separate q_proj, k_proj, v_proj. The gguf-py
+        but GlmForCausalLM expects separate q_proj, k_proj, v_proj. The gguf-py
         tensor name map routes attn_qkv → qkv_proj (a name that doesn't exist in
-        Glm4ForCausalLM), so those projections are randomly initialized. We fix
+        GlmForCausalLM), so those projections are randomly initialized. We fix
         this by reading the raw GGUF tensors and splitting them here.
         """
         import pathlib
