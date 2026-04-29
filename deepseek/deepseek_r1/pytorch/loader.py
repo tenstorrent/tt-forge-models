@@ -60,6 +60,11 @@ class ModelLoader(ForgeModel):
         config.num_experts_per_tok = 2
         config.q_lora_rank = 256
 
+        # grouped_mm experts_forward calls torch.histc on Int dtype under XLA device
+        # (device.type == "xla" → int path, but CPU histc rejects Int). Use batched_mm
+        # which is fully vectorized and has no histc call.
+        config._experts_implementation = "batched_mm"
+
         model_kwargs = {
             "attn_implementation": "eager",
         }
