@@ -140,18 +140,21 @@ class ModelLoader(ForgeModel):
         return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
+        # Glm4MLP uses a fused gate_up_proj (not separate gate_proj + up_proj)
         shard_specs = {}
         for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.gate_up_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
 
             shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.q_proj.bias] = ("model",)
+            if layer.self_attn.q_proj.bias is not None:
+                shard_specs[layer.self_attn.q_proj.bias] = ("model",)
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.bias] = ("model",)
+            if layer.self_attn.k_proj.bias is not None:
+                shard_specs[layer.self_attn.k_proj.bias] = ("model",)
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.bias] = ("model",)
+            if layer.self_attn.v_proj.bias is not None:
+                shard_specs[layer.self_attn.v_proj.bias] = ("model",)
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
         shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
