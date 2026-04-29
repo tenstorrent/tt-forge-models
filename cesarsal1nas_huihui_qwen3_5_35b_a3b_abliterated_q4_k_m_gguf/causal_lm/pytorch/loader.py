@@ -38,7 +38,7 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.HUIHUI_QWEN_3_5_35B_A3B_ABLITERATED_Q4_K_M_GGUF
 
-    GGUF_FILE = "huihui-qwen3.5-35b-a3b-abliterated-q4_k_m.gguf"
+    GGUF_FILE = "huihui-qwen3.5-35b-a3b-abliterated-Q4_K_M.gguf"
 
     sample_text = "Give me a short introduction to large language model."
 
