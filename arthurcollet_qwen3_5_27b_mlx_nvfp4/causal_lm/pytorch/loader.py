@@ -105,11 +105,16 @@ def _load_nvfp4_weights(model: Qwen3_5ForCausalLM, snapshot_dir: str, group_size
             elif key.endswith(".scales"):
                 pass  # consumed with its paired .weight above
             else:
-                partial[key] = (
+                t = (
                     tensor.to(torch.bfloat16)
                     if tensor.dtype in (torch.float32, torch.float16)
                     else tensor
                 )
+                # MLX stores Conv1d weights as [out, kernel, in]; PyTorch expects [out, in, kernel].
+                # Transpose the last two dims when the shape matches the MLX layout.
+                if key.endswith("conv1d.weight") and t.ndim == 3 and t.shape[-1] == 1:
+                    t = t.transpose(1, 2)
+                partial[key] = t
                 consumed.add(key)
 
         model.load_state_dict(partial, strict=False)
