@@ -242,8 +242,10 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
 
             shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            # KV-shared layers reuse k/v from an earlier layer and have no k_proj/v_proj weights
+            if hasattr(layer.self_attn, "k_proj"):
+                shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
         return shard_specs
 
