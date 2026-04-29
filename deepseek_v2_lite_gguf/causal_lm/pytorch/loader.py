@@ -213,6 +213,10 @@ class ModelLoader(ForgeModel):
         # low-rank MLA form expects.  Setting q_lora_rank=None makes the model
         # use a single q_proj that maps directly to the GGUF "attn_q" tensor.
         config.q_lora_rank = None
+        # grouped_mm_experts_forward (the default for torch>=2.9) uses torch.histc
+        # whose XLA lowering produces MHLO that fails StableHLO conversion on TT.
+        # batched_mm_experts_forward is mathematically equivalent and avoids histc.
+        config._experts_implementation = "batched_mm"
 
         model_kwargs = {"config": config}
         if dtype_override is not None:
