@@ -6,6 +6,7 @@ cyankiwi Qwen3-VL-8B-Instruct AWQ 8-bit model loader implementation for image to
 """
 
 from transformers import (
+    AutoConfig,
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
 )
@@ -88,8 +89,18 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         else:
-            model_kwargs["dtype"] = "auto"
+            model_kwargs["torch_dtype"] = "auto"
             model_kwargs["device_map"] = "auto"
+
+        # TT hardware has no int8 matmul path; dequantize compressed-tensors
+        # pack-quantized weights to bfloat16 at load time.
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        qc = getattr(config, "quantization_config", None)
+        if isinstance(qc, dict):
+            qc["run_compressed"] = False
+        elif qc is not None:
+            qc.run_compressed = False
+        model_kwargs["config"] = config
 
         model_kwargs |= kwargs
 
@@ -99,6 +110,15 @@ class ModelLoader(ForgeModel):
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        # compressed-tensors 0.15.x attaches instance-level forward overrides to
+        # quantized Linears that access weight.data unconditionally, conflicting
+        # with TT-XLA's __torch_function__. Remove them to restore class-level forward.
+        for m in model.modules():
+            if "forward" in m.__dict__:
+                del m.__dict__["forward"]
+
+        model.config.use_cache = False
         model.eval()
 
         return model
