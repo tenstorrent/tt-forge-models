@@ -102,7 +102,20 @@ def _patch_transformers_qwen35moe_gguf():
             model_type = hf_model.config.model_type
         if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
             model_type = "qwen35moe"
-        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+        result = orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+        # gate_up_proj is nn.Parameter (no .weight suffix), so the result contains
+        # "blk.N.ffn_gate_up_exps" mapping to "...gate_up_proj". But the GGUF file
+        # stores SEPARATE ffn_gate_exps and ffn_up_exps tensors, so process() looks
+        # up "blk.N.ffn_gate_exps" which is missing. Add those entries.
+        extra = {}
+        for k, v in list(result.items()):
+            if ".ffn_gate_up_exps" in k:
+                prefix = k.split(".ffn_gate_up_exps")[0]
+                hf_base = v[: -len(".weight")] if v.endswith(".weight") else v
+                extra[f"{prefix}.ffn_gate_exps"] = hf_base
+                extra[f"{prefix}.ffn_up_exps"] = hf_base
+        result.update(extra)
+        return result
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
 
