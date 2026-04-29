@@ -42,7 +42,7 @@ def _patch_granite_support():
 def _patched_load_gguf_checkpoint(*args, **kwargs):
     """Wrap load_gguf_checkpoint to add granite architecture support."""
     _patch_granite_support()
-    return _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    return _orig_load_gguf_checkpoint(*args, **kwargs)
 
 
 _patch_granite_support()
