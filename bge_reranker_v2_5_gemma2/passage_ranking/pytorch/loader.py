@@ -80,7 +80,90 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from transformers import AutoModelForCausalLM
+        import transformers.models.gemma2.modeling_gemma2 as _gemma2_mod
+        from transformers import AutoConfig, AutoModelForCausalLM
+        from transformers.dynamic_module_utils import get_class_from_dynamic_module
+        from transformers.models.gemma2.modeling_gemma2 import (
+            Gemma2Attention,
+            Gemma2DecoderLayer,
+            Gemma2RotaryEmbedding,
+        )
+
+        # transformers 5.x removed the per-backend attention subclasses and docstring
+        # constants; the custom remote code for this model still imports them.
+        for _name, _val in [
+            ("Gemma2FlashAttention2", Gemma2Attention),
+            ("Gemma2SdpaAttention", Gemma2Attention),
+            ("GEMMA2_ATTENTION_CLASSES", {"eager": Gemma2Attention, "flash_attention_2": Gemma2Attention, "sdpa": Gemma2Attention}),
+            ("GEMMA2_START_DOCSTRING", ""),
+            ("GEMMA2_INPUTS_DOCSTRING", ""),
+        ]:
+            if not hasattr(_gemma2_mod, _name):
+                setattr(_gemma2_mod, _name, _val)
+
+        # transformers 5.x changed _tied_weights_keys from list to dict; pre-import
+        # the dynamic class and fix the class attribute before from_pretrained
+        # instantiates it. When layer_wise=True, lm_head is a ModuleList with no
+        # .weight, so weight tying must be disabled for that variant.
+        _config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name, trust_remote_code=True
+        )
+        _cls = get_class_from_dynamic_module(
+            "gemma_model.CostWiseGemmaForCausalLM",
+            self._variant_config.pretrained_model_name,
+        )
+        if isinstance(_cls._tied_weights_keys, list):
+            if _config.layer_wise:
+                _cls._tied_weights_keys = {}
+            else:
+                _cls._tied_weights_keys = {"lm_head.weight": "model.embed_tokens.weight"}
+
+        # transformers 5.x moved RoPE computation out of Gemma2Attention into the
+        # parent Gemma2Model.forward, so Gemma2DecoderLayer now expects a
+        # position_embeddings tuple.  The custom CostWiseGemmaModel was written for
+        # the old API and does not pass position_embeddings.  Patch the decoder layer
+        # to compute them lazily when not provided (guard: only when None, so native
+        # Gemma2Model usage is unaffected).
+        if not getattr(Gemma2DecoderLayer, "_compat_position_emb_patched", False):
+            _orig_decoder_fwd = Gemma2DecoderLayer.forward
+
+            def _compat_decoder_fwd(
+                self,
+                hidden_states,
+                position_embeddings=None,
+                attention_mask=None,
+                position_ids=None,
+                past_key_values=None,
+                cache_position=None,
+                **_kwargs,
+            ):
+                if position_embeddings is None and position_ids is not None:
+                    if not hasattr(self, "_compat_rotary_emb"):
+                        self._compat_rotary_emb = Gemma2RotaryEmbedding(self.config)
+                    self._compat_rotary_emb = self._compat_rotary_emb.to(
+                        hidden_states.device
+                    )
+                    position_embeddings = self._compat_rotary_emb(
+                        hidden_states, position_ids
+                    )
+                result = _orig_decoder_fwd(
+                    self,
+                    hidden_states,
+                    position_embeddings=position_embeddings,
+                    attention_mask=attention_mask,
+                    position_ids=position_ids,
+                    past_key_values=past_key_values,
+                    cache_position=cache_position,
+                    **_kwargs,
+                )
+                # transformers 5.x returns plain hidden_states tensor; old custom
+                # model code does layer_outputs[0] expecting a tuple return.
+                if isinstance(result, torch.Tensor):
+                    return (result,)
+                return result
+
+            Gemma2DecoderLayer.forward = _compat_decoder_fwd
+            Gemma2DecoderLayer._compat_position_emb_patched = True
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
