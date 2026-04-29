@@ -42,12 +42,13 @@ class Qwen3ASRWrapper(torch.nn.Module):
     def forward(
         self, input_ids, attention_mask, input_features, feature_attention_mask
     ):
-        return self.thinker(
+        output = self.thinker(
             input_ids=input_ids,
             attention_mask=attention_mask,
             input_features=input_features,
             feature_attention_mask=feature_attention_mask,
         )
+        return output.logits
 
 
 class ModelLoader(ForgeModel):
@@ -80,10 +81,14 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    # Base non-quantized model used to load the processor (the MLX repo omits
+    # preprocessor_config.json, so we fall back to the upstream model).
+    _BASE_MODEL_NAME = "Qwen/Qwen3-ASR-1.7B"
+
     def _load_model_wrapper(self, dtype_override=None):
         """Load the qwen_asr model wrapper and cache processor."""
         from qwen_asr import Qwen3ASRModel
-        from transformers import AutoConfig
+        from transformers import AutoConfig, AutoModel, AutoProcessor
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -98,14 +103,25 @@ class ModelLoader(ForgeModel):
         if hasattr(config, "quantization_config"):
             del config.quantization_config
 
-        self._model_wrapper = Qwen3ASRModel.from_pretrained(
+        model = AutoModel.from_pretrained(
             self._variant_config.pretrained_model_name,
             config=config,
             device_map="cpu",
-            max_new_tokens=50,
             **model_kwargs,
         )
-        self._processor = self._model_wrapper.processor
+
+        # The MLX repo omits preprocessor_config.json; load from the base model.
+        processor = AutoProcessor.from_pretrained(
+            self._BASE_MODEL_NAME, fix_mistral_regex=True
+        )
+
+        self._model_wrapper = Qwen3ASRModel(
+            backend="transformers",
+            model=model,
+            processor=processor,
+            max_new_tokens=50,
+        )
+        self._processor = processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Qwen3-ASR model instance."""
