@@ -45,15 +45,32 @@ def sparse_attn(
     valid = topk_idxs != -1
     safe_idx = topk_idxs.clamp(min=0).long()
 
-    # Avoid the flat gather + reshape formulation here: it compiles incorrectly on TT.
-    batch = torch.arange(b, device=kv.device).view(b, 1, 1).expand_as(safe_idx)
-    kv_gathered = kv[batch, safe_idx]
-    kv_gathered = kv_gathered * valid.unsqueeze(-1)
+    # Lower the gather as a 1D index_select over a 2D-flattened kv. The
+    # previous `torch.gather(kv, dim=1, index=expand(safe_idx, d_kv))` form
+    # caused tt-mlir to canonicalize the gather index to 5D with trailing
+    # 1x1 dims for tile-layout alignment. Using a 1D flat index on a 2D
+    # source side-steps the 4D/5D canonical-rank padding entirely:
+    #   - kv: (b, win, d)             -> kv_flat: (b * win, d)
+    #   - safe_idx: (b, s, k)         -> + b_offset (per-batch row offset)
+    #                                  -> flat_1d: (b * s * k,)
+    #   - kv_gathered: (b * s * k, d) -> reshape (b, s, k, d)
+    d_kv = kv.shape[-1]
+    win = kv.size(1)
+    b_offset = (torch.arange(b).to(kv.device) * win).view(b, 1, 1)
+    flat_1d = (safe_idx + b_offset).reshape(-1)
+    kv_flat = kv.reshape(-1, d_kv)
+    kv_gathered = torch.index_select(kv_flat, 0, flat_1d).reshape(b, s, topk, d_kv)
 
-    scores = (
-        torch.einsum("bshd,bstd->bsht", q.float(), kv_gathered.float())
-        * softmax_scale
-    )
+    # Replace `einsum("bshd,bstd->bsht")` with explicit rank-3 bmm. The
+    # einsum form (h in q but absent from kv_gathered) forced tt-mlir to
+    # unsqueeze kv_gathered to a 5D `(b, s, 1, t, d)` for h-broadcast and
+    # then permute to `(b, s, d, t, 1)` for the matmul contracting layout,
+    # leaving a trailing 1 dim. Doing the bmm in flat 3D form lets the
+    # compiler lower without the broadcast-and-permute dance.
+    kv_g_f = kv_gathered.float()                            # (b, s, t, d)
+    q_3d = q.float().reshape(b * s, h, d)                   # (b*s, h, d)
+    kv_3d_t = kv_g_f.reshape(b * s, topk, d_kv).transpose(-1, -2)  # (b*s, d, t)
+    scores = torch.bmm(q_3d, kv_3d_t).reshape(b, s, h, topk) * softmax_scale
     scores = scores.masked_fill(~valid.unsqueeze(2), float("-inf"))
 
     scores_max = scores.amax(dim=-1, keepdim=True)
@@ -63,5 +80,11 @@ def sparse_attn(
     sum_exp = exp_scores.sum(dim=-1, keepdim=True) + sink_exp
 
     weights = exp_scores / sum_exp
-    o = torch.einsum("bsht,bstd->bshd", weights, kv_gathered.float())
+
+    # Same conversion for the second einsum `("bsht,bstd->bshd")`: weights
+    # has h, kv_gathered does not, so explicit bmm avoids the same trailing
+    # 1 padding pattern.
+    weights_3d = weights.reshape(b * s, h, topk)            # (b*s, h, t)
+    kv_3d = kv_g_f.reshape(b * s, topk, d_kv)               # (b*s, t, d)
+    o = torch.bmm(weights_3d, kv_3d).reshape(b, s, h, d_kv) # (b, s, h, d)
     return o.to(q.dtype)

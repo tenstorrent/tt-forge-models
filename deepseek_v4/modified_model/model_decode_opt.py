@@ -681,8 +681,20 @@ class Attention(nn.Module):
 
         apply_rotary_emb(o[..., -rd:], freqs_cis, True)
         o = o.view(bsz, seqlen, self.n_local_groups, -1)
-        wo_a = self.wo_a.weight.view(self.n_local_groups, self.o_lora_rank, -1)
-        o = torch.einsum("bsgd,grd->bsgr", o, wo_a)
+        # Pre-permute (g, r, d) -> (g, d, r) on the weight side and use the
+        # `gdr` einsum form. The previous (g, r, d) form forced the lowering
+        # to insert a permute right before the matmul, and the canonical-rank
+        # promotion left a trailing 1x1 in the const_eval IR which is
+        # expensive on the device. Materializing the transpose with
+        # `.contiguous()` here lets the compiler fuse the reshape+transpose
+        # into a clean 3D const_eval result.
+        wo_a = (
+            self.wo_a.weight
+            .view(self.n_local_groups, self.o_lora_rank, -1)
+            .transpose(-1, -2)
+            .contiguous()
+        )
+        o = torch.einsum("bsgd,gdr->bsgr", o, wo_a)
         x = self.wo_b(o.flatten(2))
         return x
 
