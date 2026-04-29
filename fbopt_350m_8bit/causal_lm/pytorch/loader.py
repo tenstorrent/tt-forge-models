@@ -5,7 +5,8 @@
 fbopt-350m-8bit model loader implementation for causal language modeling.
 """
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -99,6 +100,33 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    @staticmethod
+    def _dequantize_bnb_state_dict(path, dtype):
+        """Load a bitsandbytes int8 safetensors file and dequantize to the given dtype.
+
+        Bitsandbytes stores: weight (int8, shape [out, in]) and SCB (float32, shape [out])
+        where SCB is the per-row absolute max. Dequantization: W = W_int8 * (SCB / 127).
+        """
+        from safetensors import safe_open
+
+        raw = {}
+        scb = {}
+        with safe_open(path, framework="pt", device="cpu") as f:
+            for k in f.keys():
+                if k.endswith(".SCB"):
+                    scb[k[: -len(".SCB")] + ".weight"] = f.get_tensor(k)
+                else:
+                    raw[k] = f.get_tensor(k)
+
+        state_dict = {}
+        for k, v in raw.items():
+            if v.dtype == torch.int8 and k in scb:
+                scale = scb[k]
+                state_dict[k] = (v.float() * (scale.view(-1, 1) / 127.0)).to(dtype)
+            else:
+                state_dict[k] = v.to(dtype)
+        return state_dict
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the fbopt-350m-8bit model instance for this instance's variant.
 
@@ -109,31 +137,45 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The model instance for causal language modeling.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
+        dtype = dtype_override if dtype_override is not None else torch.float32
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-
-        # Quantized model needs to load on CPU
-        model_kwargs["device_map"] = "cpu"
-
-        model_kwargs |= kwargs
+        config = AutoConfig.from_pretrained(pretrained_model_name)
 
         if self.num_layers is not None:
-            from transformers import AutoConfig
-
-            config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+        # The checkpoint uses bitsandbytes int8 quantization which requires CUDA.
+        # Dequantize the weights manually so the model can run on TT hardware.
+        _qc = getattr(config, "quantization_config", None)
+        _quant_method = (
+            _qc.get("quant_method")
+            if isinstance(_qc, dict)
+            else getattr(_qc, "quant_method", None)
         )
-        model.eval()
+        if _quant_method == "bitsandbytes":
+            config.quantization_config = None
 
+            from huggingface_hub import hf_hub_download
+
+            safetensors_path = hf_hub_download(
+                pretrained_model_name, "model.safetensors"
+            )
+            state_dict = self._dequantize_bnb_state_dict(safetensors_path, dtype)
+
+            model = AutoModelForCausalLM.from_config(config, torch_dtype=dtype)
+            model.load_state_dict(state_dict, strict=False)
+        else:
+            model_kwargs = {"torch_dtype": dtype, "device_map": "cpu"}
+            model_kwargs |= kwargs
+            model_kwargs["config"] = config
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+
+        model.eval()
         return model
 
     def load_inputs(self, dtype_override=None):
