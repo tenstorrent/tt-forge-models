@@ -6,6 +6,9 @@ Florence-2 image captioning model loader implementation (PyTorch).
 """
 
 import functools
+import sys
+from dataclasses import dataclass
+from typing import Optional, Tuple
 
 import torch
 from transformers import (
@@ -15,7 +18,7 @@ from transformers import (
     Florence2ForConditionalGeneration,
     PretrainedConfig,
 )
-from typing import Optional
+from transformers.utils import ModelOutput
 from PIL import Image
 
 from ....base import ForgeModel
@@ -77,7 +80,7 @@ def _florence2_compat_load(pretrained_model_name, **kwargs):
     PretrainedConfig.__init__ = _patched_pc_init
     torch.linspace = _cpu_linspace
     try:
-        return AutoModelForCausalLM.from_pretrained(
+        model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name,
             trust_remote_code=True,
             **kwargs,
@@ -85,6 +88,32 @@ def _florence2_compat_load(pretrained_model_name, **kwargs):
     finally:
         PretrainedConfig.__init__ = _orig_pc_init
         torch.linspace = _orig_linspace
+
+    # Patch Florence2Seq2SeqLMOutput: the remote code returns loss/logits/image_hidden_states
+    # but the class definition is missing those fields. transformers 5.x strict @dataclass
+    # rejects unknown constructor kwargs; fix by replacing the class with a complete one.
+    _remote_mod = sys.modules.get(model.__class__.__module__)
+    if _remote_mod and hasattr(_remote_mod, "Florence2Seq2SeqLMOutput"):
+
+        @dataclass
+        class _Florence2Seq2SeqLMOutput(ModelOutput):
+            loss: Optional[torch.FloatTensor] = None
+            logits: Optional[torch.FloatTensor] = None
+            last_hidden_state: Optional[torch.FloatTensor] = None
+            past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
+            decoder_hidden_states: Optional[Tuple[torch.FloatTensor, ...]] = None
+            decoder_attentions: Optional[Tuple[torch.FloatTensor, ...]] = None
+            cross_attentions: Optional[Tuple[torch.FloatTensor, ...]] = None
+            encoder_last_hidden_state: Optional[torch.FloatTensor] = None
+            encoder_hidden_states: Optional[Tuple[torch.FloatTensor, ...]] = None
+            encoder_attentions: Optional[Tuple[torch.FloatTensor, ...]] = None
+            image_hidden_states: Optional[Tuple[torch.FloatTensor]] = None
+
+        _Florence2Seq2SeqLMOutput.__name__ = "Florence2Seq2SeqLMOutput"
+        _Florence2Seq2SeqLMOutput.__qualname__ = "Florence2Seq2SeqLMOutput"
+        _remote_mod.Florence2Seq2SeqLMOutput = _Florence2Seq2SeqLMOutput
+
+    return model
 
 
 class ModelLoader(ForgeModel):
