@@ -5,6 +5,7 @@
 DeepSeek OCR model loader implementation for document OCR tasks.
 """
 import os
+import torch
 import transformers.models.deepseek_v2.modeling_deepseek_v2 as _dsv2_mod
 from transformers import AutoTokenizer, AutoModel
 from typing import Optional
@@ -175,6 +176,16 @@ class ModelLoader(ForgeModel):
         # Configure model settings
         model.config.return_dict = False
         model.config.use_cache = False
+
+        # transformers 5.x init_empty_weights() leaves position_ids as garbage
+        # when the buffer is not in the checkpoint; re-initialize it explicitly
+        for module in model.modules():
+            if (
+                hasattr(module, "position_ids")
+                and hasattr(module, "num_positions")
+                and hasattr(module, "position_embedding")
+            ):
+                module.position_ids = torch.arange(module.num_positions).expand(1, -1)
 
         # Apply dtype override if specified
         if dtype_override is not None:
