@@ -5,9 +5,21 @@
 Boto 9B i1 GGUF model loader implementation for causal language modeling.
 """
 
+import contextlib
+import inspect
+import sys
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+
+try:
+    import transformers.tokenization_utils_tokenizers as _tok_utils
+except ImportError:
+    _tok_utils = None
 
 from ....base import ForgeModel
 from ....config import (
@@ -19,6 +31,54 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+@contextlib.contextmanager
+def _real_load_gguf_checkpoint_ctx():
+    """Temporarily restore a load_gguf_checkpoint that accepts model_to_load.
+
+    Several loaders on this branch patch load_gguf_checkpoint at module-import
+    time with a version that omits the model_to_load kwarg added in
+    transformers 5.x.  That patch contaminates the global binding sites and
+    breaks AutoModelForCausalLM.from_pretrained for any model loaded afterward.
+    This context manager restores the real function (found via _orig_load_gguf_checkpoint
+    saved by the contaminating loaders) for the duration of the from_pretrained call.
+    """
+    current_fn = _gguf_utils.load_gguf_checkpoint
+    if "model_to_load" in inspect.signature(current_fn).parameters:
+        yield
+        return
+
+    # Contaminated — find the saved original in sys.modules
+    real_fn = None
+    for mod in sys.modules.values():
+        orig = getattr(mod, "_orig_load_gguf_checkpoint", None)
+        if orig is not None and "model_to_load" in inspect.signature(orig).parameters:
+            real_fn = orig
+            break
+
+    if real_fn is None:
+        yield
+        return
+
+    binding_sites = [
+        (_gguf_utils, "load_gguf_checkpoint"),
+        (_config_utils, "load_gguf_checkpoint"),
+        (_auto_tokenizer, "load_gguf_checkpoint"),
+    ]
+    if _tok_utils is not None:
+        binding_sites.append((_tok_utils, "load_gguf_checkpoint"))
+
+    saved = [(mod, attr, getattr(mod, attr, None)) for mod, attr in binding_sites]
+    for mod, attr in binding_sites:
+        if hasattr(mod, attr):
+            setattr(mod, attr, real_fn)
+    try:
+        yield
+    finally:
+        for mod, attr, orig_val in saved:
+            if orig_val is not None:
+                setattr(mod, attr, orig_val)
 
 
 class ModelVariant(StrEnum):
@@ -95,9 +155,10 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        with _real_load_gguf_checkpoint_ctx():
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
