@@ -15,6 +15,9 @@ Available variants:
 - WAN22_I2V_LOW_NOISE_Q4_K_M: Wan 2.2 I2V 14B low-noise expert, Q4_K_M
 """
 
+import json
+import os
+import tempfile
 from typing import Any, Optional
 
 import torch
@@ -31,6 +34,10 @@ from ...config import (
 )
 
 GGUF_REPO = "calcuis/wan2-gguf"
+
+# Base Wan 2.1 I2V diffusers config repo — we load its config and strip
+# Wan 2.1-specific fields that are absent from the Wan 2.2 GGUF.
+WAN21_I2V_DIFFUSERS_REPO = "Wan-AI/Wan2.1-I2V-14B-480P-Diffusers"
 
 # Small spatial dimensions for compile-only testing
 TRANSFORMER_NUM_FRAMES = 2
@@ -51,6 +58,17 @@ _GGUF_FILES = {
     ModelVariant.WAN22_ANIMATE_Q4_K_M: "wan2.2-animate-14b-q4_k_m.gguf",
     ModelVariant.WAN22_I2V_HIGH_NOISE_Q4_K_M: "wan2.2-i2v-14b-high-noise-q4_k_m.gguf",
     ModelVariant.WAN22_I2V_LOW_NOISE_Q4_K_M: "wan2.2-i2v-14b-low-noise-q4_k_m.gguf",
+}
+
+# Wan 2.2 I2V GGUFs omit the image-conditioning components present in
+# the Wan 2.1 I2V diffusers config.  Removing these fields from the
+# config prevents 208 parameters from being created as meta tensors,
+# which would cause dispatch_model to fail with NotImplementedError.
+_WAN22_I2V_STRIP_CONFIG_KEYS = ("added_kv_proj_dim", "image_dim")
+
+_I2V_VARIANTS = {
+    ModelVariant.WAN22_I2V_HIGH_NOISE_Q4_K_M,
+    ModelVariant.WAN22_I2V_LOW_NOISE_Q4_K_M,
 }
 
 
@@ -95,8 +113,10 @@ class ModelLoader(ForgeModel):
     ):
         """Load the GGUF-quantized Wan 2.2 transformer.
 
-        Uses diffusers GGUFQuantizationConfig to load the quantized transformer.
-        Returns the transformer nn.Module directly for compilation testing.
+        Wan 2.2 I2V GGUFs do not include the image-conditioning modules
+        (added_kv_proj_dim, image_dim) from the Wan 2.1 I2V config.
+        We strip those fields before constructing the model so that
+        dispatch_model does not encounter meta tensors.
         """
         import diffusers.utils.import_utils as _diffusers_import_utils
 
@@ -110,17 +130,43 @@ class ModelLoader(ForgeModel):
             GGUFQuantizationConfig,
             WanTransformer3DModel,
         )
+        from huggingface_hub import hf_hub_download
 
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
         gguf_file = _GGUF_FILES[self._variant]
+        gguf_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
+
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
-        self._transformer = WanTransformer3DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/{gguf_file}",
-            quantization_config=quantization_config,
-            torch_dtype=compute_dtype,
-        )
+        if self._variant in _I2V_VARIANTS:
+            # Load Wan 2.1 I2V config, strip Wan 2.1-specific fields absent
+            # from the Wan 2.2 GGUF, then write to a temp dir for from_single_file.
+            base_config = WanTransformer3DModel.load_config(
+                pretrained_model_name_or_path=WAN21_I2V_DIFFUSERS_REPO,
+                subfolder="transformer",
+            )
+            wan22_config = {
+                k: v
+                for k, v in base_config.items()
+                if k not in _WAN22_I2V_STRIP_CONFIG_KEYS
+            }
+            with tempfile.TemporaryDirectory() as tmpdir:
+                config_path = os.path.join(tmpdir, "config.json")
+                with open(config_path, "w") as f:
+                    json.dump(wan22_config, f)
+                self._transformer = WanTransformer3DModel.from_single_file(
+                    gguf_path,
+                    quantization_config=quantization_config,
+                    torch_dtype=compute_dtype,
+                    config=tmpdir,
+                )
+        else:
+            self._transformer = WanTransformer3DModel.from_single_file(
+                gguf_path,
+                quantization_config=quantization_config,
+                torch_dtype=compute_dtype,
+            )
 
         return self._transformer
 
