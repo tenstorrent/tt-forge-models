@@ -118,8 +118,10 @@ class ModelLoader(ForgeModel):
 
         self.text_prompts = ["a photo of a cat", "a photo of a dog"]
 
-        # Preprocess image
+        # Preprocess image and replicate to match number of text prompts
+        # CoCa forward() is paired: batch size of image must equal batch size of text
         pixel_values = self.preprocess(image).unsqueeze(0)
+        pixel_values = pixel_values.repeat(len(self.text_prompts), 1, 1, 1)
 
         # Tokenize text
         text_tokens = self.tokenizer(self.text_prompts)
