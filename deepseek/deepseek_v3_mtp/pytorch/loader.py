@@ -98,6 +98,30 @@ def _patch_dynamic_cache():
         DynamicCache.get_usable_length = lambda self, new_seq_length, layer_idx=0: self.get_seq_length(layer_idx)
 
 
+def _patch_deepseek_moe(model):
+    # DeepseekV3MoE.moe_infer uses tokens_per_expert.cpu().numpy() + a Python
+    # for-loop with data-dependent slice bounds, which breaks TT XLA compilation.
+    # Replace with a fully static batched computation: apply every expert to every
+    # token and combine with the routing weights. Numerically equivalent (same
+    # weighted sum) but no data-dependent control flow.
+    import torch
+
+    def _batched_moe_infer(self, x, topk_ids, topk_weight):
+        n_tokens = x.shape[0]
+        n_experts = len(self.experts)
+        # [T, E] routing weights; non-zero only at selected (token, expert) pairs
+        routing = x.new_zeros(n_tokens, n_experts)
+        routing.scatter_add_(1, topk_ids, topk_weight.to(x.dtype))
+        # [E, T, d_model] from all experts, then weight and reduce over experts
+        expert_outputs = torch.stack([expert(x) for expert in self.experts], dim=0)
+        return (expert_outputs * routing.t().unsqueeze(-1)).sum(dim=0)
+
+    for module in model.modules():
+        if type(module).__name__ == "DeepseekV3MoE":
+            import types
+            module.moe_infer = types.MethodType(_batched_moe_infer, module)
+
+
 class ModelVariant(StrEnum):
     """Available DeepSeek V3 MTP model variants."""
 
@@ -170,6 +194,8 @@ class ModelLoader(ForgeModel):
         # activations share the same dtype.
         if dtype_override is not None:
             model = model.to(dtype_override)
+
+        _patch_deepseek_moe(model)
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
