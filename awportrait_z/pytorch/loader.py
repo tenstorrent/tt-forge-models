@@ -75,10 +75,22 @@ class ModelLoader(ForgeModel):
             torch_dtype=dtype,
             low_cpu_mem_usage=False,
         )
-        self._pipe.load_lora_weights(
-            LORA_REPO,
-            weight_name=LORA_WEIGHT_NAME,
-        )
+        # AWPortrait-Z.safetensors has `diffusion_model.*` prefixed lora_A/lora_B
+        # keys but no alpha scaling keys. diffusers >= 0.37 routes `diffusion_model.*`
+        # keys through _convert_non_diffusers_z_image_lora_to_diffusers which
+        # unconditionally calls state_dict.pop(alpha_key), raising KeyError when alpha
+        # is absent. Convention: missing alpha → alpha=rank → scale=1.0. Pre-convert
+        # the keys here (strip diffusion_model., add transformer.) to bypass that path.
+        from safetensors.torch import load_file
+        from huggingface_hub import hf_hub_download
+
+        lora_path = hf_hub_download(LORA_REPO, LORA_WEIGHT_NAME)
+        raw_sd = load_file(lora_path)
+        lora_sd = {
+            "transformer." + k.removeprefix("diffusion_model."): v
+            for k, v in raw_sd.items()
+        }
+        self._pipe.load_lora_weights(lora_sd)
         self._pipe.fuse_lora()
         return self._pipe
 
