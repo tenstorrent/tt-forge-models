@@ -6,7 +6,8 @@ DeBERTa model loader implementation for token classification.
 """
 
 import torch
-from transformers import AutoModelForTokenClassification, AutoTokenizer
+from transformers import AutoConfig, AutoModelForTokenClassification, AutoTokenizer
+from transformers.configuration_utils import PreTrainedConfig
 
 from ....config import (
     ModelInfo,
@@ -65,9 +66,25 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        # transformers 5.x strict-validates problem_type in PreTrainedConfig.__init__.
+        # This model has problem_type="token-classification" in its config.json, which
+        # is not in the accepted set {"regression", "single_label_classification",
+        # "multi_label_classification"}. Load the raw config dict, strip the invalid
+        # field, and pass the resulting config to avoid the ValueError.
+        _valid_problem_types = (
+            None,
+            "regression",
+            "single_label_classification",
+            "multi_label_classification",
+        )
+        config_dict, _ = PreTrainedConfig.get_config_dict(self.model_name)
+        if config_dict.get("problem_type") not in _valid_problem_types:
+            config_dict.pop("problem_type")
+        config = AutoConfig.for_model(**config_dict)
 
-        model_kwargs = {}
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, config=config)
+
+        model_kwargs = {"config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
