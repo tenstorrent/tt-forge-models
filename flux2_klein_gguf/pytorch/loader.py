@@ -5,9 +5,13 @@
 FLUX.2 Klein GGUF model loader implementation for text-to-image generation
 """
 
-import torch
-from diffusers.models import Flux2Transformer2DModel
+from pathlib import Path
 from typing import Optional
+
+import torch
+from diffusers import GGUFQuantizationConfig
+from diffusers.models import Flux2Transformer2DModel
+from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -19,6 +23,44 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+
+def _dequantize_bf16_gguf_params(model):
+    # The leejet GGUF mixes Q4_0 (truly quantized) and BF16 weights. The BF16
+    # GGUFParameters store raw bytes (uint8, doubled last dim) and propagate
+    # through all tensor ops via __torch_function__, breaking rms_norm weight
+    # shape checks. Q4_0 params are correctly handled by GGUFLinear.forward_native,
+    # so only convert the BF16 ones. Use as_tensor() to escape the GGUFParameter
+    # subclass before creating a regular Parameter.
+    try:
+        from diffusers.quantizers.gguf.utils import GGUFParameter
+    except ImportError:
+        return
+    try:
+        from gguf import GGMLQuantizationType
+
+        bf16_type = GGMLQuantizationType.BF16
+    except ImportError:
+        bf16_type = None
+
+    for module in model.modules():
+        for name, param in list(module.named_parameters(recurse=False)):
+            if not isinstance(param, GGUFParameter):
+                continue
+            if (
+                bf16_type is not None
+                and getattr(param, "quant_type", None) != bf16_type
+            ):
+                continue
+            # as_tensor() returns plain torch.Tensor (breaks GGUFParameter chain);
+            # torch.nn.Parameter(plain_tensor) then creates a proper Parameter.
+            raw = param.as_tensor()
+            bf16 = (
+                raw.view(torch.bfloat16)
+                if raw.dtype == torch.uint8
+                else raw.to(torch.bfloat16)
+            )
+            module.register_parameter(name, torch.nn.Parameter(bf16))
 
 
 class ModelVariant(StrEnum):
@@ -67,18 +109,22 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        load_kwargs = {"gguf_file": self._GGUF_FILES[self._variant]}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
-
-        self.transformer = Flux2Transformer2DModel.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            **load_kwargs,
+        # Neither GGUF repo has a config.json (and the embedded metadata points to the
+        # gated black-forest-labs/FLUX.2-dev repo). Use a local config derived from the
+        # Klein 9B tensor shapes instead, following the same pattern as flux_srpo_gguf.
+        gguf_path = hf_hub_download(
+            repo_id=self._variant_config.pretrained_model_name,
+            filename=self._GGUF_FILES[self._variant],
         )
-
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
-
+        config_dir = str(Path(__file__).parent / "transformer_config")
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        self.transformer = Flux2Transformer2DModel.from_single_file(
+            gguf_path,
+            config=config_dir,
+            quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
+            torch_dtype=dtype,
+        )
+        _dequantize_bf16_gguf_params(self.transformer)
         return self.transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
