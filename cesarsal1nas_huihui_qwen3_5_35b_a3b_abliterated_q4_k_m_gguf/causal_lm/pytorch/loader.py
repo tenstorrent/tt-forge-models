@@ -114,7 +114,18 @@ def _patch_transformers_qwen35moe_gguf():
             model_type = hf_model.config.model_type
         if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
             model_type = "qwen35moe"
-        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+        result = orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+        # gguf-py maps gate_up_proj to blk.N.ffn_gate_up_exps (combined format),
+        # but GGUF files from llama.cpp store them as separate blk.N.ffn_gate_exps
+        # and blk.N.ffn_up_exps tensors. Add old-format aliases so both formats work.
+        if model_type == "qwen35moe":
+            extra = {}
+            for k, v in result.items():
+                if "ffn_gate_up_exps" in k:
+                    extra[k.replace("ffn_gate_up_exps", "ffn_gate_exps")] = v
+                    extra[k.replace("ffn_gate_up_exps", "ffn_up_exps")] = v
+            result.update(extra)
+        return result
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
 
