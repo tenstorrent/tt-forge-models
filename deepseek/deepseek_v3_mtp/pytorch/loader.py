@@ -166,6 +166,11 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name, **model_kwargs
         )
 
+        # Fp8Dequantize outputs float32; cast the whole model so weights and
+        # activations share the same dtype.
+        if dtype_override is not None:
+            model = model.to(dtype_override)
+
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
