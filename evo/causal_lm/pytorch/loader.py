@@ -157,14 +157,18 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        prompts = [self.sample_text] * batch_size
-
+        # ByteTokenizer._encode_plus only handles single strings; passing a list
+        # causes AttributeError in transformers 5.x where __call__ dispatches to
+        # _encode_plus directly rather than _batch_encode_plus.
         inputs = self.tokenizer(
-            prompts,
+            self.sample_text,
             return_tensors="pt",
-            padding=True,
+            padding="max_length",
             truncation=True,
             max_length=max_length,
         )
+
+        if batch_size > 1:
+            inputs = {k: v.repeat(batch_size, 1) for k, v in inputs.items()}
 
         return inputs
