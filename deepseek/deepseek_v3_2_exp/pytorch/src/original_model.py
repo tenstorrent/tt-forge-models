@@ -1,8 +1,6 @@
 # SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-"""DeepSeek V3.2-exp model implementation. Modified for tt-xla with modifications marked with # Modified: <description>.."""
-
 import math
 from dataclasses import dataclass
 from typing import Literal, Optional, Tuple
@@ -10,55 +8,8 @@ from typing import Literal, Optional, Tuple
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
+from kernel import act_quant, fp8_gemm, fp8_index
 from torch import nn
-
-# Modified: these imported functions are implemented in tilelang/CUDA (see original_kernel.py), but we are not using them in this project
-# from kernel import act_quant, fp8_gemm, fp8_index
-
-# Stub implementations for when tilelang/CUDA is not available
-def act_quant(x, block_size=128, scale_fmt=None):
-    raise NotImplementedError("act_quant requires tilelang with CUDA support")
-
-
-def fp8_gemm(a, a_s, b, b_s):
-    raise NotImplementedError("fp8_gemm requires tilelang with CUDA support")
-
-
-def fp8_index(q, q_s, k, k_s):
-    raise NotImplementedError("fp8_index requires tilelang with CUDA support")
-
-
-def bf16_index(q, weights, k) -> torch.Tensor:
-    """
-    Compute index scores in BF16 (no FP8, no scales needed).
-
-    Args:
-        q: [b, m, h, d] query tensor in BF16
-        weights: [b, m, 1, h] pre-computed weights
-        k: [b, n, d] key cache in BF16
-
-    Returns:
-        index_score: [b, m, n] attention scores
-    """
-    b, m, h, d = q.shape
-    n = k.shape[1]
-
-    # Reshape for batched matmul
-    q_reshaped = q.reshape(b * m, h, d)  # [b*m, h, d]
-    k_expanded = k.unsqueeze(1).expand(b, m, n, d).reshape(b * m, n, d)  # [b*m, n, d]
-
-    # Compute logits: k @ q.T -> [b*m, n, h]
-    logits = torch.bmm(k_expanded, q_reshaped.transpose(1, 2))
-
-    # Apply ReLU and multiply by weights (cast weights to logits dtype so output
-    # stays bf16; TT sort op only accepts BFLOAT16/UINT16)
-    logits = torch.relu(logits) * weights.reshape(b * m, 1, h).to(logits.dtype)
-
-    # Sum across heads
-    index_score = logits.sum(dim=-1)  # [b*m, n]
-
-    return index_score.reshape(b, m, n)
-
 
 world_size = 1
 rank = 0
@@ -108,27 +59,23 @@ class ModelArgs:
     max_seq_len: int = 4096 * 4
     dtype: Literal["bf16", "fp8"] = "bf16"
     scale_fmt: Optional[str] = None
-    # Modified: Change to full deepseek configuration (see config.json)
-    vocab_size: int = 129280
-    dim: int = 7168
-    inter_dim: int = 18432
-    moe_inter_dim: int = 2048
-    n_layers: int = 61
-    n_dense_layers: int = 1  # Not modified
-    n_heads: int = 128
+    vocab_size: int = 102400
+    dim: int = 2048
+    inter_dim: int = 10944
+    moe_inter_dim: int = 1408
+    n_layers: int = 27
+    n_dense_layers: int = 1
+    n_heads: int = 16
     # moe
-    # Modified: Change to full deepseek configuration (see config.json)
-    n_routed_experts: int = 256
-    n_shared_experts: int = 1
-    n_activated_experts: int = 8
-    n_expert_groups: int = 8
-    n_limited_groups: int = 4
-    score_func: Literal["softmax", "sigmoid"] = "sigmoid"
-    route_scale: float = 2.5
+    n_routed_experts: int = 64
+    n_shared_experts: int = 2
+    n_activated_experts: int = 6
+    n_expert_groups: int = 1
+    n_limited_groups: int = 1
+    score_func: Literal["softmax", "sigmoid"] = "softmax"
+    route_scale: float = 1.0
     # mla
-    q_lora_rank: int = (
-        1536  # Modified: Change to full deepseek configuration (see config.json)
-    )
+    q_lora_rank: int = 0
     kv_lora_rank: int = 512
     qk_nope_head_dim: int = 128
     qk_rope_head_dim: int = 64
@@ -144,9 +91,6 @@ class ModelArgs:
     index_n_heads: int = 64
     index_head_dim: int = 128
     index_topk: int = 2048
-    # Modified: When True, the model is always called with an external MLACache and the
-    # internal kv_cache/pe_cache buffers are not allocated (saves ~2 GiB/layer).
-    use_mla_cache: bool = False
 
 
 class ParallelEmbedding(nn.Module):
@@ -169,13 +113,6 @@ class ParallelEmbedding(nn.Module):
         self.vocab_start_idx = rank * self.part_vocab_size
         self.vocab_end_idx = self.vocab_start_idx + self.part_vocab_size
         self.weight = nn.Parameter(torch.empty(self.part_vocab_size, self.dim))
-        self.reset_parameters()  # Modified: Initialize weights and bias using Kaiming uniform initialization
-
-    def reset_parameters(self) -> None:
-        """
-        Initialize weights using Kaiming uniform initialization.
-        """
-        nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -272,25 +209,6 @@ class Linear(nn.Module):
             self.bias = nn.Parameter(torch.empty(out_features))
         else:
             self.register_parameter("bias", None)
-
-        # Modified: Initialize weights and bias using Kaiming uniform initialization
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        """
-        Initialize weights and bias using Kaiming uniform initialization.
-        This matches PyTorch's standard nn.Linear initialization.
-        """
-        nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
-
-        if self.scale is not None:
-            # Only matters if FP8 quantization is enabled
-            nn.init.constant_(self.scale, 1.0)
-
-        if self.bias is not None:
-            fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight)
-            bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
-            nn.init.uniform_(self.bias, -bound, bound)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -527,82 +445,42 @@ def precompute_freqs_cis(args: ModelArgs) -> torch.Tensor:
     return freqs_cis
 
 
-# Modified: to use real arithmetic instead of complex operations
 def apply_rotary_emb(
     x: torch.Tensor, freqs_cis: torch.Tensor, interleaved: bool = True
 ) -> torch.Tensor:
     """
-    Applies rotary positional embeddings using real arithmetic instead of complex operations.
+    Applies rotary positional embeddings to the input tensor.
 
     Args:
         x (torch.Tensor): Input tensor with positional embeddings to be applied.
         freqs_cis (torch.Tensor): Precomputed complex exponential values for positional embeddings.
-                                 Can be complex tensor or real tensor with last dim [real, imag].
 
     Returns:
         torch.Tensor: Tensor with rotary embeddings applied.
     """
     dtype = x.dtype
     shape = x.shape
-
     if not interleaved:
         x = x.view(*shape[:-1], 2, -1).transpose(-1, -2).contiguous()
-
-    # Reshape x to [..., pairs, 2] where last dim is [real, imag]
-    x = x.float().view(*shape[:-1], -1, 2)
-    x_real = x[..., 0]  # [..., pairs]
-    x_imag = x[..., 1]  # [..., pairs]
-
-    # Handle freqs_cis format
-    if freqs_cis.dtype.is_complex:
-        # Convert complex to real format
-        freqs_cis_real_format = torch.view_as_real(freqs_cis)
-    else:
-        freqs_cis_real_format = freqs_cis
-
-    # Reshape freqs_cis to match x dimensions
-    freqs_cis_real_format = freqs_cis_real_format.view(1, x.size(1), 1, x.size(-2), 2)
-    cos_vals = freqs_cis_real_format[..., 0]  # [..., pairs]
-    sin_vals = freqs_cis_real_format[..., 1]  # [..., pairs]
-
-    # Manual complex multiplication: (a + bi) * (c + di) = (ac - bd) + (ad + bc)i
-    y_real = x_real * cos_vals - x_imag * sin_vals
-    y_imag = x_real * sin_vals + x_imag * cos_vals
-
-    # Stack back to [..., pairs, 2] and flatten
-    y = torch.stack([y_real, y_imag], dim=-1).flatten(-2)
-
+    x = torch.view_as_complex(x.float().view(*shape[:-1], -1, 2))
+    freqs_cis = freqs_cis.view(1, x.size(1), 1, x.size(-1))
+    y = torch.view_as_real(x * freqs_cis).flatten(3)
     if not interleaved:
         y = torch.cat([y[..., 0::2], y[..., 1::2]], dim=-1)
-
     return y.to(dtype)
 
 
 def rotate_activation(x: torch.Tensor) -> torch.Tensor:
     assert x.dtype == torch.bfloat16
-    # Modified: fast_hadamard_transform uses CUDA so we are using scipy.linalg.hadamard instead
-    # from fast_hadamard_transform import hadamard_transform
-    # hidden_size = x.size(-1)
-    # return hadamard_transform(x, scale=hidden_size ** -0.5)
+    from fast_hadamard_transform import hadamard_transform
 
     hidden_size = x.size(-1)
-    import scipy
-
-    a = (
-        torch.tensor(scipy.linalg.hadamard(hidden_size), dtype=torch.bfloat16)
-        * (hidden_size**-0.5)
-    ).to("xla")
-    b = F.linear(x, a)
-    return b
+    return hadamard_transform(x, scale=hidden_size**-0.5)
 
 
 class Indexer(torch.nn.Module):
-    # Modified: haddamard_matrix is precomputed and passed from outside, return_raw_scores optional
-    def __init__(
-        self, args: ModelArgs, haddamard_matrix, return_raw_scores: bool = False
-    ):
+    def __init__(self, args: ModelArgs):
         super().__init__()
-        self.return_raw_scores = return_raw_scores  # Modified: Return continuous scores for testing instead of discrete indices
         self.dim: int = args.dim
         self.n_heads: int = args.index_n_heads
         self.n_local_heads = args.index_n_heads // world_size
@@ -618,64 +496,26 @@ class Indexer(torch.nn.Module):
         self.softmax_scale = self.head_dim**-0.5
         self.scale_fmt = args.scale_fmt
 
-        # Modified:Register Hadamard matrix as a buffer so it moves with the model to the correct device
-        self.register_buffer("haddamard", haddamard_matrix, persistent=False)
-
-        # Modified: When external MLACache is used and external k_cache is expected as well
-        if args.use_mla_cache:
-            # batch_size and max_cache_len are unknown at construction time;
-            # call early_initialization() before the first forward pass.
-            self.register_buffer("k_cache", None, persistent=False)
-        else:
-            self.register_buffer(
-                "k_cache",
-                torch.zeros(
-                    args.max_batch_size,
-                    args.max_seq_len,
-                    self.head_dim,
-                    dtype=torch.bfloat16,
-                ),
-                persistent=False,
-            )
-        # Modified: k_scale_cache is only used for fp8 quantization mode.
-        # Currently, we don't need it since the Indexer only supports bf16.
-        # Keeping this here for when we support fp8 quantization.
-        # self.register_buffer(
-        #     "k_scale_cache",
-        #     torch.zeros(
-        #         args.max_batch_size,
-        #         args.max_seq_len,
-        #         self.head_dim // block_size,
-        #         dtype=torch.float32,
-        #     ),
-        #     persistent=False,
-        # )
-
-    # Modified: This should be called before the first forward pass when use_mla_cache=True (i.e. k_cache was registered
-    # as None in __init__). Call init_indexer_cache() from the benchmark to invoke this for all layers.
-    def early_initialization(
-        self,
-        batch_size: int,
-        max_cache_len: int,
-        device,
-        dtype: torch.dtype,
-    ) -> None:
-        """Allocate k_cache when batch_size and max_cache_len are known.
-
-        Mirrors MLAStaticLayer.lazy_initialization. Must be called before the
-        first forward pass when use_mla_cache=True (i.e. k_cache was registered
-        as None in __init__). Call init_indexer_cache() from the benchmark to
-        invoke this for all layers.
-        """
         self.register_buffer(
             "k_cache",
             torch.zeros(
-                batch_size, 1, max_cache_len, self.head_dim, dtype=dtype, device=device
+                args.max_batch_size,
+                args.max_seq_len,
+                self.head_dim,
+                dtype=torch.float8_e4m3fn,
             ),
             persistent=False,
         )
-        if not torch.compiler.is_compiling():
-            torch._dynamo.mark_static_address(self.k_cache)
+        self.register_buffer(
+            "k_scale_cache",
+            torch.zeros(
+                args.max_batch_size,
+                args.max_seq_len,
+                self.head_dim // block_size,
+                dtype=torch.float32,
+            ),
+            persistent=False,
+        )
 
     def forward(
         self,
@@ -684,11 +524,9 @@ class Indexer(torch.nn.Module):
         start_pos: int,
         freqs_cis: torch.Tensor,
         mask: Optional[torch.Tensor],
-        cache_position: Optional[
-            torch.Tensor
-        ] = None,  # Modified: external MLACache passes in cache_position
     ):
         bsz, seqlen, _ = x.size()
+        end_pos = start_pos + seqlen
         q = self.wq_b(qr)
         q = q.view(bsz, seqlen, self.n_heads, self.head_dim)
         q_pe, q_nope = torch.split(
@@ -697,76 +535,36 @@ class Indexer(torch.nn.Module):
         # rope in indexer is not interleaved
         q_pe = apply_rotary_emb(q_pe, freqs_cis, False)
         q = torch.cat([q_pe, q_nope], dim=-1)
-
         k = self.wk(x)
         k = self.k_norm(k)
-
         k_pe, k_nope = torch.split(
             k, [self.rope_head_dim, self.head_dim - self.rope_head_dim], dim=-1
         )
-        # Modified: calculate input before passing into apply_rotary_emb
-        k_pe_input = k_pe.unsqueeze(2)
         # rope in indexer is not interleaved
-        k_pe = apply_rotary_emb(k_pe_input, freqs_cis, False).squeeze(2)
+        k_pe = apply_rotary_emb(k_pe.unsqueeze(2), freqs_cis, False).squeeze(2)
         k = torch.cat([k_pe, k_nope], dim=-1)
-
-        # Modified: use passed in haddamard matrix instead of rotate_activation
-        # q = rotate_activation(q)
-        q = F.linear(
-            q, self.haddamard
-        )  ###Haddamard matrix is precomputed and passed from outside
-        # k = rotate_activation(k)
-        k = F.linear(
-            k, self.haddamard
-        )  ###Haddamard matrix is precomputed and passed from outside
-
-        # Modified: index updated to not use quantized values and k_cache updated to be compatible with external caches
-
-        # In the original code, these would be quantized:
-        # q_fp8, q_scale = act_quant(q, block_size, self.scale_fmt)
-        # k_fp8, k_scale = act_quant(k, block_size, self.scale_fmt)
-
-        bsz, seqlen, n_heads, head_dim = q.shape
-
-        if cache_position is not None:
-            # Scatter-write to the true sequence position via index_copy_ on dim 2
-            # of the 4D cache [bsz, 1, max_cache_len, head_dim], matching the MLA
-            # cache layout so the TT backend can legalize the resulting scatter op.
-            self.k_cache[:bsz].index_copy_(2, cache_position, k.unsqueeze(1))
-            if seqlen > 1:
-                # Prefill: only read the positions just written so topk indices
-                # stay in [0, seqlen) and match the seqlen-sized index_mask in
-                # Attention.forward.
-                k_view = self.k_cache[:bsz, 0, :seqlen]  # [bsz, seqlen, head_dim]
-            else:
-                # Decode: read all cached positions.
-                k_view = self.k_cache[:bsz, 0]  # [bsz, max_cache_len, head_dim]
-        else:
-            end_pos = start_pos + seqlen
-            self.k_cache[:bsz, start_pos:end_pos] = k
-            k_view = self.k_cache[:bsz, :end_pos]
-
-        # In full implementation, this would use fp8_index with quantized values
-        weights = self.weights_proj(x) * self.n_heads**-0.5
-        weights = weights.unsqueeze(-1) * self.softmax_scale
-
-        index_score = bf16_index(q, weights, k_view)
-
-        if cache_position is not None:
-            pos_range = torch.arange(k_view.size(1), device=k.device)
-            future_mask = pos_range.unsqueeze(0) > cache_position.unsqueeze(1)
-            index_score = index_score.masked_fill(
-                future_mask.unsqueeze(0), float("-inf")
-            )
-        elif mask is not None:
+        q = rotate_activation(q)
+        k = rotate_activation(k)
+        q_fp8, q_scale = act_quant(q, block_size, self.scale_fmt)
+        k_fp8, k_scale = act_quant(k, block_size, self.scale_fmt)
+        self.k_cache[:bsz, start_pos:end_pos] = k_fp8
+        self.k_scale_cache[:bsz, start_pos:end_pos] = k_scale
+        weights = self.weights_proj(x.float()) * self.n_heads**-0.5
+        weights = weights.unsqueeze(-1) * q_scale * self.softmax_scale
+        index_score = fp8_index(
+            q_fp8.contiguous(),
+            weights,
+            self.k_cache[:bsz, :end_pos].contiguous(),
+            self.k_scale_cache[:bsz, :end_pos].contiguous(),
+        )
+        if mask is not None:
             index_score += mask
-
-        # Modified:Return continuous scores for testing instead of discrete indices
-        if self.return_raw_scores:
-            return index_score
-
-        topk_indices = index_score.topk(min(self.index_topk, k_view.size(1)), dim=-1)[1]
-
+        topk_indices = index_score.topk(min(self.index_topk, end_pos), dim=-1)[1]
+        topk_indices_ = topk_indices.clone()
+        dist.broadcast(topk_indices_, src=0)
+        assert torch.all(
+            topk_indices == topk_indices_
+        ), f"{topk_indices=} {topk_indices_=}"
         return topk_indices
 
 
@@ -809,9 +607,7 @@ class MLA(nn.Module):
         softmax_scale (float): Scaling factor for softmax in attention computation.
     """
 
-    def __init__(
-        self, args: ModelArgs, haddamard_matrix
-    ):  # Modified: haddamard_matrix is precomputed and passed from outside
+    def __init__(self, args: ModelArgs):
         super().__init__()
         self.dim = args.dim
         self.n_heads = args.n_heads
@@ -836,34 +632,22 @@ class MLA(nn.Module):
         self.wo = RowParallelLinear(self.n_heads * self.v_head_dim, self.dim)
         self.softmax_scale = self.qk_head_dim**-0.5
         self.scale_fmt = args.scale_fmt
-        self.dtype = args.dtype  # Modified: dtype is set to bf16
         if args.max_seq_len > args.original_seq_len:
             mscale = 0.1 * args.mscale * math.log(args.rope_factor) + 1.0
             self.softmax_scale = self.softmax_scale * mscale * mscale
 
-        # Modified: hadamard_matrix is precomputed and passed from outside into indexer
-        self.indexer = (
-            Indexer(args, haddamard_matrix) if args.index_n_heads > 0 else None
-        )
-        self.register_buffer("hadamard_matrix", haddamard_matrix, persistent=False)
+        self.indexer = Indexer(args)
 
-        if args.use_mla_cache:
-            # Modified: If external MLACache is provided; skip the large internal buffers.
-            self.register_buffer("kv_cache", None, persistent=False)
-            self.register_buffer("pe_cache", None, persistent=False)
-        else:
-            self.register_buffer(
-                "kv_cache",
-                torch.zeros(args.max_batch_size, args.max_seq_len, self.kv_lora_rank),
-                persistent=False,
-            )
-            self.register_buffer(
-                "pe_cache",
-                torch.zeros(
-                    args.max_batch_size, args.max_seq_len, self.qk_rope_head_dim
-                ),
-                persistent=False,
-            )
+        self.register_buffer(
+            "kv_cache",
+            torch.zeros(args.max_batch_size, args.max_seq_len, self.kv_lora_rank),
+            persistent=False,
+        )
+        self.register_buffer(
+            "pe_cache",
+            torch.zeros(args.max_batch_size, args.max_seq_len, self.qk_rope_head_dim),
+            persistent=False,
+        )
         self.dequant_wkv_b = None
 
     def forward(
@@ -872,10 +656,6 @@ class MLA(nn.Module):
         start_pos: int,
         freqs_cis: torch.Tensor,
         mask: Optional[torch.Tensor],
-        past_key_value=None,  # Modified: past_key_value is passed from external MLACache
-        cache_position: Optional[
-            torch.Tensor
-        ] = None,  # Modified: cache_position is passed from external MLACache
     ):
         """
         Forward pass for the Multi-Head Latent Attention (MLA) Layer.
@@ -885,8 +665,6 @@ class MLA(nn.Module):
             start_pos (int): Starting position in the sequence for caching.
             freqs_cis (torch.Tensor): Precomputed complex exponential values for rotary embeddings.
             mask (Optional[torch.Tensor]): Mask tensor to exclude certain positions from attention.
-            past_key_value: Optional MLAStaticLayer to populate with compressed KV and RoPE keys.
-            cache_position (Optional[torch.Tensor]): Token positions for cache writes.
 
         Returns:
             torch.Tensor: Output tensor with the same shape as the input.
@@ -905,26 +683,14 @@ class MLA(nn.Module):
         kv = self.kv_norm(kv)
         k_pe = apply_rotary_emb(k_pe.unsqueeze(2), freqs_cis)
         # we use fp8 kv cache in actual deployment, so here we simulate the precision by casting kv to fp8 and then back to bf16.
-        # Modified: skip when dtype is not set to fp8
-        if self.dtype == "fp8":
-            kv_fp8, kv_scale = act_quant(kv, block_size, self.scale_fmt)
-            kv = (
-                (kv_fp8.view(-1, block_size).float() * kv_scale.view(-1, 1))
-                .to(kv.dtype)
-                .view_as(kv)
-            )
-        # Modified: update external MLACache when provided
-        if self.kv_cache is not None:
-            self.kv_cache[:bsz, start_pos:end_pos] = kv
-            self.pe_cache[:bsz, start_pos:end_pos] = k_pe.squeeze(2)
-        if past_key_value is not None:
-            # MLAStaticLayer.update expects [batch, 1, seq, dim]; kv is [batch, seq, dim]
-            # and k_pe is [batch, seq, 1, rope_dim] after apply_rotary_emb.
-            past_key_value.update(
-                kv.unsqueeze(1),
-                k_pe.transpose(1, 2),
-                {"cache_position": cache_position},
-            )
+        kv_fp8, kv_scale = act_quant(kv, block_size, self.scale_fmt)
+        kv = (
+            (kv_fp8.view(-1, block_size).float() * kv_scale.view(-1, 1))
+            .to(kv.dtype)
+            .view_as(kv)
+        )
+        self.kv_cache[:bsz, start_pos:end_pos] = kv
+        self.pe_cache[:bsz, start_pos:end_pos] = k_pe.squeeze(2)
         if mask is not None:  # MHA prefill
             q = torch.cat([q_nope, q_pe], dim=-1)
             kv = self.wkv_b(kv)
@@ -937,22 +703,13 @@ class MLA(nn.Module):
             k = torch.cat([k_nope, k_pe.expand(-1, -1, self.n_local_heads, -1)], dim=-1)
             scores = torch.einsum("bshd,bthd->bsht", q, k).mul_(self.softmax_scale)
 
-            # Modified: indexer: pass cache_position so Indexer uses the 4D write path and
-            # returns indices in [0, seqlen) that fit the seqlen-sized index_mask.
-            if self.indexer is not None and self.indexer.k_cache is not None:
-                topk_indices = self.indexer(
-                    x,
-                    qr,
-                    start_pos,
-                    freqs_cis,
-                    mask=None,
-                    cache_position=cache_position,
-                )
-                index_mask = torch.full(
-                    (bsz, seqlen, seqlen), float("-inf"), device=x.device
-                ).scatter_(-1, topk_indices, 0)
-                index_mask += mask
-                scores += index_mask.unsqueeze(2)
+            # indexer
+            topk_indices = self.indexer(x, qr, start_pos, freqs_cis, mask)
+            index_mask = torch.full(
+                (bsz, seqlen, seqlen), float("-inf"), device=x.device
+            ).scatter_(-1, topk_indices, 0)
+            index_mask += mask
+            scores += index_mask.unsqueeze(2)
 
             scores = scores.softmax(dim=-1)
             x = torch.einsum("bsht,bthd->bshd", scores, v)
@@ -966,65 +723,21 @@ class MLA(nn.Module):
             q_nope = torch.einsum(
                 "bshd,hdc->bshc", q_nope, wkv_b[:, : self.qk_nope_head_dim]
             )
-            # Modified: read from external MLACache when provided
-            if past_key_value is not None:
-                # Read the full prefill+decode context from the external MLACache.
-                # past_key_value.update() was already called above so the current
-                # token is already written at cache_position[0].
-                # kv_full / pe_full: [bsz, max_cache_len, dim]
-                kv_full = past_key_value.compressed_kv[:bsz, 0]
-                pe_full = past_key_value.k_pe[:bsz, 0]
-                max_cache_len = kv_full.size(1)
-                scores = (
-                    torch.einsum("bshc,btc->bsht", q_nope, kv_full)
-                    + torch.einsum("bshr,btr->bsht", q_pe, pe_full)
-                ) * self.softmax_scale
-                # Hard causal mask: block positions not yet written to the cache.
-                pos_range = torch.arange(max_cache_len, device=x.device)
-                future_mask = pos_range > cache_position[0]
-                scores = scores.masked_fill(
-                    future_mask.view(1, 1, 1, -1), float("-inf")
-                )
-                # Sparse token selection: Indexer picks top-k relevant cached positions.
-                # Its index_mask further restricts attention on top of the causal mask.
-                if self.indexer is not None and self.indexer.k_cache is not None:
-                    topk_indices = self.indexer(
-                        x,
-                        qr,
-                        start_pos,
-                        freqs_cis,
-                        mask=None,
-                        cache_position=cache_position,
-                    )
-                    index_mask = torch.full(
-                        (bsz, 1, max_cache_len), float("-inf"), device=x.device
-                    ).scatter_(-1, topk_indices, 0)
-                    scores += index_mask.unsqueeze(2)
-                scores = scores.softmax(dim=-1)
-                x = torch.einsum("bsht,btc->bshc", scores, kv_full)
-                x = torch.einsum("bshc,hdc->bshd", x, wkv_b[:, -self.v_head_dim :])
-            else:
-                scores = (
-                    torch.einsum(
-                        "bshc,btc->bsht", q_nope, self.kv_cache[:bsz, :end_pos]
-                    )
-                    + torch.einsum(
-                        "bshr,btr->bsht", q_pe, self.pe_cache[:bsz, :end_pos]
-                    )
-                ) * self.softmax_scale
+            scores = (
+                torch.einsum("bshc,btc->bsht", q_nope, self.kv_cache[:bsz, :end_pos])
+                + torch.einsum("bshr,btr->bsht", q_pe, self.pe_cache[:bsz, :end_pos])
+            ) * self.softmax_scale
 
-                # indexer
-                topk_indices = self.indexer(x, qr, start_pos, freqs_cis, mask)
-                index_mask = torch.full(
-                    (bsz, 1, end_pos), float("-inf"), device=x.device
-                ).scatter_(-1, topk_indices, 0)
-                scores += index_mask.unsqueeze(2)
+            # indexer
+            topk_indices = self.indexer(x, qr, start_pos, freqs_cis, mask)
+            index_mask = torch.full(
+                (bsz, 1, end_pos), float("-inf"), device=x.device
+            ).scatter_(-1, topk_indices, 0)
+            scores += index_mask.unsqueeze(2)
 
-                scores = scores.softmax(dim=-1)
-                x = torch.einsum(
-                    "bsht,btc->bshc", scores, self.kv_cache[:bsz, :end_pos]
-                )
-                x = torch.einsum("bshc,hdc->bshd", x, wkv_b[:, -self.v_head_dim :])
+            scores = scores.softmax(dim=-1)
+            x = torch.einsum("bsht,btc->bshc", scores, self.kv_cache[:bsz, :end_pos])
+            x = torch.einsum("bshc,hdc->bshd", x, wkv_b[:, -self.v_head_dim :])
         x = self.wo(x.flatten(2))
         return x
 
@@ -1100,17 +813,6 @@ class Gate(nn.Module):
             if self.dim == 7168
             else None
         )
-        self.reset_parameters()  # Modified: Initialize weights and bias using Kaiming uniform initialization
-
-    def reset_parameters(self) -> None:
-        """
-        Initialize weights using Kaiming uniform initialization.
-        """
-        nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
-        if self.bias is not None:
-            fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight)
-            bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
-            nn.init.uniform_(self.bias, -bound, bound)
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -1271,21 +973,16 @@ class Block(nn.Module):
         ffn_norm (nn.Module): Layer normalization for feed-forward network.
     """
 
-    def __init__(
-        self, layer_id: int, args: ModelArgs, hadamard_matrix: torch.Tensor
-    ):  # Modified: hadamard_matrix is precomputed and passed from outside
+    def __init__(self, layer_id: int, args: ModelArgs):
         """
         Initializes the Transformer block.
 
         Args:
             layer_id (int): Layer index in the transformer.
             args (ModelArgs): Model arguments containing block parameters.
-            hadamard_matrix (torch.Tensor): Precomputed Hadamard matrix.
         """
         super().__init__()
-        self.attn = MLA(
-            args, hadamard_matrix
-        )  # Modified: hadamard_matrix is precomputed and passed from outside into MLA
+        self.attn = MLA(args)
         self.ffn = (
             MLP(args.dim, args.inter_dim)
             if layer_id < args.n_dense_layers
@@ -1301,10 +998,6 @@ class Block(nn.Module):
         start_pos: int,
         freqs_cis: torch.Tensor,
         mask: Optional[torch.Tensor],
-        past_key_value=None,  # Modified: past_key_value is passed from external MLACache
-        cache_position: Optional[
-            torch.Tensor
-        ] = None,  # Modified: cache_position is passed from external MLACache
     ) -> torch.Tensor:
         """
         Forward pass for the Transformer block.
@@ -1314,8 +1007,6 @@ class Block(nn.Module):
             start_pos (int): Starting position in the sequence.
             freqs_cis (torch.Tensor): Precomputed complex exponential values for rotary embeddings.
             mask (Optional[torch.Tensor]): Mask tensor to exclude certain positions from attention.
-            past_key_value: Optional MLAStaticLayer passed through to the attention module.
-            cache_position (Optional[torch.Tensor]): Token positions for cache writes.
 
         Returns:
             torch.Tensor: Output tensor after block computation.
@@ -1324,14 +1015,7 @@ class Block(nn.Module):
             x, residual = self.attn_norm(x), x
         else:
             x, residual = self.attn_norm(x, residual)
-        x = self.attn(
-            x,
-            start_pos,
-            freqs_cis,
-            mask,
-            past_key_value=past_key_value,  # Modified: past_key_value is passed from external MLACache
-            cache_position=cache_position,  # Modified: cache_position is passed from external MLACache
-        )
+        x = self.attn(x, start_pos, freqs_cis, mask)
         x, residual = self.ffn_norm(x, residual)
         x = self.ffn(x)
         return x, residual
@@ -1365,74 +1049,36 @@ class Transformer(nn.Module):
         super().__init__()
         self.max_seq_len = args.max_seq_len
         self.embed = ParallelEmbedding(args.vocab_size, args.dim)
-
-        # Modified:Generate Hadamard matrix once and register as a buffer so it moves with the model
-        hidden_size = args.index_head_dim
-        import scipy.linalg
-
-        hadamard_matrix = torch.tensor(
-            scipy.linalg.hadamard(hidden_size), dtype=torch.bfloat16
-        ) * (hidden_size**-0.5)
-
-        # Register as a buffer so it's part of the model's state and moves to device
-        self.register_buffer("hadamard_matrix", hadamard_matrix, persistent=False)
-
         self.layers = torch.nn.ModuleList()
         for layer_id in range(args.n_layers):
-            self.layers.append(
-                Block(layer_id, args, self.hadamard_matrix)
-            )  # Modified: hadamard_matrix is precomputed and passed from outside into Block
+            self.layers.append(Block(layer_id, args))
         self.norm = RMSNorm(args.dim)
         # lm_head in the checkpoint is stored in bf16, while the parameter here is stored in fp32 for easier computation of logits later.
         self.head = ColumnParallelLinear(args.dim, args.vocab_size, dtype=torch.float32)
+        self.register_buffer("freqs_cis", precompute_freqs_cis(args), persistent=False)
 
-        # Modified: convert freqs_cis to real format
-        freqs_cis_complex = precompute_freqs_cis(args)
-        freqs_cis = torch.view_as_real(freqs_cis_complex)
-        self.register_buffer("freqs_cis", freqs_cis, persistent=False)
-
-    def forward(
-        self,
-        tokens: torch.Tensor,
-        start_pos: int = 0,
-        mask: Optional[torch.Tensor] = None,  # Modified: mask is passed from outside
-        past_key_values=None,  # Modified: past_key_values is passed from outside
-        cache_position: Optional[
-            torch.Tensor
-        ] = None,  # Modified: cache_position is passed from outside
-    ):
+    @torch.inference_mode()
+    def forward(self, tokens: torch.Tensor, start_pos: int = 0):
         """
         Forward pass for the Transformer model.
 
         Args:
             tokens (torch.Tensor): Input tensor of token IDs with shape (batch_size, seq_len).
             start_pos (int, optional): Starting position in the sequence for rotary embeddings. Defaults to 0.
-            mask (Optional[torch.Tensor]): Pre-computed attention mask. If None, computed from seq_len.
-            past_key_values: Optional MLACache whose per-layer MLAStaticLayer objects receive KV writes.
-            cache_position (Optional[torch.Tensor]): Token positions used to index into the cache.
 
         Returns:
             torch.Tensor: Logits tensor of shape (batch_size, vocab_size).
         """
         seqlen = tokens.size(1)
         freqs_cis = self.freqs_cis[start_pos : start_pos + seqlen]
-        # Modified: only compute mask when not provided
-        if mask is None and seqlen > 1:
-            mask = torch.full(
-                (seqlen, seqlen), float("-inf"), device=tokens.device
-            ).triu_(1)
+        mask = (
+            torch.full((seqlen, seqlen), float("-inf"), device=tokens.device).triu_(1)
+            if seqlen > 1
+            else None
+        )
         h, residual = self.embed(tokens), None
-        for i, layer in enumerate(self.layers):
-            past_kv = past_key_values.layers[i] if past_key_values is not None else None
-            h, residual = layer(
-                h,
-                residual,
-                start_pos,
-                freqs_cis,
-                mask,
-                past_key_value=past_kv,  # Modified: past_key_value is passed from outside
-                cache_position=cache_position,  # Modified: cache_position is passed from outside
-            )
+        for layer in self.layers:
+            h, residual = layer(h, residual, start_pos, freqs_cis, mask)
         h, _ = self.norm(h, residual)
         logits = self.head(h[:, -1].float())
         if world_size > 1:

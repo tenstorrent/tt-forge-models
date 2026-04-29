@@ -1,7 +1,12 @@
 # SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-"""DeepSeek V3.2 model loader using the locally modified Transformer from src/modified_model.py."""
+"""DeepSeek V3.2 model loader implementation.
+
+Uses a locally modified DeepSeek V3-2-exp model (model.py) instead of
+loading directly from HuggingFace. The modifications adapt the model for
+Tenstorrent hardware and replace cache utilities with a static MLA cache.
+"""
 import json
 from dataclasses import dataclass
 from pathlib import Path
