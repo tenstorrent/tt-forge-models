@@ -27,8 +27,11 @@ def _dequantize_bnb_4bit(model):
 
     BNB Params4bit cannot be transferred to non-CUDA devices. Dequantize the
     quantized checkpoint to standard weights so the TT compiler can work with them.
+    Uses bnb.functional.dequantize_4bit (same as Linear4bit.forward) to get the
+    correctly shaped weight matrix from quant_state.
     """
     try:
+        import bitsandbytes as bnb
         from bitsandbytes.nn import Linear4bit
     except ImportError:
         return model
@@ -37,8 +40,8 @@ def _dequantize_bnb_4bit(model):
     for name, module in model.named_modules():
         if isinstance(module, Linear4bit):
             with torch.no_grad():
-                weight = module.weight.dequantize().reshape(
-                    module.out_features, module.in_features
+                weight = bnb.functional.dequantize_4bit(
+                    module.weight.data, module.weight.quant_state
                 )
             has_bias = module.bias is not None
             new_layer = torch.nn.Linear(
