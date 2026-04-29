@@ -14,7 +14,6 @@ import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers.modeling_gguf_pytorch_utils import (
-    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
     get_gguf_hf_weights_map as _orig_get_gguf_hf_weights_map,
     GGUF_SUPPORTED_ARCHITECTURES,
     TENSOR_PROCESSORS,
@@ -22,6 +21,53 @@ from transformers.modeling_gguf_pytorch_utils import (
     TensorProcessor,
 )
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+
+def _find_real_load_gguf_checkpoint():
+    """Walk the patch chain to find the true transformers load_gguf_checkpoint.
+
+    Other loaders installed before this one may have replaced
+    _gguf_utils.load_gguf_checkpoint with a broken wrapper that doesn't
+    accept the model_to_load kwarg added in transformers 5.2.0.  Broken
+    wrappers store their captured original as _orig_load_gguf_checkpoint in
+    the wrapper function's module globals; walk that chain until we reach the
+    function whose __name__ and __module__ match the real transformers impl.
+    """
+    fn = _gguf_utils.load_gguf_checkpoint
+    seen: set = set()
+    while id(fn) not in seen:
+        seen.add(id(fn))
+        if (
+            getattr(fn, "__name__", "") == "load_gguf_checkpoint"
+            and getattr(fn, "__module__", "") == "transformers.modeling_gguf_pytorch_utils"
+        ):
+            return fn
+        advanced = False
+        # Walk via closure cells (for wrappers that close over local variables)
+        if fn.__closure__:
+            for cell in fn.__closure__:
+                try:
+                    val = cell.cell_contents
+                    if callable(val) and "load_gguf_checkpoint" in getattr(val, "__name__", ""):
+                        fn = val
+                        advanced = True
+                        break
+                except ValueError:
+                    pass
+        if not advanced:
+            # Walk via module globals (pattern: from ... import load_gguf_checkpoint as _orig)
+            for var in ("_orig_load_gguf_checkpoint", "_orig", "_real_orig"):
+                nxt = getattr(fn, "__globals__", {}).get(var)
+                if callable(nxt) and nxt is not fn:
+                    fn = nxt
+                    advanced = True
+                    break
+        if not advanced:
+            break
+    return fn
+
+
+_orig_load_gguf_checkpoint = _find_real_load_gguf_checkpoint()
 
 from ....base import ForgeModel
 from ....config import (
