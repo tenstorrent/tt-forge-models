@@ -146,7 +146,15 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
-        model_kwargs = {"return_dict": False}
+        # Gemma3ForConditionalGeneration.forward calls self.model() without an explicit
+        # return_dict and then accesses named attributes (e.g. outputs.past_key_values).
+        # Setting return_dict=False propagates to that internal call, causing an
+        # AttributeError on the resulting tuple.  Only set it for non-VLLM variants.
+        model_kwargs = (
+            {}
+            if self._variant == ModelVariant.VLLM_TRANSLATEGEMMA_27B_IT
+            else {"return_dict": False}
+        )
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
