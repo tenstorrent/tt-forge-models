@@ -1395,6 +1395,9 @@ class Transformer(nn.Module):
         self,
         tokens: torch.Tensor,
         start_pos: int = 0,
+        freqs_cis: Optional[
+            torch.Tensor
+        ] = None,  # Modified: freqs_cis is passed from outside
         mask: Optional[torch.Tensor] = None,  # Modified: mask is passed from outside
         past_key_values=None,  # Modified: past_key_values is passed from outside
         cache_position: Optional[
@@ -1415,7 +1418,9 @@ class Transformer(nn.Module):
             torch.Tensor: Logits tensor of shape (batch_size, vocab_size).
         """
         seqlen = tokens.size(1)
-        freqs_cis = self.freqs_cis[start_pos : start_pos + seqlen]
+        # Modified: only compute freqs_cis when not provided
+        if freqs_cis is None:
+            freqs_cis = self.freqs_cis[start_pos : start_pos + seqlen]
         # Modified: only compute mask when not provided
         if mask is None and seqlen > 1:
             mask = torch.full(
