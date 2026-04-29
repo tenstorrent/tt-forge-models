@@ -5,6 +5,7 @@
 EXAONE 3.5 AWQ model loader implementation for causal language modeling.
 """
 import torch
+import torch.nn as nn
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 import transformers.utils.generic as _tug
 from typing import Optional
@@ -14,6 +15,41 @@ from typing import Optional
 if not hasattr(_tug, "check_model_inputs"):
     from transformers.utils.generic import merge_with_config_defaults
     _tug.check_model_inputs = merge_with_config_defaults
+
+
+def _dequantize_awq_layers(model, dtype):
+    """Replace TorchAtenAwqLinear modules with nn.Linear using dequantized fp weights.
+
+    gptqmodel's TorchAtenAwqLinear._fused_op_forward raises NotImplementedError
+    for non-CPU tensors, blocking TT XLA compilation. Dequantize before any
+    forward pass so the model is device-agnostic.
+    """
+    try:
+        from gptqmodel.nn_modules.qlinear.torch_aten_kernel_awq import TorchAtenAwqLinear
+    except ImportError:
+        return model
+
+    target_dtype = dtype if dtype is not None else torch.bfloat16
+
+    for name, module in list(model.named_modules()):
+        if not isinstance(module, TorchAtenAwqLinear):
+            continue
+        # awq_weight_dequantize returns [in_features, out_features]; nn.Linear
+        # stores weight as [out_features, in_features], so transpose.
+        W = module.awq_weight_dequantize(device="cpu", dtype=target_dtype)
+        has_bias = module.bias is not None
+        linear = nn.Linear(module.in_features, module.out_features,
+                           bias=has_bias, device="cpu", dtype=target_dtype)
+        linear.weight.data = W.T.contiguous()
+        if has_bias:
+            linear.bias.data = module.bias.data.to(dtype=target_dtype)
+        parent = model
+        parts = name.split(".")
+        for part in parts[:-1]:
+            parent = getattr(parent, part)
+        setattr(parent, parts[-1], linear)
+
+    return model
 
 from ....base import ForgeModel
 from ....config import (
@@ -98,6 +134,8 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
+
+        model = _dequantize_awq_layers(model, dtype_override)
 
         self.config = model.config
         self.model = model
