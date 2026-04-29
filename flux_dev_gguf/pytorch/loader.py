@@ -7,6 +7,7 @@ FLUX.1-dev GGUF model loader implementation for text-to-image generation
 import torch
 from diffusers import GGUFQuantizationConfig
 from diffusers.models import FluxTransformer2DModel
+from diffusers.quantizers.gguf.utils import _dequantize_gguf_and_restore_linear
 from typing import Optional
 
 from ...base import ForgeModel
@@ -129,6 +130,9 @@ class ModelLoader(ForgeModel):
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
+        # GGUFParameter.__torch_function__ recursion under TorchDynamo tracing;
+        # dequantize to plain tensors in eager mode before compilation.
+        _dequantize_gguf_and_restore_linear(self.transformer)
 
         return self.transformer
 
