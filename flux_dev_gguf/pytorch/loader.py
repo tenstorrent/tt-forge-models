@@ -39,6 +39,8 @@ class ModelVariant(StrEnum):
 
 _EVIATION_REPO = "Eviation/flux-imatrix"
 _EVIATION_CAESAR_SUBDIR = "experimental-from-f16-caesar"
+# diffusers 0.37.1 infers config from GGUF metadata pointing to gated black-forest-labs/FLUX.1-dev
+_FLUX_DEV_CONFIG_REPO = "BBuf/flux1-dev-modelopt-nvfp4-sglang-transformer"
 
 
 class ModelLoader(ForgeModel):
@@ -123,6 +125,7 @@ class ModelLoader(ForgeModel):
         gguf_file = self._GGUF_FILES[self._variant]
         self.transformer = FluxTransformer2DModel.from_single_file(
             f"https://huggingface.co/{repo_id}/blob/main/{gguf_file}",
+            config=_FLUX_DEV_CONFIG_REPO,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
