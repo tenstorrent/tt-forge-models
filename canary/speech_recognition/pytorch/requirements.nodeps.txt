@@ -1,0 +1,6 @@
+# Install without deps to avoid the torch>=2.6.0 transitive pull
+# (which would replace the tt-xla custom torch build).
+nemo_toolkit
+lightning==2.4.0
+pytorch-lightning==2.4.0
+torchmetrics
