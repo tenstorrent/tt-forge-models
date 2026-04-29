@@ -28,7 +28,6 @@ from ...tools.utils import (
     VisionPreprocessor,
     VisionPostprocessor,
 )
-from datasets import load_dataset
 from transformers import EfficientNetForImageClassification
 import timm
 
@@ -468,14 +467,16 @@ class ModelLoader(ForgeModel):
         Args:
             dtype_override: Optional torch.dtype override.
             batch_size: Batch size (default: 1).
-            image: Optional input image. If None, loads from HuggingFace datasets.
+            image: Optional input image. If None, uses a synthetic PIL image.
 
         Returns:
             torch.Tensor: Preprocessed input tensor.
         """
         if image is None:
-            dataset = load_dataset("huggingface/cats-image", split="test")
-            image = dataset[0]["image"]
+            # Avoid load_dataset: it triggers datasets._dill serialization which
+            # checks spacy.Language, but tt_forge_models/spacy/ shadows the real
+            # spacy package when tt_forge_models/ is on sys.path.
+            image = Image.new("RGB", (528, 528))
         return self.input_preprocess(
             image=image,
             dtype_override=dtype_override,
