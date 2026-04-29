@@ -119,16 +119,17 @@ class ModelLoader(ForgeModel):
 
         return self.model
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
+    def load_inputs(self, dtype_override=None, batch_size=2):
         """Load and return sample inputs for the SSDLite320 MobileNetV3 model with this instance's variant settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the inputs' default dtype.
                            NOTE: This parameter is currently ignored (model always uses float32).
-            batch_size: Optional batch size to override the default batch size of 1.
+            batch_size: Optional batch size to override the default batch size of 2.
+                       Default is 2 to satisfy BatchNorm in training mode.
 
         Returns:
-            torch.Tensor: Preprocessed input tensor suitable for SSDLite320 MobileNetV3.
+            list: [list_of_image_tensors, list_of_target_dicts] suitable for SSDLite320 MobileNetV3.
         """
         # Load image from HuggingFace dataset
         dataset = load_dataset("huggingface/cats-image")["test"]
@@ -153,7 +154,26 @@ class ModelLoader(ForgeModel):
             print("NOTE: dtype_override ignored - batched_nms lacks BFloat16 support")
             # inputs = inputs.to(dtype_override)
 
-        return inputs
+        h, w = inputs.shape[-2:]
+        targets = [
+            {
+                "boxes": torch.tensor([[0.0, 0.0, float(w) / 2, float(h) / 2]]),
+                "labels": torch.tensor([1], dtype=torch.long),
+            }
+            for _ in range(inputs.shape[0])
+        ]
+        return [list(inputs), targets]
+
+    def unpack_forward_output(self, fwd_output):
+        import torch
+        from ...tools.utils import extract_tensors_recursive
+
+        head_outputs, _anchors = fwd_output
+        tensors = []
+        extract_tensors_recursive(head_outputs, tensors)
+        if tensors:
+            return torch.cat(tensors, dim=0)
+        return head_outputs
 
     def postprocess_detections(self, outputs):
         head_outputs, anchors = outputs

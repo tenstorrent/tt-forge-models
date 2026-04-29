@@ -144,7 +144,26 @@ class ModelLoader(ForgeModel):
             # TODO (@ppadjinTT): remove this when torchvision starts supporting torchvision.ops.nms for bfloat16
             print("NOTE: dtype_override ignored - batched_nms lacks BFloat16 support")
 
-        return batch_t
+        h, w = batch_t.shape[-2:]
+        targets = [
+            {
+                "boxes": torch.tensor([[0.0, 0.0, float(w) / 2, float(h) / 2]]),
+                "labels": torch.tensor([1], dtype=torch.long),
+            }
+            for _ in range(batch_t.shape[0])
+        ]
+        return [list(batch_t), targets]
+
+    def unpack_forward_output(self, fwd_output):
+        import torch
+        from ...tools.utils import extract_tensors_recursive
+
+        head_outputs, _anchors = fwd_output
+        tensors = []
+        extract_tensors_recursive(head_outputs, tensors)
+        if tensors:
+            return torch.cat(tensors, dim=0)
+        return head_outputs
 
     def postprocess_detections(self, fw_out, co_out):
         """Run post-processing on raw model outputs (head_outputs, anchors) on CPU.

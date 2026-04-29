@@ -298,6 +298,13 @@ class ModelLoader(ForgeModel):
         if image is None:
             dataset = load_dataset("huggingface/cats-image", split="test")
             image = dataset[0]["image"]
+        # Deeplabv3 segmentation head produces 1x1 spatial features whose BatchNorm
+        # rejects batch=1 in training mode. Force batch>=2 only for that variant.
+        if (
+            self._variant == ModelVariant.DEEPLABV3_MOBILENET_V2_HF
+            and batch_size < 2
+        ):
+            batch_size = 2
         return self.input_preprocess(
             image=image,
             dtype_override=dtype_override,

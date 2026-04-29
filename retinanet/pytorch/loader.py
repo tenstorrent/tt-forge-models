@@ -326,6 +326,21 @@ class ModelLoader(ForgeModel):
             else:
                 batch_t = batch_t.to(dtype_override)
 
+        # Torchvision RetinaNet (V2) is invoked with patched_retinanet_forward,
+        # which asserts targets are not None when in training mode. Pass synthetic
+        # torchvision-style targets (one valid box per image) so training mode works.
+        # Custom NVIDIA variants take a single tensor and don't use targets.
+        if source == ModelSource.TORCHVISION:
+            h, w = batch_t.shape[-2:]
+            targets = [
+                {
+                    "boxes": torch.tensor([[0.0, 0.0, float(w) / 2, float(h) / 2]]),
+                    "labels": torch.tensor([1], dtype=torch.long),
+                }
+                for _ in range(batch_t.shape[0])
+            ]
+            return [list(batch_t), targets]
+
         return batch_t
 
     def unpack_forward_output(self, fwd_output):

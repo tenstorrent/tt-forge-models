@@ -105,14 +105,17 @@ class ModelLoader(ForgeModel):
 
         return model
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
+    def load_inputs(self, dtype_override=None, batch_size=2):
         """Load and return sample inputs for the SSD300 ResNet50 model with this instance's variant settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
+            batch_size: Optional batch size. Default is 2 to satisfy BatchNorm in
+                       training mode (the backbone produces 1x1 spatial features that
+                       fail with batch=1 under model.train()).
 
         Returns:
-            list: Input tensors that can be fed to the model.
+            torch.Tensor: Input tensor that can be fed to the model.
         """
         # Load image from HuggingFace dataset (prepare_ssd_input expects a path)
         dataset = load_dataset("huggingface/cats-image")["test"]
@@ -138,3 +141,13 @@ class ModelLoader(ForgeModel):
             input_batch = input_batch.to(dtype_override)
 
         return input_batch
+
+    def unpack_forward_output(self, fwd_output):
+        import torch
+        from ...tools.utils import extract_tensors_recursive
+
+        tensors = []
+        extract_tensors_recursive(fwd_output, tensors)
+        if tensors:
+            return torch.cat([t.flatten() for t in tensors])
+        return fwd_output
