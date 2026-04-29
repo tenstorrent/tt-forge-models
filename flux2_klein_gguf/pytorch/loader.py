@@ -49,8 +49,15 @@ def _patch_gguf_parameter():
     except ImportError:
         return
 
-    # Fix bug 1
-    GGUFParameter.as_tensor = lambda self: self.data
+    # Fix bug 1: as_tensor() must escape the GGUFParameter subclass entirely.
+    # Using `self.data` does NOT escape: GGUFParameter.data returns a GGUFParameter
+    # (torch.Tensor._make_subclass preserves the subclass via .data on real tensors).
+    # _make_subclass with torch.Tensor explicitly creates a plain Tensor, but requires
+    # DisableTorchFunctionSubclass to prevent __torch_function__ re-dispatch under dynamo.
+    def _as_tensor(self):
+        with torch._C.DisableTorchFunctionSubclass():
+            return torch.Tensor._make_subclass(torch.Tensor, self, self.requires_grad)
+    GGUFParameter.as_tensor = _as_tensor
 
     # Fix bug 2: wrap the original __torch_function__ to guard quant_type=None
     _original_tf = GGUFParameter.__torch_function__.__func__
