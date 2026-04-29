@@ -26,6 +26,15 @@ class ModelVariant(StrEnum):
     VIT_L_14_LAION2B = "ViT_L_14_laion2B"
 
 
+# Mapping from variant to OpenCLIP model name and pretrained tag in the registry
+_OPEN_CLIP_MODEL_NAME = {
+    ModelVariant.VIT_L_14_LAION2B: "coca_ViT-L-14",
+}
+
+_OPEN_CLIP_PRETRAINED = {
+    ModelVariant.VIT_L_14_LAION2B: "laion2b_s13b_b90k",
+}
+
 # Mapping from variant to OpenCLIP tokenizer name
 _TOKENIZER_NAME = {
     ModelVariant.VIT_L_14_LAION2B: "coca_ViT-L-14",
@@ -37,7 +46,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.VIT_L_14_LAION2B: ModelConfig(
-            pretrained_model_name="hf-hub:laion/CoCa-ViT-L-14-laion2B-s13B-b90k",
+            pretrained_model_name="coca_ViT-L-14",
         ),
     }
 
@@ -71,9 +80,10 @@ class ModelLoader(ForgeModel):
         """
         from open_clip import create_model_from_pretrained, get_tokenizer
 
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        model_name = _OPEN_CLIP_MODEL_NAME[self._variant]
+        pretrained = _OPEN_CLIP_PRETRAINED[self._variant]
 
-        model, self.preprocess = create_model_from_pretrained(pretrained_model_name)
+        model, self.preprocess = create_model_from_pretrained(model_name, pretrained=pretrained)
         self.tokenizer = get_tokenizer(_TOKENIZER_NAME[self._variant])
 
         if dtype_override is not None:
@@ -95,9 +105,9 @@ class ModelLoader(ForgeModel):
         from open_clip import create_model_from_pretrained, get_tokenizer
 
         if self.preprocess is None or self.tokenizer is None:
-            _, self.preprocess = create_model_from_pretrained(
-                self._variant_config.pretrained_model_name
-            )
+            model_name = _OPEN_CLIP_MODEL_NAME[self._variant]
+            pretrained = _OPEN_CLIP_PRETRAINED[self._variant]
+            _, self.preprocess = create_model_from_pretrained(model_name, pretrained=pretrained)
             self.tokenizer = get_tokenizer(_TOKENIZER_NAME[self._variant])
 
         # Load image from HuggingFace dataset
