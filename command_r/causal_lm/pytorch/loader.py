@@ -20,6 +20,63 @@ from ....config import (
 )
 
 
+def _patch_transformers_command_r_gguf():
+    """Register the 'command-r' GGUF architecture so transformers can load Command R GGUF files.
+
+    The GGUF file stores general.architecture = 'command-r', but transformers 5.x
+    GGUF_SUPPORTED_ARCHITECTURES does not include 'command-r'. The HuggingFace model type
+    is 'cohere', so we must also remap model_type in the returned config dict.
+    """
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    import transformers.configuration_utils as config_utils
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+
+    if "command-r" in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # Already patched
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("command-r")
+
+    # CohereConfig field names (note: uses layer_norm_eps, not rms_norm_eps)
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["command-r"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "layer_norm_eps",
+        "vocab_size": "vocab_size",
+    }
+
+    # Walk the patcher chain to find the real transformers load_gguf_checkpoint.
+    # Other GGUF loaders may have already monkey-patched this function at import
+    # time; we need the actual transformers implementation as our base.
+    def _find_real_load_gguf(fn):
+        while hasattr(fn, "__globals__") and "_orig_load_gguf_checkpoint" in fn.__globals__:
+            fn = fn.__globals__["_orig_load_gguf_checkpoint"]
+        return fn
+
+    _orig_load_gguf_checkpoint = _find_real_load_gguf(gguf_utils.load_gguf_checkpoint)
+
+    def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+        result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors, **kwargs)
+        # Translate model_type so AutoConfig resolves CohereConfig
+        if isinstance(result, dict) and result.get("config", {}).get("model_type") == "command-r":
+            result["config"]["model_type"] = "cohere"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    # configuration_utils imports load_gguf_checkpoint by reference; patch it too
+    config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+
+_patch_transformers_command_r_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available Command R model variants."""
 
