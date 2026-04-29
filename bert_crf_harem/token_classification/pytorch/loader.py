@@ -6,7 +6,6 @@ BERT-CRF model loader implementation for token classification (Portuguese NER).
 """
 
 import torch
-import torchcrf
 from transformers import AutoModelForTokenClassification, BertTokenizer, PreTrainedModel
 from third_party.tt_forge_models.config import (
     ModelInfo,
@@ -157,16 +156,23 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model = model.to(dtype_override)
 
-        # pytorch-crf 0.7.2 creates uint8 default masks in CRF.decode and uses them
-        # in torch.where inside _viterbi_decode. In PyTorch 2.x torch.where requires
-        # boolean predicates; uint8 causes TorchRuntimeError during torch.compile.
-        # Patch _viterbi_decode to cast mask to bool before the torch.where calls.
-        _orig_viterbi = torchcrf.CRF._viterbi_decode
+        # BERT_CRF.forward in inference mode (labels=None) calls crf.decode() →
+        # _viterbi_decode(), which uses Python control flow (.item(), assert mask[0].all())
+        # that trigger D2H transfers fatal to TT XLA compilation. Return logits directly
+        # instead; CRF Viterbi decode is CPU post-processing, not part of the compiled graph.
+        _orig_bert_crf_forward = type(model).forward
 
-        def _patched_viterbi(self_crf, emissions, mask):
-            return _orig_viterbi(self_crf, emissions, mask.bool())
+        def _patched_bert_crf_forward(self, input_ids, token_type_ids, attention_mask, labels, labels_mask):
+            if labels is not None:
+                return _orig_bert_crf_forward(self, input_ids, token_type_ids, attention_mask, labels, labels_mask)
+            last_hidden_layer = self.bert(
+                input_ids=input_ids,
+                token_type_ids=token_type_ids,
+                attention_mask=attention_mask,
+            )["last_hidden_state"]
+            return self.linear(self.dropout(last_hidden_layer))
 
-        torchcrf.CRF._viterbi_decode = _patched_viterbi
+        type(model).forward = _patched_bert_crf_forward
 
         self.model = model
         model.eval()
