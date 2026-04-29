@@ -5,8 +5,7 @@
 DeepSeek R1 MXFP4 model loader implementation for causal language modeling.
 
 AMD's MXFP4-quantized variant of DeepSeek-R1 using OCP Microscaling format.
-Uses reduced MoE configuration for testing since the full 671B parameter
-model is too large to load directly.
+Full model is 671B parameters, which far exceeds single-device TT DRAM (24 GB).
 """
 
 from typing import Optional
@@ -26,12 +25,11 @@ from ....config import (
 class ModelLoader(ForgeModel):
     """DeepSeek R1 MXFP4 model loader for causal language modeling."""
 
-    def __init__(self, variant=None, num_layers: Optional[int] = None):
+    def __init__(self, variant=None):
         super().__init__(variant)
         self.model_name = "amd/DeepSeek-R1-MXFP4"
         self.tokenizer = None
         self.text = "Please reason step by step. What is 25 multiplied by 16?"
-        self.num_layers = num_layers
 
     @classmethod
     def _get_model_info(cls, variant_name: str = None):
@@ -48,28 +46,19 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         config = AutoConfig.from_pretrained(self.model_name, trust_remote_code=True)
-
-        # Reduce model dimensions for testing
-        if self.num_layers is not None:
-            config.num_hidden_layers = self.num_layers
-        else:
-            config.num_hidden_layers = 6
-        config.num_attention_heads = 16
-        config.hidden_size = 1024
-        config.num_key_value_heads = 16
-        config.intermediate_size = 1024 * 4
-        config.num_experts_per_tok = 2
-        config.q_lora_rank = 256
+        config.use_cache = False
 
         model_kwargs = {
             "attn_implementation": "eager",
             "trust_remote_code": True,
+            "config": config,
         }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_config(config, **model_kwargs)
+        model = AutoModelForCausalLM.from_pretrained(self.model_name, **model_kwargs)
+        model.config._experts_implementation = "batched_mm"
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.model_name, trust_remote_code=True
