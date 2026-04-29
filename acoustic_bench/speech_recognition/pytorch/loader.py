@@ -57,6 +57,18 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         from nemo.collections.speechlm2.models import SALM
+        from nemo.collections.speechlm2.parts.hf_hub import HFHubMixin
+
+        # huggingface_hub>=1.0 removed 'proxies' and 'resume_download' from the
+        # _from_pretrained call, but nemo's HFHubMixin still requires them.
+        # Wrap to supply defaults so both old and new huggingface_hub work.
+        _orig = HFHubMixin._from_pretrained.__func__
+
+        @classmethod
+        def _compat_from_pretrained(cls, *, proxies=None, resume_download=None, **kw):
+            return _orig(cls, proxies=proxies, resume_download=resume_download, **kw)
+
+        HFHubMixin._from_pretrained = _compat_from_pretrained
 
         model = SALM.from_pretrained(
             self._variant_config.pretrained_model_name,
