@@ -22,7 +22,7 @@ from ...config import (
 from .src.model import Wrapper
 
 
-def _patch_qwen2_5_vl_for_tt_device():
+def _patch_qwen2_5_vl_for_tt_device(model):
     """Patch Qwen2.5 VL methods for TT device compatibility.
 
     Three classes of issues are fixed:
@@ -37,7 +37,9 @@ def _patch_qwen2_5_vl_for_tt_device():
        that is used to gather TT hidden_states. TT does not support indexing a
        device tensor with CPU indices. Fix: replace the visual transformer forward
        with a reimplementation that computes rot_pos_emb and window_index entirely
-       on CPU, then explicitly moves them to TT device before gathering.
+       on CPU, then explicitly moves them to TT device before gathering. The CPU
+       inv_freq copy is stored at load time (before .to(device)) as a module
+       attribute to avoid reading TT device parameters inside the compiled region.
 
     3. torch.repeat_interleave tile-padding: the visual forward uses
        repeat_interleave to build cu_seqlens. On TT device the output VALUE is
@@ -50,6 +52,13 @@ def _patch_qwen2_5_vl_for_tt_device():
         from transformers.modeling_outputs import BaseModelOutputWithPooling
     except ImportError:
         return
+
+    # Store CPU copy of inv_freq on the visual module at load time (model is on CPU
+    # here). This attribute is a plain tensor (not a Parameter/buffer) so .to(device)
+    # will NOT move it to TT — it stays CPU throughout the compiled forward.
+    vis = model.model.visual
+    vis._inv_freq_cpu = vis.rotary_pos_emb.inv_freq.detach().cpu().float()
+    vis._inv_freq_orig_dtype = vis.rotary_pos_emb.inv_freq.dtype
 
     orig_get_rope = modeling_qwen2_5_vl.Qwen2_5_VLModel.get_rope_index
     orig_get_image = modeling_qwen2_5_vl.Qwen2_5_VLModel.get_image_features
@@ -96,6 +105,7 @@ def _patch_qwen2_5_vl_for_tt_device():
         hidden_states = self.patch_embed(hidden_states)
 
         # --- rotary positional embeddings (entirely on CPU to avoid cross-device gather) ---
+        # Use _inv_freq_cpu stored at load time to avoid reading a TT parameter here.
         pos_ids = []
         for t, h, w in grid_thw_cpu.tolist():
             hpos_ids = torch.arange(h).unsqueeze(1).expand(-1, w)
@@ -115,14 +125,12 @@ def _patch_qwen2_5_vl_for_tt_device():
             pos_ids.append(torch.stack([hpos_ids, wpos_ids], dim=-1).repeat(t, 1))
         pos_ids = torch.cat(pos_ids, dim=0)
         max_grid_size = int(grid_thw_cpu[:, 1:].max().item())
-        inv_freq = self.rotary_pos_emb.inv_freq.cpu().float()
+        inv_freq = self._inv_freq_cpu  # CPU tensor, never moved to TT
         seq = torch.arange(max_grid_size, dtype=inv_freq.dtype)
         freqs = torch.outer(seq, inv_freq)
         rotary_pos_emb = freqs[pos_ids].flatten(1)
         # move result to TT device with the model's original dtype
-        rotary_pos_emb = rotary_pos_emb.to(
-            dtype=self.rotary_pos_emb.inv_freq.dtype, device=device
-        )
+        rotary_pos_emb = rotary_pos_emb.to(dtype=self._inv_freq_orig_dtype, device=device)
 
         # --- window index (computed on CPU, index moved to device for gather) ---
         window_index_cpu, cu_window_seqlens_list = orig_get_window(self, grid_thw_cpu)
@@ -291,12 +299,14 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = torch.float32
         model_kwargs |= kwargs
 
-        _patch_qwen2_5_vl_for_tt_device()
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
         # transformers 5.x no longer accepts use_cache in __init__; set via config
         model.config.text_config.use_cache = False
+        # Apply TT device patches after loading (model is on CPU here so inv_freq
+        # can be safely captured as a CPU tensor without device-to-host transfer)
+        _patch_qwen2_5_vl_for_tt_device(model)
         model.eval()
         model = Wrapper(model)
 
