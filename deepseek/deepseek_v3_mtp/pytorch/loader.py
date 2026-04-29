@@ -41,6 +41,54 @@ def _stub_triton_if_missing():
         sys.modules["triton.language"] = tl
 
 
+def _patch_fp8_dequantize():
+    # Fp8Dequantize.convert requires weight dims to be exactly divisible by the
+    # block size (128x128). DeepSeek-V3 MLA attention uses kv_a_proj_with_mqa of
+    # shape (576, 2560) where 576 % 128 != 0. The stored scale already has the
+    # correct ceil-divided block count, so padding the weight before dequantizing
+    # and unpadding afterwards is the correct fix.
+    import torch
+
+    try:
+        from transformers.integrations.finegrained_fp8 import Fp8Dequantize
+    except ImportError:
+        return
+
+    def _convert(self, input_dict, full_layer_name=None, **kwargs):
+        if len(input_dict) < 2:
+            return {full_layer_name: input_dict["weight$"]}
+
+        quantized = input_dict["weight$"][0]
+        scales = input_dict["weight_scale_inv"][0]
+
+        rows, cols = quantized.shape[-2:]
+        block_size = self.hf_quantizer.quantization_config.weight_block_size
+        if block_size is None:
+            block_size = (rows, cols)
+        block_m, block_n = block_size
+
+        # Derive block counts from the stored scale (supports non-aligned dims).
+        n_rows_b, n_cols_b = scales.shape[-2], scales.shape[-1]
+        pad_rows = n_rows_b * block_m
+        pad_cols = n_cols_b * block_n
+
+        w = quantized.to(scales.dtype)
+
+        if pad_rows != rows or pad_cols != cols:
+            buf = torch.zeros(*w.shape[:-2], pad_rows, pad_cols,
+                              dtype=w.dtype, device=w.device)
+            buf[..., :rows, :cols] = w
+            w = buf
+
+        reshaped = w.reshape(-1, n_rows_b, block_m, n_cols_b, block_n)
+        sc = scales.reshape(-1, n_rows_b, n_cols_b).unsqueeze(-1).unsqueeze(2)
+        dequantized = (reshaped * sc).reshape(*w.shape)
+
+        return {full_layer_name: dequantized[..., :rows, :cols].contiguous()}
+
+    Fp8Dequantize.convert = _convert
+
+
 class ModelVariant(StrEnum):
     """Available DeepSeek V3 MTP model variants."""
 
@@ -96,6 +144,7 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         _stub_triton_if_missing()
+        _patch_fp8_dequantize()
         model_kwargs = {
             "trust_remote_code": True,
         }
