@@ -27,6 +27,10 @@ def _patch_transformers_mistral3_gguf():
     have GGUF loading support for it yet. Since the text model is structurally
     identical to mistral, we reuse the mistral config mapping and remap the
     model_type back to 'mistral' so AutoModelForCausalLM resolves correctly.
+
+    gguf>=0.10.0 renamed the 'mistral' arch to 'mistral3' in MODEL_ARCH_NAMES,
+    so get_gguf_hf_weights_map must route model_type='mistral' → 'mistral3'
+    to avoid NotImplementedError.
     """
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
@@ -64,6 +68,22 @@ def _patch_transformers_mistral3_gguf():
 
     gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
+    # gguf>=0.10.0 removed 'mistral' from MODEL_ARCH_NAMES (only 'mistral3'
+    # remains). get_gguf_hf_weights_map raises NotImplementedError when it
+    # cannot find model_type='mistral' in MODEL_ARCH_NAMES. Route it to
+    # 'mistral3' so the correct tensor name map is returned.
+    orig_get_weights_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_weights_map(hf_model, processor, model_type=None, num_layers=None, qual_name=""):
+        effective_type = model_type
+        if effective_type is None and hasattr(hf_model, "config"):
+            effective_type = getattr(hf_model.config, "model_type", None)
+        if effective_type == "mistral":
+            model_type = "mistral3"
+        return orig_get_weights_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_weights_map
+
     import transformers.models.auto.tokenization_auto as tok_auto
     import transformers.configuration_utils as config_utils
     import transformers.modeling_utils as modeling_utils
@@ -71,6 +91,8 @@ def _patch_transformers_mistral3_gguf():
     for mod in (tok_auto, config_utils, modeling_utils):
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+        if hasattr(mod, "get_gguf_hf_weights_map"):
+            mod.get_gguf_hf_weights_map = patched_get_weights_map
 
 
 _patch_transformers_mistral3_gguf()
@@ -188,6 +210,18 @@ class ModelLoader(ForgeModel):
         for key in inputs:
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+
+        # XLA slice validates bounds strictly. SlidingWindowCache.update does
+        # full_states[:, :, -sliding_window+1:, :]; when sliding_window > seq_len
+        # the start index is out of range [-seq_len, seq_len-1]. Clamp the config
+        # so the index stays valid (full and sliding attention are equivalent when
+        # seq_len <= sliding_window).
+        if (
+            self.model is not None
+            and hasattr(self.model.config, "sliding_window")
+            and self.model.config.sliding_window is not None
+        ):
+            self.model.config.sliding_window = inputs["input_ids"].shape[1]
 
         return inputs
 
