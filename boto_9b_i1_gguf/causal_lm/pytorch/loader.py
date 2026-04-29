@@ -53,9 +53,14 @@ def _real_load_gguf_checkpoint_ctx():
     real_fn = None
     for mod in sys.modules.values():
         orig = getattr(mod, "_orig_load_gguf_checkpoint", None)
-        if orig is not None and "model_to_load" in inspect.signature(orig).parameters:
-            real_fn = orig
-            break
+        if orig is None or not callable(orig):
+            continue
+        try:
+            if "model_to_load" in inspect.signature(orig).parameters:
+                real_fn = orig
+                break
+        except (TypeError, ValueError):
+            continue
 
     if real_fn is None:
         yield
