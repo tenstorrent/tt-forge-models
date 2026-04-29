@@ -132,7 +132,11 @@ class ModelLoader(ForgeModel):
         )
         # GGUFParameter.__torch_function__ recursion under TorchDynamo tracing;
         # dequantize to plain tensors in eager mode before compilation.
+        # Use nn.Module.to() directly: diffusers ModelMixin.to() raises ValueError
+        # on quantized models even after dequantization (hf_quantizer still set).
+        # F16-stored GGUF tensors dequantize to float16, not compute_dtype.
         _dequantize_gguf_and_restore_linear(self.transformer)
+        torch.nn.Module.to(self.transformer, compute_dtype)
 
         return self.transformer
 
