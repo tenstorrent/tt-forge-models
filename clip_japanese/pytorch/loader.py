@@ -6,6 +6,7 @@ CLIP Japanese model loader implementation for image-text similarity.
 """
 import torch
 from transformers import AutoImageProcessor, AutoModel, AutoTokenizer
+from transformers.modeling_utils import PreTrainedModel
 from typing import Optional
 
 from ...base import ForgeModel
@@ -108,7 +109,24 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        # CLYPModel (remote code, transformers 4.x era) does not call self.post_init()
+        # in its __init__, so transformers 5.x never sets all_tied_weights_keys on the
+        # instance. _finalize_model_loading accesses that attribute unconditionally.
+        # Patch _adjust_tied_keys_with_tied_pointers to initialise the attribute when
+        # missing, then restore the original implementation after loading.
+        _orig_adjust = PreTrainedModel._adjust_tied_keys_with_tied_pointers
+
+        def _patched_adjust(self_model, missing_keys):
+            if not hasattr(self_model, "all_tied_weights_keys"):
+                self_model.all_tied_weights_keys = {}
+            return _orig_adjust(self_model, missing_keys)
+
+        PreTrainedModel._adjust_tied_keys_with_tied_pointers = _patched_adjust
+        try:
+            model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        finally:
+            PreTrainedModel._adjust_tied_keys_with_tied_pointers = _orig_adjust
+
         model.eval()
 
         return model
