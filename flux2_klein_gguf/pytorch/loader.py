@@ -25,48 +25,64 @@ from ...config import (
 )
 
 
-def _patch_gguf_parameter_torch_function():
-    # diffusers 0.37.1 GGUFParameter.__torch_function__ has two bugs:
+def _patch_gguf_parameter():
+    # diffusers 0.37.1 GGUFParameter has two bugs:
     #
-    # 1. Infinite recursion under torch.compile/dynamo: calls
-    #    super().__torch_function__(func, types, ...) with types containing
-    #    GGUFParameter. torch.Tensor.__torch_function__ re-dispatches to
-    #    GGUFParameter → recursion. Fix: filter cls from types before super().
+    # Bug 1 — dynamo compilation: as_tensor() calls
+    #   torch.Tensor._make_subclass(torch.Tensor, self, requires_grad)
+    # which triggers __torch_function__ dispatch. Under dynamo, that dispatch
+    # is symbolic and re-invokes __torch_function__ unboundedly. Fix: replace
+    # as_tensor() with a lambda returning self.data. Dynamo treats .data as a
+    # metadata-only attribute access (not a traced tensor op) and produces a
+    # plain FakeTensor; real execution returns GGUFParameter.data which is the
+    # raw storage view. This is sufficient for dequantize_gguf_tensor which only
+    # needs the raw uint8 bytes.
     #
-    # 2. KeyError: None when non-quantized ops (e.g. SDPA) produce results
-    #    where _extract_quant_type returns None: the original code calls
-    #    GGUFParameter(result, quant_type=None) → GGML_QUANT_SIZES[None].
-    #    Fix: skip wrapping when quant_type is None.
+    # Bug 2 — runtime execution: __torch_function__ calls
+    #   cls(result, quant_type=_extract_quant_type(args))
+    # but for ops like SDPA that produce results unrelated to quantized weights
+    # (GGUFParameter propagated through Q/K/V projections), quant_type is not
+    # directly in the SDPA args → _extract_quant_type returns None →
+    # GGML_QUANT_SIZES[None] → KeyError. Fix: guard against quant_type=None.
     try:
         from diffusers.quantizers.gguf.utils import GGUFParameter
     except ImportError:
         return
 
+    # Fix bug 1
+    GGUFParameter.as_tensor = lambda self: self.data
+
+    # Fix bug 2: wrap the original __torch_function__ to guard quant_type=None
+    _original_tf = GGUFParameter.__torch_function__.__func__
+
     @classmethod
-    def _patched_torch_function(cls, func, types, args=(), kwargs=None):
+    def _patched_tf(cls, func, types, args=(), kwargs=None):
         if kwargs is None:
             kwargs = {}
-        # Filter cls from types so super().__torch_function__ dispatches to
-        # torch.Tensor without re-invoking this method.
-        filtered_types = tuple(t for t in types if t is not cls)
-        result = super(GGUFParameter, cls).__torch_function__(
-            func, filtered_types, args, kwargs
-        )
-        quant_type = cls._extract_quant_type(args)
-        if quant_type is None:
-            # Don't wrap: cls(result, quant_type=None) → GGML_QUANT_SIZES[None]
-            return result
-        if isinstance(result, torch.Tensor):
-            return cls(result, quant_type=quant_type)
-        elif type(result) in (list, tuple):
-            wrapped = [
-                cls(x, quant_type=quant_type) if isinstance(x, torch.Tensor) else x
-                for x in result
-            ]
-            return type(result)(wrapped)
+        result = _original_tf(cls, func, types, args, kwargs)
+        # The original wraps result in cls(result, quant_type=quant_type) but
+        # _extract_quant_type returns None for non-quantized-weight ops. We
+        # can't undo that wrapping here because it happens inside _original_tf,
+        # so instead we need the original to NOT be called when quant_type is
+        # None. Patch: check quant_type before deferring.
         return result
 
-    GGUFParameter.__torch_function__ = _patched_torch_function
+    # Actually, _original_tf raises KeyError inside — we must wrap more carefully.
+    @classmethod
+    def _safe_tf(cls, func, types, args=(), kwargs=None):
+        if kwargs is None:
+            kwargs = {}
+        quant_type = cls._extract_quant_type(args)
+        if quant_type is None:
+            # No quantized weight in args; call func directly without wrapping
+            # the result in GGUFParameter. Use DisableTorchFunctionSubclass to
+            # prevent re-dispatch back to this handler (avoids recursion both
+            # under dynamo and at runtime).
+            with torch._C.DisableTorchFunctionSubclass():
+                return func(*args, **kwargs)
+        return _original_tf(cls, func, types, args, kwargs)
+
+    GGUFParameter.__torch_function__ = _safe_tf
 
 
 def _dequantize_bf16_gguf_params(model):
@@ -156,7 +172,7 @@ class ModelLoader(ForgeModel):
         # Patch GGUFParameter.__torch_function__ before loading to fix two bugs:
         # (1) infinite recursion under torch.compile/dynamo; (2) KeyError when
         # quant_type is None for ops like SDPA that produce non-quantized outputs.
-        _patch_gguf_parameter_torch_function()
+        _patch_gguf_parameter()
         # Neither GGUF repo has a config.json (and the embedded metadata points to the
         # gated black-forest-labs/FLUX.2-dev repo). Use a local config derived from the
         # Klein 9B tensor shapes instead, following the same pattern as flux_srpo_gguf.
