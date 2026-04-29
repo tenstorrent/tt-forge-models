@@ -12,21 +12,47 @@ import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
+import numpy as np
 from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
     GGUF_SUPPORTED_ARCHITECTURES,
     TENSOR_PROCESSORS,
-    MambaTensorProcessor,
+    GGUFTensor,
+    TensorProcessor,
 )
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+
+class _Qwen35TensorProcessor(TensorProcessor):
+    """Custom processor for qwen35 GGUFs.
+
+    MambaTensorProcessor applies np.log(-weights) to any tensor whose name contains
+    'ssm_a' as a SUBSTRING.  This incorrectly matches 'ssm_alpha.weight', which is a
+    linear projection weight (positive values after dequant) and not the A-matrix
+    scalar.  log(-positive) = NaN, corrupting the weight and causing pcc=nan.
+
+    This processor:
+      - expands ssm_conv1d.weight from [C, K] → [C, 1, K] (same as MambaTensorProcessor)
+      - applies log(-weights) ONLY to the scalar ssm_a tensor (name ends with '.ssm_a')
+      - leaves ssm_alpha, ssm_beta, ssm_dt, ssm_norm, ssm_out, etc. untouched
+    """
+
+    def process(self, weights, name, **kwargs):
+        if "ssm_conv1d.weight" in name:
+            weights = np.expand_dims(weights, axis=1)
+        # Only apply the Mamba-style log(-A) transform to the scalar A parameter,
+        # not to projection weights like ssm_alpha.weight / ssm_beta.weight.
+        if name.endswith(".ssm_a") or name == "ssm_a":
+            weights = np.log(-weights)
+        return GGUFTensor(weights, name, {})
 
 
 def _patch_qwen35_support():
     if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
         GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
     # qwen35 GGUFs store ssm_conv1d.weight as 2D [C, K]; nn.Conv1d needs 3D [C, 1, K].
-    # MambaTensorProcessor.process() calls np.expand_dims on ssm_conv1d.weight to fix this.
-    TENSOR_PROCESSORS.setdefault("qwen35", MambaTensorProcessor)
+    # Use a custom processor (not MambaTensorProcessor) to avoid corrupting ssm_alpha.weight.
+    TENSOR_PROCESSORS.setdefault("qwen35", _Qwen35TensorProcessor)
     for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
         if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
             qwen3_map = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"]
