@@ -85,6 +85,12 @@ class ModelLoader(ForgeModel):
         question = "how many cats are in the picture?"
         inputs = self.processor(image, question, return_tensors="pt")
 
+        # BlipForQuestionAnswering.forward() requires decoder_input_ids for inference.
+        # BLIP uses a BERT tokenizer where bos_token_id is None; fall back to cls_token_id.
+        tok = self.processor.tokenizer
+        bos_id = tok.bos_token_id if tok.bos_token_id is not None else tok.cls_token_id
+        inputs["decoder_input_ids"] = torch.full((1, 1), bos_id, dtype=torch.long)
+
         for key in inputs:
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
