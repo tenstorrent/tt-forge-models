@@ -136,10 +136,16 @@ def _patch_qwen2_5_vl_for_tt_device(model):
         window_index_cpu, cu_window_seqlens_list = orig_get_window(self, grid_thw_cpu)
         window_index = window_index_cpu.to(device)
 
-        cu_window_seqlens = torch.tensor(
-            cu_window_seqlens_list, device=device, dtype=torch.int32
-        )
-        cu_window_seqlens = torch.unique_consecutive(cu_window_seqlens)
+        # Deduplicate in Python (avoids torch.unique_consecutive on TT device which
+        # is unsupported). The list comes from orig_get_window which builds it via
+        # cumsum so it is already sorted; we just need to remove consecutive dupes.
+        unique_cu_window = []
+        prev = None
+        for v in cu_window_seqlens_list:
+            if v != prev:
+                unique_cu_window.append(v)
+                prev = v
+        cu_window_seqlens = torch.tensor(unique_cu_window, device=device, dtype=torch.int32)
 
         # --- cu_seqlens via pure Python to avoid repeat_interleave tile-padding ---
         cumsum = 0
