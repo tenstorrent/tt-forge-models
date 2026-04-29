@@ -5,8 +5,11 @@
 DeepSeek Coder V2 model loader implementation for causal language modeling.
 """
 
-from transformers import AutoModelForCausalLM, AutoTokenizer, DynamicCache
 from typing import Optional
+
+import torch
+import torch.nn.functional as F
+from transformers import AutoModelForCausalLM, AutoTokenizer, DynamicCache
 
 if not hasattr(DynamicCache, "get_usable_length"):
     DynamicCache.get_usable_length = lambda self, new_seq_len, layer_idx=0: (
@@ -23,6 +26,40 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _deepseek_v2_moe_forward(self, hidden_states):
+    """Monkey-patched DeepseekV2MoE.forward.
+
+    CPU path: original moe_infer loop (data-dependent, used as golden reference).
+    Device path: per-expert loop with static shapes for torch.compile, replacing the
+    numpy-based token dispatch in moe_infer that is incompatible with Dynamo tracing.
+    """
+    identity = hidden_states
+    orig_shape = hidden_states.shape
+    topk_idx, topk_weight, aux_loss = self.gate(hidden_states)
+    hidden_states = hidden_states.view(-1, hidden_states.shape[-1])  # [T, H]
+
+    if hidden_states.device.type == "cpu":
+        y = self.moe_infer(hidden_states, topk_idx, topk_weight).view(*orig_shape)
+    else:
+        E = len(self.experts)
+        # Dense routing weights [T, E]: one_hot [T, K, E] * weight [T, K, 1] → sum K → [T, E]
+        routing_weights = (
+            F.one_hot(topk_idx.long(), num_classes=E).to(topk_weight.dtype)
+            * topk_weight.unsqueeze(-1)
+        ).sum(dim=1)
+
+        # torch.compile unrolls this loop since E is a compile-time constant
+        y = torch.zeros_like(hidden_states)
+        for i, expert in enumerate(self.experts):
+            y = y + expert(hidden_states) * routing_weights[:, i : i + 1]
+
+        y = y.view(*orig_shape)
+
+    if self.config.n_shared_experts is not None:
+        y = y + self.shared_experts(identity)
+    return y
 
 
 class ModelVariant(StrEnum):
@@ -128,6 +165,13 @@ class ModelLoader(ForgeModel):
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
+
+        # Patch DeepseekV2MoE.forward: replace data-dependent moe_infer (numpy loop)
+        # with a dense per-expert loop that has static shapes for torch.compile.
+        for mod in model.modules():
+            if type(mod).__name__ == "DeepseekV2MoE":
+                type(mod).forward = _deepseek_v2_moe_forward
+                break
 
         return model
 
