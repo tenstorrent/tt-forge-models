@@ -54,8 +54,20 @@ def _patch_transformers_qwen35moe_gguf():
         "full_attention_interval": "full_attention_interval",
     }
 
-    if "qwen3moe" in TENSOR_PROCESSORS:
-        TENSOR_PROCESSORS["qwen35moe"] = TENSOR_PROCESSORS["qwen3moe"]
+    import numpy as _np
+    from transformers.modeling_gguf_pytorch_utils import (
+        Qwen2MoeTensorProcessor as _Qwen2MoeTensorProcessor,
+    )
+
+    class _Qwen35MoeTensorProcessor(_Qwen2MoeTensorProcessor):
+        def process(self, weights, name, **kwargs):
+            if "ssm_conv1d" in name and weights.ndim == 2:
+                # GGUF stores conv1d as [out_ch, kernel] but nn.Conv1d expects
+                # [out_ch, in_ch, kernel]; add the in_ch=1 (depthwise) dimension.
+                weights = _np.expand_dims(weights, axis=1)
+            return super().process(weights, name, **kwargs)
+
+    TENSOR_PROCESSORS["qwen35moe"] = _Qwen35MoeTensorProcessor()
 
     from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
