@@ -150,6 +150,11 @@ class ModelLoader(ForgeModel):
             PreTrainedModel._adjust_tied_keys_with_tied_pointers = original_adjust_tied
             PreTrainedModel._move_missing_keys_from_meta_to_device = original_move_missing
 
+        # BertModel is loaded in float32 (from neuralmind checkpoint) while the outer
+        # from_pretrained context sets bfloat16 default dtype, leaving self.linear in
+        # bfloat16. Cast everything to dtype_override for consistency.
+        if dtype_override is not None:
+            model = model.to(dtype_override)
         self.model = model
         model.eval()
         return model
