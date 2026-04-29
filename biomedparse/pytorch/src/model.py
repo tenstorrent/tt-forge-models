@@ -80,6 +80,12 @@ def build_biomedparse_model():
     repo_dir = _ensure_repo_cloned()
     _add_repo_to_path(repo_dir)
 
+    # PIL.Image.LINEAR was removed in Pillow 10; detectron2 0.6 uses it.
+    from PIL import Image as _Image
+
+    if not hasattr(_Image, "LINEAR"):
+        _Image.LINEAR = _Image.BILINEAR
+
     from modeling.BaseModel import BaseModel
     from modeling import build_model
     from utilities.arguments import load_opt_from_config_files

@@ -1,0 +1,4 @@
+nltk
+mpi4py
+kornia
+fvcore
