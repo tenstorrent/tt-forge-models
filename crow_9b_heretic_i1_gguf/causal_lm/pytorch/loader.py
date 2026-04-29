@@ -140,7 +140,16 @@ class ModelLoader(ForgeModel):
         key_dim = (conv_dim - value_dim) // 2  # 2048
         head_k_dim = key_dim // ssm_group_count  # 128
 
-        vocab_size = rf("qwen35.vocab_size") or rf("tokenizer.ggml.token_count") or 151936
+        # Read vocab_size from the actual embedding tensor shape; the GGUF metadata
+        # field may report the base Qwen3 vocab (151936) even when the model has
+        # an extended vocabulary (e.g. 248320 for Crow-9B-HERETIC).
+        vocab_size = None
+        for tensor in reader.tensors:
+            if tensor.name == "token_embd.weight":
+                vocab_size = tensor.shape[-1]  # stored as (hidden_size, vocab_size) in GGUF
+                break
+        if vocab_size is None:
+            vocab_size = rf("qwen35.vocab_size") or rf("tokenizer.ggml.token_count") or 151936
 
         cfg = Qwen3NextConfig(
             vocab_size=vocab_size,
