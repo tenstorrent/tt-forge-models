@@ -115,9 +115,13 @@ class ModelLoader(ForgeModel):
 
         revision = self._REVISION_MAP[self._variant]
 
+        # GigaAM's preprocessor (STFT → MelScale) always outputs float32 and
+        # has no bfloat16 CPU path (only CUDA autocast for the encoder).  Loading
+        # with torch_dtype=bfloat16 casts MelScale.fb to bfloat16 while STFT
+        # output stays float32, causing a matmul dtype mismatch that cannot be
+        # resolved without modifying the remote model code.  Load as float32
+        # unconditionally; the TT backend handles precision internally.
         model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
         # torchaudio.functional.melscale_fbanks calls .any() (which internally
@@ -162,13 +166,6 @@ class ModelLoader(ForgeModel):
             PreTrainedModel._finalize_model_loading = _orig_finalize
 
         model.eval()
-
-        # MelScale.fb is a buffer that gets cast to bfloat16 when the model is
-        # loaded with torch_dtype=bfloat16, but STFT always outputs float32.
-        # Cast the preprocessor back to float32 so the mel matmul dtype matches.
-        if hasattr(model, "model") and hasattr(model.model, "preprocessor"):
-            model.model.preprocessor.float()
-
         return model
 
     def load_inputs(self, dtype_override=None):
