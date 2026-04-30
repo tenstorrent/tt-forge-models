@@ -85,30 +85,55 @@ def _patch_transformers_lfm2moe_gguf():
     import inspect
 
     def _find_real_loader(fn):
+        """Find load_gguf_checkpoint that has model_to_load as an explicit parameter.
+
+        Other loaders define module-level patcher functions (no closures) that store
+        the previous patcher in their module's global namespace.  We need BFS over
+        both closure cells and co_names-referenced globals to traverse the full chain.
+        We only follow callables whose source is in modeling_gguf_pytorch_utils or
+        tt_forge_models to avoid an unbounded search through unrelated packages.
+        """
         seen = set()
-        cur = fn
-        while cur is not None:
+        queue = [fn]
+        while queue:
+            cur = queue.pop(0)
             fid = id(cur)
             if fid in seen:
-                break
+                continue
             seen.add(fid)
+
+            # Return when we find the real function: model_to_load as an explicit param
             try:
                 if "model_to_load" in inspect.signature(cur).parameters:
                     return cur
             except (ValueError, TypeError):
                 pass
-            nxt = None
+
+            # 1. Follow closure cells (nested/lambda patcher pattern)
             for cell in getattr(cur, "__closure__", None) or ():
                 try:
                     val = cell.cell_contents
                 except ValueError:
                     continue
                 if callable(val) and id(val) not in seen:
-                    nxt = val
-                    break
-            if nxt is None:
-                break
-            cur = nxt
+                    queue.append(val)
+
+            # 2. Follow module-level globals referenced by this function (module-level
+            #    patcher pattern: _orig = gguf_utils.load_gguf_checkpoint at module top).
+            code = getattr(cur, "__code__", None)
+            if code is not None:
+                glbs = getattr(cur, "__globals__", {})
+                for name in code.co_names:
+                    val = glbs.get(name)
+                    if not callable(val) or id(val) in seen:
+                        continue
+                    try:
+                        srcfile = inspect.getfile(val)
+                    except TypeError:
+                        continue  # built-in / C extension, skip
+                    if "modeling_gguf_pytorch_utils" in srcfile or "tt_forge_models" in srcfile:
+                        queue.append(val)
+
         return fn
 
     orig_load = gguf_utils.load_gguf_checkpoint
