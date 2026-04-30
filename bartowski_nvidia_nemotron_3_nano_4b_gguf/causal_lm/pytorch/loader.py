@@ -229,6 +229,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _patch_transformers_nemotron_h_gguf()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -303,6 +304,7 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
+        _patch_transformers_nemotron_h_gguf()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
