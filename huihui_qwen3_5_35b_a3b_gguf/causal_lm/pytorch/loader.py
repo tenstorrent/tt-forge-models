@@ -20,6 +20,140 @@ from ....config import (
 )
 
 
+def _patch_transformers_qwen35moe_gguf():
+    """Monkey-patch transformers to add qwen35moe GGUF architecture support.
+
+    Transformers 5.x has Qwen3_5MoeForCausalLM but lacks GGUF loading support
+    for the qwen35moe architecture. We bridge the gap by registering qwen35moe
+    config/tensor mappings and converting the model_type to qwen3_5_moe_text.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        TENSOR_PROCESSORS,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "qwen35moe" in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # Already patched
+
+    # 1. Register qwen35moe as a supported architecture
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen35moe")
+
+    # 2. Add config mapping for qwen35moe (based on qwen3_moe + Qwen3.5 fields)
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen35moe"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.key_length": "head_dim",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+        "expert_count": "num_experts",
+        "expert_used_count": "num_experts_per_tok",
+        "full_attention_interval": "full_attention_interval",
+    }
+
+    # 3. Custom tensor processor for qwen35moe that handles the separate
+    # ffn_gate_exps / ffn_up_exps tensors stored in the GGUF file.
+    import re as _re
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUFTensor,
+        Qwen2MoeTensorProcessor,
+    )
+    import numpy as _np
+
+    class Qwen35MoeTensorProcessor(Qwen2MoeTensorProcessor):
+        def process(self, weights, name: str, **kwargs):
+            if m := _re.fullmatch(self.GGUF_MOE_WEIGHTS_PATTERN, name):
+                tensor_key_mapping = kwargs.get("tensor_key_mapping")
+                parsed_parameters = kwargs.get("parsed_parameters")
+                if tensor_key_mapping:
+                    hf_name = tensor_key_mapping.get(m["name"])
+                    if hf_name is not None:
+                        self._set_moe_expert_tensor(
+                            weights, parsed_parameters, hf_name, m["w"]
+                        )
+                return GGUFTensor(weights, None, {})
+            if "ffn_gate_inp_shexp" in name:
+                weights = _np.expand_dims(weights, axis=0)
+            if "ssm_conv1d" in name and weights.ndim == 2:
+                weights = _np.expand_dims(weights, axis=1)
+            return GGUFTensor(weights, name, {})
+
+    TENSOR_PROCESSORS["qwen35moe"] = Qwen35MoeTensorProcessor
+
+    # 4. Register tokenizer converter
+    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+    if "qwen3_moe" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["qwen35moe"] = GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
+        GGUF_TO_FAST_CONVERTERS["qwen3_5_moe_text"] = GGUF_TO_FAST_CONVERTERS[
+            "qwen3_moe"
+        ]
+
+    # 5. Patch load_gguf_checkpoint to handle qwen35moe -> qwen3_5_moe_text
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        if result.get("config", {}).get("model_type") == "qwen35moe":
+            result["config"]["model_type"] = "qwen3_5_moe_text"
+            config = result["config"]
+            num_layers = config.get("num_hidden_layers", 40)
+            interval = config.pop("full_attention_interval", 4)
+            layer_types = []
+            for i in range(num_layers):
+                if (i + 1) % interval == 0:
+                    layer_types.append("full_attention")
+                else:
+                    layer_types.append("linear_attention")
+            config["layer_types"] = layer_types
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    # 6. Patch get_gguf_hf_weights_map to handle qwen3_5_moe_text -> qwen35moe
+    # and add the unfused gate/up expert tensor entries the GGUF file stores separately.
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
+            model_type = "qwen35moe"
+        result = orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+        extra = {}
+        for k, v in list(result.items()):
+            if ".ffn_gate_up_exps" in k:
+                prefix = k.split(".ffn_gate_up_exps")[0]
+                hf_base = v[: -len(".weight")] if v.endswith(".weight") else v
+                extra[f"{prefix}.ffn_gate_exps"] = hf_base
+                extra[f"{prefix}.ffn_up_exps"] = hf_base
+        result.update(extra)
+        return result
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+
+# Apply the monkey-patch at import time
+_patch_transformers_qwen35moe_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available Huihui Qwen3.5-35B-A3B GGUF model variants for causal language modeling."""
 
@@ -121,12 +255,15 @@ class ModelLoader(ForgeModel):
                 "content": self.sample_text,
             }
         ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-            enable_thinking=True,
-        )
+        if self.tokenizer.chat_template is not None:
+            text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=True,
+            )
+        else:
+            text = self.sample_text
         prompts = [text]
 
         inputs = self.tokenizer(
