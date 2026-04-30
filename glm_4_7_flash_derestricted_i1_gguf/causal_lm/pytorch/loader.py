@@ -22,6 +22,45 @@ from ....config import (
 )
 
 
+def _patch_deepseek_v2_gguf():
+    """Patch GGUF_TO_FAST_CONVERTERS and get_gguf_hf_weights_map for deepseek_v2.
+
+    The glm_4_7_flash_gguf loader patches load_gguf_checkpoint to remap
+    model_type 'deepseek2' -> 'deepseek_v2', but only registers 'deepseek2'
+    in GGUF_TO_FAST_CONVERTERS.  When the tokenizer loads it sees architecture
+    'deepseek_v2' and hits KeyError.  Similarly, get_gguf_hf_weights_map needs
+    'deepseek2' (not 'deepseek_v2') to find the gguf-py tensor-name map.
+    """
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "deepseek_v2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["deepseek_v2"] = GGUFQwen2Converter
+
+    _orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def _patched_get_gguf_hf_weights_map(hf_model, processor=None, model_type=None):
+        cfg = getattr(hf_model, "config", None)
+        if getattr(cfg, "model_type", None) == "deepseek_v2":
+            cfg.model_type = "deepseek2"
+            try:
+                return _orig_get_map(hf_model, processor=processor, model_type=model_type)
+            finally:
+                cfg.model_type = "deepseek_v2"
+        return _orig_get_map(hf_model, processor=processor, model_type=model_type)
+
+    gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+    import transformers.modeling_utils as modeling_utils
+    if hasattr(modeling_utils, "get_gguf_hf_weights_map"):
+        modeling_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
+
+_patch_deepseek_v2_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available GLM 4.7 Flash Derestricted i1 GGUF model variants for causal language modeling."""
 
@@ -88,6 +127,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
+        model_kwargs["ignore_mismatched_sizes"] = True
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(
