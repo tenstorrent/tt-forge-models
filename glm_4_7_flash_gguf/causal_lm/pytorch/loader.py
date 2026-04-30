@@ -20,6 +20,66 @@ from ....config import (
 )
 
 
+def _find_real_load_gguf_checkpoint(fn):
+    """BFS through wrapper chains to find the original transformers load_gguf_checkpoint.
+
+    Other loaders install narrow-sig wrappers (no model_to_load kwarg) that
+    clobber load_gguf_checkpoint.  Those wrappers store the previous function
+    in their __globals__ or __closure__.  We traverse the graph to find the
+    one whose __module__ is transformers.modeling_gguf_pytorch_utils.
+    """
+    seen = set()
+    frontier = [fn]
+    while frontier:
+        current = frontier.pop(0)
+        cid = id(current)
+        if cid in seen or not callable(current):
+            continue
+        seen.add(cid)
+        if getattr(current, "__module__", "") == "transformers.modeling_gguf_pytorch_utils":
+            return current
+        # Explore globals (narrow-sig wrappers store original as _orig_load_gguf_checkpoint)
+        g = getattr(current, "__globals__", {})
+        for key, val in g.items():
+            if "load_gguf_checkpoint" in key and callable(val) and id(val) not in seen:
+                frontier.append(val)
+        # Explore closure cells (wide-sig wrappers capture orig_load in closure)
+        for cell in getattr(current, "__closure__", None) or []:
+            try:
+                val = cell.cell_contents
+                if callable(val) and id(val) not in seen:
+                    frontier.append(val)
+            except ValueError:
+                pass
+    return fn  # fallback: return whatever was passed in
+
+
+def _install_deepseek2_load_patch():
+    """Just-in-time install of the deepseek2→deepseek_v2 remap on load_gguf_checkpoint.
+
+    Called immediately before from_pretrained so the patch survives clobbering
+    by other loaders imported after glm_4_7_flash_ggml_org_gguf.
+    """
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+    import transformers.tokenization_utils_tokenizers as tok_utils
+
+    real_load = _find_real_load_gguf_checkpoint(gguf_utils.load_gguf_checkpoint)
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = real_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "deepseek2":
+            config["model_type"] = "deepseek_v2"
+        return result
+
+    for mod in (gguf_utils, tok_auto, config_utils, modeling_utils, tok_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
 def _patch_transformers_deepseek2_gguf():
     """Monkey-patch transformers to add deepseek2 GGUF architecture support.
 
@@ -31,7 +91,6 @@ def _patch_transformers_deepseek2_gguf():
         GGUF_SUPPORTED_ARCHITECTURES,
         GGUF_TO_TRANSFORMERS_MAPPING,
     )
-    import transformers.modeling_gguf_pytorch_utils as gguf_utils
 
     if "deepseek2" in GGUF_SUPPORTED_ARCHITECTURES:
         # load_gguf_checkpoint remaps deepseek2→deepseek_v2 in model_type; the
@@ -86,26 +145,9 @@ def _patch_transformers_deepseek2_gguf():
     if "deepseek_v2" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["deepseek_v2"] = GGUFQwen2Converter
 
-    # 4. Patch load_gguf_checkpoint to set model_type to deepseek_v2
-    orig_load = gguf_utils.load_gguf_checkpoint
-
-    def patched_load_gguf_checkpoint(*args, **kwargs):
-        result = orig_load(*args, **kwargs)
-        config = result.get("config", {})
-        if config.get("model_type") == "deepseek2":
-            config["model_type"] = "deepseek_v2"
-        return result
-
-    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
-
-    # Also patch modules that imported load_gguf_checkpoint directly
-    import transformers.models.auto.tokenization_auto as tok_auto
-    import transformers.configuration_utils as config_utils
-    import transformers.modeling_utils as modeling_utils
-
-    for mod in (tok_auto, config_utils, modeling_utils):
-        if hasattr(mod, "load_gguf_checkpoint"):
-            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+    # 4. Initial install of the load_gguf_checkpoint patch; will be reinstalled
+    #    just-in-time in load_model() because later loaders clobber it.
+    _install_deepseek2_load_patch()
 
 
 # Apply the monkey-patch at import time
@@ -162,6 +204,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        _install_deepseek2_load_patch()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -181,6 +224,10 @@ class ModelLoader(ForgeModel):
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
+
+        # Re-install patch just-in-time; later-imported loaders may have
+        # clobbered modeling_utils.load_gguf_checkpoint with narrow-sig wrappers.
+        _install_deepseek2_load_patch()
 
         model_kwargs = {}
         if dtype_override is not None:
