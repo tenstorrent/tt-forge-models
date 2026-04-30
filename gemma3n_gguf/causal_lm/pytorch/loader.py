@@ -151,14 +151,25 @@ def _gemma3n_gguf_load_context():
             model_type = "gemma3n"
         return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
 
-    saved_load = gguf_utils.load_gguf_checkpoint
-    gguf_utils.load_gguf_checkpoint = _patched_load
+    import transformers.configuration_utils as _config_utils
+    import transformers.models.auto.tokenization_auto as _tok_auto
+
+    # Collect all module-level bindings of load_gguf_checkpoint to patch
+    _targets = [gguf_utils, _config_utils, _tok_auto]
+
+    saved = {mod: mod.load_gguf_checkpoint for mod in _targets
+             if hasattr(mod, 'load_gguf_checkpoint')}
+    for mod in saved:
+        mod.load_gguf_checkpoint = _patched_load
+
+    saved_get_map = gguf_utils.get_gguf_hf_weights_map
     gguf_utils.get_gguf_hf_weights_map = _patched_get_map
     try:
         yield
     finally:
-        gguf_utils.load_gguf_checkpoint = saved_load
-        gguf_utils.get_gguf_hf_weights_map = orig_get_map
+        for mod, fn in saved.items():
+            mod.load_gguf_checkpoint = fn
+        gguf_utils.get_gguf_hf_weights_map = saved_get_map
 
 
 class ModelVariant(StrEnum):
