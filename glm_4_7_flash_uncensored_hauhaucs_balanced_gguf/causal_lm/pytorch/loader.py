@@ -221,6 +221,13 @@ def _deepseek2_gguf_load_ctx():
             qk_rope = config.get("qk_rope_head_dim")
             if qk_nope is not None and qk_rope is not None and qk_nope > qk_rope:
                 config["qk_nope_head_dim"] = qk_nope - qk_rope
+            # GLM-4.7 GGUF has attention.head_count_kv=1 (MQA-style latent), but
+            # kv_b_proj always produces num_attention_heads K/V vectors. Setting
+            # num_key_value_heads=num_attention_heads prevents sdpa_attention_forward
+            # from incorrectly applying repeat_kv (which would multiply heads by 20).
+            n_heads = config.get("num_attention_heads")
+            if n_heads is not None:
+                config["num_key_value_heads"] = n_heads
         return result
 
     def _deepseek2_get_map(hf_model, processor, model_type=None, num_layers=None, qual_name=""):
