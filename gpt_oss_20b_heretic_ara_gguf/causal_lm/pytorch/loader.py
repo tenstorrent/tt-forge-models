@@ -116,14 +116,19 @@ class GptOssTensorProcessor(Qwen2MoeTensorProcessor):
         return GGUFTensor(weights, name, {})
 
     def _pack_last_dim(self, weights, parsed_parameters, hf_name, w):
-        t = torch.from_numpy(np.copy(weights))
+        # GGUF stores GPT-OSS expert weights with the expert dimension LAST:
+        #   weight: [d0, d1, num_experts]  bias: [d0, num_experts]
+        # HF GPT-OSS expects experts FIRST:
+        #   gate_up_proj: [num_experts, hidden, 2*interm]  down_proj: [num_experts, interm, hidden]
+        # Move expert axis from last to first, then pack gate+up along the new last dim.
+        t = torch.from_numpy(np.copy(weights)).movedim(-1, 0)
         if w == "down":
             parsed_parameters["tensors"][hf_name] = t
         else:
-            dim = len(weights.shape) - 1
-            sz = weights.shape[dim]
+            dim = t.ndim - 1
+            sz = t.shape[dim]
             if hf_name not in parsed_parameters["tensors"]:
-                shape = list(weights.shape)
+                shape = list(t.shape)
                 shape[dim] = sz * 2
                 parsed_parameters["tensors"][hf_name] = torch.zeros(
                     shape, dtype=t.dtype
