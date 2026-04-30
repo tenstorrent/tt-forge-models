@@ -227,9 +227,9 @@ class PyramidFluxTransformer(ModelMixin, ConfigMixin):
         # Temporal Rope
         latent_image_ids[..., 0] = (
             latent_image_ids[..., 0]
-            + torch.arange(
-                start_time_stamp, start_time_stamp + temp, device=device
-            )[:, None, None]
+            + torch.arange(start_time_stamp, start_time_stamp + temp, device=device)[
+                :, None, None
+            ]
         )
 
         # height Rope
