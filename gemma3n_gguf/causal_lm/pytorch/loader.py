@@ -4,6 +4,7 @@
 """
 Gemma 3n GGUF model loader implementation for causal language modeling.
 """
+import contextlib
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -24,9 +25,9 @@ def _find_real_load_gguf_checkpoint(fn):
     """Walk a chain of monkey-patched wrappers to find the real transformers function.
 
     Many GGUF loaders patch load_gguf_checkpoint with fixed-arg wrappers that
-    do not accept model_to_load. To avoid calling those broken links, we chase
-    the captured-original references until we reach the function whose __name__
-    is 'load_gguf_checkpoint' in the transformers module.
+    do not accept model_to_load. Walk through closure variables and module-global
+    references until we reach the function whose __name__ is 'load_gguf_checkpoint'
+    in the transformers module.
     """
     seen = set()
     while callable(fn):
@@ -67,17 +68,12 @@ def _find_real_load_gguf_checkpoint(fn):
     return fn
 
 
-def _patch_transformers_gemma3n_gguf():
-    """Monkey-patch transformers to add gemma3n GGUF architecture support.
+def _register_gemma3n_gguf_support():
+    """Register gemma3n in the GGUF mappings once (idempotent).
 
     Transformers 5.x has Gemma3nForCausalLM but lacks GGUF loading support
-    for the gemma3n architecture (ValueError: GGUF model with architecture
-    gemma3n is not supported yet). We bridge the gap by:
-    1. Registering gemma3n in GGUF_CONFIG_MAPPING / GGUF_SUPPORTED_ARCHITECTURES
-    2. Remapping model_type "gemma3n" -> "gemma3n_text" so AutoModelForCausalLM
-       selects Gemma3nForCausalLM (text-only) instead of the multimodal class
-    3. Remapping "gemma3n_text" -> "gemma3n" in get_gguf_hf_weights_map so
-       gguf-py's MODEL_ARCH_NAMES lookup succeeds
+    for the gemma3n architecture. Register it using the same field layout as
+    gemma3, and alias the tokenizer converter to GGUFGemmaConverter.
     """
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
@@ -85,15 +81,12 @@ def _patch_transformers_gemma3n_gguf():
         TENSOR_PROCESSORS,
         Gemma2TensorProcessor,
     )
-    import transformers.modeling_gguf_pytorch_utils as gguf_utils
 
     if "gemma3n" in GGUF_SUPPORTED_ARCHITECTURES:
-        return  # Already patched
+        return
 
-    # 1. Register gemma3n as a supported architecture
     GGUF_SUPPORTED_ARCHITECTURES.append("gemma3n")
 
-    # 2. Add config mapping for gemma3n (same fields as gemma3)
     GGUF_TO_TRANSFORMERS_MAPPING["config"]["gemma3n"] = {
         "context_length": "max_position_embeddings",
         "block_count": "num_hidden_layers",
@@ -109,55 +102,63 @@ def _patch_transformers_gemma3n_gguf():
         "vocab_size": "vocab_size",
     }
 
-    # 3. Reuse Gemma2TensorProcessor for gemma3n (same as gemma3)
     TENSOR_PROCESSORS["gemma3n"] = Gemma2TensorProcessor
 
-    # 4. Register tokenizer converter (reuse GGUFGemmaConverter from gemma3_text)
     from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
     if "gemma3_text" in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["gemma3n"] = GGUF_TO_FAST_CONVERTERS["gemma3_text"]
         GGUF_TO_FAST_CONVERTERS["gemma3n_text"] = GGUF_TO_FAST_CONVERTERS["gemma3_text"]
 
-    # 5. Find the real transformers load_gguf_checkpoint, bypassing any broken
-    #    wrappers installed by other loaders that do not accept model_to_load.
-    _true_orig = _find_real_load_gguf_checkpoint(gguf_utils.load_gguf_checkpoint)
 
-    def patched_load_gguf_checkpoint(*args, **kwargs):
-        result = _true_orig(*args, **kwargs)
+# Register gemma3n GGUF support at import time (idempotent)
+_register_gemma3n_gguf_support()
+
+
+@contextlib.contextmanager
+def _gemma3n_gguf_load_context():
+    """Context manager that temporarily installs a correct load_gguf_checkpoint.
+
+    Many other GGUF loaders install fixed-arg patches that do not accept the
+    model_to_load keyword argument required by transformers 5.x. By the time
+    this model is loaded at test time, the module attribute may point to one of
+    those broken patches. This context manager temporarily replaces the module
+    attribute with a correct wrapper that:
+      - Calls the real transformers function directly (found by chain-walking)
+      - Remaps model_type "gemma3n" -> "gemma3n_text" so AutoModelForCausalLM
+        instantiates Gemma3nForCausalLM instead of the multimodal class
+      - Remaps model_type "gemma3n_text" -> "gemma3n" in get_gguf_hf_weights_map
+        so gguf-py's MODEL_ARCH_NAMES lookup succeeds
+    """
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    # Find the real transformers function by walking past all broken wrappers
+    true_orig = _find_real_load_gguf_checkpoint(gguf_utils.load_gguf_checkpoint)
+
+    def _patched_load(*args, **kwargs):
+        result = true_orig(*args, **kwargs)
         if result.get("config", {}).get("model_type") == "gemma3n":
             result["config"]["model_type"] = "gemma3n_text"
         return result
 
-    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
-
-    # Patch all modules that imported load_gguf_checkpoint by name
-    import transformers.models.auto.tokenization_auto as _tok_auto
-    import transformers.configuration_utils as _config_utils
-    import transformers.modeling_utils as _modeling_utils
-
-    for _mod in (_tok_auto, _config_utils, _modeling_utils):
-        if hasattr(_mod, "load_gguf_checkpoint"):
-            _mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
-
-    # 6. Patch get_gguf_hf_weights_map to remap "gemma3n_text" -> "gemma3n"
-    #    so gguf-py's MODEL_ARCH_NAMES lookup finds the correct gemma3n entry
+    # Patch get_gguf_hf_weights_map so the real function's internal call works
     orig_get_map = gguf_utils.get_gguf_hf_weights_map
 
-    def patched_get_gguf_hf_weights_map(
-        hf_model, processor, model_type=None, num_layers=None, qual_name=""
-    ):
+    def _patched_get_map(hf_model, processor, model_type=None, num_layers=None, qual_name=""):
         if model_type is None:
             model_type = hf_model.config.model_type
         if model_type in ("gemma3n_text", "gemma3n"):
             model_type = "gemma3n"
         return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
 
-    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
-
-
-# Apply the monkey-patch at import time
-_patch_transformers_gemma3n_gguf()
+    saved_load = gguf_utils.load_gguf_checkpoint
+    gguf_utils.load_gguf_checkpoint = _patched_load
+    gguf_utils.get_gguf_hf_weights_map = _patched_get_map
+    try:
+        yield
+    finally:
+        gguf_utils.load_gguf_checkpoint = saved_load
+        gguf_utils.get_gguf_hf_weights_map = orig_get_map
 
 
 class ModelVariant(StrEnum):
@@ -207,9 +208,10 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
         tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+        with _gemma3n_gguf_load_context():
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -228,15 +230,17 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
+            with _gemma3n_gguf_load_context():
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name, gguf_file=self.GGUF_FILE
+                )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        with _gemma3n_gguf_load_context():
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
@@ -275,7 +279,8 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        with _gemma3n_gguf_load_context():
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
         return self.config
