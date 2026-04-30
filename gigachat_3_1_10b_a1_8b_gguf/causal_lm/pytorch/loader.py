@@ -4,6 +4,7 @@
 """
 GigaChat 3.1 10B A1.8B GGUF model loader implementation for causal language modeling.
 """
+import contextlib
 import importlib.util
 import threading
 from typing import Optional
@@ -56,7 +57,7 @@ def _patch_deepseek2_gguf_support():
     GGUF_TO_FAST_CONVERTERS.setdefault("deepseek_v2", GGUFQwen2Converter)
 
     if "deepseek2" in GGUF_SUPPORTED_ARCHITECTURES:
-        return  # Config mapping and load patches already set by another loader
+        return  # Config mapping already set by another loader; load patches applied at runtime
 
     GGUF_SUPPORTED_ARCHITECTURES.append("deepseek2")
 
@@ -86,17 +87,69 @@ def _patch_deepseek2_gguf_support():
         "attention.q_lora_rank": "q_lora_rank",
     }
 
-    _orig_load = _gguf_utils.load_gguf_checkpoint
+    _install_deepseek2_get_map_patch()
 
-    def _patched_load_gguf_checkpoint(*args, **kwargs):
-        # Some loaders patch load_gguf_checkpoint without **kwargs (missing model_to_load).
-        # Pop model_to_load here so the bad inner function doesn't choke on it.
-        # We ferry it via a thread-local so _patched_get_gguf_hf_weights_map can inject
-        # it back when the real load_gguf_checkpoint calls get_gguf_hf_weights_map(None, ...).
-        model_to_load = kwargs.pop("model_to_load", None)
-        _model_to_load_ctx.value = model_to_load
+
+def _install_deepseek2_get_map_patch():
+    """Patch get_gguf_hf_weights_map to handle deepseek_v2 <-> deepseek2 name mapping."""
+    _orig_get_map = _gguf_utils.get_gguf_hf_weights_map
+
+    # Guard against double-patching if this function is called more than once.
+    if getattr(_orig_get_map, "_deepseek2_patched", False):
+        return
+
+    def _patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        # If hf_model is None (because a bad patcher dropped model_to_load from
+        # load_gguf_checkpoint), recover it from the thread-local set by the
+        # runtime context manager in load_model().
+        if hf_model is None:
+            hf_model = getattr(_model_to_load_ctx, "value", None)
+        if model_type is None and hasattr(hf_model, "config"):
+            model_type = hf_model.config.model_type
+        # gguf-py uses "deepseek2"; HF uses "deepseek_v2"
+        if model_type == "deepseek_v2":
+            model_type = "deepseek2"
+        return _orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    _patched_get_gguf_hf_weights_map._deepseek2_patched = True
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
+
+@contextlib.contextmanager
+def _deepseek2_load_ctx(model_to_load):
+    """
+    Runtime context manager: install a model_to_load-aware load_gguf_checkpoint
+    on all binding sites immediately before from_pretrained() is called.
+
+    Many other loaders (bartowski_*, gpt_oss_swallow_*, etc.) patch
+    load_gguf_checkpoint at import time with a signature that lacks **kwargs and
+    therefore cannot accept the model_to_load kwarg added in transformers 5.x.
+    Those loaders overwrite each other and our import-time patch in alphabetical
+    os.walk order, so the last bad patcher wins.  By installing our wrapper here,
+    at call time, we guarantee it is the active function when modeling_utils.py
+    does its local-import and calls load_gguf_checkpoint(..., model_to_load=...).
+    """
+    import transformers.configuration_utils as _config_utils
+    import transformers.modeling_utils as _modeling_utils
+    import transformers.models.auto.tokenization_auto as _tok_auto
+
+    modules = [_gguf_utils, _tok_auto, _config_utils, _modeling_utils]
+
+    # Snapshot whatever is currently installed (may be a bad patcher's version).
+    saved = {mod: getattr(mod, "load_gguf_checkpoint", None) for mod in modules}
+
+    # The bad patcher chain currently on _gguf_utils (whatever it is) does not
+    # accept model_to_load.  Build a thin wrapper around it that pops the kwarg,
+    # stores it in the thread-local, and forwards the rest.
+    bad_chain = _gguf_utils.load_gguf_checkpoint
+
+    def _runtime_load_gguf_checkpoint(*args, **kwargs):
+        mtl = kwargs.pop("model_to_load", None) or model_to_load
+        _model_to_load_ctx.value = mtl
         try:
-            result = _orig_load(*args, **kwargs)
+            result = bad_chain(*args, **kwargs)
         finally:
             _model_to_load_ctx.value = None
         config = result.get("config", {})
@@ -108,33 +161,21 @@ def _patch_deepseek2_gguf_support():
                 config["q_lora_rank"] = None
         return result
 
-    _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    # Ensure the get_map patch is in place (may have been skipped at import if
+    # another loader had already added "deepseek2" to GGUF_SUPPORTED_ARCHITECTURES).
+    _install_deepseek2_get_map_patch()
 
-    import transformers.configuration_utils as config_utils
-    import transformers.modeling_utils as modeling_utils
-    import transformers.models.auto.tokenization_auto as tok_auto
-
-    for mod in (tok_auto, config_utils, modeling_utils):
+    for mod in modules:
         if hasattr(mod, "load_gguf_checkpoint"):
-            mod.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-
-    _orig_get_map = _gguf_utils.get_gguf_hf_weights_map
-
-    def _patched_get_gguf_hf_weights_map(
-        hf_model, processor, model_type=None, num_layers=None, qual_name=""
-    ):
-        # If hf_model is None (because a bad patcher dropped model_to_load from
-        # load_gguf_checkpoint), recover it from the thread-local set above.
-        if hf_model is None:
-            hf_model = getattr(_model_to_load_ctx, "value", None)
-        if model_type is None and hasattr(hf_model, "config"):
-            model_type = hf_model.config.model_type
-        # gguf-py uses "deepseek2"; HF uses "deepseek_v2"
-        if model_type == "deepseek_v2":
-            model_type = "deepseek2"
-        return _orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
-
-    _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+            setattr(mod, "load_gguf_checkpoint", _runtime_load_gguf_checkpoint)
+    try:
+        yield
+    finally:
+        for mod, fn in saved.items():
+            if fn is not None:
+                setattr(mod, "load_gguf_checkpoint", fn)
+            elif hasattr(mod, "load_gguf_checkpoint"):
+                delattr(mod, "load_gguf_checkpoint")
 
 
 _patch_deepseek2_gguf_support()
@@ -214,9 +255,10 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
-        ).eval()
+        with _deepseek2_load_ctx(model_to_load=None):
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
@@ -234,11 +276,14 @@ class ModelLoader(ForgeModel):
                 "content": self.sample_text,
             }
         ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
+        if self.tokenizer.chat_template is not None:
+            text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        else:
+            text = self.sample_text
         prompts = [text]
 
         inputs = self.tokenizer(
