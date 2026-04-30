@@ -10,7 +10,7 @@ from typing import Optional
 
 import requests
 from PIL import Image
-from transformers import ViTForImageClassification
+from transformers import ViTForImageClassification, ViTImageProcessor
 
 from ...base import ForgeModel
 from ...config import (
@@ -22,7 +22,6 @@ from ...config import (
     ModelTask,
     StrEnum,
 )
-from ...tools.utils import VisionPreprocessor
 
 
 @dataclass
@@ -53,7 +52,7 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.model = None
-        self._preprocessor = None
+        self._image_processor = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -81,9 +80,6 @@ class ModelLoader(ForgeModel):
 
         self.model = model
 
-        if self._preprocessor is not None:
-            self._preprocessor.set_cached_model(model)
-
         if dtype_override is not None:
             model = model.to(dtype_override)
 
@@ -95,20 +91,14 @@ class ModelLoader(ForgeModel):
         if image is None:
             image = Image.open(requests.get(self._SAMPLE_IMAGE_URL, stream=True).raw)
 
-        if self._preprocessor is None:
-            model_name = self._variant_config.pretrained_model_name
-            source = self._variant_config.source
-
-            self._preprocessor = VisionPreprocessor(
-                model_source=source,
-                model_name=model_name,
+        if self._image_processor is None:
+            self._image_processor = ViTImageProcessor.from_pretrained(
+                self._variant_config.pretrained_model_name
             )
 
-            if hasattr(self, "model") and self.model is not None:
-                self._preprocessor.set_cached_model(self.model)
-
-        return self._preprocessor.preprocess(
-            image=image,
-            dtype_override=dtype_override,
-            batch_size=batch_size,
-        )
+        inputs = self._image_processor(images=image, return_tensors="pt").pixel_values
+        if dtype_override is not None:
+            inputs = inputs.to(dtype_override)
+        if batch_size > 1:
+            inputs = inputs.repeat_interleave(batch_size, dim=0)
+        return inputs
