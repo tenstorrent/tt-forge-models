@@ -21,6 +21,70 @@ from ....config import (
 )
 
 
+def _patch_transformers_internlm2_gguf():
+    """Register internlm2 GGUF architecture with transformers.
+
+    transformers lacks the config mapping and architecture registration for
+    internlm2 GGUFs. InternLM2 uses LLaMA-identical GGUF tensor names, so
+    we register it with the LLaMA config mapping and remap model_type to
+    "llama" after checkpoint loading so AutoConfig.for_model can resolve it.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "internlm2" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("internlm2")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["internlm2"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+    }
+
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFLlamaConverter,
+    )
+
+    if "internlm2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["internlm2"] = GGUFLlamaConverter
+
+    # Remap internlm2 → llama after parsing so AutoConfig.for_model can
+    # resolve it. InternLM2 GGUF tensor names are identical to LLaMA.
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def _patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "internlm2":
+            config["model_type"] = "llama"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+
+_patch_transformers_internlm2_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available InternLM2.5 20B Chat IMat GGUF model variants for causal language modeling."""
 
@@ -63,7 +127,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {"trust_remote_code": True}
+        tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
         tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
@@ -82,7 +146,7 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"trust_remote_code": True}
+        model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -92,7 +156,6 @@ class ModelLoader(ForgeModel):
             config = AutoConfig.from_pretrained(
                 pretrained_model_name,
                 gguf_file=self.GGUF_FILE,
-                trust_remote_code=True,
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
@@ -159,6 +222,5 @@ class ModelLoader(ForgeModel):
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name,
             gguf_file=self.GGUF_FILE,
-            trust_remote_code=True,
         )
         return self.config
