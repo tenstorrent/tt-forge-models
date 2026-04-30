@@ -76,6 +76,12 @@ def _patch_transformers_deepseek2_gguf():
 
     if "deepseek2" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["deepseek2"] = GGUFQwen2Converter
+    # Also register under the remapped name: other loaders patch
+    # tokenization_utils_tokenizers.load_gguf_checkpoint and chain through our
+    # deepseek2→deepseek_v2 model_type remap, so convert_gguf_tokenizer may
+    # see "deepseek_v2" as the architecture string.
+    if "deepseek_v2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["deepseek_v2"] = GGUFQwen2Converter
 
     # 4. Patch load_gguf_checkpoint to set model_type to deepseek_v2
     orig_load = gguf_utils.load_gguf_checkpoint
@@ -97,6 +103,34 @@ def _patch_transformers_deepseek2_gguf():
     for mod in (tok_auto, config_utils, modeling_utils):
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    # 5. Patch DeepseekV2Config.validate_architecture to skip the
+    # hidden_size % num_attention_heads check for MLA configs.  In MLA the Q
+    # projection goes hidden_size → q_lora_rank → num_heads*(qk_nope+qk_rope),
+    # so the head count need not divide hidden_size evenly.
+    #
+    # huggingface_hub's @strict decorator captures validators by function
+    # reference in cls.__class_validators__ at class-decoration time.  Replacing
+    # the class attribute alone does NOT update the stored reference; we must
+    # mutate cls.__class_validators__ directly.
+    from transformers.models.deepseek_v2.configuration_deepseek_v2 import (
+        DeepseekV2Config,
+    )
+
+    new_validators = []
+    for _v in DeepseekV2Config.__class_validators__:
+        if _v.__name__ == "validate_architecture":
+            _orig_validate = _v
+
+            def validate_architecture(self, _orig=_orig_validate):
+                if self.q_lora_rank is not None:
+                    return
+                _orig(self)
+
+            new_validators.append(validate_architecture)
+        else:
+            new_validators.append(_v)
+    DeepseekV2Config.__class_validators__ = new_validators
 
 
 # Apply the monkey-patch at import time
