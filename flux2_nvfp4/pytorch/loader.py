@@ -4,6 +4,7 @@
 """
 FLUX.2-dev-NVFP4 model loader implementation for text-to-image generation
 """
+import contextlib
 import json
 import os
 import tempfile
@@ -45,6 +46,56 @@ _TRANSFORMER_CONFIG = {
     "eps": 1e-6,
     "guidance_embeds": True,
 }
+
+
+_NVFP4_DROP_DTYPES = {torch.uint8, torch.float8_e4m3fn}
+
+
+@contextlib.contextmanager
+def _nvfp4_checkpoint_filter():
+    """Context manager that patches diffusers to skip NVFP4-specific tensors.
+
+    The NVFP4 checkpoint stores quantized layers as uint8 (packed FP4 weights),
+    float8_e4m3fn (per-block scales), and float32 scalars (per-tensor scales).
+    The diffusers convert_flux2_transformer_checkpoint_to_diffusers function
+    assumes all QKV tensors can be torch.chunked; 0-dim scalars trigger
+    "chunk expects at least a 1-dimensional tensor".  Uint8 weights also cause
+    shape mismatches when loaded into a bfloat16 model.
+
+    This filter retains only bfloat16 tensors (txt_attn weights, norm scales,
+    embeddings).  NVFP4-quantized img layers fall back to random init.
+    """
+    # from_single_file resolves checkpoint_mapping_fn from a module-level
+    # SINGLE_FILE_LOADABLE_CLASSES dict, not from single_file_utils directly.
+    # Patching the dict entry is required for the override to take effect.
+    import diffusers.loaders.single_file_model as _sfm
+    import diffusers.loaders.single_file_utils as _sfu
+
+    _orig = _sfm.SINGLE_FILE_LOADABLE_CLASSES["Flux2Transformer2DModel"][
+        "checkpoint_mapping_fn"
+    ]
+
+    def _patched(checkpoint, **kwargs):
+        for key in [
+            k
+            for k, v in list(checkpoint.items())
+            if isinstance(v, torch.Tensor)
+            and (v.dtype in _NVFP4_DROP_DTYPES or v.dim() == 0)
+        ]:
+            del checkpoint[key]
+        return _sfu.convert_flux2_transformer_checkpoint_to_diffusers(
+            checkpoint, **kwargs
+        )
+
+    _sfm.SINGLE_FILE_LOADABLE_CLASSES["Flux2Transformer2DModel"][
+        "checkpoint_mapping_fn"
+    ] = _patched
+    try:
+        yield
+    finally:
+        _sfm.SINGLE_FILE_LOADABLE_CLASSES["Flux2Transformer2DModel"][
+            "checkpoint_mapping_fn"
+        ] = _orig
 
 
 class ModelVariant(StrEnum):
@@ -101,13 +152,18 @@ class ModelLoader(ForgeModel):
         # resolve the architecture without accessing the gated FLUX.2-dev repo.
         # from_single_file uses config=<dir> → load_config(<dir>, subfolder=None)
         # → reads <dir>/config.json directly.
-        with tempfile.TemporaryDirectory() as config_dir:
+        with _nvfp4_checkpoint_filter(), tempfile.TemporaryDirectory() as config_dir:
             with open(os.path.join(config_dir, "config.json"), "w") as f:
                 json.dump(_TRANSFORMER_CONFIG, f)
 
             self.transformer = Flux2Transformer2DModel.from_single_file(
                 f"https://huggingface.co/{self._variant_config.pretrained_model_name}/blob/main/{filename}",
                 config=config_dir,
+                # low_cpu_mem_usage uses meta tensors during load; parameters
+                # missing from the filtered checkpoint stay as meta and later
+                # cause "Cannot copy out of meta tensor" in dispatch_model.
+                # Disable it so missing keys fall back to random init instead.
+                low_cpu_mem_usage=False,
                 **load_kwargs,
             )
 
