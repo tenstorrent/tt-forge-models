@@ -77,7 +77,7 @@ def _patch_transformers_qwen2vl_gguf():
     orig_get_map = gguf_utils.get_gguf_hf_weights_map
 
     def patched_get_gguf_hf_weights_map(
-        hf_model, processor, model_type=None, num_layers=None, **kwargs
+        hf_model, processor, model_type=None, num_layers=None, qual_name="", **kwargs
     ):
         effective = hf_model.config.model_type if model_type is None else model_type
         if effective in ("qwen2_5_vl", "qwen2_vl"):
@@ -87,7 +87,12 @@ def _patch_transformers_qwen2vl_gguf():
                 if text_cfg is not None:
                     num_layers = getattr(text_cfg, "num_hidden_layers", None)
         return orig_get_map(
-            hf_model, processor, model_type=model_type, num_layers=num_layers, **kwargs
+            hf_model,
+            processor,
+            model_type=model_type,
+            num_layers=num_layers,
+            qual_name=qual_name,
+            **kwargs,
         )
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
