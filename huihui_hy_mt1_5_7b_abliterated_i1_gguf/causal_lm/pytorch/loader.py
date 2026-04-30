@@ -16,6 +16,7 @@ from transformers.modeling_gguf_pytorch_utils import (
     TENSOR_PROCESSORS,
     get_gguf_hf_weights_map as _orig_get_gguf_hf_weights_map,
 )
+from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 from transformers.models.hunyuan_v1_dense import HunYuanDenseV1Config
 
 _HUNYUAN_DENSE_GGUF_ARCH = "hunyuan-dense"
@@ -56,9 +57,12 @@ def _patch_hunyuan_dense_gguf():
     if _HUNYUAN_DENSE_GGUF_ARCH not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS[_HUNYUAN_DENSE_GGUF_ARCH] = GGUFGPTConverter
 
-    # Register "hunyuan-dense" as an AutoConfig alias so from_pretrained resolves
-    # HunYuanDenseV1Config when model_type=="hunyuan-dense" in the GGUF config dict.
-    AutoConfig.register(_HUNYUAN_DENSE_GGUF_ARCH, HunYuanDenseV1Config, exist_ok=True)
+    # Register "hunyuan-dense" as a CONFIG_MAPPING alias so AutoConfig.from_pretrained
+    # resolves HunYuanDenseV1Config when model_type=="hunyuan-dense" in the GGUF config
+    # dict. Use CONFIG_MAPPING.register (not AutoConfig.register) because the latter
+    # rejects a config whose model_type attribute doesn't match the registered key.
+    if _HUNYUAN_DENSE_GGUF_ARCH not in CONFIG_MAPPING:
+        CONFIG_MAPPING.register(_HUNYUAN_DENSE_GGUF_ARCH, HunYuanDenseV1Config)
 
 
 def _patched_get_gguf_hf_weights_map(
