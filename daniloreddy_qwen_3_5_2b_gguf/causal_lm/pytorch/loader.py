@@ -90,14 +90,23 @@ def _make_qwen35_load_fn(orig_fn):
 
 @contextlib.contextmanager
 def _qwen35_load_context():
-    """Temporarily install the correct load_gguf_checkpoint for qwen35."""
-    import transformers.modeling_gguf_pytorch_utils as gguf_utils
-    orig = gguf_utils.load_gguf_checkpoint
-    gguf_utils.load_gguf_checkpoint = _make_qwen35_load_fn(orig)
+    """Temporarily install the correct load_gguf_checkpoint for qwen35 on all binding sites."""
+    import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+    import transformers.configuration_utils as _config_utils
+    import transformers.models.auto.tokenization_auto as _tok_auto
+    import transformers.tokenization_utils_tokenizers as _tok_utils
+
+    modules = [_gguf_utils, _config_utils, _tok_auto, _tok_utils]
+    originals = {m: getattr(m, "load_gguf_checkpoint", None) for m in modules}
+    for m, orig in originals.items():
+        if orig is not None:
+            setattr(m, "load_gguf_checkpoint", _make_qwen35_load_fn(orig))
     try:
         yield
     finally:
-        gguf_utils.load_gguf_checkpoint = orig
+        for m, orig in originals.items():
+            if orig is not None:
+                setattr(m, "load_gguf_checkpoint", orig)
 
 
 _register_qwen35_gguf_support()
