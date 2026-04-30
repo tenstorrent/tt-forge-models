@@ -100,6 +100,51 @@ def _patch_dynamic_cache():
         DynamicCache.get_usable_length = lambda self, new_seq_length, layer_idx=0: self.get_seq_length(layer_idx)
 
 
+def _patch_deepseek_v3_router():
+    # DeepseekV3MoE.route_tokens_to_experts uses group_mask.scatter_(1, group_idx, 1)
+    # to build a binary group-selection mask. stablehlo.scatter → ttir.scatter
+    # produces scatter_reduce_type=invalid for this assign-semantics scatter.
+    # Replace with a comparison-based mask (group_idx == arange) which uses
+    # only element-wise ops and avoids scatter entirely.
+    import torch
+
+    try:
+        from transformers.models.deepseek_v3.modeling_deepseek_v3 import DeepseekV3MoE
+    except ImportError:
+        return
+
+    def _route_tokens_to_experts(self, router_logits):
+        router_logits = router_logits.sigmoid()
+        router_logits_for_choice = router_logits + self.gate.e_score_correction_bias
+        group_scores = (
+            router_logits_for_choice.view(-1, self.n_group, self.n_routed_experts // self.n_group)
+            .topk(2, dim=-1)[0]
+            .sum(dim=-1)
+        )
+        group_idx = torch.topk(group_scores, k=self.topk_group, dim=-1, sorted=False)[1]
+
+        # Original: group_mask.scatter_(1, group_idx, 1) — comparison-based equivalent
+        # group_idx: [T, topk_group]; result [T, n_group] — 1 where selected group
+        group_range = torch.arange(self.n_group, device=router_logits.device).reshape(1, 1, -1)
+        group_mask = (group_idx.unsqueeze(-1) == group_range).any(dim=1).to(router_logits.dtype)
+
+        score_mask = (
+            group_mask.unsqueeze(-1)
+            .expand(-1, self.n_group, self.n_routed_experts // self.n_group)
+            .reshape(-1, self.n_routed_experts)
+        )
+        scores_for_choice = router_logits_for_choice.masked_fill(~score_mask.bool(), 0.0)
+        topk_indices = torch.topk(scores_for_choice, k=self.top_k, dim=-1, sorted=False)[1]
+        topk_weights = router_logits.gather(1, topk_indices)
+        if self.norm_topk_prob:
+            denominator = topk_weights.sum(dim=-1, keepdim=True) + 1e-20
+            topk_weights = topk_weights / denominator
+        topk_weights = topk_weights * self.routed_scaling_factor
+        return topk_indices, topk_weights
+
+    DeepseekV3MoE.route_tokens_to_experts = _route_tokens_to_experts
+
+
 def _patch_deepseek_v3_native_moe():
     # The native transformers DeepseekV3NaiveMoe uses torch.histc (in the
     # grouped_mm path) or nonzero()+for-loop (in the naive path). Both are
@@ -175,6 +220,7 @@ class ModelLoader(ForgeModel):
         _stub_triton_if_missing()
         _patch_fp8_dequantize()
         _patch_dynamic_cache()
+        _patch_deepseek_v3_router()
         _patch_deepseek_v3_native_moe()
 
         config = AutoConfig.from_pretrained(self.model_name, trust_remote_code=True)
