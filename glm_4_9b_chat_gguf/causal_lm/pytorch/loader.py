@@ -43,19 +43,24 @@ def _patch_transformers_chatglm_gguf():
             vocab = {word: i for i, word in enumerate(self.original_tokenizer.tokens)}
             raw_merges = self.original_tokenizer.merges
             clean_merges = []
+            next_id = len(vocab)
             for m in raw_merges:
                 if len(m) == 2:
                     clean_merges.append(m)
-                elif len(m) == 3:
-                    # Try both possible 2-way splits
-                    left = m[0] + " " + m[1]
-                    if left in vocab:
-                        clean_merges.append((left, m[2]))
-                    elif m[0] in vocab and (m[1] + " " + m[2]) in vocab:
-                        clean_merges.append((m[0], m[1] + " " + m[2]))
-                    else:
-                        # Default: strip the score (3rd element is the rank)
-                        clean_merges.append((m[0], m[1]))
+                elif len(m) >= 3:
+                    # n-gram merge: represents a multi-byte character sequence.
+                    # Expand left-associatively into pairwise merges; add a
+                    # synthetic vocab entry for any intermediate join that isn't
+                    # already in the vocabulary.
+                    current = m[0]
+                    for j in range(1, len(m)):
+                        right = m[j]
+                        result = current + right
+                        if result not in vocab:
+                            vocab[result] = next_id
+                            next_id += 1
+                        clean_merges.append((current, right))
+                        current = result
             merges = clean_merges
 
             from transformers.convert_slow_tokenizer import Qwen2Converter
