@@ -149,9 +149,13 @@ def _patch_deepseek_v3_native_moe():
     # The native transformers DeepseekV3NaiveMoe uses torch.histc (in the
     # grouped_mm path) or nonzero()+for-loop (in the naive path). Both are
     # data-dependent and break TT XLA compilation.
-    # Replace with a fully static all-experts-at-once computation:
-    # apply every expert to every token and combine with routing weights.
-    # Numerically equivalent (same weighted sum) but no data-dependent control flow.
+    #
+    # Replace with a static per-expert loop: iterate over each expert with a
+    # Python for-loop (unrolled at trace time since n_experts is a static int),
+    # producing one 2D matmul per expert rather than one 3D batch matmul.
+    # The 3D batch matmul approach causes the compiler to hoist the weight reshape
+    # [E, 2I, H] → [E*2I, H] as a cpu_hoist_call, and the resulting large tensor
+    # (~375 MB) transfer fails at runtime with INTERNAL error code 13.
     import torch
 
     try:
@@ -160,36 +164,33 @@ def _patch_deepseek_v3_native_moe():
         return
 
     def _static_forward(self, hidden_states, top_k_index, top_k_weights):
-        n_tokens = hidden_states.shape[0]
         n_experts = self.num_experts
+        dtype = hidden_states.dtype
 
-        # gate_up_proj: [E, 2*I, H] — linear weights stored transposed
-        # [E, 2I, H] @ [H, T] = [E, 2I, T] → permute → [E, T, 2I]
-        gate_up = torch.matmul(
-            self.gate_up_proj.to(hidden_states.dtype),
-            hidden_states.t(),
-        ).permute(0, 2, 1)
+        # gate_up_proj: [E, 2I, H], down_proj: [E, H, I]
+        # Process each expert with 2D matmuls — avoids 3D batch matmul weight hoisting.
+        # Python loop over static n_experts is unrolled at trace time.
+        expert_outputs = []
+        for e in range(n_experts):
+            # gate_up_proj[e]: [2I, H] @ [H, T] → [2I, T] → [T, 2I]
+            gate_up = (self.gate_up_proj[e].to(dtype) @ hidden_states.t()).t()
+            int_dim = gate_up.shape[-1] // 2
+            activated = self.act_fn(gate_up[..., :int_dim]) * gate_up[..., int_dim:]  # [T, I]
+            # down_proj[e]: [H, I] @ [I, T] → [H, T] → [T, H]
+            out_e = (self.down_proj[e].to(dtype) @ activated.t()).t()
+            expert_outputs.append(out_e)
 
-        int_dim = gate_up.shape[-1] // 2
-        gate = gate_up[..., :int_dim]
-        up = gate_up[..., int_dim:]
-        activated = self.act_fn(gate) * up  # [E, T, I]
-
-        # down_proj: [E, H, I] — [E, H, I] @ [E, I, T] → [E, H, T] → [E, T, H]
-        output = torch.matmul(
-            self.down_proj.to(hidden_states.dtype),
-            activated.permute(0, 2, 1),
-        ).permute(0, 2, 1)  # [E, T, H]
+        output = torch.stack(expert_outputs, dim=0)  # [E, T, H]
 
         # Build routing matrix [T, E] via comparison — avoids scatter/histc ops.
         # top_k_index: [T, k], expert_range: [1, 1, E]
         # match: [T, k, E] — 1 where token t's k-th choice is expert e
         expert_range = torch.arange(n_experts, device=hidden_states.device).reshape(1, 1, n_experts)
-        match = (top_k_index.unsqueeze(-1) == expert_range).to(hidden_states.dtype)
-        routing = (top_k_weights.to(hidden_states.dtype).unsqueeze(-1) * match).sum(dim=1)  # [T, E]
+        match = (top_k_index.unsqueeze(-1) == expert_range).to(dtype)
+        routing = (top_k_weights.to(dtype).unsqueeze(-1) * match).sum(dim=1)  # [T, E]
 
         # Weighted sum: [E, T, H] * [E, T, 1] → sum over E → [T, H]
-        return (output * routing.t().unsqueeze(-1)).sum(dim=0).to(hidden_states.dtype)
+        return (output * routing.t().unsqueeze(-1)).sum(dim=0).to(dtype)
 
     DeepseekV3NaiveMoe.forward = _static_forward
 
