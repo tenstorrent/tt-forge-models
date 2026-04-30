@@ -5,8 +5,13 @@
 Cosmos Embed1 model loader implementation for video-text feature extraction.
 """
 
+import json
+import os
+
 import torch
+from safetensors.torch import load_file as _load_safetensors
 from transformers import AutoModel, AutoTokenizer
+from transformers.utils import cached_file as _hf_cached_file
 from typing import Optional
 
 from .src import (
@@ -71,12 +76,41 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"trust_remote_code": True}
+        # ignore_mismatched_sizes=True: EvaViTG's pos_embed is interpolated from a
+        # 224px checkpoint ([1,257,1408]) to 448px ([1,1025,1408]).  transformers 5.x
+        # no longer calls _load_state_dict_pre_hooks during from_pretrained, so the
+        # PositionalEmbeddingHook never runs and the size mismatch would raise.  We
+        # suppress the error here and apply the interpolation manually below.
+        model_kwargs = {"trust_remote_code": True, "ignore_mismatched_sizes": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        # transformers 5.x initialises models on meta device; EvaViTG/VisionTransformer.__init__
+        # calls torch.linspace(...).item() to build drop-path rate lists, which fails on meta
+        # tensors.  Patch .item() to return 0.0 for meta scalars — the actual rates are not
+        # stored as checkpoint parameters, and in eval mode stochastic depth is always a no-op.
+        _orig_item = torch.Tensor.item
+
+        def _meta_safe_item(t):
+            return 0.0 if t.is_meta else _orig_item(t)
+
+        torch.Tensor.item = _meta_safe_item
+        try:
+            model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        finally:
+            torch.Tensor.item = _orig_item
+
+        # Apply pos_embed interpolation via PyTorch's load_state_dict, which does
+        # call _load_state_dict_pre_hooks (including PositionalEmbeddingHook).
+        index_file = _hf_cached_file(pretrained_model_name, "model.safetensors.index.json")
+        with open(index_file) as f:
+            index = json.load(f)
+        shard_name = index["weight_map"]["visual_encoder.pos_embed"]
+        shard_path = os.path.join(os.path.dirname(index_file), shard_name)
+        pos_embed_ckpt = _load_safetensors(shard_path, device="cpu")["visual_encoder.pos_embed"]
+        model.visual_encoder.load_state_dict({"pos_embed": pos_embed_ckpt}, strict=False)
+
         model.eval()
 
         return model
