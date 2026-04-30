@@ -37,6 +37,19 @@ def _remap_mlx_keys(key):
     return key
 
 
+def _permute_mlx_conv_weight(key, tensor):
+    """MLX stores conv weights channel-last; permute to PyTorch channel-first."""
+    if not key.endswith(".weight"):
+        return tensor
+    if tensor.ndim == 5:
+        # Conv3d: [out, D, H, W, in] -> [out, in, D, H, W]
+        return tensor.permute(0, 4, 1, 2, 3).contiguous()
+    if tensor.ndim == 4:
+        # Conv2d: [out, H, W, in] -> [out, in, H, W]
+        return tensor.permute(0, 3, 1, 2).contiguous()
+    return tensor
+
+
 def _dequantize_mlx_affine_8bit(raw_sd, group_size=64):
     """Dequantize and remap MLX affine-8bit state dict to standard float tensors.
 
@@ -69,7 +82,8 @@ def _dequantize_mlx_affine_8bit(raw_sd, group_size=64):
             bi = biases.float().reshape(out_f, n_grp, 1).expand(-1, -1, group_size).reshape(out_f, in_f)
             result[_remap_mlx_keys(key)] = (w_u8.float() * sc + bi).to(torch.bfloat16)
         else:
-            result[_remap_mlx_keys(key)] = tensor
+            remapped = _remap_mlx_keys(key)
+            result[remapped] = _permute_mlx_conv_weight(remapped, tensor)
     return result
 
 
