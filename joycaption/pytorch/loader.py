@@ -65,8 +65,11 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self):
+        # use_fast=False: fast SiglipImageProcessor uses lanczos via torchvision
+        # which then dispatches to F.interpolate, but F.interpolate does not
+        # support lanczos — the slow (PIL-based) processor handles it correctly.
         self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, use_fast=False
         )
         return self.processor
 
