@@ -16,13 +16,18 @@ from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
     GGUF_SUPPORTED_ARCHITECTURES,
 )
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFLlamaConverter
+
+
 def _patch_mistral3_support():
     """Register mistral3 as an alias for mistral in GGUF mappings.
 
     Devstral Small 2 24B uses the GGUF architecture tag 'mistral3'
     (Mistral Small 3.x text backbone) which transformers 5.x does not yet
     recognise as a causal-LM target.  The parameter layout is identical to
-    the existing 'mistral' mapping, so we simply alias it.
+    the existing 'mistral' mapping, so we simply alias it.  The tokenizer
+    also uses the same SentencePiece/BPE layout as LLaMA/Mistral, so we
+    route it through GGUFLlamaConverter.
     """
     if "mistral3" in GGUF_SUPPORTED_ARCHITECTURES:
         return
@@ -32,6 +37,8 @@ def _patch_mistral3_support():
             _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section][
                 "mistral3"
             ] = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["mistral"]
+    if "mistral3" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["mistral3"] = GGUFLlamaConverter
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
