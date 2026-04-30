@@ -8,6 +8,54 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+    Qwen2MoeTensorProcessor,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+
+def _patch_gpt_oss_support():
+    """Register gpt-oss architecture as an alias for qwen3_moe in GGUF loading."""
+    if "gpt-oss" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+    GGUF_SUPPORTED_ARCHITECTURES.append("gpt-oss")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen3_moe" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            mapping = dict(_gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3_moe"])
+            mapping["expert_feed_forward_length"] = "moe_intermediate_size"
+            mapping["attention.sliding_window"] = "sliding_window"
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["gpt-oss"] = mapping
+    if "qwen3_moe" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["gpt-oss"] = GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
+    if hasattr(_gguf_utils, "GGUF_CONFIG_DEFAULTS_MAPPING"):
+        if "qwen3_moe" in _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING:
+            _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["gpt-oss"] = (
+                _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["qwen3_moe"]
+            )
+    _gguf_utils.TENSOR_PROCESSORS["gpt-oss"] = Qwen2MoeTensorProcessor
+
+
+def _patched_load_gguf_checkpoint(*args, **kwargs):
+    """Wrap load_gguf_checkpoint to add gpt-oss support and fix model_type."""
+    _patch_gpt_oss_support()
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
+    if result.get("config", {}).get("model_type") == "gpt-oss":
+        result["config"]["model_type"] = "qwen3_moe"
+    return result
+
+
+_patch_gpt_oss_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -98,6 +146,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        # Qwen3MoeExperts default forward uses a Python for-loop over a
+        # dynamically-sized tensor, which segfaults during XLA graph tracing.
+        # batched_mm uses scatter/gather/matmul (all static ops) instead.
+        model.config._experts_implementation = "batched_mm"
+
         self.config = model.config
         self.model = model
         return model
@@ -142,11 +195,9 @@ class ModelLoader(ForgeModel):
     def load_shard_spec(self, model):
         shard_specs = {}
         for layer in model.model.layers:
-            shard_specs[layer.mlp.router.weight] = (None, "batch")
+            shard_specs[layer.mlp.gate.weight] = (None, "batch")
             shard_specs[layer.mlp.experts.gate_up_proj] = ("model", "batch", None)
-            shard_specs[layer.mlp.experts.gate_up_proj_bias] = ("model", None)
             shard_specs[layer.mlp.experts.down_proj] = ("model", None, "batch")
-            shard_specs[layer.mlp.experts.down_proj_bias] = ("model", "batch")
 
             shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.q_proj.bias] = ("model",)
