@@ -175,7 +175,21 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        # transformers 5.x initialises models on meta device; InternVisionEncoder.__init__
+        # calls torch.linspace(...).item() to build drop-path rate lists, which fails on
+        # meta tensors.  Patch .item() to return 0.0 for meta scalars — the real values
+        # are overwritten when the checkpoint is loaded.
+        _orig_item = torch.Tensor.item
+
+        def _meta_safe_item(t):
+            return 0.0 if t.is_meta else _orig_item(t)
+
+        torch.Tensor.item = _meta_safe_item
+        try:
+            model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        finally:
+            torch.Tensor.item = _orig_item
+
         model.eval()
         self.model = model
 
