@@ -181,13 +181,21 @@ def _patched_gguf_checkpoint_gptoss(gguf_path, return_tensors=False, **kw):
 if not getattr(_gguf_utils.load_gguf_checkpoint, "_gpt_oss_model_type_patched", False):
     _patched_gguf_checkpoint_gptoss._gpt_oss_model_type_patched = True
     _gguf_utils.load_gguf_checkpoint = _patched_gguf_checkpoint_gptoss
-    # Also patch the import sites that other code accesses directly
-    try:
-        import transformers.utils._config_utils as _cfg_utils
-        if hasattr(_cfg_utils, "load_gguf_checkpoint"):
-            _cfg_utils.load_gguf_checkpoint = _patched_gguf_checkpoint_gptoss
-    except ImportError:
-        pass
+    # Patch all module-level import bindings that bypass the _gguf_utils reference.
+    # configuration_utils does `from .modeling_gguf_pytorch_utils import load_gguf_checkpoint`
+    # and calls it directly, so we must update that binding too.
+    import importlib
+    for _mod_name in (
+        "transformers.configuration_utils",
+        "transformers.utils._config_utils",
+        "transformers.modeling_utils",
+    ):
+        try:
+            _mod = importlib.import_module(_mod_name)
+            if getattr(_mod, "load_gguf_checkpoint", None) is not None:
+                _mod.load_gguf_checkpoint = _patched_gguf_checkpoint_gptoss
+        except (ImportError, AttributeError):
+            pass
 
 
 class ModelVariant(StrEnum):
