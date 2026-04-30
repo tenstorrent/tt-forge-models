@@ -17,20 +17,48 @@ if not hasattr(DynamicCache, "get_usable_length"):
 
 
 def _patch_moe_layers(model) -> None:
-    """Replace moe_infer with a static per-expert masked matmul (no numpy / no device transfer)."""
+    """Replace moe_infer with a batched expert matmul (no numpy / no device transfer).
 
-    def _static_moe_infer(self_moe, x, topk_ids, topk_weight):
-        out = torch.zeros_like(x)
-        for i in range(self_moe.experts_per_rank):
-            mask = topk_ids == i
-            weight = (mask * topk_weight.to(x.dtype)).sum(dim=-1, keepdim=True)
-            expert_out = self_moe.experts[i](x)
-            out = out + expert_out * weight
-        return out
+    Stacks all expert gate/up/down weights into 3D tensors and runs them as a
+    single bmm each, then applies routing weights via scatter_add + einsum.
+    This produces O(1) graph nodes regardless of expert count, avoiding the
+    O(256) sequential graph that causes multi-minute MLIR compilation.
+    """
+
+    def _batched_moe_infer(self_moe, x, topk_ids, topk_weight):
+        num_tokens, hidden = x.shape
+        num_experts = self_moe.experts_per_rank
+
+        # Stack expert weights: each [inter, hidden] → [E, inter, hidden]
+        gate_w = torch.stack([e.gate_proj.weight for e in self_moe.experts])
+        up_w = torch.stack([e.up_proj.weight for e in self_moe.experts])
+        down_w = torch.stack([e.down_proj.weight for e in self_moe.experts])
+
+        # x: [T, hidden] → [E, T, hidden] for batched matmul
+        x_exp = x.unsqueeze(0).expand(num_experts, -1, -1).contiguous()
+
+        # [E, T, inter]
+        gate_out = torch.bmm(x_exp, gate_w.transpose(1, 2))
+        up_out = torch.bmm(x_exp, up_w.transpose(1, 2))
+        hidden_states = self_moe.experts[0].act_fn(gate_out) * up_out
+        # [E, T, hidden]
+        expert_out = torch.bmm(hidden_states, down_w.transpose(1, 2))
+
+        # Routing: scatter topk weights into [T, E]
+        routing = torch.zeros(
+            num_tokens, num_experts, dtype=topk_weight.dtype, device=x.device
+        ).scatter_add(1, topk_ids, topk_weight.to(topk_weight.dtype))
+
+        # Weighted sum over experts: [T, E] x [E, T, H] -> [T, H]
+        # expert_out.permute(1, 0, 2): [T, E, H]
+        return (routing.unsqueeze(-1) * expert_out.permute(1, 0, 2)).sum(dim=1)
 
     for module in model.modules():
         if hasattr(module, "moe_infer") and hasattr(module, "experts_per_rank"):
-            type(module).moe_infer = _static_moe_infer
+            # Verify expert structure is compatible before patching
+            experts = list(module.experts)
+            if experts and hasattr(experts[0], "gate_proj") and hasattr(experts[0], "up_proj"):
+                type(module).moe_infer = _batched_moe_infer
 
 
 from ....base import ForgeModel
