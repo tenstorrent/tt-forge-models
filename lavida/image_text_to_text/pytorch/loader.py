@@ -7,7 +7,8 @@ LaViDa-LLaDA model loader implementation for image-text-to-text tasks.
 
 import torch
 from PIL import Image
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
 from typing import Optional
 
 from ....base import ForgeModel
@@ -76,7 +77,53 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        model_kwargs = {"trust_remote_code": True}
+        # Get remote model classes for patching.
+        LLaDAModelLM = get_class_from_dynamic_module(
+            "modeling_lavida.LLaDAModelLM",
+            pretrained_model_name,
+        )
+        SigLipVisionConfig = get_class_from_dynamic_module(
+            "modeling_lavida.SigLipVisionConfig",
+            pretrained_model_name,
+        )
+
+        # Fix 1: LLaDAModelLM.tie_weights only accepts `self` but transformers 5.x calls
+        # tie_weights(missing_keys=..., recompute_mapping=False) internally during from_pretrained.
+        def _tie_weights_compat(self, missing_keys=None, recompute_mapping=True):
+            if self.config.weight_tying:
+                self.model.transformer.ff_out = self.model.transformer.wte
+
+        LLaDAModelLM.tie_weights = _tie_weights_compat
+
+        # Fix 2: SigLipVisionConfig.from_pretrained calls cls._set_token_in_kwargs() which
+        # was removed in transformers 5.x.  Add a no-op shim so vision tower loading works.
+        if not hasattr(SigLipVisionConfig, "_set_token_in_kwargs"):
+
+            @classmethod
+            def _set_token_in_kwargs_noop(cls, kwargs, token=None):
+                pass
+
+            SigLipVisionConfig._set_token_in_kwargs = _set_token_in_kwargs_noop
+
+        # Fix 3: In transformers 5.x, from_pretrained always runs model __init__ inside a
+        # torch.device("meta") context.  SigLipVisionTower.__init__ calls
+        # SigLipVisionModel.from_pretrained() when delay_load=False, which is forbidden
+        # inside the meta context (check_and_set_device_map raises RuntimeError).
+        # Set delay_load=True so that the vision tower is not loaded during __init__.
+        # After from_pretrained completes, load the vision tower explicitly.
+        # Also clear mm_vision_tower from mm_tunable_parts: SigLipVisionTower.__init__
+        # calls load_model() regardless of delay_load when mm_tunable_parts contains
+        # "mm_vision_tower", bypassing the delay_load guard.
+        config = AutoConfig.from_pretrained(pretrained_model_name, trust_remote_code=True)
+        config.delay_load = True
+        if getattr(config, "mm_tunable_parts", None):
+            parts = [
+                p for p in config.mm_tunable_parts.split(",")
+                if p.strip() != "mm_vision_tower"
+            ]
+            config.mm_tunable_parts = ",".join(parts)
+
+        model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -84,8 +131,13 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        # Load the vision tower now that we are outside the meta-device context.
+        vision_tower = model.get_vision_tower()
+        if vision_tower is not None and not vision_tower.is_loaded:
+            vision_tower.load_model()
+
         model.resize_token_embeddings(len(self.tokenizer))
-        model.tie_weights()
         model.eval()
         self.model = model
         return model
@@ -120,9 +172,10 @@ class ModelLoader(ForgeModel):
         image = Image.open(image_file).convert("RGB")
 
         vision_tower = self.model.get_vision_tower()
-        pixel_values = vision_tower.image_processor(images=image, return_tensors="pt")[
-            "pixel_values"
-        ]
+        # SigLipImageProcessor has no __call__; delegate to preprocess() directly.
+        pixel_values = vision_tower.image_processor.preprocess(
+            images=image, return_tensors="pt"
+        )["pixel_values"]
 
         if dtype_override is not None:
             pixel_values = pixel_values.to(dtype_override)
