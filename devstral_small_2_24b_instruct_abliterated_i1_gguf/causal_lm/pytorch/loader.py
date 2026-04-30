@@ -5,6 +5,7 @@
 Devstral Small 2 24B Instruct Abliterated i1 GGUF model loader implementation for causal language modeling.
 """
 import torch
+from contextlib import contextmanager
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -13,14 +14,14 @@ import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers.modeling_gguf_pytorch_utils import (
-    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    load_gguf_checkpoint as _real_orig_load_gguf_checkpoint,
     GGUF_SUPPORTED_ARCHITECTURES,
 )
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFLlamaConverter
 
 
-def _patch_mistral3_support():
-    """Register mistral3 as an alias for mistral in GGUF mappings.
+def _patch_mistral3_data_structures():
+    """Register mistral3 in GGUF data-structure mappings.
 
     Devstral Small 2 24B uses the GGUF architecture tag 'mistral3'
     (Mistral Small 3.x text backbone) which transformers 5.x does not yet
@@ -28,37 +29,57 @@ def _patch_mistral3_support():
     the existing 'mistral' mapping, so we simply alias it.  The tokenizer
     also uses the same SentencePiece/BPE layout as LLaMA/Mistral, so we
     route it through GGUFLlamaConverter.
+
+    These dict/list mutations are permanent and safe; they are NOT overwritten
+    by other loaders.
     """
-    if "mistral3" in GGUF_SUPPORTED_ARCHITECTURES:
-        return
-    GGUF_SUPPORTED_ARCHITECTURES.append("mistral3")
+    if "mistral3" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("mistral3")
     for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
-        if "mistral" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
-            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section][
-                "mistral3"
-            ] = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["mistral"]
+        mapping = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]
+        if isinstance(mapping, dict) and "mistral" in mapping and "mistral3" not in mapping:
+            mapping["mistral3"] = mapping["mistral"]
     if "mistral3" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["mistral3"] = GGUFLlamaConverter
-    # tokenization_utils_tokenizers.py reads architecture from model_type (which
-    # we rewrite to "mistral"), so we must also register the plain "mistral" key.
+    # tokenization_utils_tokenizers.py derives architecture from model_type
+    # (which we rewrite to "mistral"), so we must also register the plain key.
     if "mistral" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["mistral"] = GGUFLlamaConverter
 
 
-def _patched_load_gguf_checkpoint(*args, **kwargs):
-    """Wrap load_gguf_checkpoint to add mistral3 support and fix model_type."""
-    _patch_mistral3_support()
-    result = _orig_load_gguf_checkpoint(*args, **kwargs)
+def _mistral3_load_gguf_checkpoint(*args, **kwargs):
+    """load_gguf_checkpoint wrapper that rewrites mistral3 model_type → mistral."""
+    result = _real_orig_load_gguf_checkpoint(*args, **kwargs)
     if isinstance(result, dict) and result.get("config", {}).get("model_type") == "mistral3":
         result["config"]["model_type"] = "mistral"
     return result
 
 
-_patch_mistral3_support()
-_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+@contextmanager
+def _mistral3_gguf_patch():
+    """Temporarily install the mistral3-aware load_gguf_checkpoint wrapper."""
+    # Other loaders' module-level code may have overwritten the shared pointer;
+    # we re-install our version just for this call and restore afterward.
+    _patch_mistral3_data_structures()
+    prev_gguf = _gguf_utils.load_gguf_checkpoint
+    prev_cfg = _config_utils.load_gguf_checkpoint
+    prev_tok = _auto_tokenizer.load_gguf_checkpoint
+    prev_fast = _tok_utils.load_gguf_checkpoint
+    _gguf_utils.load_gguf_checkpoint = _mistral3_load_gguf_checkpoint
+    _config_utils.load_gguf_checkpoint = _mistral3_load_gguf_checkpoint
+    _auto_tokenizer.load_gguf_checkpoint = _mistral3_load_gguf_checkpoint
+    _tok_utils.load_gguf_checkpoint = _mistral3_load_gguf_checkpoint
+    try:
+        yield
+    finally:
+        _gguf_utils.load_gguf_checkpoint = prev_gguf
+        _config_utils.load_gguf_checkpoint = prev_cfg
+        _auto_tokenizer.load_gguf_checkpoint = prev_tok
+        _tok_utils.load_gguf_checkpoint = prev_fast
+
+
+# Register data structures at import time (these are permanent dict/list mutations).
+_patch_mistral3_data_structures()
 
 from ....base import ForgeModel
 from ....config import (
@@ -121,9 +142,10 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
         tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+        with _mistral3_gguf_patch():
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -142,15 +164,17 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
+            with _mistral3_gguf_patch():
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name, gguf_file=self.GGUF_FILE
+                )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        with _mistral3_gguf_patch():
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
@@ -213,7 +237,8 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        with _mistral3_gguf_patch():
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
         return self.config
