@@ -80,7 +80,34 @@ class ModelLoader(ForgeModel):
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
 
+        # transformers 5.x materializes non-persistent buffers (absent from the
+        # checkpoint) from uninitialized memory. Re-initialize them here.
+        self._reinit_non_persistent_buffers(model)
+
         return model
+
+    @staticmethod
+    def _reinit_non_persistent_buffers(model):
+        config = model.config
+        emb = model.embeddings
+
+        emb.register_buffer(
+            "position_ids",
+            torch.arange(config.max_position_embeddings),
+            persistent=False,
+        )
+
+        if hasattr(emb, "rotary_emb"):
+            rotary = emb.rotary_emb
+            inv_freq = 1.0 / (
+                rotary.base ** (torch.arange(0, rotary.dim, 2).float() / rotary.dim)
+            )
+            rotary.register_buffer("inv_freq", inv_freq, persistent=False)
+            rotary._set_cos_sin_cache(
+                seq_len=rotary.max_seq_len_cached,
+                device="cpu",
+                dtype=torch.get_default_dtype(),
+            )
 
     def load_inputs(self, dtype_override=None):
         if self.tokenizer is None:
