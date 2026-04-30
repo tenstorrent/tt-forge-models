@@ -26,14 +26,19 @@ from ....config import (
 def _stub_triton_if_missing():
     # transformers finegrained_fp8.py imports triton at module level. On non-CUDA
     # hardware the quantizer sets dequantize=True so actual triton kernels are never
-    # called, but the import must succeed. This stub satisfies the import without
-    # requiring the NVIDIA-only triton package.
+    # called, but the import must succeed. torch._dynamo also accesses triton.language
+    # attributes when it is imported. This stub satisfies both without requiring the
+    # NVIDIA-only triton package.
     if "triton" not in sys.modules:
         tl = types.ModuleType("triton.language")
-        tl.constexpr = None  # used as function annotation; any Python object is valid
+        tl.constexpr = type("constexpr", (), {})  # used as annotation; needs to be a type
+        tl.dtype = type("dtype", (), {})           # accessed by torch._dynamo.utils
         triton_mod = types.ModuleType("triton")
         triton_mod.jit = lambda fn: fn
         triton_mod.language = tl
+        triton_mod.cdiv = lambda a, b: (a + b - 1) // b
+        triton_mod.next_power_of_2 = lambda n: 1 << (n - 1).bit_length()
+        triton_mod.__version__ = "0.0.0"
         sys.modules["triton"] = triton_mod
         sys.modules["triton.language"] = tl
 
@@ -95,27 +100,50 @@ def _patch_dynamic_cache():
         DynamicCache.get_usable_length = lambda self, new_seq_length, layer_idx=0: self.get_seq_length(layer_idx)
 
 
-def _patch_deepseek_moe(model):
-    # DeepseekV3MoE.moe_infer uses tokens_per_expert.cpu().numpy() + a Python
-    # for-loop with data-dependent slice bounds, which breaks TT XLA compilation.
-    # Replace with a fully static batched computation: apply every expert to every
-    # token and combine with the routing weights. Numerically equivalent (same
-    # weighted sum) but no data-dependent control flow.
+def _patch_deepseek_v3_native_moe():
+    # The native transformers DeepseekV3NaiveMoe uses torch.histc (in the
+    # grouped_mm path) or nonzero()+for-loop (in the naive path). Both are
+    # data-dependent and break TT XLA compilation.
+    # Replace with a fully static all-experts-at-once computation:
+    # apply every expert to every token and combine with routing weights.
+    # Numerically equivalent (same weighted sum) but no data-dependent control flow.
     import torch
 
-    def _batched_moe_infer(self, x, topk_ids, topk_weight):
-        n_tokens = x.shape[0]
-        n_experts = len(self.experts)
-        # [T, E] routing weights; non-zero only at selected (token, expert) pairs
-        routing = x.new_zeros(n_tokens, n_experts)
-        routing.scatter_add_(1, topk_ids, topk_weight.to(x.dtype))
-        # [E, T, d_model] from all experts, then weight and reduce over experts
-        expert_outputs = torch.stack([expert(x) for expert in self.experts], dim=0)
-        return (expert_outputs * routing.t().unsqueeze(-1)).sum(dim=0)
+    try:
+        from transformers.models.deepseek_v3.modeling_deepseek_v3 import DeepseekV3NaiveMoe
+    except ImportError:
+        return
 
-    for module in model.modules():
-        if type(module).__name__ == "DeepseekV3MoE":
-            module.moe_infer = types.MethodType(_batched_moe_infer, module)
+    def _static_forward(self, hidden_states, top_k_index, top_k_weights):
+        n_tokens = hidden_states.shape[0]
+        n_experts = self.num_experts
+
+        # gate_up_proj: [E, 2*I, H] — linear weights stored transposed
+        # [E, 2I, H] @ [H, T] = [E, 2I, T] → permute → [E, T, 2I]
+        gate_up = torch.matmul(
+            self.gate_up_proj.to(hidden_states.dtype),
+            hidden_states.t(),
+        ).permute(0, 2, 1)
+
+        int_dim = gate_up.shape[-1] // 2
+        gate = gate_up[..., :int_dim]
+        up = gate_up[..., int_dim:]
+        activated = self.act_fn(gate) * up  # [E, T, I]
+
+        # down_proj: [E, H, I] — [E, H, I] @ [E, I, T] → [E, H, T] → [E, T, H]
+        output = torch.matmul(
+            self.down_proj.to(hidden_states.dtype),
+            activated.permute(0, 2, 1),
+        ).permute(0, 2, 1)  # [E, T, H]
+
+        # Build routing matrix [T, E] without data-dependent indexing
+        routing = hidden_states.new_zeros(n_tokens, n_experts)
+        routing.scatter_add_(1, top_k_index, top_k_weights.to(hidden_states.dtype))
+
+        # Weighted sum: [E, T, H] * [E, T, 1] → sum over E → [T, H]
+        return (output * routing.t().unsqueeze(-1)).sum(dim=0).to(hidden_states.dtype)
+
+    DeepseekV3NaiveMoe.forward = _static_forward
 
 
 class ModelLoader(ForgeModel):
@@ -144,6 +172,7 @@ class ModelLoader(ForgeModel):
         _stub_triton_if_missing()
         _patch_fp8_dequantize()
         _patch_dynamic_cache()
+        _patch_deepseek_v3_native_moe()
 
         config = AutoConfig.from_pretrained(self.model_name, trust_remote_code=True)
 
@@ -170,8 +199,6 @@ class ModelLoader(ForgeModel):
         # activations share the same dtype.
         if dtype_override is not None:
             model = model.to(dtype_override)
-
-        _patch_deepseek_moe(model)
 
         model.eval()
 
