@@ -4,6 +4,10 @@
 """
 FLUX.2-dev-NVFP4 model loader implementation for text-to-image generation
 """
+import json
+import os
+import tempfile
+
 import torch
 from diffusers.models import Flux2Transformer2DModel
 from typing import Optional
@@ -18,6 +22,29 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+# FLUX.2-dev transformer architecture config.  The NVFP4 checkpoint embeds a
+# reference to the gated black-forest-labs/FLUX.2-dev repo, which from_single_file
+# tries to fetch for the architecture config.  We supply it locally so that no
+# gated-repo access is required.
+_TRANSFORMER_CONFIG = {
+    "_class_name": "Flux2Transformer2DModel",
+    "_diffusers_version": "0.33.1",
+    "patch_size": 1,
+    "in_channels": 128,
+    "out_channels": None,
+    "num_layers": 8,
+    "num_single_layers": 48,
+    "attention_head_dim": 128,
+    "num_attention_heads": 48,
+    "joint_attention_dim": 15360,
+    "timestep_guidance_channels": 256,
+    "mlp_ratio": 3.0,
+    "axes_dims_rope": [32, 32, 32, 32],
+    "rope_theta": 2000,
+    "eps": 1e-6,
+    "guidance_embeds": True,
+}
 
 
 class ModelVariant(StrEnum):
@@ -70,10 +97,19 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             load_kwargs["torch_dtype"] = dtype_override
 
-        self.transformer = Flux2Transformer2DModel.from_single_file(
-            f"https://huggingface.co/{self._variant_config.pretrained_model_name}/blob/main/{filename}",
-            **load_kwargs,
-        )
+        # Write the transformer config to a temp dir so from_single_file can
+        # resolve the architecture without accessing the gated FLUX.2-dev repo.
+        # from_single_file uses config=<dir> → load_config(<dir>, subfolder=None)
+        # → reads <dir>/config.json directly.
+        with tempfile.TemporaryDirectory() as config_dir:
+            with open(os.path.join(config_dir, "config.json"), "w") as f:
+                json.dump(_TRANSFORMER_CONFIG, f)
+
+            self.transformer = Flux2Transformer2DModel.from_single_file(
+                f"https://huggingface.co/{self._variant_config.pretrained_model_name}/blob/main/{filename}",
+                config=config_dir,
+                **load_kwargs,
+            )
 
         if dtype_override is not None:
             self.transformer = self.transformer.to(dtype_override)
