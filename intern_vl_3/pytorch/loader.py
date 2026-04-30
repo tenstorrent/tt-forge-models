@@ -172,7 +172,37 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        # transformers 5.x always instantiates models under torch.device("meta"),
+        # so torch.linspace produces meta tensors. InternVisionEncoder calls
+        # .item() on those tensors to build drop-path rates, which raises.
+        # Return 0.0 for meta scalars — DropPath is a no-op in eval mode anyway.
+        _orig_item = torch.Tensor.item
+
+        def _meta_safe_item(self):
+            if self.device.type == "meta":
+                return 0.0
+            return _orig_item(self)
+
+        # transformers 5.x _finalize_model_loading needs all_tied_weights_keys,
+        # which post_init() sets. InternVLChatModel.__init__ never calls post_init().
+        from transformers.modeling_utils import PreTrainedModel
+
+        _orig_finalize = PreTrainedModel.__dict__["_finalize_model_loading"].__func__
+
+        @staticmethod
+        def _patched_finalize(model, load_config, loading_info):
+            if not hasattr(model, "all_tied_weights_keys"):
+                model.post_init()
+            return _orig_finalize(model, load_config, loading_info)
+
+        torch.Tensor.item = _meta_safe_item
+        PreTrainedModel._finalize_model_loading = _patched_finalize
+        try:
+            model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        finally:
+            torch.Tensor.item = _orig_item
+            PreTrainedModel._finalize_model_loading = staticmethod(_orig_finalize)
+
         model.eval()
         self.model = model
 
