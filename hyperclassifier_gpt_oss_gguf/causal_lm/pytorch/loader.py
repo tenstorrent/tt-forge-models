@@ -4,9 +4,21 @@
 """
 HyperClassifier GPT-OSS 20B QAT GGUF model loader implementation for causal language modeling.
 """
+import importlib.util
+import inspect
+import os
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
 from ....base import ForgeModel
 from ....config import (
@@ -18,6 +30,141 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_gpt_oss_support():
+    """Register gpt-oss architecture as an alias for qwen3_moe."""
+    if "gpt-oss" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+    GGUF_SUPPORTED_ARCHITECTURES.append("gpt-oss")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen3_moe" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            mapping = dict(
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3_moe"]
+            )
+            mapping["expert_feed_forward_length"] = "moe_intermediate_size"
+            mapping["attention.sliding_window"] = "sliding_window"
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["gpt-oss"] = mapping
+    if "qwen3_moe" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["gpt-oss"] = GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
+    if hasattr(_gguf_utils, "GGUF_CONFIG_DEFAULTS_MAPPING"):
+        if "qwen3_moe" in _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING:
+            _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING[
+                "gpt-oss"
+            ] = _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["qwen3_moe"]
+
+
+def _find_real_load_gguf_checkpoint():
+    """Traverse the patch chain to find the original transformers load_gguf_checkpoint.
+
+    Other loaders may chain-patch load_gguf_checkpoint at module import time.
+    We need to call the real function (not a narrow-sig wrapper) so that
+    model_to_load is forwarded correctly.
+    """
+    spec = importlib.util.find_spec("transformers.modeling_gguf_pytorch_utils")
+    if spec is None or spec.origin is None:
+        return None
+    real_file = os.path.abspath(spec.origin)
+
+    fn = _gguf_utils.load_gguf_checkpoint
+    visited = set()
+
+    while fn is not None:
+        fn_id = id(fn)
+        if fn_id in visited:
+            break
+        visited.add(fn_id)
+
+        # Check if fn is defined in the real transformers module file
+        try:
+            fn_file = os.path.abspath(inspect.getfile(fn))
+            if fn_file == real_file:
+                return fn
+        except (TypeError, OSError):
+            pass
+
+        # Check for our own saved reference to real fn (handles the case where
+        # our _patched_load_gguf_checkpoint is already installed)
+        saved = getattr(fn, "_gpt_oss_real_fn", None)
+        if saved is not None and callable(saved):
+            return saved
+
+        next_fn = None
+
+        # Look in module globals for the function it wraps
+        try:
+            g = fn.__globals__
+            for name in ("_orig_load_gguf_checkpoint", "orig_load", "_orig"):
+                candidate = g.get(name)
+                if callable(candidate) and id(candidate) not in visited:
+                    next_fn = candidate
+                    break
+        except AttributeError:
+            pass
+
+        # Also check closure variables
+        if next_fn is None:
+            try:
+                freevars = getattr(fn, "__code__", None)
+                freevars = freevars.co_freevars if freevars else ()
+                cells = fn.__closure__ or ()
+                for i, name in enumerate(freevars):
+                    if name in ("orig_load", "_orig", "_orig_load_gguf_checkpoint") and i < len(cells):
+                        try:
+                            val = cells[i].cell_contents
+                            if callable(val) and id(val) not in visited:
+                                next_fn = val
+                                break
+                        except ValueError:
+                            pass
+            except AttributeError:
+                pass
+
+        fn = next_fn
+
+    return None
+
+
+def _ensure_gguf_patch():
+    """Register gpt-oss and install a wide-sig load_gguf_checkpoint patch.
+
+    Finds the real transformers load_gguf_checkpoint by traversing the patch
+    chain, then installs a wide-sig wrapper that calls it directly.  This
+    ensures model_to_load is forwarded and gpt-oss arch is registered.
+    Called both at import time and at the start of load_model().
+    """
+    _patch_gpt_oss_support()
+
+    real_fn = _find_real_load_gguf_checkpoint()
+    if real_fn is None:
+        return
+
+    # If our own patch is already installed and its real_fn hasn't changed,
+    # skip reinstallation to avoid unnecessary churn.
+    current = _gguf_utils.load_gguf_checkpoint
+    if (
+        getattr(current, "__name__", "") == "_patched_load_gguf_checkpoint"
+        and getattr(current, "_gpt_oss_real_fn", None) is real_fn
+    ):
+        return
+
+    def _patched_load_gguf_checkpoint(*args, **kwargs):
+        _patch_gpt_oss_support()
+        result = real_fn(*args, **kwargs)
+        if isinstance(result, dict) and result.get("config", {}).get("model_type") == "gpt-oss":
+            result["config"]["model_type"] = "qwen3_moe"
+        return result
+
+    _patched_load_gguf_checkpoint.__name__ = "_patched_load_gguf_checkpoint"
+    _patched_load_gguf_checkpoint._gpt_oss_real_fn = real_fn
+
+    _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+
+_ensure_gguf_patch()
 
 
 class ModelVariant(StrEnum):
@@ -83,6 +230,10 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        # Reinstall wide-sig patch in case narrow-sig loaders installed after
+        # this module was imported have overwritten load_gguf_checkpoint.
+        _ensure_gguf_patch()
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -104,6 +255,10 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
+
+        # Switch MoE experts to batched_mm: avoids Python for-loop over
+        # dynamically-sized expert_hit tensor which segfaults XLA tracing.
+        model.config._experts_implementation = "batched_mm"
 
         self.config = model.config
         self.model = model
@@ -149,10 +304,31 @@ class ModelLoader(ForgeModel):
     def load_shard_spec(self, model):
         shard_specs = {}
         for layer in model.model.layers:
-            for expert in layer.mlp.experts:
-                shard_specs[expert.up_proj.weight] = ("model", "batch")
-                shard_specs[expert.gate_proj.weight] = ("model", "batch")
-                shard_specs[expert.down_proj.weight] = ("batch", "model")
+            experts = layer.mlp.experts
+            # Qwen3MoeExperts stores weights as 3D tensors (not a list of modules).
+            # gate_up_proj: [num_experts, 2*intermediate_dim, hidden_dim]
+            # down_proj:    [num_experts, hidden_dim, intermediate_dim]
+            if hasattr(experts, "gate_up_proj"):
+                shard_specs[experts.gate_up_proj] = ("model", "batch")
+                shard_specs[experts.down_proj] = ("batch", "model")
+            else:
+                shard_specs[experts.up_proj.weight] = ("model", "batch")
+                shard_specs[experts.gate_proj.weight] = ("model", "batch")
+                shard_specs[experts.down_proj.weight] = ("batch", "model")
+
+            if hasattr(layer.mlp, "shared_expert"):
+                shard_specs[layer.mlp.shared_expert.up_proj.weight] = (
+                    "model",
+                    "batch",
+                )
+                shard_specs[layer.mlp.shared_expert.gate_proj.weight] = (
+                    "model",
+                    "batch",
+                )
+                shard_specs[layer.mlp.shared_expert.down_proj.weight] = (
+                    "batch",
+                    "model",
+                )
 
             shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
