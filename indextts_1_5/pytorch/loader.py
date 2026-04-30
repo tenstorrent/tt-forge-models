@@ -29,17 +29,18 @@ class IndexTTS15GPTWrapper(nn.Module):
     and produces mel token logits.
     """
 
-    def __init__(self, gpt):
+    def __init__(self, inference_model):
         super().__init__()
-        self.gpt = gpt
+        # Store inference_model (a GPT2InferenceModel, i.e. nn.Module) directly
+        # so that .to(device) properly moves all transformer parameters.
+        # IndexTTS is a plain Python class (not nn.Module), so wrapping it
+        # directly would leave parameters on CPU when moved to XLA.
+        self.inference_model = inference_model
 
     def forward(self, inputs_embeds):
-        # tts.gpt = UnifiedVoice; inference_model wraps UnifiedVoice.gpt with
-        # the paired transformer (GPT2Model) and lm_head (norm + mel_head).
-        inference_model = self.gpt.gpt.inference_model
-        outputs = inference_model.transformer(inputs_embeds=inputs_embeds)
+        outputs = self.inference_model.transformer(inputs_embeds=inputs_embeds)
         hidden_states = outputs.last_hidden_state
-        logits = inference_model.lm_head(hidden_states)
+        logits = self.inference_model.lm_head(hidden_states)
         return logits
 
 
@@ -99,7 +100,11 @@ class ModelLoader(ForgeModel):
             is_fp16=False,
             use_cuda_kernel=False,
         )
-        model = IndexTTS15GPTWrapper(tts)
+        # IndexTTS is a plain Python class (not nn.Module), so its internal
+        # modules are invisible to .to(device). Extract inference_model (an
+        # nn.Module) so device placement reaches all parameters.
+        inference_model = tts.gpt.inference_model
+        model = IndexTTS15GPTWrapper(inference_model)
         model.eval()
         return model
 
