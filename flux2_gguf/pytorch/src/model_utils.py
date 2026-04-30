@@ -41,8 +41,13 @@ def load_flux2_gguf_transformer(repo_id: str, gguf_filename: str):
     # GGUFParameter.__torch_function__ recurses under TorchDynamo; dequantize
     # eagerly to replace them with plain linear layers before compilation.
     _dequantize_gguf_and_restore_linear(transformer)
-    # Bypass diffusers ModelMixin.to() which rejects post-dequantization casts.
-    torch.nn.Module.to(transformer, compute_dtype)
+    # _dequantize_gguf_and_restore_linear does not clear the quantization flags,
+    # so ModelMixin.to() still raises "Casting a quantized model is unsupported".
+    # Clear them so the model behaves as a plain nn.Module going forward.
+    transformer._hf_quantizer = None
+    transformer.is_quantized = False
+    # Cast any remaining float16 tensors (F16-stored GGUF) to compute_dtype.
+    transformer.to(compute_dtype)
 
     transformer.eval()
     for param in transformer.parameters():
