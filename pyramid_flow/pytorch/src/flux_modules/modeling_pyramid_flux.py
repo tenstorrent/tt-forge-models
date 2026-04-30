@@ -217,38 +217,49 @@ class PyramidFluxTransformer(ModelMixin, ConfigMixin):
         device,
         start_time_stamp=0,
     ):
-        latent_image_ids = torch.zeros(temp, height, width, 3)
+        # Build position IDs directly on the target device. The original
+        # upstream code allocated CPU tensors here and only `.to(device)`'d at
+        # the end, which torch_xla rejects when these are mixed with XLA
+        # tensors via the in-place adds below ("Input tensor is not an XLA
+        # tensor: CPUFloatType").
+        latent_image_ids = torch.zeros(temp, height, width, 3, device=device)
 
         # Temporal Rope
         latent_image_ids[..., 0] = (
             latent_image_ids[..., 0]
-            + torch.arange(start_time_stamp, start_time_stamp + temp)[:, None, None]
+            + torch.arange(
+                start_time_stamp, start_time_stamp + temp, device=device
+            )[:, None, None]
         )
 
         # height Rope
         if height != train_height:
             height_pos = F.interpolate(
-                torch.arange(train_height)[None, None, :].float(), height, mode="linear"
+                torch.arange(train_height, device=device)[None, None, :].float(),
+                height,
+                mode="linear",
             ).squeeze(0, 1)
         else:
-            height_pos = torch.arange(train_height).float()
+            height_pos = torch.arange(train_height, device=device).float()
 
         latent_image_ids[..., 1] = latent_image_ids[..., 1] + height_pos[None, :, None]
 
         # width rope
         if width != train_width:
             width_pos = F.interpolate(
-                torch.arange(train_width)[None, None, :].float(), width, mode="linear"
+                torch.arange(train_width, device=device)[None, None, :].float(),
+                width,
+                mode="linear",
             ).squeeze(0, 1)
         else:
-            width_pos = torch.arange(train_width).float()
+            width_pos = torch.arange(train_width, device=device).float()
 
         latent_image_ids[..., 2] = latent_image_ids[..., 2] + width_pos[None, None, :]
 
         latent_image_ids = latent_image_ids[None, :].repeat(batch_size, 1, 1, 1, 1)
         latent_image_ids = rearrange(latent_image_ids, "b t h w c -> b (t h w) c")
 
-        return latent_image_ids.to(device=device)
+        return latent_image_ids
 
     @torch.no_grad()
     def _prepare_pyramid_image_ids(self, sample, batch_size, device):
