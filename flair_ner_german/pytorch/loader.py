@@ -90,6 +90,9 @@ class ModelLoader(ForgeModel):
         # SequenceTagger.forward() takes pre-embedded (sentence_tensor, lengths);
         # use the model's own _prepare_tensors to embed and pad the sentence batch.
         sentence_tensor, lengths = self.model._prepare_tensors([sentence])
+        # Flair embeddings always produce float32; cast to match the model weights.
+        if dtype_override is not None:
+            sentence_tensor = sentence_tensor.to(dtype_override)
         return [sentence_tensor, lengths]
 
     def decode_output(self, co_out):
