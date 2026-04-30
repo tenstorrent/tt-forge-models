@@ -5,8 +5,46 @@
 Gemma 2 BNB 4-bit model loader implementation for causal language modeling.
 """
 import torch
+import torch.nn as nn
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+
+def _dequantize_bnb4_to_bf16(model: nn.Module) -> nn.Module:
+    """Replace all Linear4bit layers with standard bfloat16 Linear layers.
+
+    Lazy-imports bitsandbytes so the loader can be collected before
+    requirements.txt installs it.
+    """
+    import bitsandbytes as bnb
+
+    replacements = []
+    for name, module in model.named_modules():
+        if isinstance(module, bnb.nn.Linear4bit):
+            replacements.append((name, module))
+
+    for name, module in replacements:
+        dq_weight = bnb.functional.dequantize_4bit(
+            module.weight.data, module.weight.quant_state
+        ).to(torch.bfloat16)
+
+        new_linear = nn.Linear(
+            dq_weight.shape[1],
+            dq_weight.shape[0],
+            bias=module.bias is not None,
+            dtype=torch.bfloat16,
+        )
+        new_linear.weight = nn.Parameter(dq_weight)
+        if module.bias is not None:
+            new_linear.bias = nn.Parameter(module.bias.data.to(torch.bfloat16))
+
+        parts = name.split(".")
+        parent = model
+        for part in parts[:-1]:
+            parent = getattr(parent, part)
+        setattr(parent, parts[-1], new_linear)
+
+    return model
 
 from ....base import ForgeModel
 from ....config import (
@@ -90,7 +128,9 @@ class ModelLoader(ForgeModel):
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
-        ).eval()
+        )
+        model = _dequantize_bnb4_to_bf16(model)
+        model.eval()
 
         self.config = model.config
         self.model = model
