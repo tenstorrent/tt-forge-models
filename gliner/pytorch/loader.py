@@ -100,6 +100,51 @@ class ModelLoader(ForgeModel):
         }
         try:
             from gliner import GLiNER
+            import torch
+            import gliner.modeling.utils as _gliner_utils
+            import gliner.modeling.base as _gliner_base
+
+            # `torch.where(cond)` (unary form) returns variable-length index
+            # tensors whose shape depends on runtime data, which breaks XLA
+            # graph tracing.  Replace with a static scatter_ implementation
+            # that routes invalid tokens to a sink slot at index max_text_length
+            # and then discards it.
+            def _extract_word_embeddings_static(
+                token_embeds,
+                words_mask,
+                attention_mask,
+                batch_size,
+                max_text_length,
+                embed_dim,
+                text_lengths,
+            ):
+                seq_len = words_mask.shape[1]
+                valid = words_mask > 0
+                # For valid positions map to (words_mask - 1); for invalid map
+                # to sink index max_text_length.
+                target = valid.to(dtype=torch.long) * (words_mask - 1).clamp(
+                    min=0
+                ) + (~valid).to(dtype=torch.long) * max_text_length
+                temp = torch.zeros(
+                    batch_size,
+                    max_text_length + 1,
+                    embed_dim,
+                    dtype=token_embeds.dtype,
+                    device=token_embeds.device,
+                )
+                target_3d = target.unsqueeze(-1).expand(batch_size, seq_len, embed_dim)
+                temp.scatter_(1, target_3d, token_embeds)
+                words_embedding = temp[:, :max_text_length, :].clone()
+                aranged = torch.arange(
+                    max_text_length,
+                    dtype=attention_mask.dtype,
+                    device=token_embeds.device,
+                ).expand(batch_size, -1)
+                mask = aranged < text_lengths
+                return words_embedding, mask
+
+            _gliner_utils.extract_word_embeddings = _extract_word_embeddings_static
+            _gliner_base.extract_word_embeddings = _extract_word_embeddings_static
         finally:
             sys.path = original_path
             # Restore any llm2vec entries that were cached before
