@@ -8,7 +8,6 @@ import re
 
 import numpy as np
 import torch
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from typing import Optional
 
 from ....base import ForgeModel
@@ -230,6 +229,7 @@ class ModelLoader(ForgeModel):
 
     def _load_tokenizer(self, dtype_override=None):
         _patch_transformers_nemotron_h_gguf()
+        from transformers import AutoTokenizer
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -244,6 +244,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from transformers import AutoConfig, AutoModelForCausalLM
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -305,6 +306,7 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         _patch_transformers_nemotron_h_gguf()
+        from transformers import AutoConfig
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
