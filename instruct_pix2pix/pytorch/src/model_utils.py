@@ -107,6 +107,7 @@ def instruct_pix2pix_preprocessing(
 
     # 2. Prepare image latents
     image = pipe.image_processor.preprocess(image, height=height, width=width)
+    image = image.to(dtype=pipe.vae.dtype)
     image_latents = (
         pipe.vae.encode(image).latent_dist.mode() * pipe.vae.config.scaling_factor
     )
