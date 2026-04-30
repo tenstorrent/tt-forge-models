@@ -40,8 +40,8 @@ def _patch_transformers_qwen35_gguf():
     )
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
 
-    if "qwen35" in GGUF_SUPPORTED_ARCHITECTURES:
-        return  # Already patched
+    if "attention.key_length" in GGUF_TO_TRANSFORMERS_MAPPING.get("config", {}).get("qwen35", {}):
+        return  # Already fully patched
 
     # 1. Register qwen35 as a supported architecture
     GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")

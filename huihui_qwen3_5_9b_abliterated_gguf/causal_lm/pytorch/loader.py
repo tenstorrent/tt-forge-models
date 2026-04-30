@@ -8,6 +8,114 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+
+def _patch_qwen35_support():
+    """Register qwen35 GGUF architecture for Qwen3.5 hybrid SSM/attention models."""
+    if "attention.key_length" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING.get("config", {}).get("qwen35", {}):
+        return  # Already fully patched
+
+    import numpy as np
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        TENSOR_PROCESSORS,
+        GGUFTensor,
+        TensorProcessor,
+    )
+
+    if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen35"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "attention.key_length": "head_dim",
+        "attention.value_length": None,
+        "ssm.conv_kernel": "linear_conv_kernel_dim",
+        "ssm.state_size": None,
+        "ssm.inner_size": None,
+        "ssm.time_step_rank": None,
+        "ssm.group_count": None,
+        "full_attention_interval": "full_attention_interval",
+        "vocab_size": "vocab_size",
+    }
+
+    class Qwen35TensorProcessor(TensorProcessor):
+        def __init__(self, config=None):
+            super().__init__(config=config)
+
+        def preprocess_name(self, hf_name: str) -> str:
+            return hf_name.replace(".dt_bias", ".dt_proj")
+
+        def process(self, weights, name, **kwargs):
+            if "ssm_conv1d.weight" in name:
+                if weights.ndim == 2:
+                    weights = np.expand_dims(weights, axis=1)
+            if "ssm_a" in name:
+                weights = np.log(-weights)
+            return GGUFTensor(weights, name, {})
+
+    TENSOR_PROCESSORS["qwen35"] = Qwen35TensorProcessor
+
+    if "qwen3" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
+        GGUF_TO_FAST_CONVERTERS.setdefault("qwen3_5_text", GGUF_TO_FAST_CONVERTERS["qwen3"])
+
+    _orig_get_map = _gguf_utils.get_gguf_hf_weights_map
+
+    def _patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type in ("qwen3_5_text", "qwen3_5"):
+            model_type = "qwen35"
+        return _orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
+    """Wrap load_gguf_checkpoint to add qwen35 support and fix model_type."""
+    _patch_qwen35_support()
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors, model_to_load=model_to_load)
+    if result.get("config", {}).get("model_type") == "qwen35":
+        result["config"]["model_type"] = "qwen3_5_text"
+        config = result["config"]
+        num_layers = config.get("num_hidden_layers", 32)
+        interval = config.pop("full_attention_interval", 4)
+        layer_types = []
+        for i in range(num_layers):
+            if (i + 1) % interval == 0:
+                layer_types.append("full_attention")
+            else:
+                layer_types.append("linear_attention")
+        config["layer_types"] = layer_types
+    return result
+
+
+_patch_qwen35_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -146,13 +254,11 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
 
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.q_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+            if hasattr(layer, "self_attn"):
+                shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
         shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
 
