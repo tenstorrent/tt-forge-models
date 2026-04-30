@@ -75,10 +75,52 @@ def _patch_transformers_lfm2moe_gguf():
     #    b) Build layer_types list from non-zero kv-head indices (Lfm2MoeConfig
     #       needs layer_types, not full_attn_idxs which only Lfm2Config accepts).
     #    c) Remap model_type "lfm2moe" → "lfm2_moe" so AutoConfig finds Lfm2MoeConfig.
+    #
+    # Other loaders patch gguf_utils.load_gguf_checkpoint at import time with wrappers
+    # that lack the model_to_load kwarg added in transformers 5.x.  When modeling_utils
+    # calls load_gguf_checkpoint(..., model_to_load=model) for the tensor-loading path,
+    # those broken wrappers raise TypeError.  We bypass them by traversing the closure
+    # chain to find the real transformers function (which accepts model_to_load) and
+    # calling it directly when model_to_load is provided.
+    import inspect
+
+    def _find_real_loader(fn):
+        seen = set()
+        cur = fn
+        while cur is not None:
+            fid = id(cur)
+            if fid in seen:
+                break
+            seen.add(fid)
+            try:
+                if "model_to_load" in inspect.signature(cur).parameters:
+                    return cur
+            except (ValueError, TypeError):
+                pass
+            nxt = None
+            for cell in getattr(cur, "__closure__", None) or ():
+                try:
+                    val = cell.cell_contents
+                except ValueError:
+                    continue
+                if callable(val) and id(val) not in seen:
+                    nxt = val
+                    break
+            if nxt is None:
+                break
+            cur = nxt
+        return fn
+
     orig_load = gguf_utils.load_gguf_checkpoint
+    real_load = _find_real_loader(orig_load)
 
     def patched_load_gguf_checkpoint(*args, **kwargs):
-        result = orig_load(*args, **kwargs)
+        # Use the real transformers function directly when model_to_load is present
+        # to bypass broken patcher chains in other loaders.
+        if kwargs.get("model_to_load") is not None:
+            result = real_load(*args, **kwargs)
+        else:
+            result = orig_load(*args, **kwargs)
         config = result.get("config", {})
         if config.get("model_type") == "lfm2moe":
             kv_heads = config.get("num_key_value_heads")
