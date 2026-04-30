@@ -6,6 +6,7 @@ Model loader implementation for GLM-4-Voice causal language modeling.
 """
 
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
 from typing import Optional
 import torch
 
@@ -138,8 +139,30 @@ class ModelLoader(ForgeModel):
         # ChatGLMConfig only provides seq_length.
         if not hasattr(config, "max_length") and hasattr(config, "seq_length"):
             config.max_length = config.seq_length
+        # transformers 5.x removed use_cache from PretrainedConfig defaults;
+        # the remote forward() still reads self.config.use_cache.
+        if not hasattr(config, "use_cache"):
+            config.use_cache = True
         model_kwargs["config"] = config
         model_kwargs |= kwargs
+
+        # The remote ChatGLMForConditionalGeneration.__init__ does not call
+        # self.post_init(), which is required in transformers 5.x to initialize
+        # all_tied_weights_keys before _finalize_model_loading accesses it.
+        chatglm_cls = get_class_from_dynamic_module(
+            "modeling_chatglm.ChatGLMForConditionalGeneration",
+            pretrained_model_name,
+        )
+        if not getattr(chatglm_cls, "_post_init_patched", False):
+            _orig_init = chatglm_cls.__init__
+
+            def _patched_init(self, *args, **kw):
+                _orig_init(self, *args, **kw)
+                if not hasattr(self, "all_tied_weights_keys"):
+                    self.post_init()
+
+            chatglm_cls.__init__ = _patched_init
+            chatglm_cls._post_init_patched = True
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -183,6 +206,10 @@ class ModelLoader(ForgeModel):
 
         inputs["input_ids"] = padded_input_ids
         inputs["attention_mask"] = padded_attention_mask
+        # position_ids from the tokenizer covers only the original (unpadded) tokens.
+        # Passing it would cause rotary_pos_emb to be indexed for only those positions
+        # while query/key have the full padded length, producing a shape mismatch.
+        inputs.pop("position_ids", None)
         return inputs
 
     def load_inputs_decode(self, dtype_override=None, batch_size=1):
