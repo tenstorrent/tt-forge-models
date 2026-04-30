@@ -20,14 +20,64 @@ from ....config import (
 )
 
 
+def _find_real_load_gguf_checkpoint(fn):
+    """Walk a chain of monkey-patched wrappers to find the real transformers function.
+
+    Many GGUF loaders patch load_gguf_checkpoint with fixed-arg wrappers that
+    do not accept model_to_load. To avoid calling those broken links, we chase
+    the captured-original references until we reach the function whose __name__
+    is 'load_gguf_checkpoint' in the transformers module.
+    """
+    seen = set()
+    while callable(fn):
+        fn_id = id(fn)
+        if fn_id in seen:
+            return fn
+        seen.add(fn_id)
+
+        if (getattr(fn, '__name__', '') == 'load_gguf_checkpoint'
+                and 'transformers' in getattr(fn, '__module__', '')):
+            return fn
+
+        moved = False
+        # Closure pattern: good wrappers capture orig_load as a local variable
+        if fn.__closure__:
+            for cell in fn.__closure__:
+                try:
+                    v = cell.cell_contents
+                    if callable(v) and id(v) not in seen:
+                        fn = v
+                        moved = True
+                        break
+                except ValueError:
+                    pass
+
+        # Module-global pattern: broken wrappers import the original as
+        # _orig_load_gguf_checkpoint in their loader module's globals
+        if not moved:
+            globs = getattr(fn, '__globals__', {})
+            orig = globs.get('_orig_load_gguf_checkpoint')
+            if callable(orig) and id(orig) not in seen:
+                fn = orig
+                moved = True
+
+        if not moved:
+            return fn
+
+    return fn
+
+
 def _patch_transformers_gemma3n_gguf():
     """Monkey-patch transformers to add gemma3n GGUF architecture support.
 
     Transformers 5.x has Gemma3nForCausalLM but lacks GGUF loading support
     for the gemma3n architecture (ValueError: GGUF model with architecture
-    gemma3n is not supported yet). We bridge the gap by registering gemma3n
-    config/tensor mappings and converting model_type to gemma3n_text so that
-    AutoModelForCausalLM selects Gemma3nForCausalLM.
+    gemma3n is not supported yet). We bridge the gap by:
+    1. Registering gemma3n in GGUF_CONFIG_MAPPING / GGUF_SUPPORTED_ARCHITECTURES
+    2. Remapping model_type "gemma3n" -> "gemma3n_text" so AutoModelForCausalLM
+       selects Gemma3nForCausalLM (text-only) instead of the multimodal class
+    3. Remapping "gemma3n_text" -> "gemma3n" in get_gguf_hf_weights_map so
+       gguf-py's MODEL_ARCH_NAMES lookup succeeds
     """
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
@@ -69,12 +119,12 @@ def _patch_transformers_gemma3n_gguf():
         GGUF_TO_FAST_CONVERTERS["gemma3n"] = GGUF_TO_FAST_CONVERTERS["gemma3_text"]
         GGUF_TO_FAST_CONVERTERS["gemma3n_text"] = GGUF_TO_FAST_CONVERTERS["gemma3_text"]
 
-    # 5. Patch load_gguf_checkpoint to remap model_type "gemma3n" -> "gemma3n_text"
-    #    so that AutoModelForCausalLM instantiates Gemma3nForCausalLM (text-only path)
-    orig_load = gguf_utils.load_gguf_checkpoint
+    # 5. Find the real transformers load_gguf_checkpoint, bypassing any broken
+    #    wrappers installed by other loaders that do not accept model_to_load.
+    _true_orig = _find_real_load_gguf_checkpoint(gguf_utils.load_gguf_checkpoint)
 
     def patched_load_gguf_checkpoint(*args, **kwargs):
-        result = orig_load(*args, **kwargs)
+        result = _true_orig(*args, **kwargs)
         if result.get("config", {}).get("model_type") == "gemma3n":
             result["config"]["model_type"] = "gemma3n_text"
         return result
