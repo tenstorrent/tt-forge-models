@@ -20,6 +20,96 @@ from ....config import (
 )
 
 
+def _patch_transformers_gemma3n_gguf():
+    """Monkey-patch transformers to add gemma3n GGUF architecture support.
+
+    Transformers 5.x has Gemma3nForCausalLM but lacks GGUF loading support
+    for the gemma3n architecture (ValueError: GGUF model with architecture
+    gemma3n is not supported yet). We bridge the gap by registering gemma3n
+    config/tensor mappings and converting model_type to gemma3n_text so that
+    AutoModelForCausalLM selects Gemma3nForCausalLM.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        TENSOR_PROCESSORS,
+        Gemma2TensorProcessor,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "gemma3n" in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # Already patched
+
+    # 1. Register gemma3n as a supported architecture
+    GGUF_SUPPORTED_ARCHITECTURES.append("gemma3n")
+
+    # 2. Add config mapping for gemma3n (same fields as gemma3)
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["gemma3n"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.key_length": "head_dim",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "attention.sliding_window": "sliding_window",
+        "vocab_size": "vocab_size",
+    }
+
+    # 3. Reuse Gemma2TensorProcessor for gemma3n (same as gemma3)
+    TENSOR_PROCESSORS["gemma3n"] = Gemma2TensorProcessor
+
+    # 4. Register tokenizer converter (reuse GGUFGemmaConverter from gemma3_text)
+    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+    if "gemma3_text" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["gemma3n"] = GGUF_TO_FAST_CONVERTERS["gemma3_text"]
+        GGUF_TO_FAST_CONVERTERS["gemma3n_text"] = GGUF_TO_FAST_CONVERTERS["gemma3_text"]
+
+    # 5. Patch load_gguf_checkpoint to remap model_type "gemma3n" -> "gemma3n_text"
+    #    so that AutoModelForCausalLM instantiates Gemma3nForCausalLM (text-only path)
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        if result.get("config", {}).get("model_type") == "gemma3n":
+            result["config"]["model_type"] = "gemma3n_text"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    # Patch all modules that imported load_gguf_checkpoint by name
+    import transformers.models.auto.tokenization_auto as _tok_auto
+    import transformers.configuration_utils as _config_utils
+    import transformers.modeling_utils as _modeling_utils
+
+    for _mod in (_tok_auto, _config_utils, _modeling_utils):
+        if hasattr(_mod, "load_gguf_checkpoint"):
+            _mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    # 6. Patch get_gguf_hf_weights_map to remap "gemma3n_text" -> "gemma3n"
+    #    so gguf-py's MODEL_ARCH_NAMES lookup finds the correct gemma3n entry
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type in ("gemma3n_text", "gemma3n"):
+            model_type = "gemma3n"
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+
+# Apply the monkey-patch at import time
+_patch_transformers_gemma3n_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available Gemma 3n GGUF model variants for causal language modeling."""
 
