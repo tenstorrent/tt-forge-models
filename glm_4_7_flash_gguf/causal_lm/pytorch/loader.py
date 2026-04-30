@@ -34,7 +34,12 @@ def _patch_transformers_deepseek2_gguf():
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
 
     if "deepseek2" in GGUF_SUPPORTED_ARCHITECTURES:
-        return  # Already patched
+        # load_gguf_checkpoint remaps deepseek2→deepseek_v2 in model_type; the
+        # tokenizer looks up that remapped string in GGUF_TO_FAST_CONVERTERS.
+        from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFQwen2Converter
+        if "deepseek_v2" not in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS["deepseek_v2"] = GGUFQwen2Converter
+        return
 
     # 1. Register deepseek2 as a supported architecture
     GGUF_SUPPORTED_ARCHITECTURES.append("deepseek2")
