@@ -164,6 +164,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        model.config._experts_implementation = "batched_mm"
+
         self.config = model.config
         self.model = model
         return model
