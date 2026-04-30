@@ -143,11 +143,17 @@ if "gpt-oss" not in TENSOR_PROCESSORS:
 _orig_get_gguf_hf_weights_map = _gguf_utils.get_gguf_hf_weights_map
 
 
-def _patched_get_gguf_hf_weights_map(hf_model, processor, model_type=None, **kw):
-    mt = model_type if model_type is not None else hf_model.config.model_type
+def _patched_get_gguf_hf_weights_map(
+    hf_model, processor, model_type=None, num_layers=None, qual_name="", **kw
+):
+    mt = model_type if model_type is not None else getattr(
+        getattr(hf_model, "config", None), "model_type", None
+    )
     if mt == "gpt_oss":
         mt = "gpt-oss"
-    return _orig_get_gguf_hf_weights_map(hf_model, processor, model_type=mt, **kw)
+    return _orig_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=mt, num_layers=num_layers, qual_name=qual_name, **kw
+    )
 
 
 if not getattr(_gguf_utils.get_gguf_hf_weights_map, "_gpt_oss_patched", False):
