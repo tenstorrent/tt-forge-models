@@ -4,6 +4,8 @@
 """
 Huihui LFM2 8B A1B Abliterated GGUF model loader implementation for causal language modeling.
 """
+import contextlib
+import inspect
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -19,6 +21,11 @@ from ....config import (
     StrEnum,
 )
 
+# Stored by _patch_transformers_lfm2moe_gguf() so load_model() can re-install it
+# as the outermost gguf_utils.load_gguf_checkpoint wrapper when needed (other loaders
+# imported after ours re-wrap the attribute, burying our patcher).
+_lfm2moe_gguf_patcher = None
+
 
 def _patch_transformers_lfm2moe_gguf():
     """Register the lfm2moe GGUF architecture in the transformers GGUF loading pipeline.
@@ -26,6 +33,8 @@ def _patch_transformers_lfm2moe_gguf():
     transformers 5.2.0 knows about lfm2_moe as an HF model type but lacks the
     GGUF_CONFIG_MAPPING entry for the raw GGUF architecture key "lfm2moe".
     """
+    global _lfm2moe_gguf_patcher
+
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
@@ -76,23 +85,23 @@ def _patch_transformers_lfm2moe_gguf():
     #       needs layer_types, not full_attn_idxs which only Lfm2Config accepts).
     #    c) Remap model_type "lfm2moe" → "lfm2_moe" so AutoConfig finds Lfm2MoeConfig.
     #
-    # Other loaders patch gguf_utils.load_gguf_checkpoint at import time with wrappers
-    # that lack the model_to_load kwarg added in transformers 5.x.  When modeling_utils
-    # calls load_gguf_checkpoint(..., model_to_load=model) for the tensor-loading path,
-    # those broken wrappers raise TypeError.  We bypass them by traversing the closure
-    # chain to find the real transformers function (which accepts model_to_load) and
-    # calling it directly when model_to_load is provided.
-    import inspect
+    # Problem: other loaders installed at import time wrap gguf_utils.load_gguf_checkpoint
+    # with module-level functions that lack the model_to_load kwarg added in transformers
+    # 5.x.  They are installed both before AND after our module.  When modeling_utils
+    # calls load_gguf_checkpoint(..., model_to_load=model), the outermost wrapper (from a
+    # loader imported after ours) raises TypeError before our patcher is reached.
+    #
+    # Two-part fix:
+    #   A. At import time, traverse the patcher chain (via closures and global-name
+    #      references) to find the real transformers function that accepts model_to_load.
+    #      Store it as real_load for use when model_to_load is provided.
+    #   B. In load_model(), temporarily re-install our patcher as the outermost wrapper
+    #      during from_pretrained so modeling_utils hits us first.
 
     def _find_real_loader(fn):
-        """Find load_gguf_checkpoint that has model_to_load as an explicit parameter.
-
-        Other loaders define module-level patcher functions (no closures) that store
-        the previous patcher in their module's global namespace.  We need BFS over
-        both closure cells and co_names-referenced globals to traverse the full chain.
-        We only follow callables whose source is in modeling_gguf_pytorch_utils or
-        tt_forge_models to avoid an unbounded search through unrelated packages.
-        """
+        """BFS over closure cells and co_names globals to find load_gguf_checkpoint
+        with an explicit model_to_load parameter (the real transformers function).
+        Only follows callables from modeling_gguf_pytorch_utils or tt_forge_models."""
         seen = set()
         queue = [fn]
         while queue:
@@ -102,14 +111,12 @@ def _patch_transformers_lfm2moe_gguf():
                 continue
             seen.add(fid)
 
-            # Return when we find the real function: model_to_load as an explicit param
             try:
                 if "model_to_load" in inspect.signature(cur).parameters:
                     return cur
             except (ValueError, TypeError):
                 pass
 
-            # 1. Follow closure cells (nested/lambda patcher pattern)
             for cell in getattr(cur, "__closure__", None) or ():
                 try:
                     val = cell.cell_contents
@@ -118,8 +125,6 @@ def _patch_transformers_lfm2moe_gguf():
                 if callable(val) and id(val) not in seen:
                     queue.append(val)
 
-            # 2. Follow module-level globals referenced by this function (module-level
-            #    patcher pattern: _orig = gguf_utils.load_gguf_checkpoint at module top).
             code = getattr(cur, "__code__", None)
             if code is not None:
                 glbs = getattr(cur, "__globals__", {})
@@ -130,7 +135,7 @@ def _patch_transformers_lfm2moe_gguf():
                     try:
                         srcfile = inspect.getfile(val)
                     except TypeError:
-                        continue  # built-in / C extension, skip
+                        continue
                     if "modeling_gguf_pytorch_utils" in srcfile or "tt_forge_models" in srcfile:
                         queue.append(val)
 
@@ -140,8 +145,8 @@ def _patch_transformers_lfm2moe_gguf():
     real_load = _find_real_loader(orig_load)
 
     def patched_load_gguf_checkpoint(*args, **kwargs):
-        # Use the real transformers function directly when model_to_load is present
-        # to bypass broken patcher chains in other loaders.
+        # When model_to_load is present (tensor-loading path from modeling_utils),
+        # call the real transformers function directly to bypass broken patcher chains.
         if kwargs.get("model_to_load") is not None:
             result = real_load(*args, **kwargs)
         else:
@@ -158,12 +163,11 @@ def _patch_transformers_lfm2moe_gguf():
         return result
 
     gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+    _lfm2moe_gguf_patcher = patched_load_gguf_checkpoint
 
     # Patch modules that call load_gguf_checkpoint for config-only loading
-    # (return_tensors=False). Do NOT patch modeling_utils — it calls the real
-    # function with model_to_load and chains through other loaders that lack
-    # that kwarg, causing TypeError. The in-place dict patches above are enough
-    # for the tensor-loading path.
+    # (return_tensors=False). configuration_utils and tokenization_auto have module-level
+    # imports that are not re-executed on each call, so they need explicit patching.
     import transformers.configuration_utils as config_utils
     import transformers.models.auto.tokenization_auto as tok_auto
 
@@ -244,6 +248,24 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    @contextlib.contextmanager
+    def _lfm2moe_load_ctx(self):
+        """Temporarily re-install our patcher as the outermost gguf_utils wrapper.
+
+        Loaders imported after this module re-wrap gguf_utils.load_gguf_checkpoint
+        with broken wrappers that lack model_to_load.  Restoring ours as outermost
+        ensures modeling_utils hits our patcher (which handles model_to_load) first.
+        """
+        import transformers.modeling_gguf_pytorch_utils as gguf_utils
+        prev = gguf_utils.load_gguf_checkpoint
+        if prev is not _lfm2moe_gguf_patcher:
+            gguf_utils.load_gguf_checkpoint = _lfm2moe_gguf_patcher
+        try:
+            yield
+        finally:
+            if prev is not _lfm2moe_gguf_patcher:
+                gguf_utils.load_gguf_checkpoint = prev
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -263,9 +285,10 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        with self._lfm2moe_load_ctx():
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
