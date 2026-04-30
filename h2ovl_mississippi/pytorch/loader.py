@@ -11,6 +11,7 @@ import torchvision.transforms as T
 from PIL import Image
 from torchvision.transforms.functional import InterpolationMode
 from transformers import AutoConfig, AutoModel, AutoTokenizer, PreTrainedModel
+from transformers.configuration_utils import PreTrainedConfig
 from typing import Optional
 
 from ...tools.utils import get_file
@@ -198,6 +199,22 @@ class ModelLoader(ForgeModel):
                 model.post_init()
             return _orig_finalize(model, load_config, loading_info)
 
+        # The H2OVL config JSON contains "rope_scaling": null (saved by transformers 4.x).
+        # H2OVLChatConfig.__init__ calls llm_config.update(dict) which triggers the
+        # transformers 5.x PreTrainedConfig.rope_scaling.setter, which unconditionally
+        # sets rope_parameters=value — overwriting the rope_parameters dict that
+        # LlamaConfig computed via convert_rope_params_to_dict with None.  Guard the
+        # setter so rope_scaling=None is a no-op when rope_parameters is already set.
+        _orig_rope_scaling_prop = PreTrainedConfig.__dict__["rope_scaling"]
+
+        def _guarded_rope_scaling_setter(self, value):
+            if value is None and getattr(self, "rope_parameters", None) is not None:
+                return
+            _orig_rope_scaling_prop.fset(self, value)
+
+        PreTrainedConfig.rope_scaling = _orig_rope_scaling_prop.setter(
+            _guarded_rope_scaling_setter
+        )
         PreTrainedModel._finalize_model_loading = _patched_finalize
         torch.Tensor.item = _meta_safe_item
         try:
@@ -205,6 +222,7 @@ class ModelLoader(ForgeModel):
         finally:
             torch.Tensor.item = _orig_item
             PreTrainedModel._finalize_model_loading = staticmethod(_orig_finalize)
+            PreTrainedConfig.rope_scaling = _orig_rope_scaling_prop
 
         model.eval()
         self.model = model
