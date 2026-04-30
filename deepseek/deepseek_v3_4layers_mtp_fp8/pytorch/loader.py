@@ -136,9 +136,12 @@ def _patch_deepseek_v3_native_moe():
             activated.permute(0, 2, 1),
         ).permute(0, 2, 1)  # [E, T, H]
 
-        # Build routing matrix [T, E] without data-dependent indexing
-        routing = hidden_states.new_zeros(n_tokens, n_experts)
-        routing.scatter_add_(1, top_k_index, top_k_weights.to(hidden_states.dtype))
+        # Build routing matrix [T, E] via comparison — avoids scatter/histc ops.
+        # top_k_index: [T, k], expert_range: [1, 1, E]
+        # match: [T, k, E] — 1 where token t's k-th choice is expert e
+        expert_range = torch.arange(n_experts, device=hidden_states.device).reshape(1, 1, n_experts)
+        match = (top_k_index.unsqueeze(-1) == expert_range).to(hidden_states.dtype)
+        routing = (top_k_weights.to(hidden_states.dtype).unsqueeze(-1) * match).sum(dim=1)  # [T, E]
 
         # Weighted sum: [E, T, H] * [E, T, 1] → sum over E → [T, H]
         return (output * routing.t().unsqueeze(-1)).sum(dim=0).to(hidden_states.dtype)
