@@ -6,7 +6,10 @@ ERNIE 4.5 MoE causal language modeling loader
 """
 from typing import Optional
 
+import torch
+import torch.nn.functional as F
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+from transformers.integrations.moe import ALL_EXPERTS_FUNCTIONS
 
 from ....config import (
     LLMModelConfig,
@@ -18,6 +21,28 @@ from ....config import (
     StrEnum,
 )
 from ....base import ForgeModel
+
+
+def _tt_static_ernie_moe_forward(experts_module, hidden_states, top_k_index, top_k_weights):
+    # Avoid torch.histc on Int (grouped_mm, XLA unsupported) and avoid large
+    # 3D embedding gather (batched_mm, L1 CB overflow for ERNIE's expert dims).
+    # Loop over Python ints so dynamo unrolls into static F.linear calls.
+    dtype = hidden_states.dtype
+    out = torch.zeros_like(hidden_states)
+    for expert_idx in range(experts_module.num_experts):
+        mask = (top_k_index == expert_idx)
+        weight = (mask.to(dtype) * top_k_weights.to(dtype)).sum(dim=-1, keepdim=True)
+        gate_up = F.linear(hidden_states, experts_module.gate_up_proj[expert_idx])
+        gate, up = gate_up.chunk(2, dim=-1)
+        hidden_expert = F.linear(experts_module.act_fn(gate) * up, experts_module.down_proj[expert_idx])
+        out = out + hidden_expert * weight
+    return out.to(dtype)
+
+
+# Register before from_pretrained so get_interface can look it up at forward time.
+# __setitem__ adds to the local mapping of the singleton ALL_EXPERTS_FUNCTIONS
+# instance which is what the @use_experts_implementation dispatch reads.
+ALL_EXPERTS_FUNCTIONS["tt_static_ernie_moe"] = _tt_static_ernie_moe_forward
 
 
 class ModelVariant(StrEnum):
@@ -85,6 +110,15 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             self._variant_config.pretrained_model_name, **model_kwargs
         )
+
+        # grouped_mm_experts_forward uses torch.histc on Int, unsupported by XLA/TT.
+        # batched_mm_experts_forward gathers gate_up_proj[expert_ids] producing a
+        # 3D tensor whose row size (3072 × 2560 × 2 B = 15.7 MB) overflows L1.
+        # Switch to static per-expert masked matmul registered above.
+        # The setter does not validate, so this bypasses the from_pretrained check
+        # that only accepts "eager", "grouped_mm", and "batched_mm".
+        model.config._experts_implementation = "tt_static_ernie_moe"
+
         model.eval()
         return model
 
