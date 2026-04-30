@@ -5,6 +5,7 @@
 Gemma 3 BNB 4-bit model loader implementation for causal language modeling.
 """
 
+import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
@@ -19,6 +20,48 @@ from ...config import (
 )
 from ...base import ForgeModel
 from ...tools.utils import cast_input_to_type
+
+
+def _dequantize_bnb_4bit(model):
+    """Replace Linear4bit layers with regular Linear layers using dequantized bf16 weights.
+
+    BNB Params4bit cannot be transferred to non-CUDA devices. Dequantize the
+    quantized checkpoint to standard weights so the TT compiler can work with them.
+    Uses bnb.functional.dequantize_4bit (same as Linear4bit.forward) to get the
+    correctly shaped weight matrix from quant_state.
+    """
+    try:
+        import bitsandbytes as bnb
+        from bitsandbytes.nn import Linear4bit
+    except ImportError:
+        return model
+
+    replacements = {}
+    for name, module in model.named_modules():
+        if isinstance(module, Linear4bit):
+            with torch.no_grad():
+                weight = bnb.functional.dequantize_4bit(
+                    module.weight.data, module.weight.quant_state
+                )
+            has_bias = module.bias is not None
+            new_layer = torch.nn.Linear(
+                module.in_features,
+                module.out_features,
+                bias=has_bias,
+            )
+            new_layer.weight = torch.nn.Parameter(weight)
+            if has_bias:
+                new_layer.bias = module.bias
+            replacements[name] = new_layer
+
+    for name, new_layer in replacements.items():
+        parts = name.split(".")
+        parent = model
+        for part in parts[:-1]:
+            parent = getattr(parent, part)
+        setattr(parent, parts[-1], new_layer)
+
+    return model
 
 
 class ModelVariant(StrEnum):
@@ -113,6 +156,7 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        model = _dequantize_bnb_4bit(model)
         model.eval()
         self.model = model
         self.config = model.config
@@ -133,17 +177,16 @@ class ModelLoader(ForgeModel):
         max_length = self._variant_config.max_length
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
-        input_prompt = [
-            {
-                "role": "user",
-                "content": prompt or self.sample_text,
-            }
-        ]
-        input_text = self.tokenizer.apply_chat_template(
-            input_prompt,
-            add_generation_prompt=True,
-            tokenize=False,
-        )
+        raw_text = prompt or self.sample_text
+        if self.tokenizer.chat_template is not None:
+            input_prompt = [{"role": "user", "content": raw_text}]
+            input_text = self.tokenizer.apply_chat_template(
+                input_prompt,
+                add_generation_prompt=True,
+                tokenize=False,
+            )
+        else:
+            input_text = raw_text
         inputs = self.tokenizer(
             [input_text],
             return_tensors="pt",
