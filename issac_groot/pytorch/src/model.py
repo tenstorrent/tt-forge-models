@@ -47,7 +47,7 @@ from .utils import (
 from transformers.image_processing_utils import BatchFeature, get_patch_output_size
 from transformers.image_processing_utils_fast import (
     BaseImageProcessorFast,
-    DefaultFastImageProcessorKwargs,
+    ImagesKwargs as DefaultFastImageProcessorKwargs,
     group_images_by_shape,
     reorder_images,
 )
