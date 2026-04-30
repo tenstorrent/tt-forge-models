@@ -40,15 +40,15 @@ def _patch_deepseek_v2_gguf():
 
     _orig_get_map = gguf_utils.get_gguf_hf_weights_map
 
-    def _patched_get_gguf_hf_weights_map(hf_model, processor=None, model_type=None):
+    def _patched_get_gguf_hf_weights_map(hf_model, processor=None, model_type=None, num_layers=None, qual_name=""):
         cfg = getattr(hf_model, "config", None)
         if getattr(cfg, "model_type", None) == "deepseek_v2":
             cfg.model_type = "deepseek2"
             try:
-                return _orig_get_map(hf_model, processor=processor, model_type=model_type)
+                return _orig_get_map(hf_model, processor, model_type=model_type, num_layers=num_layers, qual_name=qual_name)
             finally:
                 cfg.model_type = "deepseek_v2"
-        return _orig_get_map(hf_model, processor=processor, model_type=model_type)
+        return _orig_get_map(hf_model, processor, model_type=model_type, num_layers=num_layers, qual_name=qual_name)
 
     gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
     import transformers.modeling_utils as modeling_utils
