@@ -25,25 +25,41 @@ from ....config import (
 
 
 def _find_real_load_gguf_checkpoint():
-    """Walk the _orig_load_gguf_checkpoint chain to find the real transformers function.
+    """BFS through the patcher chain to find the real transformers function.
 
-    Patchers store the previous function in _orig_load_gguf_checkpoint in their
-    module globals (not in closures), so we must walk __globals__ not __closure__.
+    Two patcher styles exist:
+    - Module-level: stores previous function as _orig_load_gguf_checkpoint in __globals__
+    - Closure: stores previous function as a free variable captured in __closure__
+
+    We must search both paths to find the function that explicitly accepts
+    model_to_load (the real transformers load_gguf_checkpoint).
     """
-    fn = _gguf_utils.load_gguf_checkpoint
-    seen = {id(fn)}
-    while True:
+    start = _gguf_utils.load_gguf_checkpoint
+    seen = {id(start)}
+    queue = [start]
+    while queue:
+        fn = queue.pop(0)
         try:
             if "model_to_load" in inspect.signature(fn).parameters:
                 return fn
         except (ValueError, TypeError):
             pass
-        orig = getattr(fn, "__globals__", {}).get("_orig_load_gguf_checkpoint")
-        if orig is None or id(orig) in seen:
-            break
-        seen.add(id(orig))
-        fn = orig
-    return fn
+        # Module-level patchers store the previous function in __globals__
+        orig_global = getattr(fn, "__globals__", {}).get("_orig_load_gguf_checkpoint")
+        if orig_global is not None and id(orig_global) not in seen:
+            seen.add(id(orig_global))
+            queue.append(orig_global)
+        # Closure patchers (e.g. defined inside a helper function) capture
+        # the previous function in a closure cell
+        for cell in getattr(fn, "__closure__", None) or ():
+            try:
+                val = cell.cell_contents
+            except ValueError:
+                continue
+            if callable(val) and id(val) not in seen:
+                seen.add(id(val))
+                queue.append(val)
+    return start
 
 
 @contextlib.contextmanager
