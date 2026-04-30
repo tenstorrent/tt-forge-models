@@ -31,21 +31,22 @@ if ALL_PARALLEL_STYLES is None:
     mu.ALL_PARALLEL_STYLES = ["rowwise", "colwise", "headwise"]
 
 # Monkey patch Resampler for compatibility with torch 2.7.0
-original_getattr = nn.Module.__getattr__
+# Guard prevents double-patching when another MiniCPM loader has already applied the same fix.
+if not getattr(nn.Module, "_tt_resampler_getattr_patched", False):
+    _original_getattr = nn.Module.__getattr__
 
+    def patched_getattr(self, name):
+        if name == "_initialize_weights" and self.__class__.__name__ == "Resampler":
 
-def patched_getattr(self, name):
-    if name == "_initialize_weights" and self.__class__.__name__ == "Resampler":
+            def _initialize_weights(module_self):
+                if hasattr(module_self, "_init_weights"):
+                    module_self._init_weights(module_self)
 
-        def _initialize_weights(module_self):
-            if hasattr(module_self, "_init_weights"):
-                module_self._init_weights(module_self)
+            return _initialize_weights
+        return _original_getattr(self, name)
 
-        return _initialize_weights
-    return original_getattr(self, name)
-
-
-nn.Module.__getattr__ = patched_getattr
+    nn.Module.__getattr__ = patched_getattr
+    nn.Module._tt_resampler_getattr_patched = True
 
 
 class ModelVariant(StrEnum):
