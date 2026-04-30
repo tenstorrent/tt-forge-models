@@ -179,4 +179,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             audio_tensor = audio_tensor.to(dtype_override)
 
-        return [audio_tensor]
+        # GigaAMModel.forward() requires (features, feature_lengths)
+        feature_lengths = torch.tensor([audio_tensor.shape[-1]], dtype=torch.long)
+
+        return [audio_tensor, feature_lengths]
