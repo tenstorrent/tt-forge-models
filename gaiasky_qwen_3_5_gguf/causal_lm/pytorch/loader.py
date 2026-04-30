@@ -8,6 +8,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import inspect as _inspect
 import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
@@ -17,6 +18,11 @@ from transformers.modeling_gguf_pytorch_utils import (
     GGUF_SUPPORTED_ARCHITECTURES,
 )
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+# Mutable holder — updated in _apply_gguf_patches() each time we (re-)install
+# our wrapper, so the actual call always reaches the real transformers function
+# regardless of how many narrow-sig patches other loaders layer on top.
+_real_load_gguf_fn = [None]
 
 
 def _patch_qwen35_support():
@@ -41,10 +47,46 @@ def _patch_qwen35_support():
         )
 
 
+def _find_real_load_gguf(fn, _seen=None):
+    """Walk the patch chain to find the real load_gguf_checkpoint.
+
+    Each loader that patches load_gguf_checkpoint stores the previous value
+    as _orig_load_gguf_checkpoint in its own module globals.  We follow that
+    chain until we reach a function that accepts 'model_to_load' as an
+    explicit parameter — that is the genuine transformers implementation.
+    """
+    if _seen is None:
+        _seen = set()
+    if fn is None or id(fn) in _seen:
+        return None
+    _seen.add(id(fn))
+    if not callable(fn):
+        return None
+    try:
+        if "model_to_load" in _inspect.signature(fn).parameters:
+            return fn
+    except (TypeError, ValueError):
+        pass
+    # Follow the _orig_load_gguf_checkpoint chain through the function's module.
+    # For gaiasky's own wrapper, also check _real_load_gguf_fn if present.
+    globs = getattr(fn, "__globals__", {})
+    for key in ("_orig_load_gguf_checkpoint", "_real_load_gguf_fn"):
+        val = globs.get(key)
+        if val is None:
+            continue
+        # _real_load_gguf_fn is a list holder; unwrap it.
+        if isinstance(val, list):
+            val = val[0] if val else None
+        result = _find_real_load_gguf(val, _seen)
+        if result is not None:
+            return result
+    return None
+
+
 def _patched_load_gguf_checkpoint(*args, **kwargs):
     """Wrap load_gguf_checkpoint to add qwen35 support and fix model_type."""
     _patch_qwen35_support()
-    result = _orig_load_gguf_checkpoint(*args, **kwargs)
+    result = _real_load_gguf_fn[0](*args, **kwargs)
     if result.get("config", {}).get("model_type") == "qwen35":
         result["config"]["model_type"] = "qwen3"
     return result
@@ -53,12 +95,22 @@ def _patched_load_gguf_checkpoint(*args, **kwargs):
 def _apply_gguf_patches():
     """Re-apply patches immediately before calling transformers APIs.
 
-    Other model loaders that run after us during pytest collection can
-    overwrite the module-level attribute with a narrow-signature wrapper.
-    Calling this at the start of each public method ensures our broad
-    *args/**kwargs wrapper is in effect when transformers imports it.
+    Other model loaders that run after us during pytest collection overwrite
+    the module-level attribute with narrow-signature wrappers, and they may
+    capture our wrapper as *their* _orig, chaining the problem further.
+    We walk the __globals__ chain at call time to find the actual transformers
+    implementation (the one with an explicit 'model_to_load' parameter) and
+    store it in _real_load_gguf_fn so our wrapper always calls the right
+    function regardless of import order.
     """
     _patch_qwen35_support()
+    current = _gguf_utils.__dict__.get("load_gguf_checkpoint")
+    if current is _patched_load_gguf_checkpoint:
+        return  # Already installed; _real_load_gguf_fn is up-to-date.
+    real = _find_real_load_gguf(current)
+    if real is None:
+        real = current  # current itself is the real function
+    _real_load_gguf_fn[0] = real
     _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
     _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
     _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
