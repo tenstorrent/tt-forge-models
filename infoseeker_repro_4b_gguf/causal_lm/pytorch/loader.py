@@ -15,23 +15,56 @@ import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
 
 def _unwrap_gguf_checkpoint_fn():
-    """Walk the global-patch chain to reach the original transformers load_gguf_checkpoint.
+    """Walk the patch chain to reach the real transformers load_gguf_checkpoint.
 
     Some loaders patch load_gguf_checkpoint globally at import time without accepting
-    the model_to_load kwarg added in transformers 5.x.  The real original is at the
-    bottom of the chain (its __globals__ has no _orig_load_gguf_checkpoint entry).
+    the model_to_load kwarg added in transformers 5.x.  Patchers use two styles:
+      - module-level: _orig_load_gguf_checkpoint in __globals__
+      - closure-based: orig_load captured in __closure__
+
+    Walk both styles until we reach a function whose __module__ lives in
+    transformers.modeling_gguf_pytorch_utils (the real original).
     """
     func = _gguf_utils.load_gguf_checkpoint
     seen = set()
+
     while True:
         fn_id = id(func)
         if fn_id in seen:
             break
         seen.add(fn_id)
-        next_fn = getattr(func, "__globals__", {}).get("_orig_load_gguf_checkpoint")
-        if next_fn is None or next_fn is func:
+
+        # Reached the real transformers function
+        fn_module = getattr(func, "__module__", "") or ""
+        if fn_module == "transformers.modeling_gguf_pytorch_utils":
+            break
+
+        next_fn = None
+
+        # Style 1: module-level _orig_load_gguf_checkpoint in __globals__
+        g = getattr(func, "__globals__", {})
+        candidate = g.get("_orig_load_gguf_checkpoint")
+        if callable(candidate) and candidate is not func:
+            next_fn = candidate
+
+        # Style 2: closure variable (orig_load) captured from enclosing scope
+        if next_fn is None:
+            code = getattr(func, "__code__", None)
+            closure = getattr(func, "__closure__", None)
+            if code is not None and closure is not None:
+                for cell in closure:
+                    try:
+                        val = cell.cell_contents
+                    except ValueError:
+                        continue
+                    if callable(val) and val is not func:
+                        next_fn = val
+                        break
+
+        if next_fn is None:
             break
         func = next_fn
+
     return func
 
 
