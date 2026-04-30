@@ -24,7 +24,7 @@ from ...config import (
 class ModelVariant(StrEnum):
     """Available EnCodec model variants."""
 
-    ENCODEC_48KHZ = "EnCodec 48kHz"
+    ENCODEC_48KHZ = "EnCodec_48kHz"
 
 
 class ModelLoader(ForgeModel):
