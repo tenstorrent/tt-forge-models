@@ -212,7 +212,11 @@ def _deepseek2_load_ctx(model_to_load):
         finally:
             _model_to_load_ctx.value = None
         config = result.get("config", {})
-        if config.get("model_type") == "deepseek2":
+        # Apply GigaChat-specific fixes for deepseek2/deepseek_v2 configs.
+        # Another patcher in the bad_chain (e.g. glm_4_7_flash_gguf) may have
+        # already translated "deepseek2" → "deepseek_v2" before we see the
+        # result, so check for both.
+        if config.get("model_type") in ("deepseek2", "deepseek_v2"):
             config["model_type"] = "deepseek_v2"
             # When q_lora_rank is absent from the GGUF, set it to None so the HF
             # model instantiates q_proj instead of q_a_proj + q_b_proj.
@@ -220,18 +224,20 @@ def _deepseek2_load_ctx(model_to_load):
                 config["q_lora_rank"] = None
             # MLA: num_key_value_heads must equal num_attention_heads so that
             # repeat_kv is a no-op after kv_b_proj expands to all heads.
-            # The GGUF stores attention.head_count_kv=1 (compressed KV), which
-            # would cause repeat_kv to expand 32 heads → 1024 heads.
+            # The GGUF stores attention.head_count_kv=1 (compressed KV count),
+            # which GLM's config mapping maps to num_key_value_heads=1, causing
+            # repeat_kv to expand 32 heads → 1024 heads.
             if "num_attention_heads" in config:
                 config["num_key_value_heads"] = config["num_attention_heads"]
             # attention.key_length_mla in the GGUF is the FULL qk_head_dim
             # (qk_nope_head_dim + qk_rope_head_dim = 128 + 64 = 192), but it is
             # mapped to qk_nope_head_dim.  Subtract qk_rope_head_dim to get the
-            # true nope dimension.
+            # true nope dimension.  Guard against applying the correction twice.
             if "qk_nope_head_dim" in config and "qk_rope_head_dim" in config:
-                config["qk_nope_head_dim"] = (
-                    config["qk_nope_head_dim"] - config["qk_rope_head_dim"]
-                )
+                if config["qk_nope_head_dim"] > config["qk_rope_head_dim"]:
+                    config["qk_nope_head_dim"] = (
+                        config["qk_nope_head_dim"] - config["qk_rope_head_dim"]
+                    )
         return result
 
     # Ensure the get_map patch is in place (may have been skipped at import if
