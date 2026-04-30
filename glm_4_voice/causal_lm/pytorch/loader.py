@@ -164,6 +164,47 @@ class ModelLoader(ForgeModel):
             chatglm_cls.__init__ = _patched_init
             chatglm_cls._post_init_patched = True
 
+        chatglm_model_cls = get_class_from_dynamic_module(
+            "modeling_chatglm.ChatGLMModel",
+            pretrained_model_name,
+        )
+        if not getattr(chatglm_model_cls, "_get_masks_patched", False):
+            # The remote get_masks() ends with full_attention_mask.unsqueeze_(1),
+            # an in-place op on a bool tensor. XLA's xtensor accessor rejects
+            # XLABoolType for in-place writes, causing BackendCompilerFailed.
+            # Fully replace with a functionally identical version using out-of-place ops.
+            def _patched_get_masks(self, input_ids, past_key_values, padding_mask=None):
+                if self.config._attn_implementation == "flash_attention_2":
+                    if padding_mask is not None and not padding_mask.all():
+                        return padding_mask
+                    return None
+                batch_size, seq_length = input_ids.shape
+                full_attention_mask = torch.ones(
+                    batch_size, seq_length, seq_length, device=input_ids.device
+                ).tril()
+                past_length = 0
+                if past_key_values:
+                    past_length = past_key_values[0][0].shape[2]
+                if past_length:
+                    full_attention_mask = torch.cat(
+                        (
+                            torch.ones(
+                                batch_size, seq_length, past_length, device=input_ids.device
+                            ),
+                            full_attention_mask,
+                        ),
+                        dim=-1,
+                    )
+                if padding_mask is not None:
+                    full_attention_mask = full_attention_mask * padding_mask.unsqueeze(1)
+                if not past_length and padding_mask is not None:
+                    full_attention_mask = full_attention_mask - (padding_mask.unsqueeze(-1) - 1)
+                full_attention_mask = (full_attention_mask < 0.5).bool().unsqueeze(1)
+                return full_attention_mask
+
+            chatglm_model_cls.get_masks = _patched_get_masks
+            chatglm_model_cls._get_masks_patched = True
+
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
