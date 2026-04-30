@@ -13,7 +13,10 @@ import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
-from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_SUPPORTED_ARCHITECTURES,
+    get_gguf_hf_weights_map as _real_get_gguf_hf_weights_map,
+)
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFLlamaConverter
 
 # Grab the REAL transformers function before any further monkey-patching can
@@ -104,18 +107,36 @@ def _mistral3_load_gguf_checkpoint(*args, **kwargs):
     return result
 
 
+def _mistral3_get_gguf_hf_weights_map(hf_model, processor, model_type=None, num_layers=None, qual_name=""):
+    """get_gguf_hf_weights_map wrapper that translates model_type mistral → mistral3.
+
+    After _mistral3_load_gguf_checkpoint rewrites the config model_type from
+    mistral3 to mistral, hf_model.config.model_type becomes "mistral".  But
+    gguf-py MODEL_ARCH_NAMES only has "mistral3" (not "mistral"), so the arch
+    lookup in get_gguf_hf_weights_map raises NotImplementedError.  We intercept
+    here and translate back before calling the real function.
+    """
+    if model_type is None:
+        model_type = getattr(getattr(hf_model, "config", None), "model_type", None)
+    if model_type == "mistral":
+        model_type = "mistral3"
+    return _real_get_gguf_hf_weights_map(hf_model, processor, model_type, num_layers, qual_name)
+
+
 @contextmanager
 def _mistral3_gguf_patch():
-    """Temporarily install the mistral3-aware load_gguf_checkpoint wrapper."""
+    """Temporarily install the mistral3-aware load_gguf_checkpoint/get_gguf_hf_weights_map wrappers."""
     _patch_mistral3_data_structures()
     prev_gguf = _gguf_utils.load_gguf_checkpoint
     prev_cfg = _config_utils.load_gguf_checkpoint
     prev_tok = _auto_tokenizer.load_gguf_checkpoint
     prev_fast = _tok_utils.load_gguf_checkpoint
+    prev_get_map = _gguf_utils.get_gguf_hf_weights_map
     _gguf_utils.load_gguf_checkpoint = _mistral3_load_gguf_checkpoint
     _config_utils.load_gguf_checkpoint = _mistral3_load_gguf_checkpoint
     _auto_tokenizer.load_gguf_checkpoint = _mistral3_load_gguf_checkpoint
     _tok_utils.load_gguf_checkpoint = _mistral3_load_gguf_checkpoint
+    _gguf_utils.get_gguf_hf_weights_map = _mistral3_get_gguf_hf_weights_map
     try:
         yield
     finally:
@@ -123,6 +144,7 @@ def _mistral3_gguf_patch():
         _config_utils.load_gguf_checkpoint = prev_cfg
         _auto_tokenizer.load_gguf_checkpoint = prev_tok
         _tok_utils.load_gguf_checkpoint = prev_fast
+        _gguf_utils.get_gguf_hf_weights_map = prev_get_map
 
 
 # Register data structures at import time (permanent dict/list mutations).
