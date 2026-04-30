@@ -89,14 +89,13 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        # Build prompt using chat template
+        # Build prompt using chat template. The Alpha Two model's Jinja template
+        # calls message['content'].replace() so content must be a plain string;
+        # the template itself prepends the image token markers.
         conversation = [
             {
                 "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": self.sample_text},
-                ],
+                "content": self.sample_text,
             }
         ]
 
