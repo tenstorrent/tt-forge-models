@@ -10,8 +10,11 @@ from diffusers.utils import deprecate
 from diffusers.models.activations import GEGLU, GELU, ApproximateGELU, SwiGLU
 
 from .modeling_normalization import (
-    AdaLayerNormContinuous, AdaLayerNormZero, 
-    AdaLayerNormZeroSingle, FP32LayerNorm, RMSNorm
+    AdaLayerNormContinuous,
+    AdaLayerNormZero,
+    AdaLayerNormZeroSingle,
+    FP32LayerNorm,
+    RMSNorm,
 )
 
 from ._sp_stub import (
@@ -101,52 +104,83 @@ class FeedForward(nn.Module):
 
 
 class SequenceParallelVarlenFlashSelfAttentionWithT5Mask:
-
     def __init__(self):
         pass
 
     def __call__(
-            self, query, key, value, encoder_query, encoder_key, encoder_value, 
-            heads, scale, hidden_length=None, image_rotary_emb=None, encoder_attention_mask=None,
-        ):
-        assert encoder_attention_mask is not None, "The encoder-hidden mask needed to be set"
+        self,
+        query,
+        key,
+        value,
+        encoder_query,
+        encoder_key,
+        encoder_value,
+        heads,
+        scale,
+        hidden_length=None,
+        image_rotary_emb=None,
+        encoder_attention_mask=None,
+    ):
+        assert (
+            encoder_attention_mask is not None
+        ), "The encoder-hidden mask needed to be set"
 
         batch_size = query.shape[0]
         qkv_list = []
         num_stages = len(hidden_length)
 
-        encoder_qkv = torch.stack([encoder_query, encoder_key, encoder_value], dim=2) # [bs, sub_seq, 3, head, head_dim]
-        qkv = torch.stack([query, key, value], dim=2) # [bs, sub_seq, 3, head, head_dim]
+        encoder_qkv = torch.stack(
+            [encoder_query, encoder_key, encoder_value], dim=2
+        )  # [bs, sub_seq, 3, head, head_dim]
+        qkv = torch.stack(
+            [query, key, value], dim=2
+        )  # [bs, sub_seq, 3, head, head_dim]
 
         # To sync the encoder query, key and values
         sp_group = get_sequence_parallel_group()
         sp_group_size = get_sequence_parallel_world_size()
-        encoder_qkv = all_to_all(encoder_qkv, sp_group, sp_group_size, scatter_dim=3, gather_dim=1) # [bs, seq, 3, sub_head, head_dim]
+        encoder_qkv = all_to_all(
+            encoder_qkv, sp_group, sp_group_size, scatter_dim=3, gather_dim=1
+        )  # [bs, seq, 3, sub_head, head_dim]
 
-        output_hidden = torch.zeros_like(qkv[:,:,0])
-        output_encoder_hidden = torch.zeros_like(encoder_qkv[:,:,0])
+        output_hidden = torch.zeros_like(qkv[:, :, 0])
+        output_encoder_hidden = torch.zeros_like(encoder_qkv[:, :, 0])
         encoder_length = encoder_qkv.shape[1]
-        
+
         i_sum = 0
         for i_p, length in enumerate(hidden_length):
             # get the query, key, value from padding sequence
             encoder_qkv_tokens = encoder_qkv[i_p::num_stages]
-            qkv_tokens = qkv[:, i_sum:i_sum+length]
-            qkv_tokens = all_to_all(qkv_tokens, sp_group, sp_group_size, scatter_dim=3, gather_dim=1) # [bs, seq, 3, sub_head, head_dim]
-            concat_qkv_tokens = torch.cat([encoder_qkv_tokens, qkv_tokens], dim=1)  # [bs, pad_seq, 3, nhead, dim]
+            qkv_tokens = qkv[:, i_sum : i_sum + length]
+            qkv_tokens = all_to_all(
+                qkv_tokens, sp_group, sp_group_size, scatter_dim=3, gather_dim=1
+            )  # [bs, seq, 3, sub_head, head_dim]
+            concat_qkv_tokens = torch.cat(
+                [encoder_qkv_tokens, qkv_tokens], dim=1
+            )  # [bs, pad_seq, 3, nhead, dim]
 
             if image_rotary_emb is not None:
-                concat_qkv_tokens[:,:,0], concat_qkv_tokens[:,:,1] = apply_rope(concat_qkv_tokens[:,:,0], concat_qkv_tokens[:,:,1], image_rotary_emb[i_p])
+                concat_qkv_tokens[:, :, 0], concat_qkv_tokens[:, :, 1] = apply_rope(
+                    concat_qkv_tokens[:, :, 0],
+                    concat_qkv_tokens[:, :, 1],
+                    image_rotary_emb[i_p],
+                )
 
-            indices = encoder_attention_mask[i_p]['indices']
-            qkv_list.append(index_first_axis(rearrange(concat_qkv_tokens, "b s ... -> (b s) ..."), indices))
+            indices = encoder_attention_mask[i_p]["indices"]
+            qkv_list.append(
+                index_first_axis(
+                    rearrange(concat_qkv_tokens, "b s ... -> (b s) ..."), indices
+                )
+            )
             i_sum += length
 
         token_lengths = [x_.shape[0] for x_ in qkv_list]
         qkv = torch.cat(qkv_list, dim=0)
         query, key, value = qkv.unbind(1)
 
-        cu_seqlens = torch.cat([x_['seqlens_in_batch'] for x_ in encoder_attention_mask], dim=0)
+        cu_seqlens = torch.cat(
+            [x_["seqlens_in_batch"] for x_ in encoder_attention_mask], dim=0
+        )
         max_seqlen_q = cu_seqlens.max().item()
         max_seqlen_k = max_seqlen_q
         cu_seqlens_q = F.pad(torch.cumsum(cu_seqlens, dim=0, dtype=torch.int32), (1, 0))
@@ -166,20 +200,34 @@ class SequenceParallelVarlenFlashSelfAttentionWithT5Mask:
         )
 
         # To merge the tokens
-        i_sum = 0;token_sum = 0
+        i_sum = 0
+        token_sum = 0
         for i_p, length in enumerate(hidden_length):
             tot_token_num = token_lengths[i_p]
             stage_output = output[token_sum : token_sum + tot_token_num]
-            stage_output = pad_input(stage_output, encoder_attention_mask[i_p]['indices'], batch_size, encoder_length + length * sp_group_size)
+            stage_output = pad_input(
+                stage_output,
+                encoder_attention_mask[i_p]["indices"],
+                batch_size,
+                encoder_length + length * sp_group_size,
+            )
             stage_encoder_hidden_output = stage_output[:, :encoder_length]
             stage_hidden_output = stage_output[:, encoder_length:]
-            stage_hidden_output = all_to_all(stage_hidden_output, sp_group, sp_group_size, scatter_dim=1, gather_dim=2)
-            output_hidden[:, i_sum:i_sum+length] = stage_hidden_output
+            stage_hidden_output = all_to_all(
+                stage_hidden_output,
+                sp_group,
+                sp_group_size,
+                scatter_dim=1,
+                gather_dim=2,
+            )
+            output_hidden[:, i_sum : i_sum + length] = stage_hidden_output
             output_encoder_hidden[i_p::num_stages] = stage_encoder_hidden_output
             token_sum += tot_token_num
             i_sum += length
 
-        output_encoder_hidden = all_to_all(output_encoder_hidden, sp_group, sp_group_size, scatter_dim=1, gather_dim=2)
+        output_encoder_hidden = all_to_all(
+            output_encoder_hidden, sp_group, sp_group_size, scatter_dim=1, gather_dim=2
+        )
         output_hidden = output_hidden.flatten(2, 3)
         output_encoder_hidden = output_encoder_hidden.flatten(2, 3)
 
@@ -187,15 +235,26 @@ class SequenceParallelVarlenFlashSelfAttentionWithT5Mask:
 
 
 class VarlenFlashSelfAttentionWithT5Mask:
-
     def __init__(self):
         pass
 
     def __call__(
-            self, query, key, value, encoder_query, encoder_key, encoder_value, 
-            heads, scale, hidden_length=None, image_rotary_emb=None, encoder_attention_mask=None,
-        ):
-        assert encoder_attention_mask is not None, "The encoder-hidden mask needed to be set"
+        self,
+        query,
+        key,
+        value,
+        encoder_query,
+        encoder_key,
+        encoder_value,
+        heads,
+        scale,
+        hidden_length=None,
+        image_rotary_emb=None,
+        encoder_attention_mask=None,
+    ):
+        assert (
+            encoder_attention_mask is not None
+        ), "The encoder-hidden mask needed to be set"
 
         batch_size = query.shape[0]
         output_hidden = torch.zeros_like(query)
@@ -203,29 +262,45 @@ class VarlenFlashSelfAttentionWithT5Mask:
         encoder_length = encoder_query.shape[1]
 
         qkv_list = []
-        num_stages = len(hidden_length)        
-    
-        encoder_qkv = torch.stack([encoder_query, encoder_key, encoder_value], dim=2) # [bs, sub_seq, 3, head, head_dim]
-        qkv = torch.stack([query, key, value], dim=2) # [bs, sub_seq, 3, head, head_dim]
+        num_stages = len(hidden_length)
+
+        encoder_qkv = torch.stack(
+            [encoder_query, encoder_key, encoder_value], dim=2
+        )  # [bs, sub_seq, 3, head, head_dim]
+        qkv = torch.stack(
+            [query, key, value], dim=2
+        )  # [bs, sub_seq, 3, head, head_dim]
 
         i_sum = 0
         for i_p, length in enumerate(hidden_length):
             encoder_qkv_tokens = encoder_qkv[i_p::num_stages]
-            qkv_tokens = qkv[:, i_sum:i_sum+length]
-            concat_qkv_tokens = torch.cat([encoder_qkv_tokens, qkv_tokens], dim=1)  # [bs, tot_seq, 3, nhead, dim]
-            
-            if image_rotary_emb is not None:
-                concat_qkv_tokens[:,:,0], concat_qkv_tokens[:,:,1] = apply_rope(concat_qkv_tokens[:,:,0], concat_qkv_tokens[:,:,1], image_rotary_emb[i_p])
+            qkv_tokens = qkv[:, i_sum : i_sum + length]
+            concat_qkv_tokens = torch.cat(
+                [encoder_qkv_tokens, qkv_tokens], dim=1
+            )  # [bs, tot_seq, 3, nhead, dim]
 
-            indices = encoder_attention_mask[i_p]['indices']
-            qkv_list.append(index_first_axis(rearrange(concat_qkv_tokens, "b s ... -> (b s) ..."), indices))
+            if image_rotary_emb is not None:
+                concat_qkv_tokens[:, :, 0], concat_qkv_tokens[:, :, 1] = apply_rope(
+                    concat_qkv_tokens[:, :, 0],
+                    concat_qkv_tokens[:, :, 1],
+                    image_rotary_emb[i_p],
+                )
+
+            indices = encoder_attention_mask[i_p]["indices"]
+            qkv_list.append(
+                index_first_axis(
+                    rearrange(concat_qkv_tokens, "b s ... -> (b s) ..."), indices
+                )
+            )
             i_sum += length
 
         token_lengths = [x_.shape[0] for x_ in qkv_list]
         qkv = torch.cat(qkv_list, dim=0)
         query, key, value = qkv.unbind(1)
 
-        cu_seqlens = torch.cat([x_['seqlens_in_batch'] for x_ in encoder_attention_mask], dim=0)
+        cu_seqlens = torch.cat(
+            [x_["seqlens_in_batch"] for x_ in encoder_attention_mask], dim=0
+        )
         max_seqlen_q = cu_seqlens.max().item()
         max_seqlen_k = max_seqlen_q
         cu_seqlens_q = F.pad(torch.cumsum(cu_seqlens, dim=0, dtype=torch.int32), (1, 0))
@@ -245,14 +320,20 @@ class VarlenFlashSelfAttentionWithT5Mask:
         )
 
         # To merge the tokens
-        i_sum = 0;token_sum = 0
+        i_sum = 0
+        token_sum = 0
         for i_p, length in enumerate(hidden_length):
             tot_token_num = token_lengths[i_p]
             stage_output = output[token_sum : token_sum + tot_token_num]
-            stage_output = pad_input(stage_output, encoder_attention_mask[i_p]['indices'], batch_size, encoder_length + length)
+            stage_output = pad_input(
+                stage_output,
+                encoder_attention_mask[i_p]["indices"],
+                batch_size,
+                encoder_length + length,
+            )
             stage_encoder_hidden_output = stage_output[:, :encoder_length]
-            stage_hidden_output = stage_output[:, encoder_length:]   
-            output_hidden[:, i_sum:i_sum+length] = stage_hidden_output
+            stage_hidden_output = stage_output[:, encoder_length:]
+            output_hidden[:, i_sum : i_sum + length] = stage_hidden_output
             output_encoder_hidden[i_p::num_stages] = stage_encoder_hidden_output
             token_sum += tot_token_num
             i_sum += length
@@ -264,61 +345,99 @@ class VarlenFlashSelfAttentionWithT5Mask:
 
 
 class SequenceParallelVarlenSelfAttentionWithT5Mask:
-
     def __init__(self):
         pass
 
     def __call__(
-            self, query, key, value, encoder_query, encoder_key, encoder_value, 
-            heads, scale, hidden_length=None, image_rotary_emb=None, attention_mask=None,
-        ):
+        self,
+        query,
+        key,
+        value,
+        encoder_query,
+        encoder_key,
+        encoder_value,
+        heads,
+        scale,
+        hidden_length=None,
+        image_rotary_emb=None,
+        attention_mask=None,
+    ):
         assert attention_mask is not None, "The attention mask needed to be set"
 
-        num_stages = len(hidden_length)        
-    
-        encoder_qkv = torch.stack([encoder_query, encoder_key, encoder_value], dim=2) # [bs, sub_seq, 3, head, head_dim]
-        qkv = torch.stack([query, key, value], dim=2) # [bs, sub_seq, 3, head, head_dim]
+        num_stages = len(hidden_length)
+
+        encoder_qkv = torch.stack(
+            [encoder_query, encoder_key, encoder_value], dim=2
+        )  # [bs, sub_seq, 3, head, head_dim]
+        qkv = torch.stack(
+            [query, key, value], dim=2
+        )  # [bs, sub_seq, 3, head, head_dim]
 
         # To sync the encoder query, key and values
         sp_group = get_sequence_parallel_group()
         sp_group_size = get_sequence_parallel_world_size()
-        encoder_qkv = all_to_all(encoder_qkv, sp_group, sp_group_size, scatter_dim=3, gather_dim=1) # [bs, seq, 3, sub_head, head_dim]
+        encoder_qkv = all_to_all(
+            encoder_qkv, sp_group, sp_group_size, scatter_dim=3, gather_dim=1
+        )  # [bs, seq, 3, sub_head, head_dim]
         encoder_length = encoder_qkv.shape[1]
 
         i_sum = 0
         output_encoder_hidden_list = []
         output_hidden_list = []
-    
+
         for i_p, length in enumerate(hidden_length):
             encoder_qkv_tokens = encoder_qkv[i_p::num_stages]
-            qkv_tokens = qkv[:, i_sum:i_sum+length]
-            qkv_tokens = all_to_all(qkv_tokens, sp_group, sp_group_size, scatter_dim=3, gather_dim=1) # [bs, seq, 3, sub_head, head_dim]
-            concat_qkv_tokens = torch.cat([encoder_qkv_tokens, qkv_tokens], dim=1)  # [bs, tot_seq, 3, nhead, dim]
-            
-            if image_rotary_emb is not None:
-                concat_qkv_tokens[:,:,0], concat_qkv_tokens[:,:,1] = apply_rope(concat_qkv_tokens[:,:,0], concat_qkv_tokens[:,:,1], image_rotary_emb[i_p])
+            qkv_tokens = qkv[:, i_sum : i_sum + length]
+            qkv_tokens = all_to_all(
+                qkv_tokens, sp_group, sp_group_size, scatter_dim=3, gather_dim=1
+            )  # [bs, seq, 3, sub_head, head_dim]
+            concat_qkv_tokens = torch.cat(
+                [encoder_qkv_tokens, qkv_tokens], dim=1
+            )  # [bs, tot_seq, 3, nhead, dim]
 
-            query, key, value = concat_qkv_tokens.unbind(2)   # [bs, tot_seq, nhead, dim]
+            if image_rotary_emb is not None:
+                concat_qkv_tokens[:, :, 0], concat_qkv_tokens[:, :, 1] = apply_rope(
+                    concat_qkv_tokens[:, :, 0],
+                    concat_qkv_tokens[:, :, 1],
+                    image_rotary_emb[i_p],
+                )
+
+            query, key, value = concat_qkv_tokens.unbind(2)  # [bs, tot_seq, nhead, dim]
             query = query.transpose(1, 2)
             key = key.transpose(1, 2)
             value = value.transpose(1, 2)
 
             stage_hidden_states = F.scaled_dot_product_attention(
-                query, key, value, dropout_p=0.0, is_causal=False, attn_mask=attention_mask[i_p],
+                query,
+                key,
+                value,
+                dropout_p=0.0,
+                is_causal=False,
+                attn_mask=attention_mask[i_p],
             )
-            stage_hidden_states = stage_hidden_states.transpose(1, 2)   # [bs, tot_seq, nhead, dim]
+            stage_hidden_states = stage_hidden_states.transpose(
+                1, 2
+            )  # [bs, tot_seq, nhead, dim]
 
             output_encoder_hidden_list.append(stage_hidden_states[:, :encoder_length])
 
             output_hidden = stage_hidden_states[:, encoder_length:]
-            output_hidden = all_to_all(output_hidden, sp_group, sp_group_size, scatter_dim=1, gather_dim=2)
+            output_hidden = all_to_all(
+                output_hidden, sp_group, sp_group_size, scatter_dim=1, gather_dim=2
+            )
             output_hidden_list.append(output_hidden)
 
             i_sum += length
 
-        output_encoder_hidden = torch.stack(output_encoder_hidden_list, dim=1)  # [b n s nhead d]
-        output_encoder_hidden = rearrange(output_encoder_hidden, 'b n s h d -> (b n) s h d')
-        output_encoder_hidden = all_to_all(output_encoder_hidden, sp_group, sp_group_size, scatter_dim=1, gather_dim=2)
+        output_encoder_hidden = torch.stack(
+            output_encoder_hidden_list, dim=1
+        )  # [b n s nhead d]
+        output_encoder_hidden = rearrange(
+            output_encoder_hidden, "b n s h d -> (b n) s h d"
+        )
+        output_encoder_hidden = all_to_all(
+            output_encoder_hidden, sp_group, sp_group_size, scatter_dim=1, gather_dim=2
+        )
         output_encoder_hidden = output_encoder_hidden.flatten(2, 3)
         output_hidden = torch.cat(output_hidden_list, dim=1).flatten(2, 3)
 
@@ -326,95 +445,141 @@ class SequenceParallelVarlenSelfAttentionWithT5Mask:
 
 
 class VarlenSelfAttentionWithT5Mask:
-
     def __init__(self):
         pass
 
     def __call__(
-            self, query, key, value, encoder_query, encoder_key, encoder_value, 
-            heads, scale, hidden_length=None, image_rotary_emb=None, attention_mask=None,
-        ):
+        self,
+        query,
+        key,
+        value,
+        encoder_query,
+        encoder_key,
+        encoder_value,
+        heads,
+        scale,
+        hidden_length=None,
+        image_rotary_emb=None,
+        attention_mask=None,
+    ):
         assert attention_mask is not None, "The attention mask needed to be set"
 
         encoder_length = encoder_query.shape[1]
-        num_stages = len(hidden_length)        
-    
-        encoder_qkv = torch.stack([encoder_query, encoder_key, encoder_value], dim=2) # [bs, sub_seq, 3, head, head_dim]
-        qkv = torch.stack([query, key, value], dim=2) # [bs, sub_seq, 3, head, head_dim]
+        num_stages = len(hidden_length)
+
+        encoder_qkv = torch.stack(
+            [encoder_query, encoder_key, encoder_value], dim=2
+        )  # [bs, sub_seq, 3, head, head_dim]
+        qkv = torch.stack(
+            [query, key, value], dim=2
+        )  # [bs, sub_seq, 3, head, head_dim]
 
         i_sum = 0
         output_encoder_hidden_list = []
         output_hidden_list = []
-    
+
         for i_p, length in enumerate(hidden_length):
             encoder_qkv_tokens = encoder_qkv[i_p::num_stages]
-            qkv_tokens = qkv[:, i_sum:i_sum+length]
-            concat_qkv_tokens = torch.cat([encoder_qkv_tokens, qkv_tokens], dim=1)  # [bs, tot_seq, 3, nhead, dim]
-            
-            if image_rotary_emb is not None:
-                concat_qkv_tokens[:,:,0], concat_qkv_tokens[:,:,1] = apply_rope(concat_qkv_tokens[:,:,0], concat_qkv_tokens[:,:,1], image_rotary_emb[i_p])
+            qkv_tokens = qkv[:, i_sum : i_sum + length]
+            concat_qkv_tokens = torch.cat(
+                [encoder_qkv_tokens, qkv_tokens], dim=1
+            )  # [bs, tot_seq, 3, nhead, dim]
 
-            query, key, value = concat_qkv_tokens.unbind(2)   # [bs, tot_seq, nhead, dim]
+            if image_rotary_emb is not None:
+                concat_qkv_tokens[:, :, 0], concat_qkv_tokens[:, :, 1] = apply_rope(
+                    concat_qkv_tokens[:, :, 0],
+                    concat_qkv_tokens[:, :, 1],
+                    image_rotary_emb[i_p],
+                )
+
+            query, key, value = concat_qkv_tokens.unbind(2)  # [bs, tot_seq, nhead, dim]
             query = query.transpose(1, 2)
             key = key.transpose(1, 2)
             value = value.transpose(1, 2)
 
             # with torch.backends.cuda.sdp_kernel(enable_math=False, enable_flash=False, enable_mem_efficient=True):
             stage_hidden_states = F.scaled_dot_product_attention(
-                query, key, value, dropout_p=0.0, is_causal=False, attn_mask=attention_mask[i_p],
+                query,
+                key,
+                value,
+                dropout_p=0.0,
+                is_causal=False,
+                attn_mask=attention_mask[i_p],
             )
-            stage_hidden_states = stage_hidden_states.transpose(1, 2).flatten(2, 3)   # [bs, tot_seq, dim]
+            stage_hidden_states = stage_hidden_states.transpose(1, 2).flatten(
+                2, 3
+            )  # [bs, tot_seq, dim]
 
             output_encoder_hidden_list.append(stage_hidden_states[:, :encoder_length])
             output_hidden_list.append(stage_hidden_states[:, encoder_length:])
             i_sum += length
 
-        output_encoder_hidden = torch.stack(output_encoder_hidden_list, dim=1)  # [b n s d]
-        output_encoder_hidden = rearrange(output_encoder_hidden, 'b n s d -> (b n) s d')
+        output_encoder_hidden = torch.stack(
+            output_encoder_hidden_list, dim=1
+        )  # [b n s d]
+        output_encoder_hidden = rearrange(output_encoder_hidden, "b n s d -> (b n) s d")
         output_hidden = torch.cat(output_hidden_list, dim=1)
 
         return output_hidden, output_encoder_hidden
 
 
 class SequenceParallelVarlenFlashAttnSingle:
-
     def __init__(self):
         pass
 
     def __call__(
-            self, query, key, value, heads, scale, 
-            hidden_length=None, image_rotary_emb=None, encoder_attention_mask=None,
-        ):
-        assert encoder_attention_mask is not None, "The encoder-hidden mask needed to be set"
+        self,
+        query,
+        key,
+        value,
+        heads,
+        scale,
+        hidden_length=None,
+        image_rotary_emb=None,
+        encoder_attention_mask=None,
+    ):
+        assert (
+            encoder_attention_mask is not None
+        ), "The encoder-hidden mask needed to be set"
 
         batch_size = query.shape[0]
         qkv_list = []
         num_stages = len(hidden_length)
 
-        qkv = torch.stack([query, key, value], dim=2) # [bs, sub_seq, 3, head, head_dim]
-        output_hidden = torch.zeros_like(qkv[:,:,0])
+        qkv = torch.stack(
+            [query, key, value], dim=2
+        )  # [bs, sub_seq, 3, head, head_dim]
+        output_hidden = torch.zeros_like(qkv[:, :, 0])
 
         sp_group = get_sequence_parallel_group()
         sp_group_size = get_sequence_parallel_world_size()
-    
+
         i_sum = 0
         for i_p, length in enumerate(hidden_length):
             # get the query, key, value from padding sequence
-            qkv_tokens = qkv[:, i_sum:i_sum+length]
-            qkv_tokens = all_to_all(qkv_tokens, sp_group, sp_group_size, scatter_dim=3, gather_dim=1) # [bs, seq, 3, sub_head, head_dim]
+            qkv_tokens = qkv[:, i_sum : i_sum + length]
+            qkv_tokens = all_to_all(
+                qkv_tokens, sp_group, sp_group_size, scatter_dim=3, gather_dim=1
+            )  # [bs, seq, 3, sub_head, head_dim]
 
             if image_rotary_emb is not None:
-                qkv_tokens[:,:,0], qkv_tokens[:,:,1] = apply_rope(qkv_tokens[:,:,0], qkv_tokens[:,:,1], image_rotary_emb[i_p])
+                qkv_tokens[:, :, 0], qkv_tokens[:, :, 1] = apply_rope(
+                    qkv_tokens[:, :, 0], qkv_tokens[:, :, 1], image_rotary_emb[i_p]
+                )
 
-            indices = encoder_attention_mask[i_p]['indices']
-            qkv_list.append(index_first_axis(rearrange(qkv_tokens, "b s ... -> (b s) ..."), indices))
+            indices = encoder_attention_mask[i_p]["indices"]
+            qkv_list.append(
+                index_first_axis(rearrange(qkv_tokens, "b s ... -> (b s) ..."), indices)
+            )
             i_sum += length
 
         token_lengths = [x_.shape[0] for x_ in qkv_list]
         qkv = torch.cat(qkv_list, dim=0)
         query, key, value = qkv.unbind(1)
 
-        cu_seqlens = torch.cat([x_['seqlens_in_batch'] for x_ in encoder_attention_mask], dim=0)
+        cu_seqlens = torch.cat(
+            [x_["seqlens_in_batch"] for x_ in encoder_attention_mask], dim=0
+        )
         max_seqlen_q = cu_seqlens.max().item()
         max_seqlen_k = max_seqlen_q
         cu_seqlens_q = F.pad(torch.cumsum(cu_seqlens, dim=0, dtype=torch.int32), (1, 0))
@@ -434,13 +599,21 @@ class SequenceParallelVarlenFlashAttnSingle:
         )
 
         # To merge the tokens
-        i_sum = 0;token_sum = 0
+        i_sum = 0
+        token_sum = 0
         for i_p, length in enumerate(hidden_length):
             tot_token_num = token_lengths[i_p]
             stage_output = output[token_sum : token_sum + tot_token_num]
-            stage_output = pad_input(stage_output, encoder_attention_mask[i_p]['indices'], batch_size, length * sp_group_size)
-            stage_hidden_output = all_to_all(stage_output, sp_group, sp_group_size, scatter_dim=1, gather_dim=2)
-            output_hidden[:, i_sum:i_sum+length] = stage_hidden_output
+            stage_output = pad_input(
+                stage_output,
+                encoder_attention_mask[i_p]["indices"],
+                batch_size,
+                length * sp_group_size,
+            )
+            stage_hidden_output = all_to_all(
+                stage_output, sp_group, sp_group_size, scatter_dim=1, gather_dim=2
+            )
+            output_hidden[:, i_sum : i_sum + length] = stage_hidden_output
             token_sum += tot_token_num
             i_sum += length
 
@@ -450,39 +623,55 @@ class SequenceParallelVarlenFlashAttnSingle:
 
 
 class VarlenFlashSelfAttnSingle:
-
     def __init__(self):
         pass
 
     def __call__(
-            self, query, key, value, heads, scale, 
-            hidden_length=None, image_rotary_emb=None, encoder_attention_mask=None,
-        ):
-        assert encoder_attention_mask is not None, "The encoder-hidden mask needed to be set"
+        self,
+        query,
+        key,
+        value,
+        heads,
+        scale,
+        hidden_length=None,
+        image_rotary_emb=None,
+        encoder_attention_mask=None,
+    ):
+        assert (
+            encoder_attention_mask is not None
+        ), "The encoder-hidden mask needed to be set"
 
         batch_size = query.shape[0]
         output_hidden = torch.zeros_like(query)
 
         qkv_list = []
-        num_stages = len(hidden_length)        
-        qkv = torch.stack([query, key, value], dim=2) # [bs, sub_seq, 3, head, head_dim]
+        num_stages = len(hidden_length)
+        qkv = torch.stack(
+            [query, key, value], dim=2
+        )  # [bs, sub_seq, 3, head, head_dim]
 
         i_sum = 0
         for i_p, length in enumerate(hidden_length):
-            qkv_tokens = qkv[:, i_sum:i_sum+length]
+            qkv_tokens = qkv[:, i_sum : i_sum + length]
 
             if image_rotary_emb is not None:
-                qkv_tokens[:,:,0], qkv_tokens[:,:,1] = apply_rope(qkv_tokens[:,:,0], qkv_tokens[:,:,1], image_rotary_emb[i_p])
+                qkv_tokens[:, :, 0], qkv_tokens[:, :, 1] = apply_rope(
+                    qkv_tokens[:, :, 0], qkv_tokens[:, :, 1], image_rotary_emb[i_p]
+                )
 
-            indices = encoder_attention_mask[i_p]['indices']
-            qkv_list.append(index_first_axis(rearrange(qkv_tokens, "b s ... -> (b s) ..."), indices))
+            indices = encoder_attention_mask[i_p]["indices"]
+            qkv_list.append(
+                index_first_axis(rearrange(qkv_tokens, "b s ... -> (b s) ..."), indices)
+            )
             i_sum += length
 
         token_lengths = [x_.shape[0] for x_ in qkv_list]
         qkv = torch.cat(qkv_list, dim=0)
         query, key, value = qkv.unbind(1)
 
-        cu_seqlens = torch.cat([x_['seqlens_in_batch'] for x_ in encoder_attention_mask], dim=0)
+        cu_seqlens = torch.cat(
+            [x_["seqlens_in_batch"] for x_ in encoder_attention_mask], dim=0
+        )
         max_seqlen_q = cu_seqlens.max().item()
         max_seqlen_k = max_seqlen_q
         cu_seqlens_q = F.pad(torch.cumsum(cu_seqlens, dim=0, dtype=torch.int32), (1, 0))
@@ -502,12 +691,15 @@ class VarlenFlashSelfAttnSingle:
         )
 
         # To merge the tokens
-        i_sum = 0;token_sum = 0
+        i_sum = 0
+        token_sum = 0
         for i_p, length in enumerate(hidden_length):
             tot_token_num = token_lengths[i_p]
             stage_output = output[token_sum : token_sum + tot_token_num]
-            stage_output = pad_input(stage_output, encoder_attention_mask[i_p]['indices'], batch_size, length)
-            output_hidden[:, i_sum:i_sum+length] = stage_output
+            stage_output = pad_input(
+                stage_output, encoder_attention_mask[i_p]["indices"], batch_size, length
+            )
+            output_hidden[:, i_sum : i_sum + length] = stage_output
             token_sum += tot_token_num
             i_sum += length
 
@@ -517,18 +709,26 @@ class VarlenFlashSelfAttnSingle:
 
 
 class SequenceParallelVarlenAttnSingle:
-
     def __init__(self):
         pass
 
     def __call__(
-            self, query, key, value, heads, scale, 
-            hidden_length=None, image_rotary_emb=None, attention_mask=None,
-        ):
+        self,
+        query,
+        key,
+        value,
+        heads,
+        scale,
+        hidden_length=None,
+        image_rotary_emb=None,
+        attention_mask=None,
+    ):
         assert attention_mask is not None, "The attention mask needed to be set"
 
-        num_stages = len(hidden_length)        
-        qkv = torch.stack([query, key, value], dim=2) # [bs, sub_seq, 3, head, head_dim]
+        num_stages = len(hidden_length)
+        qkv = torch.stack(
+            [query, key, value], dim=2
+        )  # [bs, sub_seq, 3, head, head_dim]
 
         # To sync the encoder query, key and values
         sp_group = get_sequence_parallel_group()
@@ -536,26 +736,39 @@ class SequenceParallelVarlenAttnSingle:
 
         i_sum = 0
         output_hidden_list = []
-    
-        for i_p, length in enumerate(hidden_length):
-            qkv_tokens = qkv[:, i_sum:i_sum+length]
-            qkv_tokens = all_to_all(qkv_tokens, sp_group, sp_group_size, scatter_dim=3, gather_dim=1) # [bs, seq, 3, sub_head, head_dim]
-            
-            if image_rotary_emb is not None:
-                qkv_tokens[:,:,0], qkv_tokens[:,:,1] = apply_rope(qkv_tokens[:,:,0], qkv_tokens[:,:,1], image_rotary_emb[i_p])
 
-            query, key, value = qkv_tokens.unbind(2)   # [bs, tot_seq, nhead, dim]
+        for i_p, length in enumerate(hidden_length):
+            qkv_tokens = qkv[:, i_sum : i_sum + length]
+            qkv_tokens = all_to_all(
+                qkv_tokens, sp_group, sp_group_size, scatter_dim=3, gather_dim=1
+            )  # [bs, seq, 3, sub_head, head_dim]
+
+            if image_rotary_emb is not None:
+                qkv_tokens[:, :, 0], qkv_tokens[:, :, 1] = apply_rope(
+                    qkv_tokens[:, :, 0], qkv_tokens[:, :, 1], image_rotary_emb[i_p]
+                )
+
+            query, key, value = qkv_tokens.unbind(2)  # [bs, tot_seq, nhead, dim]
             query = query.transpose(1, 2).contiguous()
             key = key.transpose(1, 2).contiguous()
             value = value.transpose(1, 2).contiguous()
 
             stage_hidden_states = F.scaled_dot_product_attention(
-                query, key, value, dropout_p=0.0, is_causal=False, attn_mask=attention_mask[i_p],
+                query,
+                key,
+                value,
+                dropout_p=0.0,
+                is_causal=False,
+                attn_mask=attention_mask[i_p],
             )
-            stage_hidden_states = stage_hidden_states.transpose(1, 2)   # [bs, tot_seq, nhead, dim]
+            stage_hidden_states = stage_hidden_states.transpose(
+                1, 2
+            )  # [bs, tot_seq, nhead, dim]
 
             output_hidden = stage_hidden_states
-            output_hidden = all_to_all(output_hidden, sp_group, sp_group_size, scatter_dim=1, gather_dim=2)
+            output_hidden = all_to_all(
+                output_hidden, sp_group, sp_group_size, scatter_dim=1, gather_dim=2
+            )
             output_hidden_list.append(output_hidden)
 
             i_sum += length
@@ -566,27 +779,37 @@ class SequenceParallelVarlenAttnSingle:
 
 
 class VarlenSelfAttnSingle:
-
     def __init__(self):
         pass
 
     def __call__(
-            self, query, key, value, heads, scale, 
-            hidden_length=None, image_rotary_emb=None, attention_mask=None,
-        ):
+        self,
+        query,
+        key,
+        value,
+        heads,
+        scale,
+        hidden_length=None,
+        image_rotary_emb=None,
+        attention_mask=None,
+    ):
         assert attention_mask is not None, "The attention mask needed to be set"
 
-        num_stages = len(hidden_length)        
-        qkv = torch.stack([query, key, value], dim=2) # [bs, sub_seq, 3, head, head_dim]
+        num_stages = len(hidden_length)
+        qkv = torch.stack(
+            [query, key, value], dim=2
+        )  # [bs, sub_seq, 3, head, head_dim]
 
         i_sum = 0
         output_hidden_list = []
-    
+
         for i_p, length in enumerate(hidden_length):
-            qkv_tokens = qkv[:, i_sum:i_sum+length]
-            
+            qkv_tokens = qkv[:, i_sum : i_sum + length]
+
             if image_rotary_emb is not None:
-                qkv_tokens[:,:,0], qkv_tokens[:,:,1] = apply_rope(qkv_tokens[:,:,0], qkv_tokens[:,:,1], image_rotary_emb[i_p])
+                qkv_tokens[:, :, 0], qkv_tokens[:, :, 1] = apply_rope(
+                    qkv_tokens[:, :, 0], qkv_tokens[:, :, 1], image_rotary_emb[i_p]
+                )
 
             query, key, value = qkv_tokens.unbind(2)
             query = query.transpose(1, 2).contiguous()
@@ -594,9 +817,16 @@ class VarlenSelfAttnSingle:
             value = value.transpose(1, 2).contiguous()
 
             stage_hidden_states = F.scaled_dot_product_attention(
-                query, key, value, dropout_p=0.0, is_causal=False, attn_mask=attention_mask[i_p],
+                query,
+                key,
+                value,
+                dropout_p=0.0,
+                is_causal=False,
+                attn_mask=attention_mask[i_p],
             )
-            stage_hidden_states = stage_hidden_states.transpose(1, 2).flatten(2, 3)   # [bs, tot_seq, dim]
+            stage_hidden_states = stage_hidden_states.transpose(1, 2).flatten(
+                2, 3
+            )  # [bs, tot_seq, dim]
 
             output_hidden_list.append(stage_hidden_states)
             i_sum += length
@@ -607,7 +837,6 @@ class VarlenSelfAttnSingle:
 
 
 class Attention(nn.Module):
-
     def __init__(
         self,
         query_dim: int,
@@ -633,7 +862,9 @@ class Attention(nn.Module):
         self.inner_kv_dim = self.inner_dim
         self.query_dim = query_dim
         self.use_bias = bias
-        self.cross_attention_dim = cross_attention_dim if cross_attention_dim is not None else query_dim
+        self.cross_attention_dim = (
+            cross_attention_dim if cross_attention_dim is not None else query_dim
+        )
 
         self.dropout = dropout
         self.out_dim = out_dim if out_dim is not None else query_dim
@@ -642,7 +873,6 @@ class Attention(nn.Module):
 
         self.scale = dim_head**-0.5
         self.heads = out_dim // dim_head if out_dim is not None else heads
-
 
         self.added_kv_proj_dim = added_kv_proj_dim
         self.only_cross_attention = only_cross_attention
@@ -659,24 +889,36 @@ class Attention(nn.Module):
             self.norm_q = RMSNorm(dim_head, eps=eps)
             self.norm_k = RMSNorm(dim_head, eps=eps)
         else:
-            raise ValueError(f"unknown qk_norm: {qk_norm}. Should be None or 'layer_norm'")
+            raise ValueError(
+                f"unknown qk_norm: {qk_norm}. Should be None or 'layer_norm'"
+            )
 
         self.to_q = nn.Linear(query_dim, self.inner_dim, bias=bias)
 
         if not self.only_cross_attention:
             # only relevant for the `AddedKVProcessor` classes
-            self.to_k = nn.Linear(self.cross_attention_dim, self.inner_kv_dim, bias=bias)
-            self.to_v = nn.Linear(self.cross_attention_dim, self.inner_kv_dim, bias=bias)
+            self.to_k = nn.Linear(
+                self.cross_attention_dim, self.inner_kv_dim, bias=bias
+            )
+            self.to_v = nn.Linear(
+                self.cross_attention_dim, self.inner_kv_dim, bias=bias
+            )
         else:
             self.to_k = None
             self.to_v = None
 
         self.added_proj_bias = added_proj_bias
         if self.added_kv_proj_dim is not None:
-            self.add_k_proj = nn.Linear(added_kv_proj_dim, self.inner_kv_dim, bias=added_proj_bias)
-            self.add_v_proj = nn.Linear(added_kv_proj_dim, self.inner_kv_dim, bias=added_proj_bias)
+            self.add_k_proj = nn.Linear(
+                added_kv_proj_dim, self.inner_kv_dim, bias=added_proj_bias
+            )
+            self.add_v_proj = nn.Linear(
+                added_kv_proj_dim, self.inner_kv_dim, bias=added_proj_bias
+            )
             if self.context_pre_only is not None:
-                self.add_q_proj = nn.Linear(added_kv_proj_dim, self.inner_dim, bias=added_proj_bias)
+                self.add_q_proj = nn.Linear(
+                    added_kv_proj_dim, self.inner_dim, bias=added_proj_bias
+                )
 
         if not self.pre_only:
             self.to_out = nn.ModuleList([])
@@ -688,8 +930,12 @@ class Attention(nn.Module):
 
         if qk_norm is not None and added_kv_proj_dim is not None:
             if qk_norm == "fp32_layer_norm":
-                self.norm_added_q = FP32LayerNorm(dim_head, elementwise_affine=False, bias=False, eps=eps)
-                self.norm_added_k = FP32LayerNorm(dim_head, elementwise_affine=False, bias=False, eps=eps)
+                self.norm_added_q = FP32LayerNorm(
+                    dim_head, elementwise_affine=False, bias=False, eps=eps
+                )
+                self.norm_added_k = FP32LayerNorm(
+                    dim_head, elementwise_affine=False, bias=False, eps=eps
+                )
             elif qk_norm == "rms_norm":
                 self.norm_added_q = RMSNorm(dim_head, eps=eps)
                 self.norm_added_k = RMSNorm(dim_head, eps=eps)
@@ -728,6 +974,7 @@ class FluxSingleAttnProcessor2_0:
     r"""
     Processor for implementing scaled dot-product attention (enabled by default if you're using PyTorch 2.0).
     """
+
     def __init__(self, use_flash_attn=False):
         self.use_flash_attn = use_flash_attn
 
@@ -771,15 +1018,25 @@ class FluxSingleAttnProcessor2_0:
 
         if self.use_flash_attn:
             hidden_states = self.varlen_flash_attn(
-                query, key, value, 
-                attn.heads, attn.scale, hidden_length, 
-                image_rotary_emb, encoder_attention_mask,
+                query,
+                key,
+                value,
+                attn.heads,
+                attn.scale,
+                hidden_length,
+                image_rotary_emb,
+                encoder_attention_mask,
             )
         else:
             hidden_states = self.varlen_attn(
-                query, key, value, 
-                attn.heads, attn.scale, hidden_length, 
-                image_rotary_emb, attention_mask,
+                query,
+                key,
+                value,
+                attn.heads,
+                attn.scale,
+                hidden_length,
+                image_rotary_emb,
+                attention_mask,
             )
 
         return hidden_states
@@ -793,7 +1050,9 @@ class FluxAttnProcessor2_0:
 
         if self.use_flash_attn:
             if is_sequence_parallel_initialized():
-                self.varlen_flash_attn = SequenceParallelVarlenFlashSelfAttentionWithT5Mask()
+                self.varlen_flash_attn = (
+                    SequenceParallelVarlenFlashSelfAttentionWithT5Mask()
+                )
             else:
                 self.varlen_flash_attn = VarlenFlashSelfAttentionWithT5Mask()
         else:
@@ -845,23 +1104,41 @@ class FluxAttnProcessor2_0:
         )
 
         if attn.norm_added_q is not None:
-            encoder_hidden_states_query_proj = attn.norm_added_q(encoder_hidden_states_query_proj)
+            encoder_hidden_states_query_proj = attn.norm_added_q(
+                encoder_hidden_states_query_proj
+            )
         if attn.norm_added_k is not None:
-            encoder_hidden_states_key_proj = attn.norm_added_k(encoder_hidden_states_key_proj)
+            encoder_hidden_states_key_proj = attn.norm_added_k(
+                encoder_hidden_states_key_proj
+            )
 
         if self.use_flash_attn:
             hidden_states, encoder_hidden_states = self.varlen_flash_attn(
-                query, key, value, 
-                encoder_hidden_states_query_proj, encoder_hidden_states_key_proj,
-                encoder_hidden_states_value_proj, attn.heads, attn.scale, hidden_length, 
-                image_rotary_emb, encoder_attention_mask,
+                query,
+                key,
+                value,
+                encoder_hidden_states_query_proj,
+                encoder_hidden_states_key_proj,
+                encoder_hidden_states_value_proj,
+                attn.heads,
+                attn.scale,
+                hidden_length,
+                image_rotary_emb,
+                encoder_attention_mask,
             )
         else:
             hidden_states, encoder_hidden_states = self.varlen_attn(
-                query, key, value, 
-                encoder_hidden_states_query_proj, encoder_hidden_states_key_proj,
-                encoder_hidden_states_value_proj, attn.heads, attn.scale, hidden_length, 
-                image_rotary_emb, attention_mask,
+                query,
+                key,
+                value,
+                encoder_hidden_states_query_proj,
+                encoder_hidden_states_key_proj,
+                encoder_hidden_states_value_proj,
+                attn.heads,
+                attn.scale,
+                hidden_length,
+                image_rotary_emb,
+                attention_mask,
             )
 
         # linear proj
@@ -888,7 +1165,14 @@ class FluxSingleTransformerBlock(nn.Module):
             processing of `context` conditions.
     """
 
-    def __init__(self, dim, num_attention_heads, attention_head_dim, mlp_ratio=4.0, use_flash_attn=False):
+    def __init__(
+        self,
+        dim,
+        num_attention_heads,
+        attention_head_dim,
+        mlp_ratio=4.0,
+        use_flash_attn=False,
+    ):
         super().__init__()
         self.mlp_hidden_dim = int(dim * mlp_ratio)
 
@@ -921,13 +1205,15 @@ class FluxSingleTransformerBlock(nn.Module):
         image_rotary_emb=None,
     ):
         residual = hidden_states
-        norm_hidden_states, gate = self.norm(hidden_states, emb=temb, hidden_length=hidden_length)
+        norm_hidden_states, gate = self.norm(
+            hidden_states, emb=temb, hidden_length=hidden_length
+        )
         mlp_hidden_states = self.act_mlp(self.proj_mlp(norm_hidden_states))
 
         attn_output = self.attn(
             hidden_states=norm_hidden_states,
             encoder_hidden_states=None,
-            encoder_attention_mask=encoder_attention_mask, 
+            encoder_attention_mask=encoder_attention_mask,
             attention_mask=attention_mask,
             hidden_length=hidden_length,
             image_rotary_emb=image_rotary_emb,
@@ -956,7 +1242,15 @@ class FluxTransformerBlock(nn.Module):
             processing of `context` conditions.
     """
 
-    def __init__(self, dim, num_attention_heads, attention_head_dim, qk_norm="rms_norm", eps=1e-6, use_flash_attn=False):
+    def __init__(
+        self,
+        dim,
+        num_attention_heads,
+        attention_head_dim,
+        qk_norm="rms_norm",
+        eps=1e-6,
+        use_flash_attn=False,
+    ):
         super().__init__()
 
         self.norm1 = AdaLayerNormZero(dim)
@@ -987,7 +1281,9 @@ class FluxTransformerBlock(nn.Module):
         self.ff = FeedForward(dim=dim, dim_out=dim, activation_fn="gelu-approximate")
 
         self.norm2_context = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
-        self.ff_context = FeedForward(dim=dim, dim_out=dim, activation_fn="gelu-approximate")
+        self.ff_context = FeedForward(
+            dim=dim, dim_out=dim, activation_fn="gelu-approximate"
+        )
 
     def forward(
         self,
@@ -999,17 +1295,23 @@ class FluxTransformerBlock(nn.Module):
         hidden_length: List = None,
         image_rotary_emb=None,
     ):
-        norm_hidden_states, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.norm1(hidden_states, emb=temb, hidden_length=hidden_length)
-
-        norm_encoder_hidden_states, c_gate_msa, c_shift_mlp, c_scale_mlp, c_gate_mlp = self.norm1_context(
-            encoder_hidden_states, emb=temb
+        norm_hidden_states, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.norm1(
+            hidden_states, emb=temb, hidden_length=hidden_length
         )
+
+        (
+            norm_encoder_hidden_states,
+            c_gate_msa,
+            c_shift_mlp,
+            c_scale_mlp,
+            c_gate_mlp,
+        ) = self.norm1_context(encoder_hidden_states, emb=temb)
 
         # Attention.
         attn_output, context_attn_output = self.attn(
             hidden_states=norm_hidden_states,
             encoder_hidden_states=norm_encoder_hidden_states,
-            encoder_attention_mask=encoder_attention_mask, 
+            encoder_attention_mask=encoder_attention_mask,
             attention_mask=attention_mask,
             hidden_length=hidden_length,
             image_rotary_emb=image_rotary_emb,
@@ -1033,11 +1335,16 @@ class FluxTransformerBlock(nn.Module):
         encoder_hidden_states = encoder_hidden_states + context_attn_output
 
         norm_encoder_hidden_states = self.norm2_context(encoder_hidden_states)
-        norm_encoder_hidden_states = norm_encoder_hidden_states * (1 + c_scale_mlp[:, None]) + c_shift_mlp[:, None]
+        norm_encoder_hidden_states = (
+            norm_encoder_hidden_states * (1 + c_scale_mlp[:, None])
+            + c_shift_mlp[:, None]
+        )
 
         context_ff_output = self.ff_context(norm_encoder_hidden_states)
-        encoder_hidden_states = encoder_hidden_states + c_gate_mlp.unsqueeze(1) * context_ff_output
-        
+        encoder_hidden_states = (
+            encoder_hidden_states + c_gate_mlp.unsqueeze(1) * context_ff_output
+        )
+
         if encoder_hidden_states.dtype == torch.float16:
             encoder_hidden_states = encoder_hidden_states.clip(-65504, 65504)
 

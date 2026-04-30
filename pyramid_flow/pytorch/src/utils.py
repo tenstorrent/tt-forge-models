@@ -84,16 +84,18 @@ def load_transformer_inputs(dtype: torch.dtype) -> Dict[str, Any]:
     latent_channels = cfg["in_channels"] // (_INTERNAL_PATCH * _INTERNAL_PATCH)
     seq_len = _SMOKE_TEXT_SEQ_LEN
 
-    sample = [[
-        torch.randn(
-            batch_size,
-            latent_channels,
-            _SMOKE_TEMP,
-            _SMOKE_HEIGHT,
-            _SMOKE_WIDTH,
-            dtype=dtype,
-        )
-    ]]
+    sample = [
+        [
+            torch.randn(
+                batch_size,
+                latent_channels,
+                _SMOKE_TEMP,
+                _SMOKE_HEIGHT,
+                _SMOKE_WIDTH,
+                dtype=dtype,
+            )
+        ]
+    ]
     encoder_hidden_states = torch.randn(
         batch_size, seq_len, cfg["joint_attention_dim"], dtype=dtype
     )

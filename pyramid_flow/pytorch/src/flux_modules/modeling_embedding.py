@@ -8,6 +8,7 @@ from torch import nn
 
 from diffusers.models.activations import get_activation, FP32SiLU
 
+
 def get_timestep_embedding(
     timesteps: torch.Tensor,
     embedding_dim: int,
@@ -63,7 +64,13 @@ def get_timestep_embedding(
 
 
 class Timesteps(nn.Module):
-    def __init__(self, num_channels: int, flip_sin_to_cos: bool, downscale_freq_shift: float, scale: int = 1):
+    def __init__(
+        self,
+        num_channels: int,
+        flip_sin_to_cos: bool,
+        downscale_freq_shift: float,
+        scale: int = 1,
+    ):
         super().__init__()
         self.num_channels = num_channels
         self.flip_sin_to_cos = flip_sin_to_cos
@@ -140,7 +147,9 @@ class PixArtAlphaTextProjection(nn.Module):
         super().__init__()
         if out_features is None:
             out_features = hidden_size
-        self.linear_1 = nn.Linear(in_features=in_features, out_features=hidden_size, bias=True)
+        self.linear_1 = nn.Linear(
+            in_features=in_features, out_features=hidden_size, bias=True
+        )
         if act_fn == "gelu_tanh":
             self.act_1 = nn.GELU(approximate="tanh")
         elif act_fn == "silu":
@@ -149,7 +158,9 @@ class PixArtAlphaTextProjection(nn.Module):
             self.act_1 = FP32SiLU()
         else:
             raise ValueError(f"Unknown activation function: {act_fn}")
-        self.linear_2 = nn.Linear(in_features=hidden_size, out_features=out_features, bias=True)
+        self.linear_2 = nn.Linear(
+            in_features=hidden_size, out_features=out_features, bias=True
+        )
 
     def forward(self, caption):
         hidden_states = self.linear_1(caption)
@@ -162,17 +173,29 @@ class CombinedTimestepGuidanceTextProjEmbeddings(nn.Module):
     def __init__(self, embedding_dim, pooled_projection_dim):
         super().__init__()
 
-        self.time_proj = Timesteps(num_channels=256, flip_sin_to_cos=True, downscale_freq_shift=0)
-        self.timestep_embedder = TimestepEmbedding(in_channels=256, time_embed_dim=embedding_dim)
-        self.guidance_embedder = TimestepEmbedding(in_channels=256, time_embed_dim=embedding_dim)
-        self.text_embedder = PixArtAlphaTextProjection(pooled_projection_dim, embedding_dim, act_fn="silu")
+        self.time_proj = Timesteps(
+            num_channels=256, flip_sin_to_cos=True, downscale_freq_shift=0
+        )
+        self.timestep_embedder = TimestepEmbedding(
+            in_channels=256, time_embed_dim=embedding_dim
+        )
+        self.guidance_embedder = TimestepEmbedding(
+            in_channels=256, time_embed_dim=embedding_dim
+        )
+        self.text_embedder = PixArtAlphaTextProjection(
+            pooled_projection_dim, embedding_dim, act_fn="silu"
+        )
 
     def forward(self, timestep, guidance, pooled_projection):
         timesteps_proj = self.time_proj(timestep)
-        timesteps_emb = self.timestep_embedder(timesteps_proj.to(dtype=pooled_projection.dtype))  # (N, D)
+        timesteps_emb = self.timestep_embedder(
+            timesteps_proj.to(dtype=pooled_projection.dtype)
+        )  # (N, D)
 
         guidance_proj = self.time_proj(guidance)
-        guidance_emb = self.guidance_embedder(guidance_proj.to(dtype=pooled_projection.dtype))  # (N, D)
+        guidance_emb = self.guidance_embedder(
+            guidance_proj.to(dtype=pooled_projection.dtype)
+        )  # (N, D)
 
         time_guidance_emb = timesteps_emb + guidance_emb
 
@@ -186,13 +209,21 @@ class CombinedTimestepTextProjEmbeddings(nn.Module):
     def __init__(self, embedding_dim, pooled_projection_dim):
         super().__init__()
 
-        self.time_proj = Timesteps(num_channels=256, flip_sin_to_cos=True, downscale_freq_shift=0)
-        self.timestep_embedder = TimestepEmbedding(in_channels=256, time_embed_dim=embedding_dim)
-        self.text_embedder = PixArtAlphaTextProjection(pooled_projection_dim, embedding_dim, act_fn="silu")
+        self.time_proj = Timesteps(
+            num_channels=256, flip_sin_to_cos=True, downscale_freq_shift=0
+        )
+        self.timestep_embedder = TimestepEmbedding(
+            in_channels=256, time_embed_dim=embedding_dim
+        )
+        self.text_embedder = PixArtAlphaTextProjection(
+            pooled_projection_dim, embedding_dim, act_fn="silu"
+        )
 
     def forward(self, timestep, pooled_projection):
         timesteps_proj = self.time_proj(timestep)
-        timesteps_emb = self.timestep_embedder(timesteps_proj.to(dtype=pooled_projection.dtype))  # (N, D)
+        timesteps_emb = self.timestep_embedder(
+            timesteps_proj.to(dtype=pooled_projection.dtype)
+        )  # (N, D)
 
         pooled_projections = self.text_embedder(pooled_projection)
 

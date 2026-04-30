@@ -14,7 +14,13 @@ else:
     # Has optional bias parameter compared to torch layer norm
     # TODO: replace with torch layernorm once min required torch version >= 2.1
     class LayerNorm(nn.Module):
-        def __init__(self, dim, eps: float = 1e-5, elementwise_affine: bool = True, bias: bool = True):
+        def __init__(
+            self,
+            dim,
+            eps: float = 1e-5,
+            elementwise_affine: bool = True,
+            bias: bool = True,
+        ):
             super().__init__()
 
             self.eps = eps
@@ -96,7 +102,9 @@ class AdaLayerNormContinuous(nn.Module):
     ):
         super().__init__()
         self.silu = nn.SiLU()
-        self.linear = nn.Linear(conditioning_embedding_dim, embedding_dim * 2, bias=bias)
+        self.linear = nn.Linear(
+            conditioning_embedding_dim, embedding_dim * 2, bias=bias
+        )
         if norm_type == "layer_norm":
             self.norm = LayerNorm(embedding_dim, eps, elementwise_affine, bias)
         elif norm_type == "rms_norm":
@@ -104,23 +112,27 @@ class AdaLayerNormContinuous(nn.Module):
         else:
             raise ValueError(f"unknown norm_type {norm_type}")
 
-    def forward_with_pad(self, x: torch.Tensor, conditioning_embedding: torch.Tensor, hidden_length=None) -> torch.Tensor:
+    def forward_with_pad(
+        self, x: torch.Tensor, conditioning_embedding: torch.Tensor, hidden_length=None
+    ) -> torch.Tensor:
         assert hidden_length is not None
-        
+
         emb = self.linear(self.silu(conditioning_embedding).to(x.dtype))
         batch_emb = torch.zeros_like(x).repeat(1, 1, 2)
 
         i_sum = 0
         num_stages = len(hidden_length)
         for i_p, length in enumerate(hidden_length):
-            batch_emb[:, i_sum:i_sum+length] = emb[i_p::num_stages][:,None]
+            batch_emb[:, i_sum : i_sum + length] = emb[i_p::num_stages][:, None]
             i_sum += length
 
         batch_scale, batch_shift = torch.chunk(batch_emb, 2, dim=2)
         x = self.norm(x) * (1 + batch_scale) + batch_shift
         return x
 
-    def forward(self, x: torch.Tensor, conditioning_embedding: torch.Tensor, hidden_length=None) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, conditioning_embedding: torch.Tensor, hidden_length=None
+    ) -> torch.Tensor:
         # convert back to the original dtype in case `conditioning_embedding`` is upcasted to float32 (needed for hunyuanDiT)
         if hidden_length is not None:
             return self.forward_with_pad(x, conditioning_embedding, hidden_length)
@@ -163,14 +175,21 @@ class AdaLayerNormZero(nn.Module):
 
         emb = self.linear(self.silu(emb))
         batch_emb = torch.zeros_like(x).repeat(1, 1, 6)
-    
+
         i_sum = 0
         num_stages = len(hidden_length)
         for i_p, length in enumerate(hidden_length):
-            batch_emb[:, i_sum:i_sum+length] = emb[i_p::num_stages][:,None]
+            batch_emb[:, i_sum : i_sum + length] = emb[i_p::num_stages][:, None]
             i_sum += length
 
-        batch_shift_msa, batch_scale_msa, batch_gate_msa, batch_shift_mlp, batch_scale_mlp, batch_gate_mlp = batch_emb.chunk(6, dim=2)
+        (
+            batch_shift_msa,
+            batch_scale_msa,
+            batch_gate_msa,
+            batch_shift_mlp,
+            batch_scale_mlp,
+            batch_gate_mlp,
+        ) = batch_emb.chunk(6, dim=2)
         x = self.norm(x) * (1 + batch_scale_msa) + batch_shift_msa
         return x, batch_gate_msa, batch_shift_mlp, batch_scale_mlp, batch_gate_mlp
 
@@ -184,11 +203,15 @@ class AdaLayerNormZero(nn.Module):
         hidden_length: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         if hidden_length is not None:
-            return self.forward_with_pad(x, timestep, class_labels, hidden_dtype, emb, hidden_length)
+            return self.forward_with_pad(
+                x, timestep, class_labels, hidden_dtype, emb, hidden_length
+            )
         if self.emb is not None:
             emb = self.emb(timestep, class_labels, hidden_dtype=hidden_dtype)
         emb = self.linear(self.silu(emb))
-        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = emb.chunk(6, dim=1)
+        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = emb.chunk(
+            6, dim=1
+        )
         x = self.norm(x) * (1 + scale_msa[:, None]) + shift_msa[:, None]
         return x, gate_msa, shift_mlp, scale_mlp, gate_mlp
 
@@ -226,7 +249,7 @@ class AdaLayerNormZeroSingle(nn.Module):
         i_sum = 0
         num_stages = len(hidden_length)
         for i_p, length in enumerate(hidden_length):
-            batch_emb[:, i_sum:i_sum+length] = emb[i_p::num_stages][:,None]
+            batch_emb[:, i_sum : i_sum + length] = emb[i_p::num_stages][:, None]
             i_sum += length
 
         batch_shift_msa, batch_scale_msa, batch_gate_msa = batch_emb.chunk(3, dim=2)
