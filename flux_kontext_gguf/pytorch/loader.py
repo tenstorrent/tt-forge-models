@@ -14,6 +14,7 @@ from typing import Optional
 
 import torch
 from diffusers import FluxTransformer2DModel, GGUFQuantizationConfig
+from diffusers.quantizers.gguf.utils import _dequantize_gguf_and_restore_linear
 
 from ...base import ForgeModel
 from ...config import (
@@ -37,12 +38,11 @@ FLUX_KONTEXT_TRANSFORMER_CONFIG = {
     "axes_dims_rope": [16, 56, 56],
     "guidance_embeds": True,
     "in_channels": 64,
-    "out_channels": 16,
     "joint_attention_dim": 4096,
     "num_attention_heads": 24,
     "num_layers": 19,
     "num_single_layers": 38,
-    "patch_size": 2,
+    "patch_size": 1,
     "pooled_projection_dim": 768,
 }
 
@@ -109,7 +109,12 @@ class ModelLoader(ForgeModel):
                 quantization_config=GGUFQuantizationConfig(compute_dtype=compute_dtype),
             )
 
-        self.transformer.eval()
+        # GGUFParameter.__torch_function__ recurses under TorchDynamo tracing;
+        # dequantize to plain tensors before compilation.
+        _dequantize_gguf_and_restore_linear(self.transformer)
+        self.transformer.is_quantized = False
+        self.transformer = self.transformer.to(dtype=compute_dtype)
+
         return self.transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
