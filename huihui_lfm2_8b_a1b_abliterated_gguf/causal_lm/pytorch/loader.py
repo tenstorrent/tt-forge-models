@@ -63,9 +63,12 @@ def _patch_transformers_lfm2moe_gguf():
     TENSOR_PROCESSORS["lfm2moe"] = Lfm2TensorProcessor
 
     # 4. Register the BPE tokenizer converter (same as qwen2 / deepseek2).
+    #    tokenization_utils_tokenizers.py looks up by model_type (i.e. "lfm2_moe"
+    #    after our remap), so we must register under the remapped key.
     from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFQwen2Converter
-    if "lfm2moe" not in GGUF_TO_FAST_CONVERTERS:
-        GGUF_TO_FAST_CONVERTERS["lfm2moe"] = GGUFQwen2Converter
+    for _key in ("lfm2moe", "lfm2_moe"):
+        if _key not in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS[_key] = GGUFQwen2Converter
 
     # 5. Patch load_gguf_checkpoint to:
     #    a) Convert per-layer num_key_value_heads list to a scalar (max value).
