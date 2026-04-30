@@ -8,7 +8,7 @@ rwibawa/DeepSeek-R1-Medical-COT model loader implementation for causal language 
 from typing import Optional
 
 import torch
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, LlamaForCausalLM
 
 from ....base import ForgeModel
 from ....config import (
@@ -85,23 +85,30 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {
-            "trust_remote_code": True,
-        }
         if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+            kwargs["dtype"] = dtype_override
 
-        if self.num_layers is not None:
+        # The repo ships a LoRA adapter_config.json that points to a 4-bit
+        # quantized base model (bitsandbytes), but also provides full merged
+        # weights. AutoModelForCausalLM detects the adapter in two places
+        # (auto_factory.py and modeling_utils.py) and redirects to the
+        # quantized base, requiring bitsandbytes. Load via LlamaForCausalLM
+        # directly (bypassing auto-factory PEFT detection) while suppressing
+        # modeling_utils PEFT detection, so the merged weights are loaded.
+        import transformers.integrations.peft as _peft_mod
+        _orig_is_peft = _peft_mod.is_peft_available
+        _peft_mod.is_peft_available = lambda: False
+        try:
             config = AutoConfig.from_pretrained(
                 pretrained_model_name, trust_remote_code=True
             )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+            if self.num_layers is not None:
+                config.num_hidden_layers = self.num_layers
+            model = LlamaForCausalLM.from_pretrained(
+                pretrained_model_name, config=config, **kwargs
+            ).eval()
+        finally:
+            _peft_mod.is_peft_available = _orig_is_peft
 
         self.config = model.config
         self.model = model
