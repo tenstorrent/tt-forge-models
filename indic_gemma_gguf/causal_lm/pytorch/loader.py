@@ -59,27 +59,49 @@ _patch_gemma_v1_support()
 def _get_real_load_gguf_checkpoint():
     """Walk the patch chain to find the original transformers load_gguf_checkpoint.
 
-    Other loaders install narrow-sig wrappers at import time. The original
-    function (qualname 'load_gguf_checkpoint') is found by following
-    _orig_load_gguf_checkpoint in each wrapper's globals.
+    Other loaders install narrow-sig wrappers (gguf_path, return_tensors=False)
+    at import time, capturing the prior value in either module globals
+    (_orig_load_gguf_checkpoint) or a closure cell (orig_load). Use a recursive
+    DFS over both to reach the original transformers function.
     """
     import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 
-    fn = _gguf_utils.load_gguf_checkpoint
-    visited = set()
-    while True:
-        fid = id(fn)
+    visited: set = set()
+
+    def _is_real(f) -> bool:
+        return (
+            getattr(f, "__qualname__", "") == "load_gguf_checkpoint"
+            and getattr(f, "__module__", "") == "transformers.modeling_gguf_pytorch_utils"
+        )
+
+    def _search(f):
+        fid = id(f)
         if fid in visited:
-            break
+            return None
         visited.add(fid)
-        if fn.__qualname__ == "load_gguf_checkpoint":
-            return fn
-        orig = fn.__globals__.get("_orig_load_gguf_checkpoint")
-        if orig is not None and id(orig) not in visited:
-            fn = orig
-        else:
-            break
-    return fn
+        if _is_real(f):
+            return f
+        # Closures first: handles orig_load = ... / def patch(*args, **kwargs) pattern
+        if getattr(f, "__closure__", None):
+            for cell in f.__closure__:
+                try:
+                    v = cell.cell_contents
+                    if callable(v):
+                        r = _search(v)
+                        if r is not None:
+                            return r
+                except Exception:
+                    pass
+        # Module globals: handles _orig_load_gguf_checkpoint = ... pattern
+        for name, v in getattr(f, "__globals__", {}).items():
+            if callable(v) and "orig" in name.lower() and id(v) not in visited:
+                r = _search(v)
+                if r is not None:
+                    return r
+        return None
+
+    result = _search(_gguf_utils.load_gguf_checkpoint)
+    return result if result is not None else _gguf_utils.load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
