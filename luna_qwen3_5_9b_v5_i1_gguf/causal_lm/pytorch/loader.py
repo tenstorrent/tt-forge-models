@@ -5,6 +5,7 @@
 Luna-Qwen3.5-9B-v5 i1 GGUF model loader implementation for causal language modeling.
 """
 import torch
+from contextlib import contextmanager
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -12,19 +13,18 @@ import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
-from transformers.modeling_gguf_pytorch_utils import (
-    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
-    GGUF_SUPPORTED_ARCHITECTURES,
-)
+from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
 
-def _patch_qwen35_support():
+def _patch_qwen35_registry():
     """Register qwen35 architecture and qwen3_5_text tokenizer as aliases for qwen3.
 
-    Qwen 3.5 uses the same model architecture as Qwen 3 but the GGUF file
-    declares architecture as 'qwen35' and tokenizer class as 'qwen3_5_text',
-    which transformers 5.x does not yet recognise.
+    Idempotent registry-only patch: safe to call repeatedly even when other
+    loaders have already patched the same tables.  Qwen 3.5 uses the same
+    model architecture as Qwen 3 but the GGUF file declares architecture as
+    'qwen35' and tokenizer class as 'qwen3_5_text', which transformers 5.x
+    does not yet recognise.
     """
     if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
         GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
@@ -41,25 +41,69 @@ def _patch_qwen35_support():
         )
 
 
-def _patched_load_gguf_checkpoint(*args, **kwargs):
-    """Wrap load_gguf_checkpoint to add qwen35 support and fix model_type.
+# Apply idempotent registry patches at import time so tokenizer loading works.
+_patch_qwen35_registry()
 
-    Uses *args/**kwargs to forward all arguments including model_to_load
-    (added in transformers 5.2+) without a narrow signature breaking on
-    unexpected keyword arguments.
+
+def _find_real_load_gguf_at_call_time():
+    """Walk the current load_gguf_checkpoint patch chain to the real function.
+
+    Multiple loaders patch _gguf_utils.load_gguf_checkpoint at module-import
+    time (alphabetically, last-importer wins).  Walking from the current module
+    attribute through __globals__['_orig_load_gguf_checkpoint'] links reaches
+    the actual transformers function that accepts all kwargs including
+    model_to_load (added in transformers 5.2+).
     """
-    _patch_qwen35_support()
-    result = _orig_load_gguf_checkpoint(*args, **kwargs)
-    if result.get("config", {}).get("model_type") == "qwen35":
-        result["config"]["model_type"] = "qwen3"
-    return result
+    fn = _gguf_utils.load_gguf_checkpoint
+    seen: set = set()
+    while True:
+        fn_id = id(fn)
+        if fn_id in seen:
+            break
+        seen.add(fn_id)
+        next_fn = (
+            fn.__globals__.get("_orig_load_gguf_checkpoint")
+            if hasattr(fn, "__globals__")
+            else None
+        )
+        if next_fn is None or id(next_fn) in seen:
+            break
+        fn = next_fn
+    return fn
 
 
-_patch_qwen35_support()
-_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+@contextmanager
+def _qwen35_gguf_context():
+    """Temporarily install the qwen35 load_gguf_checkpoint wrapper.
+
+    Called at load time (not import time) so this loader's patch is in effect
+    regardless of which other loaders were imported after us and clobbered the
+    module-level binding.
+    """
+    _patch_qwen35_registry()
+    real_fn = _find_real_load_gguf_at_call_time()
+
+    def _my_patched_load_gguf_checkpoint(*args, **kwargs):
+        result = real_fn(*args, **kwargs)
+        if result.get("config", {}).get("model_type") == "qwen35":
+            result["config"]["model_type"] = "qwen3"
+        return result
+
+    _binding_sites = [
+        (_gguf_utils, "load_gguf_checkpoint"),
+        (_config_utils, "load_gguf_checkpoint"),
+        (_auto_tokenizer, "load_gguf_checkpoint"),
+        (_tok_utils, "load_gguf_checkpoint"),
+    ]
+    saved = [(mod, attr, getattr(mod, attr)) for mod, attr in _binding_sites]
+    for mod, attr in _binding_sites:
+        setattr(mod, attr, _my_patched_load_gguf_checkpoint)
+    try:
+        yield
+    finally:
+        for mod, attr, original in saved:
+            setattr(mod, attr, original)
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -120,9 +164,10 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
         tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+        with _qwen35_gguf_context():
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -147,9 +192,10 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        with _qwen35_gguf_context():
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
@@ -207,7 +253,8 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        with _qwen35_gguf_context():
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
         return self.config
