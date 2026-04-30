@@ -9,8 +9,12 @@ GigaAM-v3 is a Conformer-based ASR foundation model pretrained on 700k hours
 of Russian speech. It supports CTC and RNN-T decoding variants.
 """
 
-import torch
+import sys
+import types
+from functools import wraps
 from typing import Optional
+
+import torch
 
 from ....base import ForgeModel
 from ....config import (
@@ -68,8 +72,46 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _patch_torchaudio():
+        # libtorchaudio.so links against libtorch_cuda.so which is absent in
+        # CPU-only TT environments.  Stub out the C-extension gate so the pure-
+        # Python torchaudio.transforms (MelSpectrogram) can be imported.
+        if "torchaudio._extension" in sys.modules:
+            return
+
+        def _fail_decorator(msg):
+            def decorator(func):
+                @wraps(func)
+                def wrapped(*args, **kwargs):
+                    raise RuntimeError(msg)
+
+                return wrapped
+
+            return decorator
+
+        ext = types.ModuleType("torchaudio._extension")
+        ext._IS_TORCHAUDIO_EXT_AVAILABLE = False
+        ext._IS_RIR_AVAILABLE = False
+        ext._IS_ALIGN_AVAILABLE = False
+        ext.fail_if_no_rir = _fail_decorator("RIR extension not available")
+        ext.fail_if_no_align = _fail_decorator("Align extension not available")
+        ext._check_cuda_version = lambda: None
+        sys.modules["torchaudio._extension"] = ext
+
+    @staticmethod
+    def _patch_pyannote():
+        # pyannote.audio is only used in get_vad_pipeline() for long-form
+        # transcription, not in the standard inference forward path.
+        # Stub the top-level package so transformers check_imports passes.
+        if "pyannote" not in sys.modules:
+            sys.modules["pyannote"] = types.ModuleType("pyannote")
+
     def load_model(self, *, dtype_override=None, **kwargs):
-        from transformers import AutoModel
+        self._patch_torchaudio()
+        self._patch_pyannote()
+
+        from transformers import AutoModel, PreTrainedModel
 
         revision = self._REVISION_MAP[self._variant]
 
@@ -78,14 +120,48 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            revision=revision,
-            trust_remote_code=True,
-            **model_kwargs,
-        )
-        model.eval()
+        # torchaudio.functional.melscale_fbanks calls .any() (which internally
+        # calls .item()) on tensors created during FeatureExtractor.__init__.
+        # Under the meta-device context used by transformers 5.x this raises
+        # "Tensor.item() cannot be called on meta tensors".  Temporarily remove
+        # the meta device from get_init_context so the filterbank is computed on
+        # real tensors.
+        #
+        # GigaAMModel.__init__ was written for an older transformers API: it does
+        # not call self.post_init(), which transformers 5.x requires to set up
+        # all_tied_weights_keys before _finalize_model_loading runs.  Patch
+        # _finalize_model_loading to call post_init() when the attribute is absent.
+        _orig_get_init = PreTrainedModel.get_init_context
+        _orig_finalize = PreTrainedModel._finalize_model_loading
 
+        @classmethod  # type: ignore[misc]
+        def _no_meta(cls, dtype, is_quantized, _is_ds_init_called):
+            return [
+                c
+                for c in _orig_get_init.__func__(cls, dtype, is_quantized, _is_ds_init_called)
+                if not isinstance(c, torch.device)
+            ]
+
+        @staticmethod  # type: ignore[misc]
+        def _finalize_with_post_init(model, load_config, loading_info):
+            if not hasattr(model, "all_tied_weights_keys"):
+                model.post_init()
+            return _orig_finalize(model, load_config, loading_info)
+
+        PreTrainedModel.get_init_context = _no_meta
+        PreTrainedModel._finalize_model_loading = _finalize_with_post_init
+        try:
+            model = AutoModel.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                revision=revision,
+                trust_remote_code=True,
+                **model_kwargs,
+            )
+        finally:
+            PreTrainedModel.get_init_context = _orig_get_init
+            PreTrainedModel._finalize_model_loading = _orig_finalize
+
+        model.eval()
         return model
 
     def load_inputs(self, dtype_override=None):

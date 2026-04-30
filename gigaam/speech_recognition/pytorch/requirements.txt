@@ -2,3 +2,4 @@ numpy
 sentencepiece
 hydra-core
 omegaconf
+torchaudio
