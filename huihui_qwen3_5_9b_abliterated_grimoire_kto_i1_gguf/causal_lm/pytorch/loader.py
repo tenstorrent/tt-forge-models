@@ -6,6 +6,8 @@ Huihui Qwen 3.5 9B Abliterated Grimoire KTO i1 GGUF model loader implementation 
 """
 from typing import Optional
 
+import types
+
 import torch
 import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
@@ -45,23 +47,41 @@ def _patch_qwen35_support():
 
 
 def _unwrap_to_real_load_gguf_checkpoint(fn):
-    """Traverse a chain of loader patches to find the real transformers function.
+    """BFS traversal of patcher chains to find the real transformers load_gguf_checkpoint.
 
-    Some loaders patch load_gguf_checkpoint with functions that don't accept the
-    model_to_load kwarg added in transformers 5.2.0. This walks the chain via
-    each patcher's __globals__['_orig_load_gguf_checkpoint'] until we find the
-    actual transformers implementation (identified by its __module__).
+    Some loaders patch load_gguf_checkpoint globally using different patterns:
+    - globals with key '_orig_load_gguf_checkpoint' (common qwen35 loaders)
+    - closure variable 'orig_load' (some GLM loaders)
+    The real function is identified by __module__ == transformers.modeling_gguf_pytorch_utils.
     """
     seen = set()
-    while fn is not None and id(fn) not in seen:
+    queue = [fn] if isinstance(fn, types.FunctionType) else []
+
+    while queue:
+        fn = queue.pop(0)
+        if id(fn) in seen:
+            continue
         seen.add(id(fn))
-        if getattr(fn, "__module__", "") == "transformers.modeling_gguf_pytorch_utils":
+
+        if (
+            getattr(fn, "__module__", "") == "transformers.modeling_gguf_pytorch_utils"
+            and getattr(fn, "__qualname__", "") == "load_gguf_checkpoint"
+        ):
             return fn
-        orig = fn.__globals__.get("_orig_load_gguf_checkpoint")
-        if orig is not None and orig is not fn:
-            fn = orig
-        else:
-            break
+
+        for key in ("_orig_load_gguf_checkpoint", "orig_load"):
+            g = getattr(fn, "__globals__", {}).get(key)
+            if isinstance(g, types.FunctionType) and id(g) not in seen:
+                queue.append(g)
+
+        for cell in getattr(fn, "__closure__", None) or []:
+            try:
+                val = cell.cell_contents
+                if isinstance(val, types.FunctionType) and id(val) not in seen:
+                    queue.append(val)
+            except ValueError:
+                pass
+
     return fn
 
 
