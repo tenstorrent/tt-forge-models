@@ -259,26 +259,20 @@ class FeedForward(nn.Module):
 
 
 class RotaryPositionalEmbedding(nn.Module):
-    def __init__(self, dim):
+    def __init__(self, dim, max_seq_len=4096):
         super().__init__()
         inv_freq = 1.0 / (10000 ** (torch.arange(0, dim, 2).float() / dim))
         self.register_buffer("inv_freq", inv_freq)
-        self.seq_len_cached = None
-        self.cos_cached = None
-        self.sin_cached = None
-
-    def _update_cos_sin_cache(self, x, seq_len):
-        if seq_len != self.seq_len_cached:
-            self.seq_len_cached = seq_len
-            t = torch.arange(seq_len, device=x.device).type_as(self.inv_freq)
-            freqs = torch.einsum("i,j->ij", t, self.inv_freq)
-            emb = torch.cat((freqs, freqs), dim=-1).to(x.device)
-            self.cos_cached = emb.cos()[None, None, :, :]
-            self.sin_cached = emb.sin()[None, None, :, :]
-        return self.cos_cached, self.sin_cached
+        t = torch.arange(max_seq_len).type_as(inv_freq)
+        freqs = torch.einsum("i,j->ij", t, inv_freq)
+        emb = torch.cat((freqs, freqs), dim=-1)
+        self.register_buffer("cos_cached", emb.cos()[None, None, :, :], persistent=False)
+        self.register_buffer("sin_cached", emb.sin()[None, None, :, :], persistent=False)
 
     def forward(self, q, k):
-        cos, sin = self._update_cos_sin_cache(q, q.shape[-2])
+        seq_len = q.shape[-2]
+        cos = self.cos_cached[:, :, :seq_len, :]
+        sin = self.sin_cached[:, :, :seq_len, :]
         return (
             (q * cos) + (self._rotate_half(q) * sin),
             (k * cos) + (self._rotate_half(k) * sin),
