@@ -71,7 +71,7 @@ class ModelLoader(ForgeModel):
             load_kwargs["torch_dtype"] = dtype_override
 
         self.transformer = Flux2Transformer2DModel.from_single_file(
-            f"https://huggingface.co/{self._variant_config.pretrained_model_name}/resolve/main/{filename}",
+            f"https://huggingface.co/{self._variant_config.pretrained_model_name}/blob/main/{filename}",
             **load_kwargs,
         )
 
