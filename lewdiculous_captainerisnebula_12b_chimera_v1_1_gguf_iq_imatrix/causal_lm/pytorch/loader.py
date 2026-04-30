@@ -42,7 +42,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.LEWDICULOUS_CAPTAINERISNEBULA_12B_CHIMERA_V1_1_GGUF_IQ_IMATRIX
     )
 
-    GGUF_FILE = "CaptainErisNebula-12B-Chimera-v1.1-IQ4_XS-imatrix.gguf"
+    GGUF_FILE = "CaptainErisNebula-12B-Chimera-v1.1-IQ4_XS-imat.gguf"
 
     sample_text = "What is your favorite city?"
 
