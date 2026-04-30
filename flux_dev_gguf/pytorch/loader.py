@@ -4,6 +4,9 @@
 """
 FLUX.1-dev GGUF model loader implementation for text-to-image generation
 """
+import json
+import os
+import tempfile
 import torch
 import torch._C
 from diffusers import GGUFQuantizationConfig
@@ -48,6 +51,25 @@ def _patched_as_tensor(self):
 
 
 GGUFParameter.as_tensor = _patched_as_tensor
+
+# Inline transformer config avoids fetching the gated black-forest-labs/FLUX.1-dev repo.
+# The GGUF metadata sets pretrained_model_name_or_path to black-forest-labs/FLUX.1-dev,
+# which requires HF access; providing config locally bypasses that lookup.
+_TRANSFORMER_CONFIG = {
+    "_class_name": "FluxTransformer2DModel",
+    "_diffusers_version": "0.37.1",
+    "attention_head_dim": 128,
+    "axes_dims_rope": [16, 56, 56],
+    "guidance_embeds": True,
+    "in_channels": 64,
+    "out_channels": 64,
+    "joint_attention_dim": 4096,
+    "num_attention_heads": 24,
+    "num_layers": 19,
+    "num_single_layers": 38,
+    "patch_size": 1,
+    "pooled_projection_dim": 768,
+}
 
 _EVIATION_REPO = "Eviation/flux-imatrix"
 _EVIATION_CAESAR_SUBDIR = "experimental-from-f16-caesar"
@@ -127,18 +149,30 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _make_local_config_dir(self):
+        config_dir = tempfile.mkdtemp()
+        transformer_dir = os.path.join(config_dir, "transformer")
+        os.makedirs(transformer_dir, exist_ok=True)
+        with open(os.path.join(transformer_dir, "config.json"), "w") as f:
+            json.dump(_TRANSFORMER_CONFIG, f)
+        return config_dir
+
     def load_model(self, *, dtype_override=None, **kwargs):
         # Use hf_hub_download instead of a direct HTTPS URL because diffusers 0.37.1
         # _extract_repo_id_and_weights_name only strips blob/main/ (not resolve/main/),
         # so the weights_name ends up as "resolve/main/<file>" and the HF hub lookup fails.
+        # Provide an inline config to avoid fetching the gated black-forest-labs/FLUX.1-dev repo.
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         repo_id = self._variant_config.pretrained_model_name
         gguf_file = self._GGUF_FILES[self._variant]
         model_path = hf_hub_download(repo_id=repo_id, filename=gguf_file)
+        config_dir = self._make_local_config_dir()
         self.transformer = FluxTransformer2DModel.from_single_file(
             model_path,
+            config=config_dir,
+            subfolder="transformer",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
