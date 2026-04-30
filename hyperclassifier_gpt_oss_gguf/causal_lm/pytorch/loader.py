@@ -10,6 +10,16 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -20,6 +30,44 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_gpt_oss_support():
+    """Register gpt-oss architecture as an alias for qwen3_moe in GGUF loading."""
+    if "gpt-oss" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+    GGUF_SUPPORTED_ARCHITECTURES.append("gpt-oss")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen3_moe" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            mapping = dict(
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3_moe"]
+            )
+            mapping["expert_feed_forward_length"] = "moe_intermediate_size"
+            mapping["attention.sliding_window"] = "sliding_window"
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["gpt-oss"] = mapping
+    if "qwen3_moe" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("gpt-oss", GGUF_TO_FAST_CONVERTERS["qwen3_moe"])
+    if hasattr(_gguf_utils, "GGUF_CONFIG_DEFAULTS_MAPPING"):
+        if "qwen3_moe" in _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING:
+            _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING.setdefault(
+                "gpt-oss", _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["qwen3_moe"]
+            )
+
+
+def _patched_load_gguf_checkpoint(*args, **kwargs):
+    """Wrap load_gguf_checkpoint to add gpt-oss arch support and fix model_type."""
+    _patch_gpt_oss_support()
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
+    if isinstance(result, dict) and result.get("config", {}).get("model_type") == "gpt-oss":
+        result["config"]["model_type"] = "qwen3_moe"
+    return result
+
+
+_patch_gpt_oss_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
@@ -34,12 +82,7 @@ class ModelLoader(ForgeModel):
 
     @staticmethod
     def _fix_gguf_version_detection():
-        """Fix gguf version detection when installed at runtime by RequirementsManager.
-
-        transformers caches PACKAGE_DISTRIBUTION_MAPPING at import time. When gguf
-        is installed later, the mapping is stale and version detection falls back to
-        gguf.__version__ which doesn't exist, yielding 'N/A' and crashing version.parse.
-        """
+        """Fix gguf version detection when installed at runtime by RequirementsManager."""
         import transformers.utils.import_utils as _import_utils
 
         if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
@@ -126,6 +169,11 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        # Switch MoE experts to batched_mm: the default for-loop over expert_hit
+        # has dynamic bounds that XLA cannot trace statically.
+        if hasattr(model, "config"):
+            model.config._experts_implementation = "batched_mm"
+
         self.config = model.config
         self.model = model
         return model
@@ -170,10 +218,21 @@ class ModelLoader(ForgeModel):
     def load_shard_spec(self, model):
         shard_specs = {}
         for layer in model.model.layers:
-            for expert in layer.mlp.experts:
-                shard_specs[expert.up_proj.weight] = ("model", "batch")
-                shard_specs[expert.gate_proj.weight] = ("model", "batch")
-                shard_specs[expert.down_proj.weight] = ("batch", "model")
+            mlp = layer.mlp
+            # Qwen3MoeExperts stores all expert weights as 3D tensors:
+            # gate_up_proj: [num_experts, 2*moe_intermediate_dim, hidden_dim]
+            # down_proj:    [num_experts, hidden_dim, moe_intermediate_dim]
+            # Iterating over the module directly fails (not a ModuleList).
+            if hasattr(mlp, "experts"):
+                experts = mlp.experts
+                if hasattr(experts, "gate_up_proj"):
+                    shard_specs[experts.gate_up_proj] = (None, "model", "batch")
+                    shard_specs[experts.down_proj] = (None, "batch", "model")
+                else:
+                    for expert in experts:
+                        shard_specs[expert.up_proj.weight] = ("model", "batch")
+                        shard_specs[expert.gate_proj.weight] = ("model", "batch")
+                        shard_specs[expert.down_proj.weight] = ("batch", "model")
 
             shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
