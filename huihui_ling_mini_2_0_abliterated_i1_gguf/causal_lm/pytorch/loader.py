@@ -226,27 +226,28 @@ _patch_transformers_bailingmoe2_gguf()
 
 @contextlib.contextmanager
 def _gguf_load_ctx():
-    """Temporarily install a model_to_load-accepting wrapper on modeling_utils.
+    """Temporarily install a model_to_load-accepting wrapper on gguf_pytorch_utils.
 
-    In a full pytest session, loaders imported AFTER this module overwrite
-    _modeling_utils.load_gguf_checkpoint with strict-signature functions that
-    reject the `model_to_load` kwarg added in transformers 5.x.  This context
-    manager makes our wrapper the outermost for the duration of from_pretrained,
-    stripping model_to_load before passing down the chain (the chain's orig_load
-    references already do our bailingmoe2→bailing_moe remapping).
+    transformers 5.x from_pretrained locally imports load_gguf_checkpoint from
+    modeling_gguf_pytorch_utils and calls it with model_to_load=dummy_model.  In a
+    full pytest session other loaders overwrite gguf_utils.load_gguf_checkpoint with
+    strict-signature functions that reject the kwarg.  This context manager installs
+    our wrapper as the outermost for the duration of from_pretrained, strips
+    model_to_load before handing off to the existing chain (which already contains
+    our import-time bailingmoe2→bailing_moe remapping).
     """
-    import transformers.modeling_utils as _modeling_utils
+    import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 
-    prev = _modeling_utils.load_gguf_checkpoint
+    prev = _gguf_utils.load_gguf_checkpoint
 
     def _ctx_load(gguf_checkpoint_path, return_tensors=False, model_to_load=None, **extra):
         return prev(gguf_checkpoint_path, return_tensors=return_tensors)
 
-    _modeling_utils.load_gguf_checkpoint = _ctx_load
+    _gguf_utils.load_gguf_checkpoint = _ctx_load
     try:
         yield
     finally:
-        _modeling_utils.load_gguf_checkpoint = prev
+        _gguf_utils.load_gguf_checkpoint = prev
 
 
 class ModelVariant(StrEnum):
