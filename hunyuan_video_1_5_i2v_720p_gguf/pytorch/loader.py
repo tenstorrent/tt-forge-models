@@ -155,7 +155,7 @@ class ModelLoader(ForgeModel):
         )
 
         self._transformer = HunyuanVideo15Transformer3DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/resolve/main/{gguf_file}",
+            f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
             config=BASE_CONFIG_REPO,
             subfolder=config_subfolder,
             quantization_config=quantization_config,
