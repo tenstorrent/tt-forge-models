@@ -17,10 +17,22 @@ import os
 import tempfile
 
 import torch
+import torch._C
 from diffusers import GGUFQuantizationConfig
 from diffusers.models import FluxTransformer2DModel
+from diffusers.quantizers.gguf.utils import GGUFParameter
 from huggingface_hub import hf_hub_download
 from typing import Optional
+
+
+def _patched_as_tensor(self):
+    # GGUFParameter.__torch_function__ causes infinite recursion when _make_subclass
+    # is called on a GGUFParameter instance; DisableTorchFunctionSubclass breaks the loop.
+    with torch._C.DisableTorchFunctionSubclass():
+        return torch.Tensor._make_subclass(torch.Tensor, self, self.requires_grad)
+
+
+GGUFParameter.as_tensor = _patched_as_tensor
 
 from ...base import ForgeModel
 from ...config import (
