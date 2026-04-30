@@ -5,7 +5,7 @@
 GLM-OCR model loader implementation for image-to-text tasks.
 """
 import torch
-from transformers import AutoProcessor, AutoModelForImageTextToText
+from transformers import AutoProcessor, AutoModelForImageTextToText, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -18,6 +18,42 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _dequantize_mlx_affine_8bit(raw_sd, group_size=64):
+    """Dequantize MLX affine-8bit state dict to standard float tensors.
+
+    mlx-community models store weights as uint32-packed int8 with per-group
+    bf16 scales and biases.  Transformers expects float weights with standard
+    key names, so we unpack and dequant here.
+
+    Dequant formula: x_float = x_uint8 * scale + bias
+    """
+    skip = {k for k in raw_sd if k.endswith(".scales") or k.endswith(".biases")}
+    result = {}
+    for key, tensor in raw_sd.items():
+        if key in skip:
+            continue
+        scales_key = key[: -len(".weight")] + ".scales"
+        biases_key = key[: -len(".weight")] + ".biases"
+        if (
+            key.endswith(".weight")
+            and tensor.dtype == torch.uint32
+            and scales_key in raw_sd
+            and biases_key in raw_sd
+        ):
+            scales = raw_sd[scales_key]
+            biases = raw_sd[biases_key]
+            out_f = tensor.shape[0]
+            w_u8 = tensor.view(torch.uint8).reshape(out_f, -1)
+            in_f = w_u8.shape[1]
+            n_grp = in_f // group_size
+            sc = scales.float().reshape(out_f, n_grp, 1).expand(-1, -1, group_size).reshape(out_f, in_f)
+            bi = biases.float().reshape(out_f, n_grp, 1).expand(-1, -1, group_size).reshape(out_f, in_f)
+            result[key] = (w_u8.float() * sc + bi).to(torch.bfloat16)
+        else:
+            result[key] = tensor
+    return result
 
 
 class ModelVariant(StrEnum):
@@ -82,12 +118,8 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded processor instance
         """
-        kwargs = {}
-        if dtype_override is not None:
-            kwargs["torch_dtype"] = dtype_override
-
         self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, **kwargs
+            self._variant_config.pretrained_model_name,
         )
 
         return self.processor
@@ -107,14 +139,39 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+
+        model_kwargs = {"dtype": dtype}
         model_kwargs |= kwargs
 
-        model = AutoModelForImageTextToText.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        if self._variant == ModelVariant.GLM_OCR_MLX_8BIT:
+            # mlx-community/GLM-OCR-8bit has quantization_config with MLX
+            # affine format (group_size/bits/mode) but no quant_method.
+            # Transformers >=5.x raises ValueError on this.  Also, the weights
+            # are uint32-packed int8 that need manual dequantization before
+            # loading into the standard GlmOcrForConditionalGeneration arch.
+            from safetensors.torch import load_file
+            from huggingface_hub import hf_hub_download
+
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            if hasattr(config, "quantization_config"):
+                del config.quantization_config
+
+            st_path = hf_hub_download(pretrained_model_name, "model.safetensors")
+            raw_sd = load_file(st_path)
+            state_dict = _dequantize_mlx_affine_8bit(raw_sd, group_size=64)
+
+            model = AutoModelForImageTextToText.from_pretrained(
+                pretrained_model_name,
+                config=config,
+                state_dict=state_dict,
+                **model_kwargs,
+            )
+        else:
+            model = AutoModelForImageTextToText.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+
         model.eval()
         return model
 
