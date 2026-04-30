@@ -88,6 +88,10 @@ def _patched_get_gguf_hf_weights_map(
 _patch_hunyuan_dense_gguf()
 _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
+# Save the real function now, before alphabetically-later loaders install broken
+# wrappers that lack the model_to_load kwarg added in transformers 5.x.
+_real_load_gguf_checkpoint = _gguf_utils.load_gguf_checkpoint
+
 from ....base import ForgeModel
 from ....config import (
     Framework,
@@ -178,9 +182,23 @@ class ModelLoader(ForgeModel):
             config.head_dim = config.hidden_size // config.num_attention_heads
         model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        # Temporarily bypass broken load_gguf_checkpoint wrappers from other
+        # loaders (imported later alphabetically) that lack the model_to_load
+        # kwarg added in transformers 5.x, causing TypeError on from_pretrained.
+        _saved_fn = _gguf_utils.load_gguf_checkpoint
+
+        def _fixed_load(path, return_tensors=False, model_to_load=None, **kw):
+            return _real_load_gguf_checkpoint(
+                path, return_tensors=return_tensors, model_to_load=model_to_load
+            )
+
+        _gguf_utils.load_gguf_checkpoint = _fixed_load
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _gguf_utils.load_gguf_checkpoint = _saved_fn
 
         self.config = model.config
         self.model = model
