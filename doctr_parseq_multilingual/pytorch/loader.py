@@ -69,6 +69,9 @@ class ModelLoader(ForgeModel):
 
         model = from_hub(self._variant_config.pretrained_model_name)
         model.eval()
+        # Return logits tensor {"logits": Tensor} instead of string predictions
+        # {"preds": [("text", confidence)]} so the output is tensor-comparable.
+        model.exportable = True
 
         if dtype_override is not None:
             model = model.to(dtype_override)
