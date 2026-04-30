@@ -162,6 +162,13 @@ class ModelLoader(ForgeModel):
             PreTrainedModel._finalize_model_loading = _orig_finalize
 
         model.eval()
+
+        # MelScale.fb is a buffer that gets cast to bfloat16 when the model is
+        # loaded with torch_dtype=bfloat16, but STFT always outputs float32.
+        # Cast the preprocessor back to float32 so the mel matmul dtype matches.
+        if hasattr(model, "model") and hasattr(model.model, "preprocessor"):
+            model.model.preprocessor.float()
+
         return model
 
     def load_inputs(self, dtype_override=None):
