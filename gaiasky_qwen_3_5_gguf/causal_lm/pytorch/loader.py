@@ -48,12 +48,14 @@ def _patch_qwen35_support():
 
 
 def _find_real_load_gguf(fn, _seen=None):
-    """Walk the patch chain to find the real load_gguf_checkpoint.
+    """Walk the patch chain to find the real transformers load_gguf_checkpoint.
 
     Each loader that patches load_gguf_checkpoint stores the previous value
-    as _orig_load_gguf_checkpoint in its own module globals.  We follow that
-    chain until we reach a function that accepts 'model_to_load' as an
-    explicit parameter — that is the genuine transformers implementation.
+    either as a module-level global (_orig_load_gguf_checkpoint, orig_load)
+    or as a closure variable (when the wrapper is defined inside a function).
+    We follow both __globals__ and __closure__ links until we reach the
+    genuine transformers implementation, identified by its __module__ and
+    __name__.
     """
     if _seen is None:
         _seen = set()
@@ -62,24 +64,35 @@ def _find_real_load_gguf(fn, _seen=None):
     _seen.add(id(fn))
     if not callable(fn):
         return None
-    try:
-        if "model_to_load" in _inspect.signature(fn).parameters:
-            return fn
-    except (TypeError, ValueError):
-        pass
-    # Follow the _orig_load_gguf_checkpoint chain through the function's module.
-    # For gaiasky's own wrapper, also check _real_load_gguf_fn if present.
+    # The real transformers function is defined in that module, not in a loader.
+    if (getattr(fn, "__module__", "") == "transformers.modeling_gguf_pytorch_utils"
+            and getattr(fn, "__name__", "") == "load_gguf_checkpoint"):
+        return fn
+    # Walk via module globals: some loaders store the previous function as a
+    # module-level name (_orig_load_gguf_checkpoint, orig_load) or in our own
+    # mutable holder _real_load_gguf_fn (a list).
     globs = getattr(fn, "__globals__", {})
-    for key in ("_orig_load_gguf_checkpoint", "_real_load_gguf_fn"):
+    for key in ("_orig_load_gguf_checkpoint", "orig_load", "_real_load_gguf_fn"):
         val = globs.get(key)
         if val is None:
             continue
-        # _real_load_gguf_fn is a list holder; unwrap it.
         if isinstance(val, list):
             val = val[0] if val else None
         result = _find_real_load_gguf(val, _seen)
         if result is not None:
             return result
+    # Walk via closure cells: some loaders define the wrapper inside a helper
+    # function, so the previous function is a closure variable, not a global.
+    if getattr(fn, "__closure__", None):
+        for cell in fn.__closure__:
+            try:
+                val = cell.cell_contents
+            except (ValueError, AttributeError):
+                continue
+            if callable(val) and not isinstance(val, type):
+                result = _find_real_load_gguf(val, _seen)
+                if result is not None:
+                    return result
     return None
 
 
