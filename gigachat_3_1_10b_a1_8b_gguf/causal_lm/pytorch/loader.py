@@ -5,12 +5,15 @@
 GigaChat 3.1 10B A1.8B GGUF model loader implementation for causal language modeling.
 """
 import importlib.util
+import threading
 from typing import Optional
 
 import torch
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFQwen2Converter
+
+_model_to_load_ctx = threading.local()
 
 from ....base import ForgeModel
 from ....config import (
@@ -86,7 +89,16 @@ def _patch_deepseek2_gguf_support():
     _orig_load = _gguf_utils.load_gguf_checkpoint
 
     def _patched_load_gguf_checkpoint(*args, **kwargs):
-        result = _orig_load(*args, **kwargs)
+        # Some loaders patch load_gguf_checkpoint without **kwargs (missing model_to_load).
+        # Pop model_to_load here so the bad inner function doesn't choke on it.
+        # We ferry it via a thread-local so _patched_get_gguf_hf_weights_map can inject
+        # it back when the real load_gguf_checkpoint calls get_gguf_hf_weights_map(None, ...).
+        model_to_load = kwargs.pop("model_to_load", None)
+        _model_to_load_ctx.value = model_to_load
+        try:
+            result = _orig_load(*args, **kwargs)
+        finally:
+            _model_to_load_ctx.value = None
         config = result.get("config", {})
         if config.get("model_type") == "deepseek2":
             config["model_type"] = "deepseek_v2"
@@ -111,6 +123,10 @@ def _patch_deepseek2_gguf_support():
     def _patched_get_gguf_hf_weights_map(
         hf_model, processor, model_type=None, num_layers=None, qual_name=""
     ):
+        # If hf_model is None (because a bad patcher dropped model_to_load from
+        # load_gguf_checkpoint), recover it from the thread-local set above.
+        if hf_model is None:
+            hf_model = getattr(_model_to_load_ctx, "value", None)
         if model_type is None and hasattr(hf_model, "config"):
             model_type = hf_model.config.model_type
         # gguf-py uses "deepseek2"; HF uses "deepseek_v2"
