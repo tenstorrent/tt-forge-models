@@ -92,12 +92,15 @@ def _patch_transformers_lfm2moe_gguf():
 
     gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
-    # Patch every module that imported load_gguf_checkpoint at module level.
+    # Patch modules that call load_gguf_checkpoint for config-only loading
+    # (return_tensors=False). Do NOT patch modeling_utils — it calls the real
+    # function with model_to_load and chains through other loaders that lack
+    # that kwarg, causing TypeError. The in-place dict patches above are enough
+    # for the tensor-loading path.
     import transformers.configuration_utils as config_utils
-    import transformers.modeling_utils as modeling_utils
     import transformers.models.auto.tokenization_auto as tok_auto
 
-    for mod in (config_utils, modeling_utils, tok_auto):
+    for mod in (config_utils, tok_auto):
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
