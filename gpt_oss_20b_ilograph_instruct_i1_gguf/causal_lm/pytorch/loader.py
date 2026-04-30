@@ -8,6 +8,72 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+
+def _patch_gpt_oss_support():
+    """Register gpt-oss architecture as an alias for qwen3_moe."""
+    if "gpt-oss" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+    GGUF_SUPPORTED_ARCHITECTURES.append("gpt-oss")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen3_moe" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            mapping = dict(_gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3_moe"])
+            mapping["expert_feed_forward_length"] = "moe_intermediate_size"
+            mapping["attention.sliding_window"] = "sliding_window"
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["gpt-oss"] = mapping
+    if "qwen3_moe" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["gpt-oss"] = GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
+    if hasattr(_gguf_utils, "GGUF_CONFIG_DEFAULTS_MAPPING"):
+        if "qwen3_moe" in _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING:
+            _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["gpt-oss"] = _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["qwen3_moe"]
+
+
+def _get_true_orig_load_gguf_checkpoint():
+    """Walk the loader patch chain to recover the original transformers function.
+
+    Other loaders may install patches that do not accept the model_to_load kwarg
+    added in transformers 5.2.0. Each such patch stores _orig_load_gguf_checkpoint
+    in its module globals. Walking that chain finds the unpatched transformers
+    function, which does accept model_to_load.
+    """
+    fn = _gguf_utils.load_gguf_checkpoint
+    seen = set()
+    while True:
+        fn_id = id(fn)
+        if fn_id in seen:
+            break
+        seen.add(fn_id)
+        orig = fn.__globals__.get("_orig_load_gguf_checkpoint")
+        if orig is None:
+            break
+        fn = orig
+    return fn
+
+
+_orig_load_gguf_checkpoint = _get_true_orig_load_gguf_checkpoint()
+
+
+def _patched_load_gguf_checkpoint(*args, **kwargs):
+    """Wrap load_gguf_checkpoint to add gpt-oss support and fix model_type."""
+    _patch_gpt_oss_support()
+    result = _orig_load_gguf_checkpoint(*args, **kwargs)
+    if result.get("config", {}).get("model_type") == "gpt-oss":
+        result["config"]["model_type"] = "qwen3_moe"
+    return result
+
+
+_patch_gpt_oss_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
