@@ -12,6 +12,10 @@ Available variants:
 - DEV_Q5_K_S: 5-bit quantized flux1-dev transformer (~8.3 GB)
 """
 
+import json
+import os
+import tempfile
+
 import torch
 from diffusers import GGUFQuantizationConfig
 from diffusers.models import FluxTransformer2DModel
@@ -30,6 +34,22 @@ from ...config import (
 )
 
 REPO_ID = "arcticlatent/flux1"
+
+# Standard FLUX.1-dev transformer architecture config (avoids gated black-forest-labs/FLUX.1-dev).
+_TRANSFORMER_CONFIG = {
+    "_class_name": "FluxTransformer2DModel",
+    "_diffusers_version": "0.37.1",
+    "attention_head_dim": 128,
+    "axes_dims_rope": [16, 56, 56],
+    "guidance_embeds": True,
+    "in_channels": 64,
+    "joint_attention_dim": 4096,
+    "num_attention_heads": 24,
+    "num_layers": 19,
+    "num_single_layers": 38,
+    "patch_size": 1,
+    "pooled_projection_dim": 768,
+}
 
 
 class ModelVariant(StrEnum):
@@ -71,6 +91,15 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _make_local_config_dir(self):
+        """Materialize a transformer/config.json to bypass the gated black-forest-labs/FLUX.1-dev repo."""
+        config_dir = tempfile.mkdtemp()
+        transformer_dir = os.path.join(config_dir, "transformer")
+        os.makedirs(transformer_dir, exist_ok=True)
+        with open(os.path.join(transformer_dir, "config.json"), "w") as f:
+            json.dump(_TRANSFORMER_CONFIG, f)
+        return config_dir
+
     def load_model(self, *, dtype_override=None, **kwargs):
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
@@ -78,9 +107,12 @@ class ModelLoader(ForgeModel):
         model_path = hf_hub_download(repo_id=REPO_ID, filename=gguf_file)
 
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
+        config_dir = self._make_local_config_dir()
 
         self.transformer = FluxTransformer2DModel.from_single_file(
             model_path,
+            config=config_dir,
+            subfolder="transformer",
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
