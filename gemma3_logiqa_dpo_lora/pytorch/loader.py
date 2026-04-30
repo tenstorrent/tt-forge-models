@@ -138,4 +138,4 @@ class ModelLoader(ForgeModel):
         for key in inputs:
             inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
-        return [inputs["input_ids"], inputs["attention_mask"]]
+        return {"input_ids": inputs["input_ids"], "attention_mask": inputs["attention_mask"]}
