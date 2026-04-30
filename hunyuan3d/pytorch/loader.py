@@ -103,6 +103,25 @@ class ModelLoader(ForgeModel):
         """
         _ensure_hunyuan3d_importable()
         from hy3dshape.models.denoisers.hunyuandit import HunYuanDiTPlain
+        from hy3dshape.models.denoisers.moe_layers import MoEBlock
+
+        # moe_infer uses bincount().cpu().numpy() which forces a device-to-host
+        # transfer during XLA execution and hangs the TT device. Replace with a
+        # static per-expert masked matmul: Python int loop lets dynamo unroll into
+        # fixed F-linear calls with no dynamic shapes or D2H transfers.
+        def _tt_static_moe_infer(self_block, x, flat_expert_indices, flat_expert_weights):
+            num_tokens, D = x.shape
+            dtype = x.dtype
+            K = self_block.moe_top_k
+            out = torch.zeros(num_tokens, D, dtype=dtype, device=x.device)
+            for i in range(len(self_block.experts)):
+                mask = (flat_expert_indices == i).to(dtype).unsqueeze(-1)
+                per_token_weight = (flat_expert_weights * mask).view(num_tokens, K, 1).sum(dim=1)
+                expert_out = self_block.experts[i](x)
+                out = out + expert_out * per_token_weight
+            return out.to(dtype)
+
+        MoEBlock.moe_infer = _tt_static_moe_infer
 
         repo_id = self._variant_config.pretrained_model_name
 
