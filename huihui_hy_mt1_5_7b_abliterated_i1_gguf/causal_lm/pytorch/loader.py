@@ -7,10 +7,7 @@ Huihui HY-MT1.5 7B abliterated i1 GGUF model loader implementation for causal la
 from typing import Optional
 
 import torch
-import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
-import transformers.models.auto.tokenization_auto as _auto_tokenizer
-import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFGPTConverter
 from transformers.modeling_gguf_pytorch_utils import (
@@ -18,8 +15,8 @@ from transformers.modeling_gguf_pytorch_utils import (
     LlamaTensorProcessor,
     TENSOR_PROCESSORS,
     get_gguf_hf_weights_map as _orig_get_gguf_hf_weights_map,
-    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
 )
+from transformers.models.hunyuan_v1_dense import HunYuanDenseV1Config
 
 _HUNYUAN_DENSE_GGUF_ARCH = "hunyuan-dense"
 _HUNYUAN_DENSE_MODEL_TYPE = "hunyuan_v1_dense"
@@ -38,25 +35,36 @@ _HUNYUAN_DENSE_CONFIG_MAP = {
 }
 
 
-def _patch_hunyuan_dense_support():
-    """Register hunyuan-dense GGUF architecture for HunYuanDenseV1ForCausalLM."""
-    if _HUNYUAN_DENSE_GGUF_ARCH not in GGUF_SUPPORTED_ARCHITECTURES:
-        GGUF_SUPPORTED_ARCHITECTURES.append(_HUNYUAN_DENSE_GGUF_ARCH)
+def _patch_hunyuan_dense_gguf():
+    """Register hunyuan-dense GGUF architecture for HunYuanDenseV1ForCausalLM.
+
+    Avoids wrapping load_gguf_checkpoint entirely (which causes TypeError chain
+    issues in pytest sessions with multiple loaders patching it). Instead, register
+    all required tables and add an AutoConfig alias for the hyphenated arch name.
+    """
+    if _HUNYUAN_DENSE_GGUF_ARCH in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # idempotent
+
+    GGUF_SUPPORTED_ARCHITECTURES.append(_HUNYUAN_DENSE_GGUF_ARCH)
 
     cfg_mapping = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]
-    if _HUNYUAN_DENSE_GGUF_ARCH not in cfg_mapping:
-        cfg_mapping[_HUNYUAN_DENSE_GGUF_ARCH] = _HUNYUAN_DENSE_CONFIG_MAP
+    cfg_mapping[_HUNYUAN_DENSE_GGUF_ARCH] = _HUNYUAN_DENSE_CONFIG_MAP
 
-    if _HUNYUAN_DENSE_GGUF_ARCH not in TENSOR_PROCESSORS:
-        TENSOR_PROCESSORS[_HUNYUAN_DENSE_GGUF_ARCH] = LlamaTensorProcessor
+    TENSOR_PROCESSORS[_HUNYUAN_DENSE_GGUF_ARCH] = LlamaTensorProcessor
 
-    if _HUNYUAN_DENSE_MODEL_TYPE not in GGUF_TO_FAST_CONVERTERS:
-        GGUF_TO_FAST_CONVERTERS[_HUNYUAN_DENSE_MODEL_TYPE] = GGUFGPTConverter
+    # Tokenizer: keyed by GGUF arch name, not model_type
+    if _HUNYUAN_DENSE_GGUF_ARCH not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS[_HUNYUAN_DENSE_GGUF_ARCH] = GGUFGPTConverter
+
+    # Register "hunyuan-dense" as an AutoConfig alias so from_pretrained resolves
+    # HunYuanDenseV1Config when model_type=="hunyuan-dense" in the GGUF config dict.
+    AutoConfig.register(_HUNYUAN_DENSE_GGUF_ARCH, HunYuanDenseV1Config, exist_ok=True)
 
 
 def _patched_get_gguf_hf_weights_map(
     hf_model, processor, model_type=None, num_layers=None, qual_name=""
 ):
+    """Map hunyuan_v1_dense (HF model_type) back to hunyuan-dense (GGUF arch name)."""
     resolved_type = (
         model_type
         if model_type is not None
@@ -73,28 +81,8 @@ def _patched_get_gguf_hf_weights_map(
     )
 
 
-def _patched_load_gguf_checkpoint(
-    gguf_path, return_tensors=False, model_to_load=None, **kwargs
-):
-    _patch_hunyuan_dense_support()
-    # Do not forward model_to_load to inner wrappers; many other loaders' patches
-    # don't accept it and would raise TypeError.
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
-    for section in ("config", "tokenizer_config"):
-        if result.get(section, {}).get("model_type") == _HUNYUAN_DENSE_GGUF_ARCH:
-            result[section]["model_type"] = _HUNYUAN_DENSE_MODEL_TYPE
-    cfg = result.get("config", {})
-    if cfg.get("model_type") == _HUNYUAN_DENSE_MODEL_TYPE:
-        cfg["architectures"] = ["HunYuanDenseV1ForCausalLM"]
-    return result
-
-
-_patch_hunyuan_dense_support()
-_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_patch_hunyuan_dense_gguf()
 _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
-_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 from ....base import ForgeModel
 from ....config import (
