@@ -10,10 +10,16 @@ FluxTransformer2DModel.from_single_file and plugged into a FluxFillPipeline
 built from the original black-forest-labs/FLUX.1-Fill-dev repository.
 """
 
+import json
+import os
+import tempfile
 from typing import Optional
 
 import torch
+import torch._C
 from diffusers import FluxFillPipeline, FluxTransformer2DModel, GGUFQuantizationConfig
+from diffusers.quantizers.gguf.utils import GGUFParameter
+from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
 from ...config import (
@@ -26,8 +32,36 @@ from ...config import (
     StrEnum,
 )
 
+
+def _patched_as_tensor(self):
+    # GGUFParameter.__torch_function__ causes infinite recursion when _make_subclass
+    # is called on a GGUFParameter instance; DisableTorchFunctionSubclass breaks the loop.
+    with torch._C.DisableTorchFunctionSubclass():
+        return torch.Tensor._make_subclass(torch.Tensor, self, self.requires_grad)
+
+
+GGUFParameter.as_tensor = _patched_as_tensor
+
 GGUF_REPO = "YarvixPA/FLUX.1-Fill-dev-GGUF"
 BASE_REPO = "black-forest-labs/FLUX.1-Fill-dev"
+
+# FLUX.1-Fill-dev transformer architecture config; in_channels=384 because
+# the fill model concatenates noisy latents (64), masked-image latents (64),
+# and packed mask (256) along the channel dim before packing.
+_TRANSFORMER_CONFIG = {
+    "_class_name": "FluxTransformer2DModel",
+    "_diffusers_version": "0.37.1",
+    "attention_head_dim": 128,
+    "axes_dims_rope": [16, 56, 56],
+    "guidance_embeds": True,
+    "in_channels": 384,
+    "joint_attention_dim": 4096,
+    "num_attention_heads": 24,
+    "num_layers": 19,
+    "num_single_layers": 38,
+    "patch_size": 1,
+    "pooled_projection_dim": 768,
+}
 
 
 class ModelVariant(StrEnum):
@@ -83,13 +117,30 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _make_local_config_dir(self):
+        """Write transformer/config.json locally to avoid fetching from the gated base repo."""
+        config_dir = tempfile.mkdtemp()
+        transformer_dir = os.path.join(config_dir, "transformer")
+        os.makedirs(transformer_dir, exist_ok=True)
+        with open(os.path.join(transformer_dir, "config.json"), "w") as f:
+            json.dump(_TRANSFORMER_CONFIG, f)
+        return config_dir
+
     def _load_pipeline(self, dtype: torch.dtype = torch.bfloat16):
         """Load the FluxFillPipeline with a GGUF-quantized transformer."""
         gguf_file = _GGUF_FILES[self._variant]
+        # hf_hub_download returns a local path; from_single_file with a full
+        # HTTPS resolve/main URL is mishandled by diffusers 0.37.1 — it fails to
+        # strip resolve/main/ from the path, producing a doubled prefix in the
+        # final download URL (404).
+        model_path = hf_hub_download(repo_id=GGUF_REPO, filename=gguf_file)
         quantization_config = GGUFQuantizationConfig(compute_dtype=dtype)
+        config_dir = self._make_local_config_dir()
 
         transformer = FluxTransformer2DModel.from_single_file(
-            f"https://huggingface.co/{GGUF_REPO}/resolve/main/{gguf_file}",
+            model_path,
+            config=config_dir,
+            subfolder="transformer",
             quantization_config=quantization_config,
             torch_dtype=dtype,
         )
