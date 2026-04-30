@@ -50,10 +50,12 @@ def _register_qwen35_gguf_support():
         "attention.key_length": "head_dim",
         "attention.value_length": None,
         "ssm.conv_kernel": "linear_conv_kernel_dim",
+        # ssm.group_count is the number of SSM value (and key) heads
+        "ssm.group_count": "linear_num_value_heads",
+        # ssm.time_step_rank is the number of SSM key heads
+        "ssm.time_step_rank": "linear_num_key_heads",
         "ssm.state_size": None,
         "ssm.inner_size": None,
-        "ssm.time_step_rank": None,
-        "ssm.group_count": None,
         "full_attention_interval": "full_attention_interval",
         "vocab_size": "vocab_size",
     }
