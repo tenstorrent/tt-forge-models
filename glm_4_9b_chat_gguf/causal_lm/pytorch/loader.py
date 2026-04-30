@@ -20,6 +20,138 @@ from ....config import (
 )
 
 
+def _patch_transformers_chatglm_gguf():
+    """Monkey-patch transformers to add chatglm GGUF architecture support.
+
+    The GLM-4-9B model uses the 'chatglm' architecture identifier in its GGUF
+    metadata. Transformers 5.x has Glm4ForCausalLM but lacks GGUF loading
+    support for the chatglm architecture. We bridge the gap by registering
+    the config mapping and remapping model_type to glm4.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "chatglm" in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # Already patched
+
+    # 1. Register chatglm as a supported architecture
+    GGUF_SUPPORTED_ARCHITECTURES.append("chatglm")
+
+    # 2. Add config mapping for chatglm -> glm4 config fields
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["chatglm"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "attention.key_length": "head_dim",
+        "attention.value_length": None,
+        "vocab_size": "vocab_size",
+    }
+
+    # 3. Register chatglm tokenizer converter with merge-fixing logic.
+    # ChatGLM vocabularies contain tokens with literal spaces, so the
+    # space-delimited GGUF merge strings sometimes split into 3 parts
+    # instead of the expected 2. We resolve the ambiguity by checking
+    # which split produces tokens that exist in the vocabulary.
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    class GGUFChatGLMConverter(GGUFQwen2Converter):
+        def converted(self):
+            vocab = {word: i for i, word in enumerate(self.original_tokenizer.tokens)}
+            raw_merges = self.original_tokenizer.merges
+            clean_merges = []
+            for m in raw_merges:
+                if len(m) == 2:
+                    clean_merges.append(m)
+                elif len(m) == 3:
+                    # Try both possible 2-way splits of the space-delimited string
+                    left = m[0] + " " + m[1]
+                    if left in vocab:
+                        clean_merges.append((left, m[2]))
+                    elif m[0] in vocab and (m[1] + " " + m[2]) in vocab:
+                        clean_merges.append((m[0], m[1] + " " + m[2]))
+                    # else: skip unresolvable merge
+            merges = clean_merges
+
+            from transformers.convert_slow_tokenizer import Qwen2Converter
+
+            tokenizer = Qwen2Converter.converted(self, vocab, merges)
+            from tokenizers import AddedToken
+
+            tokenizer.add_special_tokens(
+                [
+                    AddedToken("<|endoftext|>", normalized=False, special=True),
+                    AddedToken("<|im_start|>", normalized=False, special=True),
+                    AddedToken("<|im_end|>", normalized=False, special=True),
+                ]
+            )
+            return tokenizer
+
+    # Register for both "chatglm" (native GGUF architecture key) and "glm4"
+    # (the key after patched_load_gguf_checkpoint remaps chatglm → glm4).
+    # Other loaders may capture the remapping patch via their own
+    # _orig_load_gguf_checkpoint binding, so the tokenizer loading path
+    # may see architecture="glm4". GGUFChatGLMConverter handles both
+    # 2-tuple and 3-tuple merges correctly.
+    GGUF_TO_FAST_CONVERTERS["chatglm"] = GGUFChatGLMConverter
+    GGUF_TO_FAST_CONVERTERS["glm4"] = GGUFChatGLMConverter
+
+    # 4. Patch load_gguf_checkpoint to remap model_type and compute partial_rotary_factor
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "chatglm":
+            config["model_type"] = "glm4"
+            head_dim = config.get("head_dim", 128)
+            if args and isinstance(args[0], (str, bytes)):
+                try:
+                    from gguf import GGUFReader
+                    from transformers.modeling_gguf_pytorch_utils import (
+                        _gguf_parse_value,
+                    )
+
+                    reader = GGUFReader(args[0])
+                    for key, field in reader.fields.items():
+                        if "rope.dimension_count" in key:
+                            rope_dim = _gguf_parse_value(
+                                field.parts[field.data[0]], field.types
+                            )
+                            config["partial_rotary_factor"] = rope_dim / head_dim
+                            break
+                except Exception:
+                    pass
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    # Also patch modules that imported load_gguf_checkpoint directly
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+    import transformers.tokenization_utils_tokenizers as fast_tok_mod
+
+    for mod in (tok_auto, config_utils, modeling_utils, fast_tok_mod):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+
+# Apply the monkey-patch at import time
+_patch_transformers_chatglm_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available GLM-4-9B-Chat GGUF model variants for causal language modeling."""
 
