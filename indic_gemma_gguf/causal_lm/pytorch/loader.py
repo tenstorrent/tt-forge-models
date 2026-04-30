@@ -56,6 +56,32 @@ def _patch_gemma_v1_support():
 _patch_gemma_v1_support()
 
 
+def _get_real_load_gguf_checkpoint():
+    """Walk the patch chain to find the original transformers load_gguf_checkpoint.
+
+    Other loaders install narrow-sig wrappers at import time. The original
+    function (qualname 'load_gguf_checkpoint') is found by following
+    _orig_load_gguf_checkpoint in each wrapper's globals.
+    """
+    import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+    fn = _gguf_utils.load_gguf_checkpoint
+    visited = set()
+    while True:
+        fid = id(fn)
+        if fid in visited:
+            break
+        visited.add(fid)
+        if fn.__qualname__ == "load_gguf_checkpoint":
+            return fn
+        orig = fn.__globals__.get("_orig_load_gguf_checkpoint")
+        if orig is not None and id(orig) not in visited:
+            fn = orig
+        else:
+            break
+    return fn
+
+
 class ModelVariant(StrEnum):
     """Available Indic Gemma GGUF model variants for causal language modeling."""
 
@@ -112,6 +138,8 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -130,9 +158,18 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        # Other loaders install narrow-sig (gguf_path, return_tensors=False) wrappers
+        # at import time. Restore the real function just before from_pretrained so
+        # the model_to_load kwarg added in transformers 5.2 is not rejected.
+        _real = _get_real_load_gguf_checkpoint()
+        _prev = _gguf_utils.load_gguf_checkpoint
+        _gguf_utils.load_gguf_checkpoint = _real
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _gguf_utils.load_gguf_checkpoint = _prev
 
         self.config = model.config
         self.model = model
