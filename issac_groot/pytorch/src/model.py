@@ -756,7 +756,24 @@ class Gr00tPolicy(BasePolicy):
             model_cls = GR00T_N1_6
         else:
             model_cls = GR00T_N1_5
-        model = model_cls.from_pretrained(model_path, torch_dtype=COMPUTE_DTYPE)
+        # transformers 5.x wraps __init__ in torch.device("meta") context, which causes
+        # torch.distributions.Beta (used in FlowmatchingActionHead) to fail with
+        # "Tensor.item() cannot be called on meta tensors". Patch get_init_context to
+        # skip the meta-device context so weights initialise on CPU as usual.
+        _orig = PreTrainedModel.get_init_context.__func__
+
+        @classmethod
+        def _get_init_no_meta(cls, dtype, is_quantized, _is_ds_init_called, allow_all_kernels=None):
+            return [
+                c for c in _orig(cls, dtype, is_quantized, _is_ds_init_called, allow_all_kernels)
+                if not isinstance(c, torch.device)
+            ]
+
+        PreTrainedModel.get_init_context = _get_init_no_meta
+        try:
+            model = model_cls.from_pretrained(model_path, torch_dtype=COMPUTE_DTYPE)
+        finally:
+            PreTrainedModel.get_init_context = classmethod(_orig)
         model.eval()  # Set model to eval mode
 
         # Update action_horizon to match modality config
