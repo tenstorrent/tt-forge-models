@@ -7,12 +7,31 @@ DeepSeek-V3 model loader implementation for causal language modeling.
 
 from typing import Optional
 
+import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, DynamicCache
 
 if not hasattr(DynamicCache, "get_usable_length"):
     DynamicCache.get_usable_length = (
         lambda self, new_seq_length, layer_idx=0: self.get_seq_length(layer_idx)
     )
+
+
+def _patch_moe_layers(model) -> None:
+    """Replace moe_infer with a static per-expert masked matmul (no numpy / no device transfer)."""
+
+    def _static_moe_infer(self_moe, x, topk_ids, topk_weight):
+        out = torch.zeros_like(x)
+        for i in range(self_moe.experts_per_rank):
+            mask = topk_ids == i
+            weight = (mask * topk_weight.to(x.dtype)).sum(dim=-1, keepdim=True)
+            expert_out = self_moe.experts[i](x)
+            out = out + expert_out * weight
+        return out
+
+    for module in model.modules():
+        if hasattr(module, "moe_infer") and hasattr(module, "experts_per_rank"):
+            type(module).moe_infer = _static_moe_infer
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -85,6 +104,8 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             self._variant_config.pretrained_model_name, **model_kwargs
         )
+
+        _patch_moe_layers(model)
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
