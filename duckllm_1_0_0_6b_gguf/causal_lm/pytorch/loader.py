@@ -25,28 +25,25 @@ from ....config import (
 
 
 def _find_real_load_gguf_checkpoint():
-    """BFS through patch closures to find the original that accepts model_to_load."""
-    start = _gguf_utils.load_gguf_checkpoint
-    visited = {id(start)}
-    queue = [start]
-    while queue:
-        fn = queue.pop(0)
+    """Walk the _orig_load_gguf_checkpoint chain to find the real transformers function.
+
+    Patchers store the previous function in _orig_load_gguf_checkpoint in their
+    module globals (not in closures), so we must walk __globals__ not __closure__.
+    """
+    fn = _gguf_utils.load_gguf_checkpoint
+    seen = {id(fn)}
+    while True:
         try:
             if "model_to_load" in inspect.signature(fn).parameters:
                 return fn
         except (ValueError, TypeError):
             pass
-        if not fn.__closure__:
-            continue
-        for cell in fn.__closure__:
-            try:
-                val = cell.cell_contents
-            except ValueError:
-                continue
-            if callable(val) and id(val) not in visited:
-                visited.add(id(val))
-                queue.append(val)
-    return start
+        orig = getattr(fn, "__globals__", {}).get("_orig_load_gguf_checkpoint")
+        if orig is None or id(orig) in seen:
+            break
+        seen.add(id(orig))
+        fn = orig
+    return fn
 
 
 @contextlib.contextmanager
