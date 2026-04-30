@@ -13,11 +13,56 @@ import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
-from transformers.modeling_gguf_pytorch_utils import (
-    load_gguf_checkpoint as _real_orig_load_gguf_checkpoint,
-    GGUF_SUPPORTED_ARCHITECTURES,
-)
+from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFLlamaConverter
+
+# Grab the REAL transformers function before any further monkey-patching can
+# occur.  Walk the patch chain by inspecting each wrapper's __globals__ for
+# the "_orig_load_gguf_checkpoint" or similar name they captured.
+def _find_real_gguf_fn():
+    """Return the real transformers load_gguf_checkpoint, unwrapping tt_forge_models patches."""
+    import types
+    fn = _gguf_utils.__dict__["load_gguf_checkpoint"]
+    seen = set()
+    _ORIG_NAMES = (
+        "_orig_load_gguf_checkpoint",
+        "_real_orig_load_gguf_checkpoint",
+        "orig_load",
+        "_real_fn",
+    )
+    while True:
+        mod = getattr(fn, "__module__", "") or ""
+        if "transformers" in mod and "tt_forge_models" not in mod:
+            return fn
+        fn_id = id(fn)
+        if fn_id in seen:
+            # Cycle or stuck; return what we have
+            return fn
+        seen.add(fn_id)
+        # Look in the function's global namespace for any saved "original"
+        globs = getattr(fn, "__globals__", {})
+        found = None
+        for name in _ORIG_NAMES:
+            val = globs.get(name)
+            if callable(val) and isinstance(val, types.FunctionType):
+                found = val
+                break
+        # Also check closures
+        if found is None and getattr(fn, "__closure__", None):
+            for cell in fn.__closure__:
+                try:
+                    val = cell.cell_contents
+                    if isinstance(val, types.FunctionType):
+                        found = val
+                        break
+                except ValueError:
+                    pass
+        if found is None:
+            return fn
+        fn = found
+
+
+_REAL_LOAD_GGUF_CHECKPOINT = _find_real_gguf_fn()
 
 
 def _patch_mistral3_data_structures():
@@ -41,15 +86,19 @@ def _patch_mistral3_data_structures():
             mapping["mistral3"] = mapping["mistral"]
     if "mistral3" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["mistral3"] = GGUFLlamaConverter
-    # tokenization_utils_tokenizers.py derives architecture from model_type
+    # tokenization_utils_tokenizers.py reads architecture from model_type
     # (which we rewrite to "mistral"), so we must also register the plain key.
     if "mistral" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["mistral"] = GGUFLlamaConverter
 
 
 def _mistral3_load_gguf_checkpoint(*args, **kwargs):
-    """load_gguf_checkpoint wrapper that rewrites mistral3 model_type → mistral."""
-    result = _real_orig_load_gguf_checkpoint(*args, **kwargs)
+    """load_gguf_checkpoint wrapper that rewrites mistral3 model_type → mistral.
+
+    Always calls the REAL transformers function directly, avoiding any
+    other loader's old-signature wrapper in the chain.
+    """
+    result = _REAL_LOAD_GGUF_CHECKPOINT(*args, **kwargs)
     if isinstance(result, dict) and result.get("config", {}).get("model_type") == "mistral3":
         result["config"]["model_type"] = "mistral"
     return result
@@ -58,8 +107,6 @@ def _mistral3_load_gguf_checkpoint(*args, **kwargs):
 @contextmanager
 def _mistral3_gguf_patch():
     """Temporarily install the mistral3-aware load_gguf_checkpoint wrapper."""
-    # Other loaders' module-level code may have overwritten the shared pointer;
-    # we re-install our version just for this call and restore afterward.
     _patch_mistral3_data_structures()
     prev_gguf = _gguf_utils.load_gguf_checkpoint
     prev_cfg = _config_utils.load_gguf_checkpoint
@@ -78,7 +125,7 @@ def _mistral3_gguf_patch():
         _tok_utils.load_gguf_checkpoint = prev_fast
 
 
-# Register data structures at import time (these are permanent dict/list mutations).
+# Register data structures at import time (permanent dict/list mutations).
 _patch_mistral3_data_structures()
 
 from ....base import ForgeModel
