@@ -105,9 +105,36 @@ class ModelLoader(ForgeModel):
         return self.pipeline.transformer
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample text prompts for the HiDream-I1 model.
+        """Load and return synthetic tensor inputs for the HiDream-I1 transformer.
 
         Returns:
-            list: A list of sample text prompts.
+            dict: Keyword arguments matching HiDreamImageTransformer2DModel.forward().
         """
-        return ["A photo of an astronaut riding a horse on the moon"] * batch_size
+        if self.pipeline is None:
+            raise RuntimeError("load_model() must be called before load_inputs()")
+
+        dtype = dtype_override if dtype_override is not None else torch.float32
+        config = self.pipeline.transformer.config
+
+        # VAE scale factor is 8; use 128x128 image → 16x16 latent.
+        latent_h = 16
+        latent_w = 16
+        hidden_states = torch.randn(batch_size, config.in_channels, latent_h, latent_w, dtype=dtype)
+        timesteps = torch.tensor([1.0], dtype=dtype).expand(batch_size)
+
+        t5_channels, llama3_channels = config.caption_channels
+        text_seq_len = 128
+        encoder_hidden_states_t5 = torch.randn(batch_size, text_seq_len, t5_channels, dtype=dtype)
+        num_llama_layers = len(config.llama_layers)
+        encoder_hidden_states_llama3 = torch.randn(
+            num_llama_layers, batch_size, text_seq_len, llama3_channels, dtype=dtype
+        )
+        pooled_embeds = torch.randn(batch_size, config.text_emb_dim, dtype=dtype)
+
+        return {
+            "hidden_states": hidden_states,
+            "timesteps": timesteps,
+            "encoder_hidden_states_t5": encoder_hidden_states_t5,
+            "encoder_hidden_states_llama3": encoder_hidden_states_llama3,
+            "pooled_embeds": pooled_embeds,
+        }
