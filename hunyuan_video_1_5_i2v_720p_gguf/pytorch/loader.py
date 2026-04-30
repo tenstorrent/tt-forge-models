@@ -327,11 +327,14 @@ class ModelLoader(ForgeModel):
         )
 
         # The tencent/HunyuanVideo-1.5 config JSON was saved with an older
-        # diffusers API and has two mismatches vs the current class:
+        # diffusers API and has three mismatches vs the current class:
         #   1. patch_size stored as list [t, h, w] and patch_size_t as null;
         #      __init__ expects separate int scalars.
         #   2. qk_norm stored as bool (true) with qk_norm_type "rms"; __init__
         #      expects a string like "rms_norm".
+        #   3. in_channels=32 in config but actual i2v model uses 65 input
+        #      channels (video latent + image conditioning). The class default
+        #      is also 65; the config value is simply wrong.
         _orig_from_config = HunyuanVideo15Transformer3DModel.from_config.__func__
 
         @classmethod  # type: ignore[misc]
@@ -348,6 +351,8 @@ class ModelLoader(ForgeModel):
                     if not norm_type.endswith("_norm"):
                         norm_type = norm_type + "_norm"
                     config["qk_norm"] = norm_type
+                if config.get("in_channels") == 32:
+                    config["in_channels"] = 65
             return _orig_from_config(cls, config, **kwargs)
 
         HunyuanVideo15Transformer3DModel.from_config = _patched_from_config
