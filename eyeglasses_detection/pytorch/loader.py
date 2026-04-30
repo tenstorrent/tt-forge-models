@@ -5,22 +5,24 @@
 Eyeglasses Detection model loader implementation
 """
 
-from typing import Optional
 from dataclasses import dataclass
+from typing import Optional
+
+import requests
+from PIL import Image
 from transformers import ViTForImageClassification
 
+from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
-from ...base import ForgeModel
 from ...tools.utils import VisionPreprocessor
-from datasets import load_dataset
 
 
 @dataclass
@@ -87,10 +89,11 @@ class ModelLoader(ForgeModel):
 
         return model
 
+    _SAMPLE_IMAGE_URL = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/pipeline-cat-chonk.jpeg"
+
     def load_inputs(self, dtype_override=None, batch_size=1, image=None):
         if image is None:
-            dataset = load_dataset("huggingface/cats-image", split="test")
-            image = dataset[0]["image"]
+            image = Image.open(requests.get(self._SAMPLE_IMAGE_URL, stream=True).raw)
 
         if self._preprocessor is None:
             model_name = self._variant_config.pretrained_model_name
