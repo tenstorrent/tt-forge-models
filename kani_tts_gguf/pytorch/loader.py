@@ -6,7 +6,12 @@ niobures Kani-TTS 400M English GGUF model loader implementation for text-to-spee
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFGPTConverter
 from typing import Optional
+
+# lfm2 GGUF uses a GPT2-style BPE tokenizer (tokenizer.ggml.model = "gpt2")
+# but is not registered in transformers' GGUF_TO_FAST_CONVERTERS.
+GGUF_TO_FAST_CONVERTERS.setdefault("lfm2", GGUFGPTConverter)
 
 from ...base import ForgeModel
 from ...config import (
@@ -119,6 +124,10 @@ class ModelLoader(ForgeModel):
         for key in inputs:
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+
+        # Lfm2HybridConvCache is not a registered pytree node; disable caching
+        # so the model returns only tensor outputs.
+        inputs["use_cache"] = False
 
         return inputs
 
