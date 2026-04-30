@@ -89,9 +89,21 @@ class ModelLoader(ForgeModel):
 
         model_kwargs |= kwargs
 
+        # The hub checkpoint has quantization_config (FP8 block-wise) that
+        # requires triton.  Load as BF16 instead by removing the quantizer
+        # before handing the config to from_pretrained.
+        if "config" not in model_kwargs:
+            model_kwargs["config"] = AutoConfig.from_pretrained(pretrained_model_name)
+        if hasattr(model_kwargs["config"], "quantization_config"):
+            del model_kwargs["config"].quantization_config
+
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
+
+        # grouped_mm_experts_forward calls torch.histc on integer expert indices,
+        # which is unsupported on XLA.  batched_mm_experts_forward avoids this.
+        model.config._experts_implementation = "batched_mm"
 
         return model
 
