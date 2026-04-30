@@ -20,13 +20,13 @@ from ....config import (
 )
 
 
-def _find_real_load_gguf_checkpoint(fn):
-    """BFS through wrapper chains to find the original transformers load_gguf_checkpoint.
+def _find_real_transformers_fn(fn, module_name="transformers.modeling_gguf_pytorch_utils"):
+    """BFS through wrapper chains to find the original transformers function.
 
-    Other loaders install narrow-sig wrappers (no model_to_load kwarg) that
-    clobber load_gguf_checkpoint.  Those wrappers store the previous function
-    in their __globals__ or __closure__.  We traverse the graph to find the
-    one whose __module__ is transformers.modeling_gguf_pytorch_utils.
+    Other loaders install narrow-sig or remap wrappers that clobber gguf_utils
+    functions.  Those wrappers store the previous function in __globals__ or
+    __closure__.  We traverse the graph to find the function whose __module__
+    matches the given transformers module name.
     """
     seen = set()
     frontier = [fn]
@@ -36,14 +36,14 @@ def _find_real_load_gguf_checkpoint(fn):
         if cid in seen or not callable(current):
             continue
         seen.add(cid)
-        if getattr(current, "__module__", "") == "transformers.modeling_gguf_pytorch_utils":
+        if getattr(current, "__module__", "") == module_name:
             return current
-        # Explore globals (narrow-sig wrappers store original as _orig_load_gguf_checkpoint)
+        # Explore globals (narrow-sig wrappers store original as _orig_load_*)
         g = getattr(current, "__globals__", {})
         for key, val in g.items():
-            if "load_gguf_checkpoint" in key and callable(val) and id(val) not in seen:
+            if callable(val) and id(val) not in seen:
                 frontier.append(val)
-        # Explore closure cells (wide-sig wrappers capture orig_load in closure)
+        # Explore closure cells (wrappers may capture original in closure)
         for cell in getattr(current, "__closure__", None) or []:
             try:
                 val = cell.cell_contents
@@ -55,9 +55,9 @@ def _find_real_load_gguf_checkpoint(fn):
 
 
 def _install_deepseek2_load_patch():
-    """Just-in-time install of the deepseek2→deepseek_v2 remap on load_gguf_checkpoint.
+    """Just-in-time install of the deepseek2→deepseek_v2 remap patches.
 
-    Called immediately before from_pretrained so the patch survives clobbering
+    Called immediately before from_pretrained so the patches survive clobbering
     by other loaders imported after glm_4_7_flash_ggml_org_gguf.
     """
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
@@ -66,7 +66,8 @@ def _install_deepseek2_load_patch():
     import transformers.modeling_utils as modeling_utils
     import transformers.tokenization_utils_tokenizers as tok_utils
 
-    real_load = _find_real_load_gguf_checkpoint(gguf_utils.load_gguf_checkpoint)
+    # Patch load_gguf_checkpoint: remap model_type deepseek2→deepseek_v2 in result
+    real_load = _find_real_transformers_fn(gguf_utils.load_gguf_checkpoint)
 
     def patched_load_gguf_checkpoint(*args, **kwargs):
         result = real_load(*args, **kwargs)
@@ -78,6 +79,21 @@ def _install_deepseek2_load_patch():
     for mod in (gguf_utils, tok_auto, config_utils, modeling_utils, tok_utils):
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    # Patch get_gguf_hf_weights_map: remap deepseek_v2→deepseek2 for gguf-py lookup
+    # (gguf-py MODEL_ARCH_NAMES uses "deepseek2", not "deepseek_v2")
+    real_get_map = _find_real_transformers_fn(gguf_utils.get_gguf_hf_weights_map)
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None and hf_model is not None:
+            model_type = hf_model.config.model_type
+        if model_type == "deepseek_v2":
+            model_type = "deepseek2"
+        return real_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
 
 
 def _patch_transformers_deepseek2_gguf():
