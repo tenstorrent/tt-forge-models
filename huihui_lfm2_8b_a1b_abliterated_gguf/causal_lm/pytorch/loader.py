@@ -69,7 +69,8 @@ def _patch_transformers_lfm2moe_gguf():
 
     # 5. Patch load_gguf_checkpoint to:
     #    a) Convert per-layer num_key_value_heads list to a scalar (max value).
-    #    b) Compute full_attn_idxs from layers with non-zero kv heads.
+    #    b) Build layer_types list from non-zero kv-head indices (Lfm2MoeConfig
+    #       needs layer_types, not full_attn_idxs which only Lfm2Config accepts).
     #    c) Remap model_type "lfm2moe" → "lfm2_moe" so AutoConfig finds Lfm2MoeConfig.
     orig_load = gguf_utils.load_gguf_checkpoint
 
@@ -79,8 +80,8 @@ def _patch_transformers_lfm2moe_gguf():
         if config.get("model_type") == "lfm2moe":
             kv_heads = config.get("num_key_value_heads")
             if isinstance(kv_heads, list):
-                config["full_attn_idxs"] = [
-                    i for i, n in enumerate(kv_heads) if n > 0
+                config["layer_types"] = [
+                    "full_attention" if n > 0 else "conv" for n in kv_heads
                 ]
                 config["num_key_value_heads"] = max(kv_heads)
             config["model_type"] = "lfm2_moe"
