@@ -72,14 +72,19 @@ def _register_qwen35_gguf_support():
 
 
 def _make_qwen35_load_fn(orig_fn):
-    """Return a load_gguf_checkpoint wrapper that remaps qwen35 → qwen3_5_text."""
+    """Return a load_gguf_checkpoint wrapper that remaps qwen35 → qwen3_5_text.
+
+    Detects qwen35 by full_attention_interval presence: genuine qwen3 models
+    never have this field. The mradermacher chain may have already changed
+    model_type from 'qwen35' to 'qwen3', so we cannot rely on model_type alone.
+    """
     def _patched(*args, **kwargs):
         result = orig_fn(*args, **kwargs)
         cfg = result.get("config", {})
-        if cfg.get("model_type") == "qwen35":
-            cfg["model_type"] = "qwen3_5_text"
+        if "full_attention_interval" in cfg and cfg.get("model_type") in ("qwen35", "qwen3"):
             num_layers = cfg.get("num_hidden_layers", 24)
             interval = cfg.pop("full_attention_interval", 4)
+            cfg["model_type"] = "qwen3_5_text"
             cfg["layer_types"] = [
                 "full_attention" if (i + 1) % interval == 0 else "linear_attention"
                 for i in range(num_layers)
@@ -101,12 +106,28 @@ def _qwen35_load_context():
     for m, orig in originals.items():
         if orig is not None:
             setattr(m, "load_gguf_checkpoint", _make_qwen35_load_fn(orig))
+
+    # get_gguf_hf_weights_map dispatches on model_type to find tensor name mappings.
+    # After our fix the model_type is "qwen3_5_text", but GGUF_TO_TRANSFORMERS_MAPPING
+    # has the tensor names registered under "qwen35", so redirect the lookup.
+    orig_get_map = getattr(_gguf_utils, "get_gguf_hf_weights_map", None)
+    if orig_get_map is not None:
+        def _patched_get_map(hf_model, processor, model_type=None, num_layers=None, qual_name=""):
+            if model_type is None and hasattr(hf_model, "config"):
+                model_type = getattr(hf_model.config, "model_type", None)
+            if model_type in ("qwen3_5_text", "qwen3_5"):
+                model_type = "qwen35"
+            return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+        _gguf_utils.get_gguf_hf_weights_map = _patched_get_map
+
     try:
         yield
     finally:
         for m, orig in originals.items():
             if orig is not None:
                 setattr(m, "load_gguf_checkpoint", orig)
+        if orig_get_map is not None:
+            _gguf_utils.get_gguf_hf_weights_map = orig_get_map
 
 
 _register_qwen35_gguf_support()
@@ -239,10 +260,11 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
 
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+            if layer.layer_type == "full_attention":
+                shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
         return shard_specs
 
     def load_config(self):
