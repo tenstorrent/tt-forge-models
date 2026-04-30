@@ -4,6 +4,7 @@
 """
 Huihui HY-MT1.5 7B abliterated i1 GGUF model loader implementation for causal language modeling.
 """
+import threading
 from typing import Optional
 
 import torch
@@ -18,6 +19,11 @@ from transformers.modeling_gguf_pytorch_utils import (
 )
 from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 from transformers.models.hunyuan_v1_dense import HunYuanDenseV1Config
+
+# Thread-local used to pass model_to_load through broken wrapper chains.
+# Broken wrappers drop model_to_load; we store it here in _fixed_load so
+# _patched_get_gguf_hf_weights_map can recover it after the chain drops it.
+_tls = threading.local()
 
 _HUNYUAN_DENSE_GGUF_ARCH = "hunyuan-dense"
 _HUNYUAN_DENSE_MODEL_TYPE = "hunyuan_v1_dense"
@@ -68,16 +74,23 @@ def _patch_hunyuan_dense_gguf():
 def _patched_get_gguf_hf_weights_map(
     hf_model, processor, model_type=None, num_layers=None, qual_name=""
 ):
-    """Map hunyuan_v1_dense (HF model_type) back to hunyuan-dense (GGUF arch name)."""
+    """Map hunyuan_v1_dense (HF model_type) back to hunyuan-dense (GGUF arch name).
+
+    Also recovers hf_model from the thread-local set by _fixed_load when broken
+    wrappers in the chain have dropped the model_to_load kwarg.
+    """
+    effective_model = hf_model
+    if effective_model is None:
+        effective_model = getattr(_tls, "model_to_load", None)
     resolved_type = (
         model_type
         if model_type is not None
-        else getattr(getattr(hf_model, "config", None), "model_type", None)
+        else getattr(getattr(effective_model, "config", None), "model_type", None)
     )
     if resolved_type == _HUNYUAN_DENSE_MODEL_TYPE:
         model_type = _HUNYUAN_DENSE_GGUF_ARCH
     return _orig_get_gguf_hf_weights_map(
-        hf_model,
+        effective_model,
         processor,
         model_type=model_type,
         num_layers=num_layers,
@@ -88,33 +101,6 @@ def _patched_get_gguf_hf_weights_map(
 _patch_hunyuan_dense_gguf()
 _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
-def _find_real_load_gguf_checkpoint():
-    """Unwrap the broken-wrapper chain to find the real load_gguf_checkpoint.
-
-    All known broken wrappers (which lack the model_to_load kwarg from
-    transformers 5.x) store the version they captured as
-    _orig_load_gguf_checkpoint in their module globals. Follow that chain
-    until we reach a function that actually accepts model_to_load.
-    """
-    import inspect
-
-    fn = _gguf_utils.load_gguf_checkpoint
-    seen = {id(fn)}
-    while True:
-        try:
-            if "model_to_load" in inspect.signature(fn).parameters:
-                return fn
-        except Exception:
-            pass
-        orig = fn.__globals__.get("_orig_load_gguf_checkpoint")
-        if orig is not None and id(orig) not in seen:
-            seen.add(id(orig))
-            fn = orig
-        else:
-            return fn  # return best candidate found
-
-
-_real_load_gguf_checkpoint = _find_real_load_gguf_checkpoint()
 
 from ....base import ForgeModel
 from ....config import (
@@ -206,15 +192,19 @@ class ModelLoader(ForgeModel):
             config.head_dim = config.hidden_size // config.num_attention_heads
         model_kwargs["config"] = config
 
-        # Temporarily bypass broken load_gguf_checkpoint wrappers from other
-        # loaders (imported later alphabetically) that lack the model_to_load
-        # kwarg added in transformers 5.x, causing TypeError on from_pretrained.
+        # Install an outermost wrapper that accepts model_to_load (transformers
+        # 5.x kwarg) and stores it in thread-local storage.  Broken wrappers in
+        # the chain drop model_to_load; _patched_get_gguf_hf_weights_map
+        # recovers it from _tls so the real function can still build the weight
+        # key mapping with the actual dummy_model.
         _saved_fn = _gguf_utils.load_gguf_checkpoint
 
         def _fixed_load(path, return_tensors=False, model_to_load=None, **kw):
-            return _real_load_gguf_checkpoint(
-                path, return_tensors=return_tensors, model_to_load=model_to_load
-            )
+            _tls.model_to_load = model_to_load
+            try:
+                return _saved_fn(path, return_tensors=return_tensors)
+            finally:
+                _tls.model_to_load = None
 
         _gguf_utils.load_gguf_checkpoint = _fixed_load
         try:
