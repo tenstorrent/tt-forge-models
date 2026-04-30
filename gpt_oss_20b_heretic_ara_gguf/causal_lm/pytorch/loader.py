@@ -43,25 +43,26 @@ from transformers.modeling_gguf_pytorch_utils import (
     GGUFTensor,
 )
 
-if "gpt-oss" not in GGUF_CONFIG_MAPPING:
-    GGUF_CONFIG_MAPPING["gpt-oss"] = {
-        "context_length": "max_position_embeddings",
-        "block_count": "num_hidden_layers",
-        "feed_forward_length": "intermediate_size",
-        "embedding_length": "hidden_size",
-        "attention.head_count": "num_attention_heads",
-        "attention.head_count_kv": "num_key_value_heads",
-        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
-        "attention.key_length": "head_dim",
-        "expert_count": "num_local_experts",
-        "expert_used_count": "num_experts_per_tok",
-        "attention.sliding_window": "sliding_window",
-        "rope.freq_base": "rope_theta",
-    }
+# Unconditionally overwrite: the gpt_oss_swallow loader may have already
+# registered "gpt-oss" as a qwen3_moe alias; we need our own correct mapping.
+GGUF_CONFIG_MAPPING["gpt-oss"] = {
+    "context_length": "max_position_embeddings",
+    "block_count": "num_hidden_layers",
+    "feed_forward_length": "intermediate_size",
+    "embedding_length": "hidden_size",
+    "attention.head_count": "num_attention_heads",
+    "attention.head_count_kv": "num_key_value_heads",
+    "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+    "attention.key_length": "head_dim",
+    "expert_count": "num_local_experts",
+    "expert_used_count": "num_experts_per_tok",
+    "attention.sliding_window": "sliding_window",
+    "rope.freq_base": "rope_theta",
+}
+if "gpt-oss" not in GGUF_SUPPORTED_ARCHITECTURES:
     GGUF_SUPPORTED_ARCHITECTURES.append("gpt-oss")
 
-if "gpt-oss" not in GGUF_TO_FAST_CONVERTERS:
-    GGUF_TO_FAST_CONVERTERS["gpt-oss"] = GGUFGPTConverter
+GGUF_TO_FAST_CONVERTERS["gpt-oss"] = GGUFGPTConverter
 
 
 class GptOssTensorProcessor(Qwen2MoeTensorProcessor):
@@ -116,12 +117,11 @@ class GptOssTensorProcessor(Qwen2MoeTensorProcessor):
         return GGUFTensor(weights, name, {})
 
     def _pack_last_dim(self, weights, parsed_parameters, hf_name, w):
-        # GGUF stores GPT-OSS expert weights with the expert dimension LAST:
-        #   weight: [d0, d1, num_experts]  bias: [d0, num_experts]
-        # HF GPT-OSS expects experts FIRST:
-        #   gate_up_proj: [num_experts, hidden, 2*interm]  down_proj: [num_experts, interm, hidden]
-        # Move expert axis from last to first, then pack gate+up along the new last dim.
-        t = torch.from_numpy(np.copy(weights)).movedim(-1, 0)
+        # After dequantization, GPT-OSS expert weights already have the expert
+        # dimension first: weight: [num_experts, d0, d1], bias: [num_experts, d0].
+        # HF GPT-OSS expects the same layout with gate+up packed along the LAST dim:
+        #   gate_up_proj: [num_experts, hidden, 2*interm]
+        t = torch.from_numpy(np.copy(weights))
         if w == "down":
             parsed_parameters["tensors"][hf_name] = t
         else:
@@ -140,8 +140,7 @@ class GptOssTensorProcessor(Qwen2MoeTensorProcessor):
                 out.narrow(dim, sz, sz).copy_(t)
 
 
-if "gpt-oss" not in TENSOR_PROCESSORS:
-    TENSOR_PROCESSORS["gpt-oss"] = GptOssTensorProcessor
+TENSOR_PROCESSORS["gpt-oss"] = GptOssTensorProcessor
 
 
 # Patch get_gguf_hf_weights_map: remap HF model_type "gpt_oss" → gguf "gpt-oss".
@@ -168,12 +167,29 @@ if not getattr(_gguf_utils.get_gguf_hf_weights_map, "_gpt_oss_patched", False):
 
 # Patch load_gguf_checkpoint to remap model_type "gpt-oss" → "gpt_oss" in the
 # returned config dict so that AutoConfig.from_dict resolves the correct class.
+#
+# We detect the GGUF architecture directly from the file header so this patch is
+# immune to import-order interference from gpt_oss_swallow (which remaps
+# "gpt-oss" → "qwen3_moe" regardless of import order).
 _orig_gguf_checkpoint = _gguf_utils.load_gguf_checkpoint
 
 
+def _get_gguf_arch(gguf_path):
+    try:
+        import gguf as _gguf_lib
+        reader = _gguf_lib.GGUFReader(str(gguf_path), "r")
+        field = reader.get_field("general.architecture")
+        if field is not None:
+            return field.parts[field.data[0]].tobytes().decode("utf-8")
+    except Exception:
+        pass
+    return None
+
+
 def _patched_gguf_checkpoint_gptoss(gguf_path, return_tensors=False, **kw):
+    arch = _get_gguf_arch(gguf_path)
     result = _orig_gguf_checkpoint(gguf_path, return_tensors=return_tensors, **kw)
-    if result.get("config", {}).get("model_type") == "gpt-oss":
+    if arch == "gpt-oss":
         result["config"]["model_type"] = "gpt_oss"
     return result
 
