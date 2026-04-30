@@ -45,8 +45,15 @@ def _patch_deepseek2_gguf_support():
         GGUF_TO_TRANSFORMERS_MAPPING,
     )
 
+    # Always register both tokenizer converters: another loader (e.g. glm_4_7_flash_gguf)
+    # may have already appended "deepseek2" to GGUF_SUPPORTED_ARCHITECTURES but only
+    # registered "deepseek2" in GGUF_TO_FAST_CONVERTERS, missing "deepseek_v2" (used by
+    # this model's GGUF tokenizer architecture field).
+    GGUF_TO_FAST_CONVERTERS.setdefault("deepseek2", GGUFQwen2Converter)
+    GGUF_TO_FAST_CONVERTERS.setdefault("deepseek_v2", GGUFQwen2Converter)
+
     if "deepseek2" in GGUF_SUPPORTED_ARCHITECTURES:
-        return
+        return  # Config mapping and load patches already set by another loader
 
     GGUF_SUPPORTED_ARCHITECTURES.append("deepseek2")
 
@@ -75,9 +82,6 @@ def _patch_deepseek2_gguf_support():
         "expert_shared_count": "n_shared_experts",
         "attention.q_lora_rank": "q_lora_rank",
     }
-
-    GGUF_TO_FAST_CONVERTERS.setdefault("deepseek2", GGUFQwen2Converter)
-    GGUF_TO_FAST_CONVERTERS.setdefault("deepseek_v2", GGUFQwen2Converter)
 
     _orig_load = _gguf_utils.load_gguf_checkpoint
 
