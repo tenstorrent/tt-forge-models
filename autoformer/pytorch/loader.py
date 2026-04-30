@@ -8,6 +8,7 @@ Autoformer model loader implementation for time series forecasting.
 from typing import Optional
 
 import torch
+import torch.nn as nn
 from transformers import AutoformerConfig, AutoformerForPrediction
 
 from ...config import (
@@ -20,6 +21,24 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
+
+
+class _AutoformerParamsWrapper(nn.Module):
+    """Thin wrapper that returns only the distribution params tuple, not loss.
+
+    AutoformerForPrediction.forward() returns Seq2SeqTSPredictionOutput which
+    includes a scalar 'loss' field when future_values is provided.  The scalar
+    triggers _is_single_element→pcc=0.0 in the evaluator, masking all other
+    PCC results via min().  Returning only params (three (1, prediction_length)
+    tensors) gives a meaningful comparison.
+    """
+
+    def __init__(self, model: nn.Module):
+        super().__init__()
+        self.model = model
+
+    def forward(self, **kwargs):
+        return self.model(**kwargs).params
 
 
 class ModelVariant(StrEnum):
@@ -59,14 +78,24 @@ class ModelLoader(ForgeModel):
     def load_model(self, **kwargs):
         """Load and return the Autoformer model.
 
-        BFloat16 is intentionally not supported: the AutoCorrelation attention
-        uses torch.fft.rfft which PyTorch does not implement for BFloat16.
+        Two dtype notes:
+        - BFloat16 is intentionally not supported: the AutoCorrelation attention
+          uses torch.fft.rfft which PyTorch does not implement for BFloat16.
+        - _attn_implementation is reset to None so that create_bidirectional_mask
+          returns None unconditionally.  Under Dynamo tracing the bidirectional-skip
+          optimisation is suppressed (is_tracing() returns True), causing a 4-D
+          attention mask to be materialised; the autocorrelation code then tries to
+          view its (bsz*heads, tgt_len, channel) output as (bsz, heads, tgt_len,
+          src_len) where channel != src_len, which fails.  Setting the implementation
+          to None causes _preprocess_mask_arguments to early-exit with None, matching
+          the CPU-eager behaviour.
         """
         model = AutoformerForPrediction.from_pretrained(
             self._variant_config.pretrained_model_name, **kwargs
         )
+        model.config._attn_implementation = None
         model.eval()
-        return model
+        return _AutoformerParamsWrapper(model)
 
     def load_inputs(self):
         """Load sample time series inputs for the Autoformer model.
