@@ -94,6 +94,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        # grouped_mm_experts_forward uses torch.histc on int type which is
+        # unsupported on XLA; batched_mm_experts_forward avoids this.
+        model.config._experts_implementation = "batched_mm"
+
         self.config = model.config
         self.model = model
         return model
