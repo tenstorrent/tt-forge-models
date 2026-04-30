@@ -88,9 +88,33 @@ def _patched_get_gguf_hf_weights_map(
 _patch_hunyuan_dense_gguf()
 _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
-# Save the real function now, before alphabetically-later loaders install broken
-# wrappers that lack the model_to_load kwarg added in transformers 5.x.
-_real_load_gguf_checkpoint = _gguf_utils.load_gguf_checkpoint
+def _find_real_load_gguf_checkpoint():
+    """Unwrap the broken-wrapper chain to find the real load_gguf_checkpoint.
+
+    All known broken wrappers (which lack the model_to_load kwarg from
+    transformers 5.x) store the version they captured as
+    _orig_load_gguf_checkpoint in their module globals. Follow that chain
+    until we reach a function that actually accepts model_to_load.
+    """
+    import inspect
+
+    fn = _gguf_utils.load_gguf_checkpoint
+    seen = {id(fn)}
+    while True:
+        try:
+            if "model_to_load" in inspect.signature(fn).parameters:
+                return fn
+        except Exception:
+            pass
+        orig = fn.__globals__.get("_orig_load_gguf_checkpoint")
+        if orig is not None and id(orig) not in seen:
+            seen.add(id(orig))
+            fn = orig
+        else:
+            return fn  # return best candidate found
+
+
+_real_load_gguf_checkpoint = _find_real_load_gguf_checkpoint()
 
 from ....base import ForgeModel
 from ....config import (
