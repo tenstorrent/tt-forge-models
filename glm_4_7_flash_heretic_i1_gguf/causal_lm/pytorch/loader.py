@@ -127,12 +127,21 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = self.GGUF_FILE
         model_kwargs["ignore_mismatched_sizes"] = True
 
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, gguf_file=self.GGUF_FILE
+        )
+        # MLA uses num_attention_heads for both q and k/v heads internally;
+        # GGUF stores head_count_kv=1 (latent rank marker) which would cause
+        # GQA expansion to multiply heads by 20 before SDPA.
+        if (
+            hasattr(config, "num_key_value_heads")
+            and hasattr(config, "num_attention_heads")
+            and config.num_key_value_heads < config.num_attention_heads
+        ):
+            config.num_key_value_heads = config.num_attention_heads
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
