@@ -53,7 +53,68 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, **kwargs):
         """Load and return the GLiNER Multitask model."""
-        from gliner import GLiNER
+        import sys
+
+        # The local llm2vec/ model directory is picked up as a Python namespace
+        # package, causing gliner's is_module_available("llm2vec") check to
+        # incorrectly succeed. Temporarily remove it from sys.path and clear
+        # any cached namespace package entries so gliner sees llm2vec as absent.
+        project_root = str(__import__("pathlib").Path(__file__).resolve().parents[2])
+        original_path = sys.path.copy()
+        sys.path = [p for p in sys.path if p != project_root]
+        cached_llm2vec = {
+            k: sys.modules.pop(k)
+            for k in list(sys.modules)
+            if k == "llm2vec" or k.startswith("llm2vec.")
+        }
+        try:
+            from gliner import GLiNER
+            import torch
+            import gliner.modeling.utils as _gliner_utils
+            import gliner.modeling.base as _gliner_base
+
+            # `torch.where(cond)` (unary form) returns variable-length index
+            # tensors whose shape depends on runtime data, which breaks XLA
+            # graph tracing in partition_fx_graph_for_cpu_fallback.  Replace
+            # with a static scatter_ implementation that routes invalid tokens
+            # to a sink slot at index max_text_length and then discards it.
+            def _extract_word_embeddings_static(
+                token_embeds,
+                words_mask,
+                attention_mask,
+                batch_size,
+                max_text_length,
+                embed_dim,
+                text_lengths,
+            ):
+                seq_len = words_mask.shape[1]
+                valid = words_mask > 0
+                target = valid.to(dtype=torch.long) * (words_mask - 1).clamp(
+                    min=0
+                ) + (~valid).to(dtype=torch.long) * max_text_length
+                temp = torch.zeros(
+                    batch_size,
+                    max_text_length + 1,
+                    embed_dim,
+                    dtype=token_embeds.dtype,
+                    device=token_embeds.device,
+                )
+                target_3d = target.unsqueeze(-1).expand(batch_size, seq_len, embed_dim)
+                temp.scatter_(1, target_3d, token_embeds)
+                words_embedding = temp[:, :max_text_length, :].clone()
+                aranged = torch.arange(
+                    max_text_length,
+                    dtype=attention_mask.dtype,
+                    device=token_embeds.device,
+                ).expand(batch_size, -1)
+                mask = aranged < text_lengths
+                return words_embedding, mask
+
+            _gliner_utils.extract_word_embeddings = _extract_word_embeddings_static
+            _gliner_base.extract_word_embeddings = _extract_word_embeddings_static
+        finally:
+            sys.path = original_path
+            sys.modules.update(cached_llm2vec)
 
         model_name = self._variant_config.pretrained_model_name
         model = GLiNER.from_pretrained(model_name, **kwargs)
