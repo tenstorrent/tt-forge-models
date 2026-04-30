@@ -260,6 +260,75 @@ def _deepseek2_load_ctx(model_to_load):
 _patch_deepseek2_gguf_support()
 
 
+def _patch_deepseek_v2_real_rope():
+    """Replace complex-arithmetic RoPE with real arithmetic.
+
+    DeepseekV2RotaryEmbedding.forward uses torch.polar() followed by complex
+    multiplication.  The TT backend crashes when it traces aten.mul.Tensor on
+    a complex tensor.  Replace with real cos/sin arithmetic that is
+    mathematically identical.
+    """
+    import transformers.models.deepseek_v2.modeling_deepseek_v2 as _m
+
+    if getattr(_m.DeepseekV2RotaryEmbedding.forward, "_real_rope_patched", False):
+        return
+
+    class _CosSin:
+        """Real (cos, sin) pair that exposes .to(device) so the attention forward
+        can call position_embeddings.to(q_pe.device) without changes."""
+
+        __slots__ = ("cos", "sin")
+
+        def __init__(self, cos, sin):
+            self.cos = cos
+            self.sin = sin
+
+        def to(self, *args, **kwargs):
+            return _CosSin(self.cos.to(*args, **kwargs), self.sin.to(*args, **kwargs))
+
+    @torch.no_grad()
+    def _real_forward(self, x, position_ids):
+        inv_freq_expanded = (
+            self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1)
+        )
+        position_ids_expanded = position_ids[:, None, :].float()
+        freqs = (inv_freq_expanded.to(x.device) @ position_ids_expanded).transpose(1, 2)
+        cos = torch.cos(freqs) * self.attention_scaling
+        sin = torch.sin(freqs) * self.attention_scaling
+        return _CosSin(cos, sin)
+
+    _real_forward._real_rope_patched = True
+
+    def _real_apply_rotary_emb(xq, xk, freqs_cis):
+        """Real-arithmetic RoPE rotation using interleaved (re, im) pair encoding."""
+        if isinstance(freqs_cis, _CosSin):
+            cos, sin = freqs_cis.cos, freqs_cis.sin
+        elif isinstance(freqs_cis, tuple):
+            cos, sin = freqs_cis
+        else:
+            cos = freqs_cis.real
+            sin = freqs_cis.imag
+
+        cos = cos.unsqueeze(1)  # [batch, 1, seq, dim//2]
+        sin = sin.unsqueeze(1)
+
+        def _rotate(x):
+            r = x.float().reshape(*x.shape[:-1], -1, 2)  # (..., dim//2, 2)
+            re, im = r[..., 0], r[..., 1]
+            out = torch.stack(
+                [re * cos - im * sin, re * sin + im * cos], dim=-1
+            ).flatten(3)
+            return out.type_as(x)
+
+        return _rotate(xq), _rotate(xk)
+
+    _m.DeepseekV2RotaryEmbedding.forward = _real_forward
+    _m.apply_rotary_emb = _real_apply_rotary_emb
+
+
+_patch_deepseek_v2_real_rope()
+
+
 class ModelVariant(StrEnum):
     """Available GigaChat 3.1 10B A1.8B GGUF model variants for causal language modeling."""
 
