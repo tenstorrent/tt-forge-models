@@ -4,7 +4,11 @@
 """
 DuckLLM 1.0 0.6B GGUF model loader implementation for causal language modeling.
 """
+import contextlib
+import inspect
+
 import torch
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -18,6 +22,44 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _find_real_load_gguf_checkpoint():
+    """BFS through patch closures to find the original that accepts model_to_load."""
+    start = _gguf_utils.load_gguf_checkpoint
+    visited = {id(start)}
+    queue = [start]
+    while queue:
+        fn = queue.pop(0)
+        try:
+            if "model_to_load" in inspect.signature(fn).parameters:
+                return fn
+        except (ValueError, TypeError):
+            pass
+        if not fn.__closure__:
+            continue
+        for cell in fn.__closure__:
+            try:
+                val = cell.cell_contents
+            except ValueError:
+                continue
+            if callable(val) and id(val) not in visited:
+                visited.add(id(val))
+                queue.append(val)
+    return start
+
+
+@contextlib.contextmanager
+def _real_gguf_load_ctx():
+    """Temporarily restore the real load_gguf_checkpoint so model_to_load kwarg works."""
+    real_fn = _find_real_load_gguf_checkpoint()
+    current = _gguf_utils.load_gguf_checkpoint
+    if real_fn is not current:
+        _gguf_utils.load_gguf_checkpoint = real_fn
+    try:
+        yield
+    finally:
+        _gguf_utils.load_gguf_checkpoint = current
 
 
 class ModelVariant(StrEnum):
@@ -94,9 +136,10 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        with _real_gguf_load_ctx():
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
