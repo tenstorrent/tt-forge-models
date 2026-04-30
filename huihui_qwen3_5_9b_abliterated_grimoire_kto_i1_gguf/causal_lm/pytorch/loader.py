@@ -12,10 +12,7 @@ import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
-from transformers.modeling_gguf_pytorch_utils import (
-    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
-    GGUF_SUPPORTED_ARCHITECTURES,
-)
+from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
 from ....base import ForgeModel
@@ -47,10 +44,36 @@ def _patch_qwen35_support():
         )
 
 
+def _unwrap_to_real_load_gguf_checkpoint(fn):
+    """Traverse a chain of loader patches to find the real transformers function.
+
+    Some loaders patch load_gguf_checkpoint with functions that don't accept the
+    model_to_load kwarg added in transformers 5.2.0. This walks the chain via
+    each patcher's __globals__['_orig_load_gguf_checkpoint'] until we find the
+    actual transformers implementation (identified by its __module__).
+    """
+    seen = set()
+    while fn is not None and id(fn) not in seen:
+        seen.add(id(fn))
+        if getattr(fn, "__module__", "") == "transformers.modeling_gguf_pytorch_utils":
+            return fn
+        orig = fn.__globals__.get("_orig_load_gguf_checkpoint")
+        if orig is not None and orig is not fn:
+            fn = orig
+        else:
+            break
+    return fn
+
+
+_real_load_gguf_checkpoint = _unwrap_to_real_load_gguf_checkpoint(
+    _gguf_utils.load_gguf_checkpoint
+)
+
+
 def _patched_load_gguf_checkpoint(*args, **kwargs):
     """Wrap load_gguf_checkpoint to add qwen35 support and fix model_type."""
     _patch_qwen35_support()
-    result = _orig_load_gguf_checkpoint(*args, **kwargs)
+    result = _real_load_gguf_checkpoint(*args, **kwargs)
     if result.get("config", {}).get("model_type") == "qwen35":
         result["config"]["model_type"] = "qwen3"
     return result
@@ -58,6 +81,12 @@ def _patched_load_gguf_checkpoint(*args, **kwargs):
 
 def _apply_gguf_patches():
     """Apply correct GGUF patches, overriding any broken global patches from other loaders."""
+    global _real_load_gguf_checkpoint
+    current = _gguf_utils.load_gguf_checkpoint
+    if current is not _patched_load_gguf_checkpoint:
+        real = _unwrap_to_real_load_gguf_checkpoint(current)
+        if real is not None and real is not _patched_load_gguf_checkpoint:
+            _real_load_gguf_checkpoint = real
     _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
     _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
     _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
