@@ -20,12 +20,29 @@ from ....config import (
 )
 
 
+def _remap_mlx_keys(key):
+    """Remap mlx-community/GLM-OCR-8bit key names to transformers GlmOcrForConditionalGeneration names.
+
+    The mlx-community checkpoint uses an older naming convention:
+      language_model.lm_head.X  ->  lm_head.X
+      language_model.model.X    ->  model.language_model.X
+      vision_tower.X            ->  model.visual.X
+    """
+    if key.startswith("language_model.lm_head."):
+        return key[len("language_model."):]
+    if key.startswith("language_model.model."):
+        return "model.language_model." + key[len("language_model.model."):]
+    if key.startswith("vision_tower."):
+        return "model.visual." + key[len("vision_tower."):]
+    return key
+
+
 def _dequantize_mlx_affine_8bit(raw_sd, group_size=64):
-    """Dequantize MLX affine-8bit state dict to standard float tensors.
+    """Dequantize and remap MLX affine-8bit state dict to standard float tensors.
 
     mlx-community models store weights as uint32-packed int8 with per-group
     bf16 scales and biases.  Transformers expects float weights with standard
-    key names, so we unpack and dequant here.
+    key names, so we unpack, dequant, and remap here.
 
     Dequant formula: x_float = x_uint8 * scale + bias
     """
@@ -50,9 +67,9 @@ def _dequantize_mlx_affine_8bit(raw_sd, group_size=64):
             n_grp = in_f // group_size
             sc = scales.float().reshape(out_f, n_grp, 1).expand(-1, -1, group_size).reshape(out_f, in_f)
             bi = biases.float().reshape(out_f, n_grp, 1).expand(-1, -1, group_size).reshape(out_f, in_f)
-            result[key] = (w_u8.float() * sc + bi).to(torch.bfloat16)
+            result[_remap_mlx_keys(key)] = (w_u8.float() * sc + bi).to(torch.bfloat16)
         else:
-            result[key] = tensor
+            result[_remap_mlx_keys(key)] = tensor
     return result
 
 
