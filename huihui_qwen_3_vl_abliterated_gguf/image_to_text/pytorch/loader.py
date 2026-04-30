@@ -176,7 +176,6 @@ def _patch_qwen3vl_for_tt_device(model=None):
     except ImportError:
         return
 
-    orig_fast_pos = modeling_qwen3_vl.Qwen3VLVisionModel.fast_pos_embed_interpolate
     orig_rot_pos = modeling_qwen3_vl.Qwen3VLVisionModel.rot_pos_emb
     orig_get_rope = modeling_qwen3_vl.Qwen3VLModel.get_rope_index
     orig_get_image = modeling_qwen3_vl.Qwen3VLModel.get_image_features
@@ -190,8 +189,16 @@ def _patch_qwen3vl_for_tt_device(model=None):
         except AttributeError:
             pass
 
-    @torch.compiler.disable
     def _patched_fast_pos(self, grid_thw):
+        # fast_pos_embed_interpolate calls .tolist() (Error code: 13 on TT) and
+        # torch.tensor(python_list, device=pos_embed.weight.device) which also
+        # fails when device is TT. @torch.compiler.disable causes a graph break
+        # before this function; it then runs in eager Python mode.
+        # Reimplement the function body entirely on CPU using the pre-captured
+        # pos_embed weight. Do NOT call .to(TT_device) here — that triggers
+        # another TT compilation (backend.__call__ → sync() → Error 13).
+        # Instead return the CPU tensor; the resumed Dynamo graph for the
+        # continuation of forward handles the host→device transfer implicitly.
         cpu_weight = _pos_embed_weight_cpu
         if cpu_weight is None:
             cpu_weight = self.pos_embed.weight.detach().cpu()
@@ -200,13 +207,72 @@ def _patch_qwen3vl_for_tt_device(model=None):
         grid_ts = [row[0] for row in grid_thw_list]
         grid_hs = [row[1] for row in grid_thw_list]
         grid_ws = [row[2] for row in grid_thw_list]
-        orig_data = self.pos_embed.weight.data
-        self.pos_embed.weight.data = cpu_weight
-        try:
-            result = orig_fast_pos(self, grid_thw.cpu())
-        finally:
-            self.pos_embed.weight.data = orig_data
-        return result.to(orig_data.device)
+
+        idx_list = [[] for _ in range(4)]
+        weight_list = [[] for _ in range(4)]
+
+        for t, h, w in grid_thw_list:
+            h_idxs = torch.linspace(0, self.num_grid_per_side - 1, h)
+            w_idxs = torch.linspace(0, self.num_grid_per_side - 1, w)
+
+            h_idxs_floor = h_idxs.int()
+            w_idxs_floor = w_idxs.int()
+            h_idxs_ceil = (h_idxs.int() + 1).clip(max=self.num_grid_per_side - 1)
+            w_idxs_ceil = (w_idxs.int() + 1).clip(max=self.num_grid_per_side - 1)
+
+            dh = h_idxs - h_idxs_floor
+            dw = w_idxs - w_idxs_floor
+
+            base_h = h_idxs_floor * self.num_grid_per_side
+            base_h_ceil = h_idxs_ceil * self.num_grid_per_side
+
+            indices = [
+                (base_h[None].T + w_idxs_floor[None]).flatten(),
+                (base_h[None].T + w_idxs_ceil[None]).flatten(),
+                (base_h_ceil[None].T + w_idxs_floor[None]).flatten(),
+                (base_h_ceil[None].T + w_idxs_ceil[None]).flatten(),
+            ]
+            weights = [
+                ((1 - dh)[None].T * (1 - dw)[None]).flatten(),
+                ((1 - dh)[None].T * dw[None]).flatten(),
+                (dh[None].T * (1 - dw)[None]).flatten(),
+                (dh[None].T * dw[None]).flatten(),
+            ]
+            for i in range(4):
+                idx_list[i].extend(indices[i].tolist())
+                weight_list[i].extend(weights[i].tolist())
+
+        idx_tensor = torch.tensor(idx_list, dtype=torch.long)
+        weight_tensor = torch.tensor(weight_list, dtype=cpu_weight.dtype)
+        pos_embeds = (
+            torch.nn.functional.embedding(idx_tensor, cpu_weight)
+            * weight_tensor[:, :, None]
+        )
+        patch_pos_embeds = pos_embeds[0] + pos_embeds[1] + pos_embeds[2] + pos_embeds[3]
+
+        patch_pos_embeds = patch_pos_embeds.split([h * w for h, w in zip(grid_hs, grid_ws)])
+
+        patch_pos_embeds_permute = []
+        merge_size = self.config.spatial_merge_size
+        for pos_embed, t, h, w in zip(patch_pos_embeds, grid_ts, grid_hs, grid_ws):
+            pos_embed = pos_embed.repeat(t, 1)
+            pos_embed = (
+                pos_embed.view(t, h // merge_size, merge_size, w // merge_size, merge_size, -1)
+                .permute(0, 1, 3, 2, 4, 5)
+                .flatten(0, 4)
+            )
+            patch_pos_embeds_permute.append(pos_embed)
+        patch_pos_embeds = torch.cat(patch_pos_embeds_permute)
+        # Transfer CPU result to XLA device using send_cpu_data_to_device,
+        # which uses the PJRT buffer API and does NOT trigger a standalone
+        # extract_compiled_graph/sync() call (unlike .to(device) via torch.compile).
+        orig_device = self.pos_embed.weight.device
+        if str(orig_device) != "cpu":
+            import torch_xla.core.xla_model as xm
+            [patch_pos_embeds] = xm.send_cpu_data_to_device(
+                [patch_pos_embeds], orig_device
+            )
+        return patch_pos_embeds
 
     def _patched_rot_pos(self, grid_thw):
         return orig_rot_pos(self, grid_thw.cpu())
