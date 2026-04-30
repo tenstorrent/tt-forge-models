@@ -4,6 +4,8 @@
 """
 DeepSeek-R1-Distill-Qwen-7B 4-bit model loader implementation for causal language modeling.
 """
+import os
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -60,17 +62,83 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
         return self.tokenizer
+
+    @staticmethod
+    def _mlx_dequantize(packed_weight, scales, biases, bits=4, group_size=64):
+        """Dequantize MLX packed-integer weights to bfloat16.
+
+        MLX stores weights as uint32 with (32//bits) int4 values packed LSB-first.
+        Each group of `group_size` elements shares one scale and one bias:
+            original = packed_int4 * scale + bias
+        """
+        n_per_elem = 32 // bits  # 8 for 4-bit
+        out_dim, in_packed = packed_weight.shape
+        in_dim = in_packed * n_per_elem
+
+        weight_i32 = packed_weight.view(torch.int32)
+        mask = (1 << bits) - 1
+
+        unpacked = torch.zeros(out_dim, in_dim, dtype=torch.float32)
+        for shift in range(n_per_elem):
+            unpacked[:, shift::n_per_elem] = (
+                (weight_i32 >> (shift * bits)) & mask
+            ).float()
+
+        scales_f = scales.float().repeat_interleave(group_size, dim=1)
+        biases_f = biases.float().repeat_interleave(group_size, dim=1)
+        return (unpacked * scales_f + biases_f).to(torch.bfloat16)
+
+    @staticmethod
+    def _load_mlx_state_dict(pretrained_model_name, target_dtype):
+        """Load safetensors from mlx-community repo and dequantize MLX 4-bit weights.
+
+        MLX stores quantized linear/embedding weights as uint32 packed int4 tensors
+        alongside companion .scales and .biases tensors.  This function dequantizes
+        those packed weights to bfloat16 so they can be loaded into a standard
+        transformers Qwen2 model.  Plain float tensors (layer norms, attention biases)
+        are cast to target_dtype and passed through unchanged.
+        """
+        from huggingface_hub import snapshot_download
+        from safetensors import safe_open
+
+        local_dir = snapshot_download(pretrained_model_name)
+        sf_path = os.path.join(local_dir, "model.safetensors")
+
+        with safe_open(sf_path, framework="pt") as f:
+            all_keys = list(f.keys())
+
+        quantized_bases = {
+            k[: -len(".weight")]
+            for k in all_keys
+            if k.endswith(".weight")
+            and (k[: -len(".weight")] + ".scales") in all_keys
+        }
+
+        state_dict = {}
+        with safe_open(sf_path, framework="pt") as f:
+            for key in all_keys:
+                if key.endswith(".scales") or key.endswith(".biases"):
+                    continue
+                base = key[: -len(".weight")] if key.endswith(".weight") else None
+                if base is not None and base in quantized_bases:
+                    packed = f.get_tensor(key)
+                    scales = f.get_tensor(base + ".scales")
+                    biases_q = f.get_tensor(base + ".biases")
+                    state_dict[key] = ModelLoader._mlx_dequantize(
+                        packed, scales, biases_q
+                    )
+                else:
+                    tensor = f.get_tensor(key)
+                    state_dict[key] = tensor.to(target_dtype)
+
+        return state_dict
 
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -78,21 +146,23 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        # MLX variants may have mismatched weight shapes after quantization
-        model_kwargs["ignore_mismatched_sizes"] = True
-        model_kwargs |= kwargs
+        target_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+
+        # Load config and remove the MLX quantization_config dict, which lacks the
+        # `quant_method` field that transformers 5.x requires for HF quantizers.
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        config.quantization_config = None
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        model = AutoModelForCausalLM.from_config(config).to(target_dtype).eval()
+
+        state_dict = self._load_mlx_state_dict(pretrained_model_name, target_dtype)
+        missing, unexpected = model.load_state_dict(state_dict, strict=False)
+        if missing:
+            import warnings
+            warnings.warn(f"Missing keys when loading MLX weights: {missing[:5]}{'...' if len(missing) > 5 else ''}")
 
         self.config = model.config
         self.model = model
