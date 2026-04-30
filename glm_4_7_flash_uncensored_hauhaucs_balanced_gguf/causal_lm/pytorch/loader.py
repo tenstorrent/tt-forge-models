@@ -283,13 +283,14 @@ def _patch_deepseek_real_rope():
         # freqs: [batch, seq, head_dim//2, 2] — last dim is [cos, sin]
         cos = freqs[..., 0].unsqueeze(1)  # [batch, 1, seq, head_dim//2]
         sin = freqs[..., 1].unsqueeze(1)
+        out_dtype_q, out_dtype_k = xq.dtype, xk.dtype
         xq = xq.float()
         xk = xk.float()
         xq_r, xq_i = xq[..., 0::2], xq[..., 1::2]
         xk_r, xk_i = xk[..., 0::2], xk[..., 1::2]
         xq_out = torch.stack([xq_r * cos - xq_i * sin, xq_r * sin + xq_i * cos], dim=-1).flatten(-2)
         xk_out = torch.stack([xk_r * cos - xk_i * sin, xk_r * sin + xk_i * cos], dim=-1).flatten(-2)
-        return xq_out.to(xq.dtype), xk_out.to(xk.dtype)
+        return xq_out.to(out_dtype_q), xk_out.to(out_dtype_k)
 
     ds2_mod.DeepseekV2RotaryEmbedding.forward = _real_rotary_forward
     ds2_mod.apply_rotary_emb = _real_apply_rotary_emb
