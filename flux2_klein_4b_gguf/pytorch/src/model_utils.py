@@ -11,7 +11,11 @@ import gguf
 import torch
 from diffusers.models import Flux2Transformer2DModel
 from diffusers import GGUFQuantizationConfig
-from diffusers.quantizers.gguf.utils import GGUFParameter, dequantize_gguf_tensor
+from diffusers.quantizers.gguf.utils import (
+    GGUFParameter,
+    _dequantize_gguf_and_restore_linear,
+    dequantize_gguf_tensor,
+)
 from huggingface_hub import hf_hub_download
 
 _CONFIG_DIR = os.path.join(os.path.dirname(__file__), "transformer_config")
@@ -20,6 +24,8 @@ _CONFIG_DIR = os.path.join(os.path.dirname(__file__), "transformer_config")
 def _dequantize_bf16_params(model: torch.nn.Module) -> None:
     # Diffusers wraps BF16 GGUF tensors as GGUFParameter with raw uint8 storage,
     # which causes shape mismatches in RMSNorm layers. Convert them to real bfloat16.
+    # _dequantize_gguf_and_restore_linear only restores linear layers; norm-scale
+    # GGUFParameters are not in linear layers and must be converted separately.
     for module in model.modules():
         for name, param in list(module.named_parameters(recurse=False)):
             if (
@@ -53,7 +59,20 @@ def load_flux2_klein_gguf_transformer(repo_id: str, gguf_filename: str):
         torch_dtype=torch.bfloat16,
     )
 
+    # Restore GGUFLinear → plain nn.Linear so GGUFParameter.__torch_function__
+    # is no longer in the call graph. Under TorchDynamo, __torch_function__ on
+    # GGUFParameter recurses infinitely (InternalTorchDynamoError: RecursionError).
+    _dequantize_gguf_and_restore_linear(transformer)
+
+    # BF16 norm-scale GGUFParameters are not inside linear layers and are not
+    # touched by _dequantize_gguf_and_restore_linear; convert them separately.
     _dequantize_bf16_params(transformer)
+
+    # Clear quantizer flags so ModelMixin.to() doesn't raise "Casting a quantized
+    # model to a new dtype is unsupported".
+    transformer._hf_quantizer = None
+    transformer.is_quantized = False
+    transformer.to(torch.bfloat16)
 
     transformer.eval()
     for param in transformer.parameters():
