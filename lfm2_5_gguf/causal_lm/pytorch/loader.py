@@ -140,6 +140,11 @@ class ModelLoader(ForgeModel):
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
+        # Lfm2HybridConvCache is not a registered pytree node; the comparison
+        # evaluator calls torch.equal() on every leaf and fails.  Disable
+        # caching so the model returns only tensor outputs.
+        inputs["use_cache"] = False
+
         return inputs
 
     def load_config(self):
