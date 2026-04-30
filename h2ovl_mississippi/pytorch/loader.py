@@ -10,7 +10,7 @@ import torch
 import torchvision.transforms as T
 from PIL import Image
 from torchvision.transforms.functional import InterpolationMode
-from transformers import AutoConfig, AutoModel, AutoTokenizer
+from transformers import AutoConfig, AutoModel, AutoTokenizer, PreTrainedModel
 from typing import Optional
 
 from ...tools.utils import get_file
@@ -175,7 +175,37 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        # transformers 5.x initialises models on meta device; InternVisionEncoder.__init__
+        # calls torch.linspace(...).item() to build drop-path rate lists, which fails on
+        # meta tensors.  Patch .item() to return 0.0 for meta scalars — the real values
+        # are overwritten when the checkpoint is loaded.
+        _orig_item = torch.Tensor.item
+
+        def _meta_safe_item(t):
+            return 0.0 if t.is_meta else _orig_item(t)
+
+        # transformers 5.x expects all_tied_weights_keys to be set by post_init()
+        # before _finalize_model_loading accesses it.  The remote H2OVLChatModel
+        # predates this requirement and doesn't call self.post_init() in __init__.
+        # Patch _finalize_model_loading to call post_init() when the attribute is
+        # absent rather than patching the remote class (which loads under a different
+        # sys.modules key than what importlib returns).
+        _orig_finalize = PreTrainedModel.__dict__["_finalize_model_loading"].__func__
+
+        @staticmethod
+        def _patched_finalize(model, load_config, loading_info):
+            if not hasattr(model, "all_tied_weights_keys"):
+                model.post_init()
+            return _orig_finalize(model, load_config, loading_info)
+
+        PreTrainedModel._finalize_model_loading = _patched_finalize
+        torch.Tensor.item = _meta_safe_item
+        try:
+            model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        finally:
+            torch.Tensor.item = _orig_item
+            PreTrainedModel._finalize_model_loading = staticmethod(_orig_finalize)
+
         model.eval()
         self.model = model
 
