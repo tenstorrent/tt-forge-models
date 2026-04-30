@@ -11,6 +11,101 @@ import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
+
+
+def _patch_transformers_deepseek_v2_gguf():
+    """Monkey-patch transformers to add deepseek_v2 GGUF tokenizer support.
+
+    The mradermacher GGUF files store the tokenizer class as 'deepseek_v2'
+    (with underscore), which is absent from GGUF_TO_FAST_CONVERTERS in
+    transformers 5.x. The GLM-4.7 tokenizer is BPE-based like Qwen2, so
+    GGUFQwen2Converter works as the converter.
+    """
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    if "deepseek_v2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["deepseek_v2"] = GGUFQwen2Converter
+
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "deepseek2" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("deepseek2")
+
+        GGUF_TO_TRANSFORMERS_MAPPING["config"]["deepseek2"] = {
+            "context_length": "max_position_embeddings",
+            "block_count": "num_hidden_layers",
+            "feed_forward_length": "intermediate_size",
+            "embedding_length": "hidden_size",
+            "rope.freq_base": "rope_theta",
+            "rope.dimension_count": "qk_rope_head_dim",
+            "attention.head_count": "num_attention_heads",
+            "attention.head_count_kv": "num_key_value_heads",
+            "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+            "attention.key_length": None,
+            "attention.value_length": None,
+            "attention.key_length_mla": "qk_nope_head_dim",
+            "attention.value_length_mla": "v_head_dim",
+            "attention.q_lora_rank": "q_lora_rank",
+            "attention.kv_lora_rank": "kv_lora_rank",
+            "vocab_size": "vocab_size",
+            "expert_count": "n_routed_experts",
+            "expert_used_count": "num_experts_per_tok",
+            "expert_shared_count": "n_shared_experts",
+            "expert_group_count": "n_group",
+            "expert_group_used_count": "topk_group",
+            "expert_weights_scale": "routed_scaling_factor",
+            "expert_weights_norm": "norm_topk_prob",
+            "leading_dense_block_count": "first_k_dense_replace",
+            "expert_feed_forward_length": "moe_intermediate_size",
+        }
+
+        if "deepseek2" not in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS["deepseek2"] = GGUFQwen2Converter
+
+        orig_load = gguf_utils.load_gguf_checkpoint
+
+        def patched_load_gguf_checkpoint(*args, **kwargs):
+            result = orig_load(*args, **kwargs)
+            config = result.get("config", {})
+            if config.get("model_type") == "deepseek2":
+                config["model_type"] = "deepseek_v2"
+            return result
+
+        gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+        import transformers.models.auto.tokenization_auto as tok_auto
+        import transformers.configuration_utils as config_utils
+        import transformers.modeling_utils as modeling_utils
+
+        for mod in (tok_auto, config_utils, modeling_utils):
+            if hasattr(mod, "load_gguf_checkpoint"):
+                mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    # Patch get_gguf_hf_weights_map to remap deepseek_v2 -> deepseek2 so
+    # gguf-py can find the tensor name map (gguf-py uses the GGUF arch name).
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = getattr(getattr(hf_model, "config", None), "model_type", None)
+        if model_type == "deepseek_v2":
+            model_type = "deepseek2"
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+
+_patch_transformers_deepseek_v2_gguf()
+
 from ....config import (
     Framework,
     LLMModelConfig,
@@ -96,8 +191,13 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
+        # The mradermacher GGUF stores q_b_proj without the rope dimension
+        # and splits kv_b_proj into separate k_b/v_b tensors — incompatible
+        # with HF DeepSeekV2 which expects the full q_b and merged kv_b shapes.
+        # ignore_mismatched_sizes=True re-initializes those layers randomly,
+        # which is acceptable for compile-only workloads.
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
         ).eval()
 
         self.config = model.config
