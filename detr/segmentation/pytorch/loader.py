@@ -38,7 +38,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="facebook/detr-resnet-50-panoptic",
         ),
         ModelVariant.XENOVA_RESNET_50_PANOPTIC: ModelConfig(
-            pretrained_model_name="Xenova/detr-resnet-50-panoptic",
+            # Xenova/detr-resnet-50-panoptic is an ONNX-only export for
+            # transformers.js with no PyTorch weights; load from the original
+            # source that the Xenova ONNX was exported from.
+            pretrained_model_name="facebook/detr-resnet-50-panoptic",
         ),
     }
 
