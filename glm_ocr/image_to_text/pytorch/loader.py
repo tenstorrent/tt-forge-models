@@ -167,6 +167,8 @@ class ModelLoader(ForgeModel):
             # Transformers >=5.x raises ValueError on this.  Also, the weights
             # are uint32-packed int8 that need manual dequantization before
             # loading into the standard GlmOcrForConditionalGeneration arch.
+            # Finally, transformers 5.x forbids passing state_dict with a
+            # model name; we must create from config and load separately.
             from safetensors.torch import load_file
             from huggingface_hub import hf_hub_download
 
@@ -178,12 +180,10 @@ class ModelLoader(ForgeModel):
             raw_sd = load_file(st_path)
             state_dict = _dequantize_mlx_affine_8bit(raw_sd, group_size=64)
 
-            model = AutoModelForImageTextToText.from_pretrained(
-                pretrained_model_name,
-                config=config,
-                state_dict=state_dict,
-                **model_kwargs,
-            )
+            model = AutoModelForImageTextToText.from_config(config, **model_kwargs)
+            missing, unexpected = model.load_state_dict(state_dict, strict=False)
+            if unexpected:
+                raise RuntimeError(f"Unexpected keys in state dict: {unexpected[:5]}")
         else:
             model = AutoModelForImageTextToText.from_pretrained(
                 pretrained_model_name, **model_kwargs
