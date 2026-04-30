@@ -5,8 +5,60 @@
 Infoseeker Repro 4B GGUF model loader implementation for causal language modeling.
 """
 import torch
+from contextlib import contextmanager
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+
+def _unwrap_gguf_checkpoint_fn():
+    """Walk the global-patch chain to reach the original transformers load_gguf_checkpoint.
+
+    Some loaders patch load_gguf_checkpoint globally at import time without accepting
+    the model_to_load kwarg added in transformers 5.x.  The real original is at the
+    bottom of the chain (its __globals__ has no _orig_load_gguf_checkpoint entry).
+    """
+    func = _gguf_utils.load_gguf_checkpoint
+    seen = set()
+    while True:
+        fn_id = id(func)
+        if fn_id in seen:
+            break
+        seen.add(fn_id)
+        next_fn = getattr(func, "__globals__", {}).get("_orig_load_gguf_checkpoint")
+        if next_fn is None or next_fn is func:
+            break
+        func = next_fn
+    return func
+
+
+@contextmanager
+def _with_original_gguf_checkpoint():
+    """Temporarily restore the original load_gguf_checkpoint, bypassing broken patches."""
+    orig = _unwrap_gguf_checkpoint_fn()
+    saved = (
+        _gguf_utils.load_gguf_checkpoint,
+        _config_utils.load_gguf_checkpoint,
+        _auto_tokenizer.load_gguf_checkpoint,
+        _tok_utils.load_gguf_checkpoint,
+    )
+    _gguf_utils.load_gguf_checkpoint = orig
+    _config_utils.load_gguf_checkpoint = orig
+    _auto_tokenizer.load_gguf_checkpoint = orig
+    _tok_utils.load_gguf_checkpoint = orig
+    try:
+        yield
+    finally:
+        (
+            _gguf_utils.load_gguf_checkpoint,
+            _config_utils.load_gguf_checkpoint,
+            _auto_tokenizer.load_gguf_checkpoint,
+            _tok_utils.load_gguf_checkpoint,
+        ) = saved
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -67,9 +119,10 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
         tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+        with _with_original_gguf_checkpoint():
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -87,16 +140,17 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        with _with_original_gguf_checkpoint():
+            if self.num_layers is not None:
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name, gguf_file=self.GGUF_FILE
+                )
+                config.num_hidden_layers = self.num_layers
+                model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
@@ -158,7 +212,8 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        with _with_original_gguf_checkpoint():
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
         return self.config
