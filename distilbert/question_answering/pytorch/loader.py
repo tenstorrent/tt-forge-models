@@ -42,7 +42,7 @@ class ModelLoader(ForgeModel):
             max_length=384,
         ),
         ModelVariant.XENOVA_DISTILBERT_BASE_UNCASED_DISTILLED_SQUAD: LLMModelConfig(
-            pretrained_model_name="Xenova/distilbert-base-uncased-distilled-squad",
+            pretrained_model_name="distilbert-base-uncased-distilled-squad",
             max_length=384,
         ),
     }
