@@ -4,6 +4,8 @@
 """
 Daniloreddy Qwen 3.5 2B GGUF model loader implementation for causal language modeling.
 """
+import contextlib
+import numpy as np
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -18,6 +20,87 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _register_qwen35_gguf_support():
+    """Register qwen35 in GGUF architecture/config/tensor mappings at import time."""
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        TENSOR_PROCESSORS,
+        GGUFTensor,
+        TensorProcessor,
+    )
+    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFQwen2Converter
+
+    if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
+
+    GGUF_TO_TRANSFORMERS_MAPPING.setdefault("config", {})["qwen35"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "attention.key_length": "head_dim",
+        "attention.value_length": None,
+        "ssm.conv_kernel": "linear_conv_kernel_dim",
+        "ssm.state_size": None,
+        "ssm.inner_size": None,
+        "ssm.time_step_rank": None,
+        "ssm.group_count": None,
+        "full_attention_interval": "full_attention_interval",
+        "vocab_size": "vocab_size",
+    }
+
+    if "qwen35" not in TENSOR_PROCESSORS:
+        class _Qwen35TensorProcessor(TensorProcessor):
+            def process(self, weights, name, **kwargs):
+                if "ssm_conv1d.weight" in name and weights.ndim == 2:
+                    weights = np.expand_dims(weights, axis=1)
+                if "ssm_a" in name:
+                    weights = np.log(-weights)
+                return GGUFTensor(weights, name, {})
+        TENSOR_PROCESSORS["qwen35"] = _Qwen35TensorProcessor
+
+    GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUFQwen2Converter)
+
+
+def _make_qwen35_load_fn(orig_fn):
+    """Return a load_gguf_checkpoint wrapper that remaps qwen35 → qwen3_5_text."""
+    def _patched(*args, **kwargs):
+        result = orig_fn(*args, **kwargs)
+        cfg = result.get("config", {})
+        if cfg.get("model_type") == "qwen35":
+            cfg["model_type"] = "qwen3_5_text"
+            num_layers = cfg.get("num_hidden_layers", 24)
+            interval = cfg.pop("full_attention_interval", 4)
+            cfg["layer_types"] = [
+                "full_attention" if (i + 1) % interval == 0 else "linear_attention"
+                for i in range(num_layers)
+            ]
+        return result
+    return _patched
+
+
+@contextlib.contextmanager
+def _qwen35_load_context():
+    """Temporarily install the correct load_gguf_checkpoint for qwen35."""
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    orig = gguf_utils.load_gguf_checkpoint
+    gguf_utils.load_gguf_checkpoint = _make_qwen35_load_fn(orig)
+    try:
+        yield
+    finally:
+        gguf_utils.load_gguf_checkpoint = orig
+
+
+_register_qwen35_gguf_support()
 
 
 class ModelVariant(StrEnum):
@@ -78,25 +161,26 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+        with _qwen35_load_context():
+            if self.tokenizer is None:
+                self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+            model_kwargs["gguf_file"] = self.GGUF_FILE
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+            if self.num_layers is not None:
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name, gguf_file=self.GGUF_FILE
+                )
+                config.num_hidden_layers = self.num_layers
+                model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
