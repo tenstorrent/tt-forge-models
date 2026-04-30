@@ -77,14 +77,21 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"use_cache": False}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+        config = AutoConfig.from_pretrained(self.BASE_MODEL_NAME)
+        if hasattr(config, "text_config"):
+            config.text_config.use_cache = False
+        else:
+            config.use_cache = False
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(self.BASE_MODEL_NAME)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+            if hasattr(config, "text_config"):
+                config.text_config.num_hidden_layers = self.num_layers
+            else:
+                config.num_hidden_layers = self.num_layers
+
+        model_kwargs = {"config": config}
+        if dtype_override is not None:
+            model_kwargs["dtype"] = dtype_override
 
         model_kwargs |= kwargs
 
