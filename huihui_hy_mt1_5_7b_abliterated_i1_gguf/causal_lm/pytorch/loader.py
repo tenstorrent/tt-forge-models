@@ -73,11 +73,13 @@ def _patched_get_gguf_hf_weights_map(
     )
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+def _patched_load_gguf_checkpoint(
+    gguf_path, return_tensors=False, model_to_load=None, **kwargs
+):
     _patch_hunyuan_dense_support()
-    result = _orig_load_gguf_checkpoint(
-        gguf_path, return_tensors=return_tensors, **kwargs
-    )
+    # Do not forward model_to_load to inner wrappers; many other loaders' patches
+    # don't accept it and would raise TypeError.
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
     for section in ("config", "tokenizer_config"):
         if result.get(section, {}).get("model_type") == _HUNYUAN_DENSE_GGUF_ARCH:
             result[section]["model_type"] = _HUNYUAN_DENSE_MODEL_TYPE
