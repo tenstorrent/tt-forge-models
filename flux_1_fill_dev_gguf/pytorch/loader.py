@@ -10,6 +10,7 @@ FluxTransformer2DModel.from_single_file and plugged into a FluxFillPipeline
 built from the original black-forest-labs/FLUX.1-Fill-dev repository.
 """
 
+import os
 from typing import Optional
 
 import torch
@@ -28,7 +29,8 @@ from ...config import (
 )
 
 GGUF_REPO = "YarvixPA/FLUX.1-Fill-dev-GGUF"
-BASE_REPO = "black-forest-labs/FLUX.1-Fill-dev"
+# Local config with in_channels=384 for Fill (gated black-forest-labs repo not accessible).
+_TRANSFORMER_CONFIG_DIR = os.path.join(os.path.dirname(__file__), "transformer_config")
 
 
 class ModelVariant(StrEnum):
@@ -96,9 +98,11 @@ class ModelLoader(ForgeModel):
 
         # Use blob/main URL: diffusers strips "blob/main/" from the filename;
         # resolve/main causes the path to be doubled → 404.
+        # Pass local config dir (in_channels=384) to bypass the gated
+        # black-forest-labs/FLUX.1-Fill-dev repo that GGUF metadata points to.
         self.transformer = FluxTransformer2DModel.from_single_file(
             f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}",
-            config=BASE_REPO,
+            config=_TRANSFORMER_CONFIG_DIR,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
