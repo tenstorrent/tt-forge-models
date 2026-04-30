@@ -5,8 +5,11 @@
 FLUX.1-dev GGUF model loader implementation for text-to-image generation
 """
 import torch
+import torch._C
 from diffusers import GGUFQuantizationConfig
 from diffusers.models import FluxTransformer2DModel
+from diffusers.quantizers.gguf.utils import GGUFParameter
+from huggingface_hub import hf_hub_download
 from typing import Optional
 
 from ...base import ForgeModel
@@ -36,6 +39,15 @@ class ModelVariant(StrEnum):
     EVIATION_CAESAR_Q6_K = "eviation_caesar_Q6_K"
     EVIATION_CAESAR_Q8_0 = "eviation_caesar_Q8_0"
 
+
+def _patched_as_tensor(self):
+    # diffusers 0.37.1 GGUFParameter.as_tensor() calls _make_subclass without
+    # DisableTorchFunctionSubclass, causing infinite recursion via __torch_function__.
+    with torch._C.DisableTorchFunctionSubclass():
+        return torch.Tensor._make_subclass(torch.Tensor, self, self.requires_grad)
+
+
+GGUFParameter.as_tensor = _patched_as_tensor
 
 _EVIATION_REPO = "Eviation/flux-imatrix"
 _EVIATION_CAESAR_SUBDIR = "experimental-from-f16-caesar"
@@ -116,13 +128,17 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        # Use hf_hub_download instead of a direct HTTPS URL because diffusers 0.37.1
+        # _extract_repo_id_and_weights_name only strips blob/main/ (not resolve/main/),
+        # so the weights_name ends up as "resolve/main/<file>" and the HF hub lookup fails.
         compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
         quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         repo_id = self._variant_config.pretrained_model_name
         gguf_file = self._GGUF_FILES[self._variant]
+        model_path = hf_hub_download(repo_id=repo_id, filename=gguf_file)
         self.transformer = FluxTransformer2DModel.from_single_file(
-            f"https://huggingface.co/{repo_id}/resolve/main/{gguf_file}",
+            model_path,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
