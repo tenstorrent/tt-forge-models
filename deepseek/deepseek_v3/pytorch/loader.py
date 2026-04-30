@@ -50,8 +50,10 @@ def _patch_moe_layers(model) -> None:
         ).scatter_add(1, topk_ids, topk_weight.to(topk_weight.dtype))
 
         # Weighted sum over experts: [T, E] x [E, T, H] -> [T, H]
+        # Cast back to x.dtype: routing is float32 (from router scores) and
+        # would otherwise upcast expert_out (bf16) → float32, breaking lm_head.
         # expert_out.permute(1, 0, 2): [T, E, H]
-        return (routing.unsqueeze(-1) * expert_out.permute(1, 0, 2)).sum(dim=1)
+        return (routing.unsqueeze(-1) * expert_out.permute(1, 0, 2)).sum(dim=1).to(x.dtype)
 
     for module in model.modules():
         if hasattr(module, "moe_infer") and hasattr(module, "experts_per_rank"):
