@@ -82,6 +82,10 @@ class ModelLoader(ForgeModel):
             "modeling_lavida.LLaDAModelLM",
             pretrained_model_name,
         )
+        LlavaLladaForMaskedDiffusion = get_class_from_dynamic_module(
+            "modeling_lavida.LlavaLladaForMaskedDiffusion",
+            pretrained_model_name,
+        )
         SigLipVisionConfig = get_class_from_dynamic_module(
             "modeling_lavida.SigLipVisionConfig",
             pretrained_model_name,
@@ -115,6 +119,26 @@ class ModelLoader(ForgeModel):
             )
 
         LLaDAModelLM.forward = _lm_forward_compat
+
+        # Fix 9: LlavaLladaForMaskedDiffusion.forward adds non-standard keys to the
+        # CausalLMOutputWithPast dict (new_input_ids, labels, final_masked_indices,
+        # p_mask).  When the test framework's pytree handler unflattens the output to
+        # move it between devices, it calls CausalLMOutputWithPast(**fields), which
+        # raises TypeError for the unrecognised kwargs.  Strip them before returning.
+        _CAUSAL_LM_OUTPUT_FIELDS = {
+            "loss", "logits", "past_key_values", "hidden_states", "attentions"
+        }
+        _orig_llava_forward = LlavaLladaForMaskedDiffusion.forward
+
+        def _llava_forward_strip_extra(self, *args, **kwargs):
+            output = _orig_llava_forward(self, *args, **kwargs)
+            if output is not None and hasattr(output, "keys"):
+                for key in list(output.keys()):
+                    if key not in _CAUSAL_LM_OUTPUT_FIELDS:
+                        del output[key]
+            return output
+
+        LlavaLladaForMaskedDiffusion.forward = _llava_forward_strip_extra
 
         SigLipVisionTower = get_class_from_dynamic_module(
             "modeling_lavida.SigLipVisionTower",
