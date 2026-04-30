@@ -365,6 +365,17 @@ class ModelLoader(ForgeModel):
             GGUFQuantizationConfig,
             HunyuanVideo15Transformer3DModel,
         )
+        from diffusers.quantizers.gguf.utils import GGUFParameter
+
+        # GGUFParameter.as_tensor() calls torch.Tensor._make_subclass() which
+        # re-enters GGUFParameter.__torch_function__ → super().__torch_function__
+        # infinitely when traced by dynamo. Wrapping with DisableTorchFunctionSubclass
+        # escapes the subclass so the returned tensor is a plain torch.Tensor.
+        def _safe_as_tensor(self):
+            with torch._C.DisableTorchFunctionSubclass():
+                return torch.Tensor._make_subclass(torch.Tensor, self, self.requires_grad)
+
+        GGUFParameter.as_tensor = _safe_as_tensor
 
         # Register HunyuanVideo15Transformer3DModel in diffusers' single-file loader
         # since it is not yet supported natively as of diffusers 0.38.0.dev0.
