@@ -1189,6 +1189,24 @@ def extract_tensors_recursive(obj, tensors):
             extract_tensors_recursive(item, tensors)
 
 
+def unpack_forward_output_default(fwd_output):
+    """Default ``ModelLoader.unpack_forward_output`` for ambiguous outputs.
+
+    Recursively extracts every ``torch.Tensor`` reachable from ``fwd_output``,
+    flattens each, and concatenates them into a single 1D tensor. If no
+    tensors are found, ``fwd_output`` is returned unchanged.
+
+    Loaders whose forward returns a wrapper around the tensors of interest
+    (e.g., ``(head_outputs, anchors)`` or an object with a ``.logits``
+    attribute) should pre-extract and pass the relevant subobject in.
+    """
+    tensors = []
+    extract_tensors_recursive(fwd_output, tensors)
+    if tensors:
+        return torch.cat(tensors, dim=0)
+    return fwd_output
+
+
 def export_torch_model_to_onnx(
     torch_model,
     onnx_tmp_path: str,

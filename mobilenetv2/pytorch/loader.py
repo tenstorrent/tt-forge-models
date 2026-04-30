@@ -298,6 +298,14 @@ class ModelLoader(ForgeModel):
         if image is None:
             dataset = load_dataset("huggingface/cats-image", split="test")
             image = dataset[0]["image"]
+        # Deeplabv3 has a BatchNorm operating on a [1, 256, 1, 1] tensor that
+        # rejects batch=1 in training mode; bump to 2 only for that variant so
+        # the inference test (EXPECTED_PASSING) keeps its original input shape.
+        if (
+            self._variant == ModelVariant.DEEPLABV3_MOBILENET_V2_HF
+            and batch_size < 2
+        ):
+            batch_size = 2
         return self.input_preprocess(
             image=image,
             dtype_override=dtype_override,

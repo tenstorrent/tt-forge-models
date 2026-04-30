@@ -119,7 +119,7 @@ class ModelLoader(ForgeModel):
 
         return self.model
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
+    def load_inputs(self, dtype_override=None, batch_size=2):
         """Load and return sample inputs for the SSDLite320 MobileNetV3 model with this instance's variant settings.
 
         Args:
@@ -128,7 +128,9 @@ class ModelLoader(ForgeModel):
             batch_size: Optional batch size to override the default batch size of 1.
 
         Returns:
-            torch.Tensor: Preprocessed input tensor suitable for SSDLite320 MobileNetV3.
+            list: [list_of_image_tensors, list_of_target_dicts] consumed as positional
+                  args by ``model.forward(images, targets)``. The targets list is required
+                  by the patched SSD forward when ``model.train()`` is set.
         """
         # Load image from HuggingFace dataset
         dataset = load_dataset("huggingface/cats-image")["test"]
@@ -153,7 +155,15 @@ class ModelLoader(ForgeModel):
             print("NOTE: dtype_override ignored - batched_nms lacks BFloat16 support")
             # inputs = inputs.to(dtype_override)
 
-        return inputs
+        h, w = inputs.shape[-2:]
+        targets = [
+            {
+                "boxes": torch.tensor([[0.0, 0.0, float(w) / 2, float(h) / 2]]),
+                "labels": torch.tensor([1], dtype=torch.long),
+            }
+            for _ in range(inputs.shape[0])
+        ]
+        return [list(inputs), targets]
 
     def postprocess_detections(self, outputs):
         head_outputs, anchors = outputs
@@ -164,3 +174,9 @@ class ModelLoader(ForgeModel):
             detections, [self.image_sizes], [self.original_image_sizes]
         )
         return detections
+
+    def unpack_forward_output(self, fwd_output):
+        from ...tools.utils import unpack_forward_output_default
+
+        head_outputs, _anchors = fwd_output
+        return unpack_forward_output_default(head_outputs)

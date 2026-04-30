@@ -121,7 +121,9 @@ class ModelLoader(ForgeModel):
                           TODO (@ppadjinTT): remove this when torchvision starts supporting torchvision.ops.nms for bfloat16
 
         Returns:
-            torch.Tensor: Preprocessed input tensor suitable for SSD300 VGG16.
+            list: [list_of_image_tensors, list_of_target_dicts] consumed as positional
+                  args by ``model.forward(images, targets)``. The targets list is required
+                  by the patched SSD forward when ``model.train()`` is set.
         """
         # Load image from HuggingFace dataset
         dataset = load_dataset("huggingface/cats-image")["test"]
@@ -144,7 +146,15 @@ class ModelLoader(ForgeModel):
             # TODO (@ppadjinTT): remove this when torchvision starts supporting torchvision.ops.nms for bfloat16
             print("NOTE: dtype_override ignored - batched_nms lacks BFloat16 support")
 
-        return batch_t
+        h, w = batch_t.shape[-2:]
+        targets = [
+            {
+                "boxes": torch.tensor([[0.0, 0.0, float(w) / 2, float(h) / 2]]),
+                "labels": torch.tensor([1], dtype=torch.long),
+            }
+            for _ in range(batch_t.shape[0])
+        ]
+        return [list(batch_t), targets]
 
     def postprocess_detections(self, fw_out, co_out):
         """Run post-processing on raw model outputs (head_outputs, anchors) on CPU.
@@ -173,3 +183,9 @@ class ModelLoader(ForgeModel):
         )
 
         return detections_fw, detections_co
+
+    def unpack_forward_output(self, fwd_output):
+        from ...tools.utils import unpack_forward_output_default
+
+        head_outputs, _anchors = fwd_output
+        return unpack_forward_output_default(head_outputs)

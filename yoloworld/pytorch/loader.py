@@ -167,3 +167,8 @@ class ModelLoader(ForgeModel):
         if not osp.exists(output_dir):
             os.mkdir(output_dir)
         cv2.imwrite(osp.join(output_dir, osp.basename(self.image_file)), image)
+
+    def unpack_forward_output(self, fwd_output):
+        from ...tools.utils import unpack_forward_output_default
+
+        return unpack_forward_output_default(fwd_output)

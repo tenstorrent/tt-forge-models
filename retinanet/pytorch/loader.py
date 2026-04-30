@@ -326,6 +326,20 @@ class ModelLoader(ForgeModel):
             else:
                 batch_t = batch_t.to(dtype_override)
 
+        # The torchvision V2 variant uses a patched forward that asserts targets
+        # are provided when ``model.train()`` is set; supply synthetic ones and
+        # return [list_of_images, targets] so the workload calls forward(images, targets).
+        if self._variant == ModelVariant.RETINANET_RESNET50_FPN_V2:
+            h, w = batch_t.shape[-2:]
+            targets = [
+                {
+                    "boxes": torch.tensor([[0.0, 0.0, float(w) / 2, float(h) / 2]]),
+                    "labels": torch.tensor([1], dtype=torch.long),
+                }
+                for _ in range(batch_t.shape[0])
+            ]
+            return [list(batch_t), targets]
+
         return batch_t
 
     def postprocess_detections(self, outputs):
@@ -345,6 +359,12 @@ class ModelLoader(ForgeModel):
             detections, self.image_sizes, self.image_sizes
         )
         return detections
+
+    def unpack_forward_output(self, fwd_output):
+        from ...tools.utils import unpack_forward_output_default
+
+        head_outputs, _anchors = fwd_output
+        return unpack_forward_output_default(head_outputs)
 
     def cleanup(self):
         """Clean up downloaded files."""

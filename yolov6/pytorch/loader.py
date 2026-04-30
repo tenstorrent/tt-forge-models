@@ -226,6 +226,11 @@ class ModelLoader(ForgeModel):
             batch_size=batch_size,
         )
 
+    def unpack_forward_output(self, fwd_output):
+        from ...tools.utils import unpack_forward_output_default
+
+        return unpack_forward_output_default(fwd_output)
+
     def output_postprocess(self, output):
         """Post-process model outputs.
 

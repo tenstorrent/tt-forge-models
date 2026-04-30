@@ -195,3 +195,8 @@ class ModelLoader(ForgeModel):
                     inputs[key] = inputs[key].to(dtype_override)
 
         return inputs
+
+    def unpack_forward_output(self, fwd_output):
+        from ....tools.utils import unpack_forward_output_default
+
+        return unpack_forward_output_default(fwd_output)

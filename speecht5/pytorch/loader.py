@@ -140,7 +140,9 @@ class ModelLoader(ForgeModel):
         # Create tokenized inputs
         model_inputs = self.processor(text=self.sample_text, return_tensors="pt")
 
-        decoder_input_values = torch.zeros((1, 1, self.model.config.num_mel_bins))
+        decoder_input_values = torch.zeros(
+            (1, 1, self.model.config.num_mel_bins), dtype=dtype_override
+        )
 
         # Return inputs as a dictionary
         inputs = {

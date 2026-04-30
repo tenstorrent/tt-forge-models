@@ -112,6 +112,11 @@ class ModelLoader(ForgeModel):
 
         return model
 
+    def unpack_forward_output(self, fwd_output):
+        from ...tools.utils import unpack_forward_output_default
+
+        return unpack_forward_output_default(fwd_output)
+
     def load_inputs(self, batch_size=1, dtype_override=None):
         """Generate sample inputs for the FPN model.
 

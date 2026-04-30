@@ -57,6 +57,7 @@ class ModelLoader(ForgeModel):
                      If None, DEFAULT_VARIANT is used.
         """
         super().__init__(variant)
+        self.model = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -103,6 +104,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model = model.to(dtype_override)
 
+        self.model = model
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
@@ -114,6 +116,12 @@ class ModelLoader(ForgeModel):
         Returns:
             list: Input tensors that can be fed to the model.
         """
+        # In training mode an internal BatchNorm operates on a [1, 256, 1, 1]
+        # tensor and rejects batch=1; bump to 2 only when the model is in
+        # training mode so the inference test (EXPECTED_PASSING) keeps batch=1.
+        if self.model is not None and self.model.training and batch_size < 2:
+            batch_size = 2
+
         # Load image from HuggingFace dataset (prepare_ssd_input expects a path)
         dataset = load_dataset("huggingface/cats-image")["test"]
         pil_image = dataset[0]["image"]
@@ -138,3 +146,8 @@ class ModelLoader(ForgeModel):
             input_batch = input_batch.to(dtype_override)
 
         return input_batch
+
+    def unpack_forward_output(self, fwd_output):
+        from ...tools.utils import unpack_forward_output_default
+
+        return unpack_forward_output_default(fwd_output)

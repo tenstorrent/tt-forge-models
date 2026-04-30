@@ -155,3 +155,8 @@ class ModelLoader(ForgeModel):
         #     inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
 
         return inputs
+
+    def unpack_forward_output(self, fwd_output):
+        from ...tools.utils import unpack_forward_output_default
+
+        return unpack_forward_output_default(fwd_output)

@@ -94,6 +94,11 @@ class ModelLoader(ForgeModel):
 
         return inputs
 
+    def unpack_forward_output(self, fwd_output):
+        from ...tools.utils import unpack_forward_output_default
+
+        return unpack_forward_output_default(fwd_output.logits)
+
     def decode_output(self, co_out):
         """Helper method to decode model outputs into human-readable text.
 

@@ -162,3 +162,8 @@ class ModelLoader(ForgeModel):
             dtype_override=dtype_override,
             batch_size=batch_size,
         )
+
+    def unpack_forward_output(self, fwd_output):
+        from ...tools.utils import unpack_forward_output_default
+
+        return unpack_forward_output_default(fwd_output)

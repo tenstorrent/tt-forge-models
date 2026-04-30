@@ -91,6 +91,11 @@ class ModelLoader(ForgeModel):
 
         return forward_inputs
 
+    def unpack_forward_output(self, fwd_output):
+        from ...tools.utils import unpack_forward_output_default
+
+        return unpack_forward_output_default(fwd_output)
+
     def load_config(self):
         """Load and return the configuration for the Bge-m3 model.
 
