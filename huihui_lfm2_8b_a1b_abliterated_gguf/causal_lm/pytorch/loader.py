@@ -278,17 +278,12 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
-        # GGUF metadata vocab_size only counts base BPE tokens (65536) but the
-        # embedding weight in the file has extra rows for special tokens like
-        # <|im_start|> (65536) and <|im_end|> (65537).  Pass a corrected config
-        # so the model's embed_tokens is wide enough to hold all tokenizer ids.
-        config = AutoConfig.from_pretrained(pretrained_model_name, gguf_file=self.GGUF_FILE)
-        tok_vocab_size = len(self.tokenizer)
-        if tok_vocab_size > config.vocab_size:
-            config.vocab_size = tok_vocab_size
         if self.num_layers is not None:
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
             config.num_hidden_layers = self.num_layers
-        model_kwargs["config"] = config
+            model_kwargs["config"] = config
 
         with self._lfm2moe_load_ctx():
             model = AutoModelForCausalLM.from_pretrained(
@@ -305,23 +300,11 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        messages = [
-            {
-                "role": "user",
-                "content": self.sample_text,
-            }
-        ]
-
-        if self.tokenizer.chat_template is not None:
-            text = self.tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True,
-            )
-        else:
-            text = self.sample_text
-
-        prompts = [text]
+        # The GGUF quantized embedding weight only covers the base BPE vocabulary
+        # (vocab_size=65536, indices 0-65535).  The chat template injects special
+        # tokens <|im_start|>=65536 and <|im_end|>=65537 that lie outside that
+        # range, causing IndexError in the embedding lookup.  Use plain text.
+        prompts = [self.sample_text]
 
         inputs = self.tokenizer(
             prompts,
