@@ -8,6 +8,17 @@ InternLM3 model loader implementation for causal language modeling (PyTorch).
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from typing import Optional
 
+# LossKwargs was used in transformers internals but never shipped in a public
+# release; inject a compatible shim so the remote model code can import it.
+import transformers.utils as _tf_utils
+if not hasattr(_tf_utils, "LossKwargs"):
+    from typing import TypedDict
+
+    class _LossKwargs(TypedDict, total=False):
+        num_items_in_batch: Optional[int]
+
+    _tf_utils.LossKwargs = _LossKwargs
+
 from ....config import (
     LLMModelConfig,
     ModelInfo,
