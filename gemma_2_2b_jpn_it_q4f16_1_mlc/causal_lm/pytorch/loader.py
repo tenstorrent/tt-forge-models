@@ -4,10 +4,8 @@
 """
 Gemma 2 2B JPN IT Q4F16_1 MLC model loader implementation for causal language modeling.
 """
-import json
 import torch
-from huggingface_hub import hf_hub_download
-from transformers import AutoModelForCausalLM, AutoTokenizer, Gemma2Config
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -33,12 +31,14 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.GEMMA_2_2B_JPN_IT_Q4F16_1_MLC: LLMModelConfig(
-            pretrained_model_name="mlc-ai/gemma-2-2b-jpn-it-q4f16_1-MLC",
+            pretrained_model_name="bartowski/gemma-2-2b-jpn-it-GGUF",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.GEMMA_2_2B_JPN_IT_Q4F16_1_MLC
+
+    GGUF_FILE = "gemma-2-2b-jpn-it-Q4_K_M.gguf"
 
     sample_text = "富士山の高さは何メートルですか？"
 
@@ -61,40 +61,10 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _build_config_from_mlc(self, num_layers=None):
-        """Build a Gemma2Config from mlc-chat-config.json since the repo lacks config.json."""
-        config_path = hf_hub_download(
-            self._variant_config.pretrained_model_name, "mlc-chat-config.json"
-        )
-        with open(config_path) as f:
-            mlc_config = json.load(f)
-
-        mc = mlc_config["model_config"]
-        n_layers = num_layers if num_layers is not None else mc["num_hidden_layers"]
-        return Gemma2Config(
-            vocab_size=mlc_config.get("vocab_size", 256000),
-            hidden_size=mc["hidden_size"],
-            intermediate_size=mc["intermediate_size"],
-            num_hidden_layers=n_layers,
-            num_attention_heads=mc["num_attention_heads"],
-            num_key_value_heads=mc["num_key_value_heads"],
-            head_dim=mc["head_dim"],
-            hidden_activation=mc.get("hidden_activation", "gelu_pytorch_tanh"),
-            max_position_embeddings=mc.get("context_window_size", 4096),
-            rms_norm_eps=mc["rms_norm_eps"],
-            attention_bias=mc.get("attention_bias", False),
-            attn_logit_softcapping=mc.get("attn_logit_softcapping", 50.0),
-            final_logit_softcapping=mc.get("final_logit_softcapping", 30.0),
-            query_pre_attn_scalar=mc.get("query_pre_attn_scalar", 224),
-            sliding_window=mc.get("sliding_window", 4096),
-            pad_token_id=mlc_config.get("pad_token_id", 0),
-            eos_token_id=mlc_config.get("eos_token_id", 1),
-            bos_token_id=mlc_config.get("bos_token_id", 2),
-        )
-
     def _load_tokenizer(self, dtype_override=None):
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name,
+            gguf_file=self.GGUF_FILE,
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -102,17 +72,27 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        pretrained_model_name = self._variant_config.pretrained_model_name
+
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        config = self._build_config_from_mlc(num_layers=self.num_layers)
-
         model_kwargs = {}
         if dtype_override is not None:
-            model_kwargs["dtype"] = dtype_override
+            model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs["gguf_file"] = self.GGUF_FILE
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_config(config, **model_kwargs).eval()
+        if self.num_layers is not None:
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
+            config.num_hidden_layers = self.num_layers
+            model_kwargs["config"] = config
+
+        model = AutoModelForCausalLM.from_pretrained(
+            pretrained_model_name, **model_kwargs
+        ).eval()
 
         self.config = model.config
         self.model = model
@@ -151,6 +131,26 @@ class ModelLoader(ForgeModel):
 
         return inputs
 
+    def get_mesh_config(self, num_devices: int):
+        mesh_shape = (1, num_devices)
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        shard_specs = {}
+        for layer in model.model.layers:
+            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+
+            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+        return shard_specs
+
     def load_config(self):
-        self.config = self._build_config_from_mlc()
+        self.config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            gguf_file=self.GGUF_FILE,
+        )
         return self.config
