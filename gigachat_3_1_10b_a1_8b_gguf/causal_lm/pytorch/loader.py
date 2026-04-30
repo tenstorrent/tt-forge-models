@@ -407,6 +407,10 @@ class ModelLoader(ForgeModel):
                 pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
             ).eval()
 
+        # grouped_mm_experts_forward uses torch.histc on integer input which is
+        # unsupported on XLA; batched_mm_experts_forward avoids this.
+        model.config._experts_implementation = "batched_mm"
+
         self.config = model.config
         self.model = model
         return model
@@ -449,7 +453,8 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        with _deepseek2_load_ctx(model_to_load=None):
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
         return self.config
