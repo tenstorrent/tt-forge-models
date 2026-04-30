@@ -39,6 +39,10 @@ def _patch_mistral3_support():
             ] = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["mistral"]
     if "mistral3" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["mistral3"] = GGUFLlamaConverter
+    # tokenization_utils_tokenizers.py reads architecture from model_type (which
+    # we rewrite to "mistral"), so we must also register the plain "mistral" key.
+    if "mistral" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["mistral"] = GGUFLlamaConverter
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False):
