@@ -9,12 +9,51 @@ model is too large to load directly.
 """
 
 import os
+import sys
 from typing import Optional
 from unittest.mock import patch
 
 import torch
+import transformers
+import transformers.utils.import_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.cache_utils import DynamicCache
 from transformers.dynamic_module_utils import get_imports
+
+# transformers 5.x removed is_torch_fx_available from import_utils; remote
+# model code (modeling_deepseek.py) imports it at module level.
+if not hasattr(transformers.utils.import_utils, "is_torch_fx_available"):
+
+    def _is_torch_fx_available():
+        return False
+
+    transformers.utils.import_utils.is_torch_fx_available = _is_torch_fx_available
+    sys.modules["transformers.utils.import_utils"].__dict__[
+        "is_torch_fx_available"
+    ] = _is_torch_fx_available
+
+# transformers 5.x removed DynamicCache.from_legacy_cache; remote model code
+# calls it when past_key_values is not already a Cache instance.
+if not hasattr(DynamicCache, "from_legacy_cache"):
+
+    @classmethod  # type: ignore[misc]
+    def _from_legacy_cache(cls, past_key_values=None):
+        cache = cls()
+        if past_key_values is not None:
+            for layer_idx, (key, value) in enumerate(past_key_values):
+                cache.update(key, value, layer_idx)
+        return cache
+
+    DynamicCache.from_legacy_cache = _from_legacy_cache
+
+# transformers 5.x removed DynamicCache.get_usable_length; for DynamicCache
+# it was equivalent to get_seq_length (no static max length).
+if not hasattr(DynamicCache, "get_usable_length"):
+
+    def _get_usable_length(self, new_seq_length, layer_idx=0):
+        return self.get_seq_length(layer_idx)
+
+    DynamicCache.get_usable_length = _get_usable_length
 
 from ....base import ForgeModel
 from ....config import (
