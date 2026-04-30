@@ -4,17 +4,16 @@
 """
 GLM-4.6V-FP8 model loader implementation for multimodal conditional generation.
 
-The model uses compressed-tensors FP8 quantization (weights stored as float8_e4m3fn,
-activations dynamically quantized at runtime). The default experts implementation
-(grouped_mm / eager) calls matmul with float8 matrices, which is unsupported on
-CPU and TT device. We post-load-patch each Glm4vMoeTextNaiveMoe.forward with a
-static per-expert masked matmul that casts FP8 weights to the model dtype (bfloat16)
-before each F.linear call. This bypasses the @use_experts_implementation dispatch,
-which validates implementation names against a fixed allowlist.
+The model uses compressed-tensors FP8 quantization (weights stored as float8_e4m3fn).
+The stacked expert Parameters (gate_up_proj, down_proj in Glm4vMoeTextNaiveMoe) are
+not wrapped by compressed-tensors CompressedLinear, so torch._grouped_mm receives
+raw FP8 tensors. This is unsupported on CPU and TT device. We dequantize those
+Parameters to bfloat16 after loading so the default grouped_mm path can proceed.
+
+Note: the full model is ~100 GB in FP8 and ~200 GB in BF16, far exceeding n150's
+~12 GB single-device DRAM. This test is KNOWN_FAILURE_XFAIL (hardware-class).
 """
-import types
 import torch
-import torch.nn.functional as F
 from transformers import AutoProcessor, Glm4vMoeForConditionalGeneration
 from transformers.models.glm4v_moe.modeling_glm4v_moe import Glm4vMoeTextNaiveMoe
 from typing import Optional
@@ -33,28 +32,16 @@ from ....tools.utils import cast_input_to_type, get_file
 from PIL import Image
 
 
-def _static_fp8_experts_forward(self, hidden_states, top_k_index, top_k_weights):
-    # Static per-expert masked matmul with explicit FP8→dtype cast on weights.
-    # Avoids torch._grouped_mm / F.linear with float8 (unsupported on CPU/TT).
-    # Also avoids torch.nonzero / torch.where (dynamic shapes on TT XLA).
-    dtype = hidden_states.dtype
-    out = torch.zeros_like(hidden_states)
-    for expert_idx in range(self.num_experts):
-        mask = (top_k_index == expert_idx)  # [tokens, top_k]
-        weight = (mask.to(dtype) * top_k_weights.to(dtype)).sum(dim=-1, keepdim=True)
-        gate_up = F.linear(hidden_states, self.gate_up_proj[expert_idx].to(dtype))
-        gate, up = gate_up.chunk(2, dim=-1)
-        hidden_expert = F.linear(
-            self.act_fn(gate) * up, self.down_proj[expert_idx].to(dtype)
-        )
-        out = out + hidden_expert * weight
-    return out.to(dtype)
-
-
-def _patch_experts(model):
+def _dequantize_fp8_experts(model, dtype=torch.bfloat16):
+    # The Glm4vMoeTextNaiveMoe stores gate_up_proj and down_proj as stacked
+    # nn.Parameters in float8_e4m3fn. torch._grouped_mm requires float32/bf16/fp16.
+    # Cast to bf16 so the default grouped_mm dispatch works on CPU and TT.
     for module in model.modules():
         if isinstance(module, Glm4vMoeTextNaiveMoe):
-            module.forward = types.MethodType(_static_fp8_experts_forward, module)
+            if module.gate_up_proj.dtype == torch.float8_e4m3fn:
+                module.gate_up_proj.data = module.gate_up_proj.data.to(dtype)
+            if module.down_proj.dtype == torch.float8_e4m3fn:
+                module.down_proj.data = module.down_proj.data.to(dtype)
 
 
 class ModelVariant(StrEnum):
@@ -117,7 +104,7 @@ class ModelLoader(ForgeModel):
         model = Glm4vMoeForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
-        _patch_experts(model)
+        _dequantize_fp8_experts(model, dtype=dtype_override or torch.bfloat16)
         model.eval()
         self.model = model
         self.config = model.config
