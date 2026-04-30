@@ -180,13 +180,31 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             pixel_values = pixel_values.to(dtype_override)
 
+        # LLaDA is a masked diffusion model. The forward() unconditionally indexes
+        # into `labels` before the `if labels is not None` guard, so we must always
+        # provide a labels tensor.  Append mask_id response tokens so the model can
+        # exercise its full diffusion forward path; prompt positions get -100 (ignored).
+        MASK_ID = 126336
+        response_len = 32
+        response_ids = torch.full((1, response_len), MASK_ID, dtype=input_ids.dtype)
+        prompt_labels = torch.full_like(input_ids, -100)
+        response_labels = response_ids.clone()
+        labels = torch.cat([prompt_labels, response_labels], dim=1)
+        input_ids = torch.cat([input_ids, response_ids], dim=1)
+        attention_mask = torch.cat(
+            [attention_mask, torch.ones(1, response_len, dtype=attention_mask.dtype)],
+            dim=1,
+        )
+
         if batch_size > 1:
             input_ids = input_ids.repeat_interleave(batch_size, dim=0)
             attention_mask = attention_mask.repeat_interleave(batch_size, dim=0)
             pixel_values = pixel_values.repeat_interleave(batch_size, dim=0)
+            labels = labels.repeat_interleave(batch_size, dim=0)
 
         return {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
             "images": pixel_values,
+            "labels": labels,
         }
