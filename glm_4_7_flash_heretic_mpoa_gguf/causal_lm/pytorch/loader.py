@@ -41,13 +41,18 @@ def _patch_deepseek_v2_gguf():
     _orig_get_map = gguf_utils.get_gguf_hf_weights_map
 
     def _patched_get_gguf_hf_weights_map(hf_model, processor=None, model_type=None, num_layers=None, qual_name=""):
-        cfg = getattr(hf_model, "config", None)
-        if getattr(cfg, "model_type", None) == "deepseek_v2":
-            cfg.model_type = "deepseek2"
-            try:
-                return _orig_get_map(hf_model, processor, model_type=model_type, num_layers=num_layers, qual_name=qual_name)
-            finally:
-                cfg.model_type = "deepseek_v2"
+        # momix_44 and similar loaders eagerly resolve model_type from config and
+        # pass it as an explicit positional arg, so we must handle both cases.
+        if model_type == "deepseek_v2":
+            model_type = "deepseek2"
+        elif model_type is None:
+            cfg = getattr(hf_model, "config", None)
+            if getattr(cfg, "model_type", None) == "deepseek_v2":
+                cfg.model_type = "deepseek2"
+                try:
+                    return _orig_get_map(hf_model, processor, model_type="deepseek2", num_layers=num_layers, qual_name=qual_name)
+                finally:
+                    cfg.model_type = "deepseek_v2"
         return _orig_get_map(hf_model, processor, model_type=model_type, num_layers=num_layers, qual_name=qual_name)
 
     gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
