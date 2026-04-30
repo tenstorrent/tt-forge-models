@@ -62,7 +62,11 @@ GGUF_CONFIG_MAPPING["gpt-oss"] = {
 if "gpt-oss" not in GGUF_SUPPORTED_ARCHITECTURES:
     GGUF_SUPPORTED_ARCHITECTURES.append("gpt-oss")
 
+# Register both the GGUF arch key ("gpt-oss") and the HF model_type key ("gpt_oss").
+# Tokenizer loading in tokenization_utils_tokenizers.py looks up by model_type,
+# while model loading looks up by GGUF arch, so both are needed.
 GGUF_TO_FAST_CONVERTERS["gpt-oss"] = GGUFGPTConverter
+GGUF_TO_FAST_CONVERTERS["gpt_oss"] = GGUFGPTConverter
 
 
 class GptOssTensorProcessor(Qwen2MoeTensorProcessor):
