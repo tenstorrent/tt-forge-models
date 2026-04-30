@@ -99,6 +99,7 @@ class ModelLoader(ForgeModel):
 
         model_kwargs = {
             "trust_remote_code": True,
+            "attn_implementation": "eager",
         }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
@@ -108,6 +109,9 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
         model.eval()
+        # transformers 5.x removed DynamicCache.to_legacy_cache(); disable KV
+        # cache to avoid the legacy-cache conversion path in the forward method.
+        model.config.use_cache = False
 
         return model
 
