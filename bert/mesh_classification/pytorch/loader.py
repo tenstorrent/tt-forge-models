@@ -68,6 +68,7 @@ class ModelLoader(ForgeModel):
         model = AutoModel.from_pretrained(
             pretrained_model_name,
             trust_remote_code=True,
+            low_cpu_mem_usage=False,
             **model_kwargs,
         )
         self.model = model
