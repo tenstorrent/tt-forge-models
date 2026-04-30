@@ -20,6 +20,77 @@ from ....config import (
 )
 
 
+def _patch_transformers_qwen2vl_gguf():
+    """Monkey-patch transformers to add qwen2vl GGUF architecture support.
+
+    Transformers 5.x lacks GGUF loading for the qwen2vl architecture.
+    Cosmos-Reason1-7B GGUF only contains language model weights (no vision
+    encoder), so we load them as qwen2 (same tensor naming, same LLM structure).
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "qwen2vl" in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # Already patched
+
+    # 1. Register qwen2vl as a supported architecture
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen2vl")
+
+    # 2. Add config mapping for qwen2vl (same structure as qwen2; the GGUF
+    #    contains rope.dimension_sections for mrope which we map to None since
+    #    the text-only qwen2 path uses standard 1D RoPE)
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen2vl"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_sections": None,
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+    }
+
+    # 3. Register qwen2vl tokenizer converter (BPE, same as qwen2)
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    if "qwen2vl" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["qwen2vl"] = GGUFQwen2Converter
+
+    # 4. Wrap load_gguf_checkpoint to rewrite model_type qwen2vl → qwen2 and
+    #    set attention_bias=True (Cosmos-Reason1 attention has Q/K/V biases)
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def _patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "qwen2vl":
+            config["model_type"] = "qwen2"
+            config["attention_bias"] = True
+        return result
+
+    gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+
+# Apply the monkey-patch at import time
+_patch_transformers_qwen2vl_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available Cosmos Reason1 GGUF model variants for causal language modeling."""
 
