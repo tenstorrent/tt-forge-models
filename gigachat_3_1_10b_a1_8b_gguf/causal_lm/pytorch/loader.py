@@ -6,13 +6,16 @@ GigaChat 3.1 10B A1.8B GGUF model loader implementation for causal language mode
 """
 import contextlib
 import importlib.util
+import re as _re
 import threading
 from typing import Optional
 
+import numpy as np
 import torch
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFQwen2Converter
+from transformers.modeling_gguf_pytorch_utils import GGUFTensor, TensorProcessor
 
 _model_to_load_ctx = threading.local()
 
@@ -42,11 +45,63 @@ def _patched_is_gguf_available(*args, **kwargs):
 _gguf_utils.is_gguf_available = _patched_is_gguf_available
 
 
+class DeepSeekMLATensorProcessor(TensorProcessor):
+    """Combine GigaChat's split attn_k_b / attn_v_b 3-D tensors into kv_b_proj."""
+
+    def __init__(self, config=None):
+        super().__init__(config=config)
+        self._staged_k_b = {}  # layer_idx -> ndarray
+        self._staged_v_b = {}  # layer_idx -> ndarray
+
+    def _try_combine(self, layer_idx, parsed_parameters):
+        k_b = self._staged_k_b.get(layer_idx)
+        v_b = self._staged_v_b.get(layer_idx)
+        if k_b is None or v_b is None:
+            return
+
+        num_heads = self.config.get("num_attention_heads", 32)
+        kv_lora_rank = self.config.get("kv_lora_rank", 512)
+        # config["qk_nope_head_dim"] is set from GGUF key_length_mla which is the
+        # FULL qk_head_dim (nope + rope = 128 + 64 = 192), not just the nope part.
+        # Subtract qk_rope_head_dim to get the true qk_nope_head_dim.
+        qk_nope_head_dim = self.config.get("qk_nope_head_dim", 192) - self.config.get(
+            "qk_rope_head_dim", 64
+        )
+        v_head_dim = self.config.get("v_head_dim", 192)
+
+        # k_b: (num_heads, kv_lora_rank, qk_nope_head_dim) -> (num_heads*qk_nope_head_dim, kv_lora_rank)
+        k_b_2d = np.transpose(k_b, (0, 2, 1)).reshape(num_heads * qk_nope_head_dim, kv_lora_rank)
+        # v_b: (num_heads, v_head_dim, kv_lora_rank) -> (num_heads*v_head_dim, kv_lora_rank)
+        v_b_2d = v_b.reshape(num_heads * v_head_dim, kv_lora_rank)
+
+        kv_b = np.concatenate([k_b_2d, v_b_2d], axis=0)  # (10240, 512)
+        hf_name = f"model.layers.{layer_idx}.self_attn.kv_b_proj.weight"
+        parsed_parameters["tensors"][hf_name] = torch.from_numpy(np.copy(kv_b))
+
+        del self._staged_k_b[layer_idx]
+        del self._staged_v_b[layer_idx]
+
+    def process(self, weights, name, **kwargs):
+        if "attn_k_b" in name or "attn_v_b" in name:
+            parsed_parameters = kwargs.get("parsed_parameters")
+            m = _re.search(r"blk\.(\d+)\.", name)
+            if m and parsed_parameters is not None:
+                layer_idx = int(m.group(1))
+                if "attn_k_b" in name:
+                    self._staged_k_b[layer_idx] = weights
+                else:
+                    self._staged_v_b[layer_idx] = weights
+                self._try_combine(layer_idx, parsed_parameters)
+                return GGUFTensor(weights, None, {})  # skip normal mapping
+        return GGUFTensor(weights, name, {})
+
+
 def _patch_deepseek2_gguf_support():
     """Register deepseek2 GGUF architecture and map it to HF deepseek_v2 model type."""
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_SUPPORTED_ARCHITECTURES,
         GGUF_TO_TRANSFORMERS_MAPPING,
+        TENSOR_PROCESSORS,
     )
 
     # Always register both tokenizer converters: another loader (e.g. glm_4_7_flash_gguf)
@@ -55,6 +110,9 @@ def _patch_deepseek2_gguf_support():
     # this model's GGUF tokenizer architecture field).
     GGUF_TO_FAST_CONVERTERS.setdefault("deepseek2", GGUFQwen2Converter)
     GGUF_TO_FAST_CONVERTERS.setdefault("deepseek_v2", GGUFQwen2Converter)
+
+    # Always register the MLA tensor processor so k_b/v_b are combined into kv_b_proj.
+    TENSOR_PROCESSORS.setdefault("deepseek2", DeepSeekMLATensorProcessor)
 
     if "deepseek2" in GGUF_SUPPORTED_ARCHITECTURES:
         return  # Config mapping already set by another loader; load patches applied at runtime
@@ -65,7 +123,8 @@ def _patch_deepseek2_gguf_support():
     # attention.head_count_kv is intentionally omitted: in GigaChat MLA the GGUF
     # stores the compressed KV head count (1), but HF needs num_key_value_heads ==
     # num_attention_heads so that repeat_kv is a no-op after kv_b_proj expansion.
-    # attention.key_length_mla is the nope head dim; rope.dimension_count is the rope head dim.
+    # attention.key_length_mla is the full qk_head_dim (nope+rope); we store it
+    # under qk_nope_head_dim and subtract qk_rope_head_dim in _runtime_load_gguf_checkpoint.
     GGUF_TO_TRANSFORMERS_MAPPING["config"]["deepseek2"] = {
         "context_length": "max_position_embeddings",
         "block_count": "num_hidden_layers",
@@ -159,6 +218,20 @@ def _deepseek2_load_ctx(model_to_load):
             # model instantiates q_proj instead of q_a_proj + q_b_proj.
             if "q_lora_rank" not in config:
                 config["q_lora_rank"] = None
+            # MLA: num_key_value_heads must equal num_attention_heads so that
+            # repeat_kv is a no-op after kv_b_proj expands to all heads.
+            # The GGUF stores attention.head_count_kv=1 (compressed KV), which
+            # would cause repeat_kv to expand 32 heads → 1024 heads.
+            if "num_attention_heads" in config:
+                config["num_key_value_heads"] = config["num_attention_heads"]
+            # attention.key_length_mla in the GGUF is the FULL qk_head_dim
+            # (qk_nope_head_dim + qk_rope_head_dim = 128 + 64 = 192), but it is
+            # mapped to qk_nope_head_dim.  Subtract qk_rope_head_dim to get the
+            # true nope dimension.
+            if "qk_nope_head_dim" in config and "qk_rope_head_dim" in config:
+                config["qk_nope_head_dim"] = (
+                    config["qk_nope_head_dim"] - config["qk_rope_head_dim"]
+                )
         return result
 
     # Ensure the get_map patch is in place (may have been skipped at import if
@@ -239,9 +312,6 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
-
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
@@ -256,6 +326,8 @@ class ModelLoader(ForgeModel):
             model_kwargs["config"] = config
 
         with _deepseek2_load_ctx(model_to_load=None):
+            if self.tokenizer is None:
+                self._load_tokenizer(dtype_override=dtype_override)
             model = AutoModelForCausalLM.from_pretrained(
                 pretrained_model_name, ignore_mismatched_sizes=True, **model_kwargs
             ).eval()
@@ -266,7 +338,8 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            with _deepseek2_load_ctx(model_to_load=None):
+                self._load_tokenizer(dtype_override=dtype_override)
 
         max_length = self._variant_config.max_length
 
