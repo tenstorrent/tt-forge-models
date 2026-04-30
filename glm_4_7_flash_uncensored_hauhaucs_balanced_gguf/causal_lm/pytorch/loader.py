@@ -258,7 +258,45 @@ def _deepseek2_gguf_load_ctx():
         TENSOR_PROCESSORS.update(saved_procs)
 
 
+def _patch_deepseek_real_rope():
+    """Replace complex-arithmetic RoPE with real equivalents for TT compatibility.
+
+    TT hardware/StableHLO lowering doesn't support complex-tensor multiplication.
+    DeepseekV2RotaryEmbedding.forward uses torch.polar + complex mul; we replace it
+    with cos/sin in float32.  apply_rotary_emb likewise uses view_as_complex + complex
+    mul; we replace it with the equivalent interleaved real rotation.
+
+    Patched at class level (not per-instance) so that Dynamo traces the real path.
+    """
+    import transformers.models.deepseek_v2.modeling_deepseek_v2 as ds2_mod
+
+    @torch.no_grad()
+    def _real_rotary_forward(self, x, position_ids):
+        inv_freq_expanded = self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1)
+        position_ids_expanded = position_ids[:, None, :].float()
+        freqs = (inv_freq_expanded.to(x.device) @ position_ids_expanded).transpose(1, 2)
+        cos = freqs.cos() * self.attention_scaling  # [batch, seq, head_dim//2]
+        sin = freqs.sin() * self.attention_scaling
+        return torch.stack([cos, sin], dim=-1)  # [batch, seq, head_dim//2, 2]
+
+    def _real_apply_rotary_emb(xq, xk, freqs):
+        # freqs: [batch, seq, head_dim//2, 2] — last dim is [cos, sin]
+        cos = freqs[..., 0].unsqueeze(1)  # [batch, 1, seq, head_dim//2]
+        sin = freqs[..., 1].unsqueeze(1)
+        xq = xq.float()
+        xk = xk.float()
+        xq_r, xq_i = xq[..., 0::2], xq[..., 1::2]
+        xk_r, xk_i = xk[..., 0::2], xk[..., 1::2]
+        xq_out = torch.stack([xq_r * cos - xq_i * sin, xq_r * sin + xq_i * cos], dim=-1).flatten(-2)
+        xk_out = torch.stack([xk_r * cos - xk_i * sin, xk_r * sin + xk_i * cos], dim=-1).flatten(-2)
+        return xq_out.to(xq.dtype), xk_out.to(xk.dtype)
+
+    ds2_mod.DeepseekV2RotaryEmbedding.forward = _real_rotary_forward
+    ds2_mod.apply_rotary_emb = _real_apply_rotary_emb
+
+
 _register_deepseek2_gguf_support()
+_patch_deepseek_real_rope()
 from ....config import (
     Framework,
     LLMModelConfig,
