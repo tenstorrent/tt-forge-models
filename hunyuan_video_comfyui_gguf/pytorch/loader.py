@@ -26,7 +26,8 @@ from ...config import (
     StrEnum,
 )
 
-GGUF_BASE_URL = "https://huggingface.co/Kijai/HunyuanVideo_comfy/blob/main"
+GGUF_REPO = "Kijai/HunyuanVideo_comfy"
+GGUF_BASE_URL = f"https://huggingface.co/{GGUF_REPO}/blob/main"
 
 
 class ModelVariant(StrEnum):
@@ -74,20 +75,26 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import diffusers.utils.import_utils as _diffusers_import_utils
+
+        if not _diffusers_import_utils._gguf_available:
+            import importlib.util
+
+            if importlib.util.find_spec("gguf") is not None:
+                _diffusers_import_utils._gguf_available = True
+
+        from diffusers import GGUFQuantizationConfig
+
+        compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
         gguf_file = self._GGUF_FILES[self._variant]
         gguf_url = f"{GGUF_BASE_URL}/{gguf_file}"
-
-        load_kwargs = {}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
+        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
 
         self.transformer = HunyuanVideoTransformer3DModel.from_single_file(
             gguf_url,
-            **load_kwargs,
+            quantization_config=quantization_config,
+            torch_dtype=compute_dtype,
         )
-
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
 
         return self.transformer
 
@@ -133,5 +140,8 @@ class ModelLoader(ForgeModel):
             "encoder_attention_mask": encoder_attention_mask,
             "pooled_projections": pooled_projections,
         }
+
+        if getattr(config, "guidance_embeds", False):
+            inputs["guidance"] = torch.tensor([3.5], dtype=dtype).expand(batch_size)
 
         return inputs
