@@ -9,7 +9,9 @@ separate branches of the HuggingFace repository. Both variants use the
 compressed-tensors runtime format with MoE-aware calibration.
 """
 import torch
+import torch.nn.functional as F
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.integrations.moe import ALL_EXPERTS_FUNCTIONS
 from typing import Optional
 
 from ....base import ForgeModel
@@ -22,6 +24,27 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _tt_static_glm4_moe_lite_forward(experts_module, hidden_states, top_k_index, top_k_weights):
+    # Per-expert masked matmul. Avoids grouped_mm (histc on Int, unsupported on XLA)
+    # and batched_mm (3D dynamic gather, L1 CB overflow).
+    # Loop over Python ints so dynamo unrolls into static F.linear calls.
+    dtype = hidden_states.dtype
+    out = torch.zeros_like(hidden_states)
+    for expert_idx in range(experts_module.num_experts):
+        mask = (top_k_index == expert_idx)  # [tokens, top_k]
+        weight = (mask.to(dtype) * top_k_weights.to(dtype)).sum(dim=-1, keepdim=True)
+        gate_up = F.linear(hidden_states, experts_module.gate_up_proj[expert_idx])
+        gate, up = gate_up.chunk(2, dim=-1)
+        hidden_expert = F.linear(
+            experts_module.act_fn(gate) * up, experts_module.down_proj[expert_idx]
+        )
+        out = out + hidden_expert * weight
+    return out.to(dtype)
+
+
+ALL_EXPERTS_FUNCTIONS["tt_static_glm4_moe_lite"] = _tt_static_glm4_moe_lite_forward
 
 
 class ModelVariant(StrEnum):
@@ -112,6 +135,10 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, revision=revision, **model_kwargs
         ).eval()
+
+        # Override grouped_mm dispatch (histc on Int unsupported on XLA) with
+        # a static per-expert loop that dynamo can unroll.
+        model.config._experts_implementation = "tt_static_glm4_moe_lite"
 
         self.config = model.config
         self.model = model
