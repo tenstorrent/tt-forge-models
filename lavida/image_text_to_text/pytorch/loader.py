@@ -95,6 +95,32 @@ class ModelLoader(ForgeModel):
 
         LLaDAModelLM.tie_weights = _tie_weights_compat
 
+        # Fix 1b: LlavaLladaForMaskedDiffusion.forward calls super().forward() with
+        # position_ids, prompt_len, and num_items_in_batch kwargs, but LLaDAModelLM.forward
+        # does not accept those parameters (they are silently unused for this architecture).
+        _orig_lm_forward = LLaDAModelLM.forward
+
+        def _lm_forward_compat(self, input_ids=None, inputs_embeds=None,
+                               attention_mask=None, attention_bias=None,
+                               past_key_values=None, labels=None, use_cache=None,
+                               output_attentions=None, output_hidden_states=None,
+                               return_dict=None, cache_position=None, **kwargs):
+            return _orig_lm_forward(
+                self, input_ids=input_ids, inputs_embeds=inputs_embeds,
+                attention_mask=attention_mask, attention_bias=attention_bias,
+                past_key_values=past_key_values, labels=labels, use_cache=use_cache,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states, return_dict=return_dict,
+                cache_position=cache_position,
+            )
+
+        LLaDAModelLM.forward = _lm_forward_compat
+
+        SigLipVisionTower = get_class_from_dynamic_module(
+            "modeling_lavida.SigLipVisionTower",
+            pretrained_model_name,
+        )
+
         # Fix 2: SigLipVisionConfig.from_pretrained calls cls._set_token_in_kwargs() which
         # was removed in transformers 5.x.  Add a no-op shim so vision tower loading works.
         if not hasattr(SigLipVisionConfig, "_set_token_in_kwargs"):
@@ -116,12 +142,42 @@ class ModelLoader(ForgeModel):
         # "mm_vision_tower", bypassing the delay_load guard.
         config = AutoConfig.from_pretrained(pretrained_model_name, trust_remote_code=True)
         config.delay_load = True
+        # Fix 4: LLaDAConfig.__init__ sets use_cache=False via kwargs but the HF JSON
+        # omits it; transformers 5.x no longer falls back to None for missing attrs.
+        if not hasattr(config, "use_cache"):
+            config.use_cache = False
         if getattr(config, "mm_tunable_parts", None):
             parts = [
                 p for p in config.mm_tunable_parts.split(",")
                 if p.strip() != "mm_vision_tower"
             ]
             config.mm_tunable_parts = ",".join(parts)
+
+        # Fix 3b: SigLipVisionModel.from_pretrained runs inside the standard
+        # get_init_context which includes torch.device("meta").  The non-persistent
+        # position_ids buffer (register_buffer persistent=False) is not in the
+        # checkpoint, so it is never materialized from meta and ends up as garbage.
+        # Patch load_model to re-initialize position_ids after from_pretrained.
+        SigLipVisionEmbeddings = get_class_from_dynamic_module(
+            "modeling_lavida.SigLipVisionEmbeddings",
+            pretrained_model_name,
+        )
+        _orig_vt_load_model = SigLipVisionTower.load_model
+
+        def _patched_vt_load_model(self, device_map=None):
+            _orig_vt_load_model(self, device_map=device_map)
+            # Re-initialize non-persistent position_ids; it remains as a meta/garbage
+            # tensor because it is not in the vision-tower checkpoint.
+            emb = self.vision_tower.vision_model.embeddings
+            if isinstance(emb, SigLipVisionEmbeddings):
+                num_pos = emb.num_positions
+                emb.register_buffer(
+                    "position_ids",
+                    torch.arange(num_pos).expand((1, -1)),
+                    persistent=False,
+                )
+
+        SigLipVisionTower.load_model = _patched_vt_load_model
 
         model_kwargs = {"trust_remote_code": True, "config": config}
         if dtype_override is not None:
@@ -137,8 +193,23 @@ class ModelLoader(ForgeModel):
         if vision_tower is not None and not vision_tower.is_loaded:
             vision_tower.load_model()
 
+        SigLipVisionTower.load_model = _orig_vt_load_model
+
         model.resize_token_embeddings(len(self.tokenizer))
         model.eval()
+
+        # Fix 8: LLaDATransformer._activation_checkpoint_fn is unconditionally set to
+        # partial(checkpoint, use_reentrant=False). PyTorch 2.7's use_reentrant=False
+        # path calls _get_device_module("xla") → getattr(torch, "xla") which raises
+        # AttributeError because torch.xla is not accessible as a torch attribute.
+        # Gradient checkpointing is not needed for inference; replace with a plain call.
+        def _plain_checkpoint(fn, *args, **kwargs):
+            return fn(*args)
+
+        for m in model.modules():
+            if getattr(m, "_activation_checkpoint_fn", None) is not None:
+                m._activation_checkpoint_fn = _plain_checkpoint
+
         self.model = model
         return model
 
