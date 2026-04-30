@@ -26,8 +26,38 @@ from transformers.modeling_gguf_pytorch_utils import (
     GGUFTensor,
     TensorProcessor,
     TENSOR_PROCESSORS,
-    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    load_gguf_checkpoint as _captured_load_gguf_checkpoint,
 )
+
+
+def _find_real_load_gguf():
+    """Walk the patch chain to find the real transformers load_gguf_checkpoint.
+
+    Other GGUF loaders imported earlier (e.g. bartowski_coniccat) replace
+    the module attribute with a fixed-signature wrapper, then capture the
+    previous function in their own _orig_load_gguf_checkpoint global.  Walking
+    the __globals__ chain reaches the real transformers function that accepts
+    model_to_load and other kwargs added in transformers 5.x.
+    """
+    fn = _captured_load_gguf_checkpoint
+    seen: set = set()
+    while True:
+        fn_id = id(fn)
+        if fn_id in seen:
+            break
+        seen.add(fn_id)
+        next_fn = (
+            fn.__globals__.get("_orig_load_gguf_checkpoint")
+            if hasattr(fn, "__globals__")
+            else None
+        )
+        if next_fn is None or id(next_fn) in seen:
+            break
+        fn = next_fn
+    return fn
+
+
+_orig_load_gguf_checkpoint = _find_real_load_gguf()
 
 from ....base import ForgeModel
 from ....config import (
