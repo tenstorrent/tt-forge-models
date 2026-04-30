@@ -33,6 +33,7 @@ from .src.utils import (
     load_vae,
     load_vae_decoder_inputs,
     load_vae_encoder_inputs,
+    load_t2v_transformer_inputs,
 )
 
 SUPPORTED_SUBFOLDERS = {"vae"}
@@ -145,27 +146,44 @@ class ModelLoader(ForgeModel):
             return load_vae(self._variant_config.pretrained_model_name, dtype)
 
         if self.pipeline is None:
-            return self._load_pipeline(
+            self._load_pipeline(
                 dtype_override=dtype_override,
                 device_map=device_map,
                 low_cpu_mem_usage=low_cpu_mem_usage,
                 extra_pipe_kwargs=extra_pipe_kwargs,
             )
-
-        if dtype_override is not None:
+        elif dtype_override is not None:
             self.pipeline = self.pipeline.to(dtype=dtype_override)
+
+        if self._variant == ModelVariant.WAN21_T2V_14B:
+            # Return the transformer (WanTransformer3DModel) for tt-xla
+            # compile-only single-forward testing, mirroring the VACE-14B
+            # bringup pattern.
+            return self.pipeline.transformer
 
         return self.pipeline
 
-    def load_inputs(self, prompt: Optional[str] = None, **kwargs) -> Any:
+    def load_inputs(
+        self,
+        prompt: Optional[str] = None,
+        dtype_override: Optional[torch.dtype] = None,
+        **kwargs,
+    ) -> Any:
         """
         Prepare inputs for the model or component.
 
         For VAE subfolder, pass vae_type="decoder" or vae_type="encoder".
         For full pipeline, returns a prompt dict.
+
+        ``dtype_override`` is declared as a named parameter (rather than only
+        flowing through ``**kwargs``) so the tt-xla dynamic loader's
+        introspection (``inspect.signature(...).parameters``) sees it and
+        actually passes ``torch.bfloat16`` through. Otherwise the runner falls
+        back to fp32 inputs, which mismatch a bf16-loaded transformer.
         """
+        dtype = dtype_override if dtype_override is not None else torch.float32
+
         if self._subfolder == "vae":
-            dtype = kwargs.get("dtype_override", torch.float32)
             vae_type = kwargs.get("vae_type")
             if vae_type == "decoder":
                 return load_vae_decoder_inputs(dtype)
@@ -175,6 +193,11 @@ class ModelLoader(ForgeModel):
                 raise ValueError(
                     f"Unknown vae_type: {vae_type}. Expected 'decoder' or 'encoder'."
                 )
+
+        if self._variant == ModelVariant.WAN21_T2V_14B:
+            if self.pipeline is None:
+                self.load_model(dtype_override=dtype)
+            return load_t2v_transformer_inputs(self.pipeline.transformer, dtype)
 
         prompt_value = prompt if prompt is not None else self.DEFAULT_PROMPT
         return {"prompt": prompt_value}

@@ -16,6 +16,13 @@ LATENT_HEIGHT = 8
 LATENT_WIDTH = 8
 LATENT_DEPTH = 2  # temporal latent frames
 
+# Small test dimensions for the T2V transformer (WanTransformer3DModel) inputs.
+# Height and width must be divisible by patch_size (2, 2).
+T2V_TRANSFORMER_NUM_FRAMES = 1
+T2V_TRANSFORMER_HEIGHT = 8
+T2V_TRANSFORMER_WIDTH = 8
+T2V_TRANSFORMER_TEXT_SEQ_LEN = 16
+
 
 # ============================================================================
 # Model Loading Functions
@@ -61,6 +68,48 @@ def load_vae_decoder_inputs(dtype: torch.dtype = torch.float32) -> torch.Tensor:
     return torch.randn(
         1, LATENT_CHANNELS, LATENT_DEPTH, LATENT_HEIGHT, LATENT_WIDTH, dtype=dtype
     )
+
+
+def load_t2v_transformer_inputs(
+    transformer, dtype: torch.dtype = torch.float32
+) -> dict:
+    """
+    Prepare tensor inputs for the WanTransformer3DModel forward pass.
+
+    Args:
+        transformer: Loaded WanTransformer3DModel instance (from
+            ``Wan-AI/Wan2.1-T2V-14B-Diffusers``'s pipeline.transformer).
+        dtype: Torch dtype for generated tensors.
+
+    The shapes mirror what the runner uses for the VACE-14B variant — small
+    enough that a single forward pass on CPU compiles quickly while still
+    exercising the full block stack.
+    """
+    config = transformer.config
+    batch_size = 1
+
+    hidden_states = torch.randn(
+        batch_size,
+        config.in_channels,
+        T2V_TRANSFORMER_NUM_FRAMES,
+        T2V_TRANSFORMER_HEIGHT,
+        T2V_TRANSFORMER_WIDTH,
+        dtype=dtype,
+    )
+    timestep = torch.tensor([500], dtype=torch.long)
+    encoder_hidden_states = torch.randn(
+        batch_size,
+        T2V_TRANSFORMER_TEXT_SEQ_LEN,
+        config.text_dim,
+        dtype=dtype,
+    )
+
+    return {
+        "hidden_states": hidden_states,
+        "timestep": timestep,
+        "encoder_hidden_states": encoder_hidden_states,
+        "return_dict": False,
+    }
 
 
 def load_vae_encoder_inputs(dtype: torch.dtype = torch.float32) -> torch.Tensor:
