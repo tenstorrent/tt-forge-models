@@ -124,18 +124,21 @@ class ModelLoader(ForgeModel):
         # CausalLMOutputWithPast dict (new_input_ids, labels, final_masked_indices,
         # p_mask).  When the test framework's pytree handler unflattens the output to
         # move it between devices, it calls CausalLMOutputWithPast(**fields), which
-        # raises TypeError for the unrecognised kwargs.  Strip them before returning.
-        _CAUSAL_LM_OUTPUT_FIELDS = {
-            "loss", "logits", "past_key_values", "hidden_states", "attentions"
-        }
+        # raises TypeError for the unrecognised kwargs.  Return a fresh
+        # CausalLMOutputWithPast with only the standard fields.
+        from transformers.modeling_outputs import CausalLMOutputWithPast as _CausalLMOutputWithPast
         _orig_llava_forward = LlavaLladaForMaskedDiffusion.forward
 
         def _llava_forward_strip_extra(self, *args, **kwargs):
             output = _orig_llava_forward(self, *args, **kwargs)
-            if output is not None and hasattr(output, "keys"):
-                for key in list(output.keys()):
-                    if key not in _CAUSAL_LM_OUTPUT_FIELDS:
-                        del output[key]
+            if output is not None:
+                return _CausalLMOutputWithPast(
+                    loss=output.loss,
+                    logits=output.logits,
+                    past_key_values=output.past_key_values,
+                    hidden_states=output.hidden_states,
+                    attentions=output.attentions,
+                )
             return output
 
         LlavaLladaForMaskedDiffusion.forward = _llava_forward_strip_extra
