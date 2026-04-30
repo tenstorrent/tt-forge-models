@@ -89,12 +89,13 @@ def instruct_pix2pix_preprocessing(
 
     do_classifier_free_guidance = guidance_scale > 1.0
 
-    # 1. Encode the prompt
-    prompt_embeds, negative_prompt_embeds = pipe.encode_prompt(
-        prompt=prompt,
-        device=device,
-        num_images_per_prompt=num_images_per_prompt,
-        do_classifier_free_guidance=do_classifier_free_guidance,
+    # 1. Encode the prompt — in diffusers ≥0.26 encode_prompt is _encode_prompt;
+    # call with do_classifier_free_guidance=False to get each part separately.
+    prompt_embeds = pipe._encode_prompt(
+        prompt, device, num_images_per_prompt, do_classifier_free_guidance=False
+    )
+    negative_prompt_embeds = pipe._encode_prompt(
+        "", device, num_images_per_prompt, do_classifier_free_guidance=False
     )
 
     # For InstructPix2Pix, we need three copies for classifier-free guidance:
