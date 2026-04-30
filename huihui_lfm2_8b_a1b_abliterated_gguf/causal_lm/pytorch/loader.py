@@ -278,12 +278,17 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
+        # GGUF metadata vocab_size only counts base BPE tokens (65536) but the
+        # embedding weight in the file has extra rows for special tokens like
+        # <|im_start|> (65536) and <|im_end|> (65537).  Pass a corrected config
+        # so the model's embed_tokens is wide enough to hold all tokenizer ids.
+        config = AutoConfig.from_pretrained(pretrained_model_name, gguf_file=self.GGUF_FILE)
+        tok_vocab_size = len(self.tokenizer)
+        if tok_vocab_size > config.vocab_size:
+            config.vocab_size = tok_vocab_size
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         with self._lfm2moe_load_ctx():
             model = AutoModelForCausalLM.from_pretrained(
