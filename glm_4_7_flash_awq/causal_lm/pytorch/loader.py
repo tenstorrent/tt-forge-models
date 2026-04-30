@@ -136,9 +136,9 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, revision=revision, **model_kwargs
         ).eval()
 
-        # Override grouped_mm dispatch (histc on Int unsupported on XLA) with
-        # a static per-expert loop that dynamo can unroll.
-        model.config._experts_implementation = "tt_static_glm4_moe_lite"
+        # Override grouped_mm dispatch (histc on Int / torch._grouped_mm unsupported on XLA)
+        # with batched_mm which uses standard bmm and avoids both issues.
+        model.config._experts_implementation = "batched_mm"
 
         self.config = model.config
         self.model = model
