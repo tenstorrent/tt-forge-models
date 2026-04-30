@@ -4,8 +4,12 @@
 """
 GLM-4.7 AWQ model loader implementation for causal language modeling.
 
-Uses reduced MoE configuration for testing since the full ~181 GiB
-AWQ-quantized model is too large to load directly.
+GLM-4.7 is a 253B-parameter MoE model (160 routed experts). The AWQ-quantized
+checkpoint is ~126 GB — hardware-class XFAIL on n150 (12 GB DRAM).
+
+The static MoE forward implementation is kept here because the underlying
+compiler bugs (grouped_mm histc-on-Int, batched_mm L1 CB overflow) are real
+and will need to be fixed when the model becomes runnable on larger hardware.
 """
 
 from typing import Optional
@@ -56,7 +60,6 @@ class ModelLoader(ForgeModel):
         self.model_name = "QuantTrio/GLM-4.7-AWQ"
         self.tokenizer = None
         self.text = "What is machine learning?"
-        self.num_layers = num_layers
 
     @classmethod
     def _get_model_info(cls, variant_name: str = None):
@@ -73,31 +76,20 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         config = AutoConfig.from_pretrained(self.model_name, trust_remote_code=True)
-
-        # Reduce model dimensions for testing
-        if self.num_layers is not None:
-            config.num_hidden_layers = self.num_layers
-        else:
-            config.num_hidden_layers = 6
-        config.num_attention_heads = 16
-        config.hidden_size = 1024
-        config.num_key_value_heads = 8
-        config.intermediate_size = 1024 * 4
-        config.moe_intermediate_size = 1024
-        config.num_experts_per_tok = 2
-        config.n_routed_experts = 8
+        config._experts_implementation = "tt_static_glm4_moe"
 
         model_kwargs = {
             "attn_implementation": "eager",
             "trust_remote_code": True,
+            "device_map": "cpu",
         }
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        config._experts_implementation = "tt_static_glm4_moe"
-
-        model = AutoModelForCausalLM.from_config(config, **model_kwargs)
+        model = AutoModelForCausalLM.from_pretrained(
+            self.model_name, config=config, **model_kwargs
+        ).eval()
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.model_name, trust_remote_code=True
