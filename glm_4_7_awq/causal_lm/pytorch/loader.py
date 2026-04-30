@@ -10,7 +10,10 @@ AWQ-quantized model is too large to load directly.
 
 from typing import Optional
 
+import torch
+import torch.nn.functional as F
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.integrations.moe import ALL_EXPERTS_FUNCTIONS
 
 from ....base import ForgeModel
 from ....config import (
@@ -20,6 +23,29 @@ from ....config import (
     ModelSource,
     ModelTask,
 )
+
+
+def _tt_static_glm4_moe_forward(experts_module, hidden_states, top_k_index, top_k_weights):
+    # Per-expert masked matmul. Avoids 3D dynamic gather (L1 CB overflow from
+    # batched_mm) and torch.histc on Int (unsupported in grouped_mm).
+    # Loop over Python ints so dynamo unrolls into static F.linear calls.
+    dtype = hidden_states.dtype
+    out = torch.zeros_like(hidden_states)
+    for expert_idx in range(experts_module.num_experts):
+        mask = (top_k_index == expert_idx)  # [tokens, top_k]
+        # Cast weight to model dtype — router may return float32 weights due to
+        # its float32 e_score_correction_bias, which would promote out to float32.
+        weight = (mask.to(dtype) * top_k_weights.to(dtype)).sum(dim=-1, keepdim=True)
+        gate_up = F.linear(hidden_states, experts_module.gate_up_proj[expert_idx])
+        gate, up = gate_up.chunk(2, dim=-1)
+        hidden_expert = F.linear(
+            experts_module.act_fn(gate) * up, experts_module.down_proj[expert_idx]
+        )
+        out = out + hidden_expert * weight
+    return out.to(dtype)
+
+
+ALL_EXPERTS_FUNCTIONS["tt_static_glm4_moe"] = _tt_static_glm4_moe_forward
 
 
 class ModelLoader(ForgeModel):
@@ -68,6 +94,8 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        config._experts_implementation = "tt_static_glm4_moe"
 
         model = AutoModelForCausalLM.from_config(config, **model_kwargs)
 
