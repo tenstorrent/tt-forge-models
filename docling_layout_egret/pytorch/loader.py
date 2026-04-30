@@ -62,6 +62,28 @@ class ModelLoader(ForgeModel):
         )
         return self.processor
 
+    @staticmethod
+    def _patch_dfine_compilable_check():
+        # DFine's torch_compilable_check asserts spatial shapes match sequence_length.
+        # Under torch.compile this check is a compile-time assertion (no-op at runtime).
+        # Under TorchXLA it runs on-device, but TT hardware computes int64 .sum() in
+        # bfloat16 (8400 rounds to 8384), producing a false-positive failure.
+        # The condition is guaranteed true by construction in DFineModel.forward —
+        # spatial_shapes and source_flatten are built from the same sources in the
+        # same loop. Making the check a no-op for non-CPU tensors matches torch.compile
+        # behavior and is safe here.
+        import transformers.models.d_fine.modeling_d_fine as _dfine_module
+        from transformers.utils.import_utils import (
+            torch_compilable_check as _orig_check,
+        )
+
+        def _xla_aware_compilable_check(cond, msg, error_type=ValueError):
+            if isinstance(cond, torch.Tensor) and cond.device.type != "cpu":
+                return
+            return _orig_check(cond, msg, error_type)
+
+        _dfine_module.torch_compilable_check = _xla_aware_compilable_check
+
     def load_model(self, *, dtype_override=None, **kwargs):
         from transformers import DFineForObjectDetection
 
@@ -75,6 +97,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        self._patch_dfine_compilable_check()
         model = DFineForObjectDetection.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
