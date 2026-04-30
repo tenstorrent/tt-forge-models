@@ -302,6 +302,7 @@ class ModelLoader(ForgeModel):
             "timestep": timestep,
             "img_ids": img_ids,
             "txt_ids": txt_ids,
+            "return_dict": False,
         }
         if guidance is not None:
             inputs["guidance"] = guidance
