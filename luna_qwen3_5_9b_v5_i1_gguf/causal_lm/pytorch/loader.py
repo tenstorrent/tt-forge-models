@@ -46,30 +46,55 @@ _patch_qwen35_registry()
 
 
 def _find_real_load_gguf_at_call_time():
-    """Walk the current load_gguf_checkpoint patch chain to the real function.
+    """BFS over the load_gguf_checkpoint patch chain to find the real function.
 
-    Multiple loaders patch _gguf_utils.load_gguf_checkpoint at module-import
-    time (alphabetically, last-importer wins).  Walking from the current module
-    attribute through __globals__['_orig_load_gguf_checkpoint'] links reaches
-    the actual transformers function that accepts all kwargs including
-    model_to_load (added in transformers 5.2+).
+    Loaders capture their predecessor as either a module global
+    (_orig_load_gguf_checkpoint, orig_load, etc.) or a closure cell (common for
+    functions defined inside a helper function like momix_44's
+    _patch_transformers_qwen35moe_gguf).  We do a BFS over both paths until we
+    find a function whose __globals__ IS the _gguf_utils module dict — that
+    function is defined inside transformers.modeling_gguf_pytorch_utils and is
+    therefore the real (unpatched) implementation.
     """
-    fn = _gguf_utils.load_gguf_checkpoint
+    _GLOBAL_VARS = (
+        "_orig_load_gguf_checkpoint",
+        "orig_load",
+        "_orig_load",
+    )
     seen: set = set()
-    while True:
+    queue: list = [_gguf_utils.load_gguf_checkpoint]
+
+    while queue:
+        fn = queue.pop(0)
+        if not callable(fn):
+            continue
         fn_id = id(fn)
         if fn_id in seen:
-            break
+            continue
         seen.add(fn_id)
-        next_fn = (
-            fn.__globals__.get("_orig_load_gguf_checkpoint")
-            if hasattr(fn, "__globals__")
-            else None
-        )
-        if next_fn is None or id(next_fn) in seen:
-            break
-        fn = next_fn
-    return fn
+
+        # If this function is defined inside the real transformers module, return it.
+        if hasattr(fn, "__globals__") and fn.__globals__ is vars(_gguf_utils):
+            return fn
+
+        # Enqueue predecessors from module globals.
+        if hasattr(fn, "__globals__"):
+            for var in _GLOBAL_VARS:
+                candidate = fn.__globals__.get(var)
+                if candidate is not None and callable(candidate) and id(candidate) not in seen:
+                    queue.append(candidate)
+
+        # Enqueue predecessors from closure cells.
+        if getattr(fn, "__closure__", None):
+            for cell in fn.__closure__:
+                try:
+                    val = cell.cell_contents
+                    if callable(val) and id(val) not in seen:
+                        queue.append(val)
+                except ValueError:
+                    pass  # empty cell
+
+    return _gguf_utils.load_gguf_checkpoint  # fallback
 
 
 @contextmanager
