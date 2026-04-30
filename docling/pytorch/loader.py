@@ -78,6 +78,24 @@ class ModelLoader(ForgeModel):
             return DFineForObjectDetection
         return RTDetrV2ForObjectDetection
 
+    @staticmethod
+    def _patch_dfine_compilable_check():
+        # DFine's torch_compilable_check asserts spatial shapes match sequence_length.
+        # Under torch.compile this check is a compile-time no-op. Under TorchXLA on TT
+        # hardware, int64 .sum() runs in bfloat16 (8400 → 8384), producing a spurious
+        # ValueError. The condition is guaranteed true by construction in DFineModel.forward.
+        import transformers.models.d_fine.modeling_d_fine as _dfine_module
+        from transformers.utils.import_utils import (
+            torch_compilable_check as _orig_check,
+        )
+
+        def _xla_aware_compilable_check(cond, msg, error_type=ValueError):
+            if isinstance(cond, torch.Tensor) and cond.device.type != "cpu":
+                return
+            return _orig_check(cond, msg, error_type)
+
+        _dfine_module.torch_compilable_check = _xla_aware_compilable_check
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -90,6 +108,8 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         model_class = self._load_model_class()
+        if model_class.__name__ == "DFineForObjectDetection":
+            self._patch_dfine_compilable_check()
         model = model_class.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
 
