@@ -5,12 +5,25 @@
 HyperCLOVAX SEED Think model loader implementation for multimodal visual question answering
 """
 
+import contextlib
 import torch
+import transformers.modeling_utils as _transformers_modeling_utils
 from transformers import AutoProcessor, AutoModelForCausalLM
 from PIL import Image
 from typing import Optional
 from ....tools.utils import get_file, cast_input_to_type
 from ....base import ForgeModel
+
+# transformers 5.x removed no_init_weights from modeling_utils; shim it back so
+# the model's remote code (modeling_vlm.py:33) can import it.
+if not hasattr(_transformers_modeling_utils, "no_init_weights"):
+
+    @contextlib.contextmanager
+    def _no_init_weights(_enable=True):
+        yield
+
+    _transformers_modeling_utils.no_init_weights = _no_init_weights
+
 from ....config import (
     ModelConfig,
     ModelInfo,
@@ -61,7 +74,7 @@ class ModelLoader(ForgeModel):
 
     def _load_processor(self):
         self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, trust_remote_code=True
+            self._variant_config.pretrained_model_name, trust_remote_code=True, use_fast=False
         )
         self.tokenizer = self.processor.tokenizer
         return self.processor
