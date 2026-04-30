@@ -20,6 +20,91 @@ from ....config import (
 )
 
 
+def _patch_transformers_deepseek2_gguf():
+    """Monkey-patch transformers to add deepseek2 GGUF architecture support.
+
+    GLM-4.7-Flash uses the deepseek2 GGUF architecture (DeepSeekV2-based MoE).
+    Transformers does not register deepseek2 natively, so we add the necessary
+    config mapping, tokenizer converter, and model_type remapping here.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "deepseek2" in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # Already patched
+
+    # 1. Register deepseek2 as a supported architecture
+    GGUF_SUPPORTED_ARCHITECTURES.append("deepseek2")
+
+    # 2. Add config mapping for deepseek2 -> DeepseekV2Config fields
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["deepseek2"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.freq_base": "rope_theta",
+        "rope.dimension_count": "qk_rope_head_dim",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "attention.key_length": None,
+        "attention.value_length": None,
+        "attention.key_length_mla": "qk_nope_head_dim",
+        "attention.value_length_mla": "v_head_dim",
+        "attention.q_lora_rank": "q_lora_rank",
+        "attention.kv_lora_rank": "kv_lora_rank",
+        "vocab_size": "vocab_size",
+        "expert_count": "n_routed_experts",
+        "expert_used_count": "num_experts_per_tok",
+        "expert_shared_count": "n_shared_experts",
+        "expert_group_count": "n_group",
+        "expert_group_used_count": "topk_group",
+        "expert_weights_scale": "routed_scaling_factor",
+        "expert_weights_norm": "norm_topk_prob",
+        "leading_dense_block_count": "first_k_dense_replace",
+        "expert_feed_forward_length": "moe_intermediate_size",
+    }
+
+    # 3. Register tokenizer converter for both architecture and remapped model_type
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFQwen2Converter,
+    )
+
+    if "deepseek2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["deepseek2"] = GGUFQwen2Converter
+    if "deepseek_v2" not in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["deepseek_v2"] = GGUFQwen2Converter
+
+    # 4. Patch load_gguf_checkpoint to remap model_type from deepseek2 -> deepseek_v2
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+        result = orig_load(gguf_path, return_tensors=return_tensors, **kwargs)
+        config = result.get("config", {})
+        if config.get("model_type") == "deepseek2":
+            config["model_type"] = "deepseek_v2"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+    # Patch all by-value import sites
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+
+# Apply the monkey-patch at import time
+_patch_transformers_deepseek2_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available GLM-4.7-Flash-ultra-uncensored-heretic GGUF model variants for causal language modeling."""
 
@@ -100,6 +185,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        # GLM-4.7-Flash is a MoE model; use batched_mm to avoid nonzero()/index_add_
+        # graph breaks and dynamic-shape failures on TT hardware.
+        model.config._experts_implementation = "batched_mm"
+
         self.config = model.config
         self.model = model
         return model
@@ -108,27 +197,26 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        max_length = self._variant_config.max_length
-
         messages = [
             {
                 "role": "user",
                 "content": self.sample_text,
             }
         ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-        prompts = [text]
+
+        if self.tokenizer.chat_template is not None:
+            text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        else:
+            text = self.sample_text
 
         inputs = self.tokenizer(
-            prompts,
+            [text],
             return_tensors="pt",
             padding=True,
-            truncation=True,
-            max_length=max_length,
         )
 
         for key in inputs:
