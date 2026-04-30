@@ -45,9 +45,12 @@ GGUFParameter.as_tensor = _patched_as_tensor
 GGUF_REPO = "YarvixPA/FLUX.1-Fill-dev-GGUF"
 BASE_REPO = "black-forest-labs/FLUX.1-Fill-dev"
 
-# FLUX.1-Fill-dev transformer architecture config; in_channels=384 because
-# the fill model concatenates noisy latents (64), masked-image latents (64),
-# and packed mask (256) along the channel dim before packing.
+# FLUX.1-Fill-dev transformer architecture config.
+# in_channels=384: fill model concatenates noisy latents (64), masked-image
+#   latents (64), and packed mask (256) along the channel dim before packing.
+# out_channels=64: proj_out predicts only the noise channels, not the full
+#   concatenated input. Without this, diffusers defaults out_channels=in_channels
+#   and expects proj_out.weight=[384,3072] but the GGUF has [64,3072].
 _TRANSFORMER_CONFIG = {
     "_class_name": "FluxTransformer2DModel",
     "_diffusers_version": "0.37.1",
@@ -55,6 +58,7 @@ _TRANSFORMER_CONFIG = {
     "axes_dims_rope": [16, 56, 56],
     "guidance_embeds": True,
     "in_channels": 384,
+    "out_channels": 64,
     "joint_attention_dim": 4096,
     "num_attention_heads": 24,
     "num_layers": 19,
