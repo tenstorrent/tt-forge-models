@@ -12,7 +12,6 @@ feed it pre-computed sentence vectors from the underlying fastText model.
 
 from typing import Optional
 
-import fasttext
 import torch
 from huggingface_hub import hf_hub_download
 
@@ -85,6 +84,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_fasttext_model(self):
+        import fasttext
+
         model_path = hf_hub_download(
             repo_id=self._variant_config.pretrained_model_name,
             filename="model.bin",
