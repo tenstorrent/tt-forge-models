@@ -204,23 +204,35 @@ def _find_real_load_gguf_at_call_time():
     """Walk the current load_gguf_checkpoint patch chain to the real function.
 
     Multiple loaders patch gguf_utils.load_gguf_checkpoint at module-import
-    time (alphabetically, last-importer wins).  Walking from the current
-    module attribute through __globals__['_orig_load_gguf_checkpoint'] links
-    reaches the actual transformers function that accepts all kwargs.
+    time (alphabetically, last-importer wins).  Different loaders use different
+    variable names for the captured predecessor (_orig_load_gguf_checkpoint,
+    orig_load, etc.).  The safest termination condition is checking whether a
+    function's __globals__ IS the _gguf_utils module dict — that means the
+    function is defined inside transformers.modeling_gguf_pytorch_utils itself.
     """
+    _CAPTURE_VARS = (
+        "_orig_load_gguf_checkpoint",
+        "orig_load",
+        "_orig_load",
+    )
     fn = _gguf_utils.load_gguf_checkpoint
     seen: set = set()
     while True:
+        # Stop if this function lives in the real transformers module.
+        if hasattr(fn, "__globals__") and fn.__globals__ is vars(_gguf_utils):
+            return fn
         fn_id = id(fn)
         if fn_id in seen:
             break
         seen.add(fn_id)
-        next_fn = (
-            fn.__globals__.get("_orig_load_gguf_checkpoint")
-            if hasattr(fn, "__globals__")
-            else None
-        )
-        if next_fn is None or id(next_fn) in seen:
+        next_fn = None
+        if hasattr(fn, "__globals__"):
+            for var in _CAPTURE_VARS:
+                candidate = fn.__globals__.get(var)
+                if candidate is not None and callable(candidate) and id(candidate) not in seen:
+                    next_fn = candidate
+                    break
+        if next_fn is None:
             break
         fn = next_fn
     return fn
