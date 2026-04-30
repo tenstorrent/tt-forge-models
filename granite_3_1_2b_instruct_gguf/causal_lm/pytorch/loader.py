@@ -43,6 +43,15 @@ def _patch_granite_gguf_support():
             _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["granite"] = dict(
                 _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["llama"]
             )
+    if "granite" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING.get("config", {}):
+        _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]["granite"].update(
+            {
+                "attention.scale": "attention_multiplier",
+                "embedding_scale": "embedding_multiplier",
+                "logit_scale": "logits_scaling",
+                "residual_scale": "residual_multiplier",
+            }
+        )
     if "llama" in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["granite"] = GGUF_TO_FAST_CONVERTERS["llama"]
     if hasattr(_gguf_utils, "GGUF_CONFIG_DEFAULTS_MAPPING"):
