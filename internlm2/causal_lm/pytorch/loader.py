@@ -93,8 +93,23 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        # transformers 5.x normalises rope_scaling=null into
+        # {"rope_type": "default", "rope_theta": ...}; the old InternLM2
+        # custom code only understands None or {"type":…, "factor":…}, so
+        # restore None when rope_type is "default" (i.e. no scaling).
+        from transformers import AutoConfig
+
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
+        )
+        if (
+            isinstance(config.rope_scaling, dict)
+            and config.rope_scaling.get("rope_type") == "default"
+        ):
+            config.rope_scaling = None
+
         model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, config=config, **model_kwargs
         )
         model.eval()
 
