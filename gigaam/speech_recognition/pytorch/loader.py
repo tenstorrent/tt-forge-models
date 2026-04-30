@@ -176,8 +176,9 @@ class ModelLoader(ForgeModel):
 
         audio_tensor = torch.from_numpy(audio_array).unsqueeze(0)
 
-        if dtype_override is not None:
-            audio_tensor = audio_tensor.to(dtype_override)
+        # Do not cast audio to dtype_override: the preprocessor runs STFT which
+        # requires float32 (MKL FFT rejects BFloat16).  The encoder handles its
+        # own precision via autocast on non-CPU devices.
 
         # GigaAMModel.forward() requires (features, feature_lengths)
         feature_lengths = torch.tensor([audio_tensor.shape[-1]], dtype=torch.long)
