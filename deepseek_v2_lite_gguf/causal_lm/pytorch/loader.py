@@ -60,27 +60,24 @@ def _patched_get_gguf_hf_weights_map(
 _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 # DeepSeek V2 uses complex-valued RoPE: torch.polar creates complex freqs_cis, and
-# apply_rotary_emb multiplies complex q/k with freqs_cis.  TT's ComplexDataTypeConversion
-# pass decomposes stablehlo.complex (polar) and stablehlo.real/imag but does NOT
-# implement the cross-product decomposition of stablehlo.multiply(complex, complex).
-# Additionally, multiplying complex freqs_cis by a float scalar (attention_scaling)
-# causes XLA to create a 0-dim complex constant that the TT PJRT layer rejects.
+# apply_rotary_emb multiplies complex q/k with freqs_cis.  TT does not support complex
+# tensors as subgraph outputs (the PJRT buffer-instance shape calculation overflows L1
+# when complex types are present in the graph boundary).
 #
 # Fixes applied here:
-#   (a) RoPE forward: skip `* attention_scaling` when it equals 1.0 (standard case)
-#       to avoid the 0-dim complex constant.  The class is DeepseekV2RotaryEmbedding;
-#       its forward is decorated @torch.no_grad() @dynamic_rope_update, so we must
-#       re-apply dynamic_rope_update to our replacement to properly replace the closure
-#       that dynamic_rope_update captured over the original body.
-#   (b) apply_rotary_emb: replace complex-mul with real arithmetic by extracting
-#       .real (cos) and .imag (sin) from freqs_cis.  stablehlo.real/imag ARE handled
-#       by ComplexDataTypeConversion, so the only complex op remaining is polar→complex
-#       which is also handled.
+#   (a) RoPE forward: replace torch.polar with real cos/sin, return them as a stacked
+#       real tensor [batch, seq, qk_rope_head_dim/2, 2] so no complex type crosses the
+#       XLA subgraph output boundary.  Skip attention_scaling multiplication when it is
+#       1.0 (standard case).  The class is DeepseekV2RotaryEmbedding; its forward is
+#       decorated @torch.no_grad() @dynamic_rope_update, so we must re-apply
+#       dynamic_rope_update to properly replace the closure.
+#   (b) apply_rotary_emb: read cos/sin from the stacked real tensor and apply rotation
+#       with pure real arithmetic.
 try:
     from transformers.models.deepseek_v2 import modeling_deepseek_v2 as _dsv2
     from transformers.modeling_rope_utils import dynamic_rope_update
 
-    def _rope_forward_no_unit_scale(self, x, position_ids):
+    def _rope_forward_real(self, x, position_ids):
         inv_freq_expanded = (
             self.inv_freq[None, :, None]
             .float()
@@ -96,20 +93,22 @@ try:
             freqs = (
                 inv_freq_expanded.to(x.device) @ position_ids_expanded
             ).transpose(1, 2)
-            freqs_cis = torch.polar(torch.ones_like(freqs), freqs)
             if self.attention_scaling != 1.0:
-                freqs_cis = freqs_cis * self.attention_scaling
-        return freqs_cis
+                freqs = freqs * self.attention_scaling
+            # Return real [batch, seq, d/2, 2] — avoids complex type at XLA boundary.
+            cos = torch.cos(freqs)
+            sin = torch.sin(freqs)
+        return torch.stack([cos, sin], dim=-1)
 
-    # Re-apply the original decorator chain so dynamic_rope_update captures our body
-    # instead of the old one (it stores rope_forward as a closure variable).
+    # Re-apply the original decorator chain so dynamic_rope_update captures our body.
     _dsv2.DeepseekV2RotaryEmbedding.forward = torch.no_grad()(
-        dynamic_rope_update(_rope_forward_no_unit_scale)
+        dynamic_rope_update(_rope_forward_real)
     )
 
     def _apply_rotary_emb_real(xq, xk, freqs_cis):
-        cos = freqs_cis.real.unsqueeze(1)  # [batch, 1, seq, qk_rope_head_dim/2]
-        sin = freqs_cis.imag.unsqueeze(1)
+        # freqs_cis: [batch, seq, d/2, 2] real (cos at [...,0], sin at [...,1])
+        cos = freqs_cis[..., 0].unsqueeze(1)  # [batch, 1, seq, d/2]
+        sin = freqs_cis[..., 1].unsqueeze(1)
 
         xq_r = xq.float().reshape(*xq.shape[:-1], -1, 2)
         xk_r = xk.float().reshape(*xk.shape[:-1], -1, 2)
