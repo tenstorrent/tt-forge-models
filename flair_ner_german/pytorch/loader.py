@@ -75,19 +75,22 @@ class ModelLoader(ForgeModel):
         from flair.models import SequenceTagger
 
         tagger = SequenceTagger.load(self.model_name)
-        self.model = tagger
 
         if dtype_override is not None:
             tagger = tagger.to(dtype_override)
 
         tagger.eval()
+        self.model = tagger
         return tagger
 
     def load_inputs(self, dtype_override=None):
         from flair.data import Sentence
 
         sentence = Sentence(self.sample_text, use_tokenizer=self.use_tokenizer)
-        return [sentence]
+        # SequenceTagger.forward() takes pre-embedded (sentence_tensor, lengths);
+        # use the model's own _prepare_tensors to embed and pad the sentence batch.
+        sentence_tensor, lengths = self.model._prepare_tensors([sentence])
+        return [sentence_tensor, lengths]
 
     def decode_output(self, co_out):
         from flair.data import Sentence
