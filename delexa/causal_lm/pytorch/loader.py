@@ -98,6 +98,26 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, trust_remote_code=True, **model_kwargs
         ).eval()
 
+        # transformers 5.x uses init_empty_weights during loading, which leaves
+        # non-persistent RoPE buffers (inv_freq, cos_cached, sin_cached) with
+        # uninitialized garbage values. Reinitialize them explicitly.
+        model_dtype = next(model.parameters()).dtype
+        for module in model.modules():
+            if hasattr(module, "yarn") and callable(module.yarn) and hasattr(module, "inv_freq"):
+                device = module.inv_freq.device
+                module.yarn(device)
+                t = torch.arange(
+                    module.max_seq_len_cached, device=device, dtype=module.inv_freq.dtype
+                )
+                freqs = torch.einsum("i,j->ij", t, module.inv_freq)
+                emb = torch.cat((freqs, freqs), dim=-1)
+                module.register_buffer(
+                    "cos_cached", (emb.cos() * module.mscale).to(model_dtype), persistent=False
+                )
+                module.register_buffer(
+                    "sin_cached", (emb.sin() * module.mscale).to(model_dtype), persistent=False
+                )
+
         self.config = model.config
         return model
 
