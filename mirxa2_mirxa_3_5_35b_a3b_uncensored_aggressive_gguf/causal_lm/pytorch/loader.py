@@ -20,6 +20,85 @@ from ....config import (
 )
 
 
+def _find_real_load_gguf_checkpoint():
+    """Traverse the patcher chain to find the original transformers function.
+
+    Cross-loader clobbering installs wrappers in two styles:
+    - Module-global style: wrapper stores previous fn in _orig_load_gguf_checkpoint
+      inside the same module's __globals__.
+    - Closure style: wrapper captures previous fn as a free variable (orig_load,
+      real_fn, etc.) in __closure__ cells.
+
+    We walk both paths until we reach a function whose __module__ is the real
+    transformers.modeling_gguf_pytorch_utils — that is the implementation that
+    accepts model_to_load and is safe to call directly.
+    """
+    import transformers.modeling_gguf_pytorch_utils as _gu
+
+    fn = _gu.load_gguf_checkpoint
+    seen: set = set()
+    while True:
+        fn_id = id(fn)
+        if fn_id in seen:
+            break
+        seen.add(fn_id)
+        # If this is the real transformers implementation, stop here.
+        if getattr(fn, "__module__", None) == "transformers.modeling_gguf_pytorch_utils":
+            return fn
+        # Try module-global style first (_orig_load_gguf_checkpoint in __globals__).
+        orig = getattr(fn, "__globals__", {}).get("_orig_load_gguf_checkpoint")
+        if orig is not None and id(orig) not in seen:
+            fn = orig
+            continue
+        # Try closure style: inspect all closure cells for callable values.
+        closure = getattr(fn, "__closure__", None) or ()
+        found_in_closure = False
+        for cell in closure:
+            try:
+                val = cell.cell_contents
+            except ValueError:
+                continue
+            if callable(val) and id(val) not in seen:
+                fn = val
+                found_in_closure = True
+                break
+        if not found_in_closure:
+            break
+    return fn
+
+
+def _make_qwen35moe_gguf_checkpoint_wrapper(real_fn):
+    """Return a wrapper around the real transformers *real_fn* that handles qwen35moe.
+
+    Bypasses any narrow-signature patchers in the clobbering chain and calls the
+    real transformers load_gguf_checkpoint (which accepts model_to_load) directly,
+    then converts qwen35moe model_type to qwen3_5_moe_text with layer_types and
+    reshapes conv1d weights.
+    """
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = real_fn(*args, **kwargs)
+        if result.get("config", {}).get("model_type") == "qwen35moe":
+            result["config"]["model_type"] = "qwen3_5_moe_text"
+            config = result["config"]
+            num_layers = config.get("num_hidden_layers", 40)
+            interval = config.pop("full_attention_interval", 4)
+            layer_types = [
+                "full_attention" if (i + 1) % interval == 0 else "linear_attention"
+                for i in range(num_layers)
+            ]
+            config["layer_types"] = layer_types
+            if "tensors" in result:
+                for key in list(result["tensors"].keys()):
+                    if key.endswith("conv1d.weight"):
+                        t = result["tensors"][key]
+                        if t.ndim == 2:
+                            result["tensors"][key] = t.unsqueeze(1)
+        return result
+
+    return patched_load_gguf_checkpoint
+
+
 def _patch_transformers_qwen35moe_gguf():
     """Monkey-patch transformers to add qwen35moe GGUF architecture support.
 
@@ -71,46 +150,20 @@ def _patch_transformers_qwen35moe_gguf():
             "qwen3_moe"
         ]
 
-    # 5. Patch load_gguf_checkpoint to handle qwen35moe -> qwen3_5_moe_text
-    orig_load = gguf_utils.load_gguf_checkpoint
+    # 5. Patch all modules that import load_gguf_checkpoint.
+    # We use _find_real_load_gguf_checkpoint() to bypass any narrow-sig patchers
+    # already installed.  load_model() re-applies this patch right before
+    # from_pretrained() to defeat cross-loader clobbering by later-imported loaders.
+    real_load = _find_real_load_gguf_checkpoint()
+    _wrapper = _make_qwen35moe_gguf_checkpoint_wrapper(real_load)
 
-    def patched_load_gguf_checkpoint(*args, **kwargs):
-        result = orig_load(*args, **kwargs)
-        if result.get("config", {}).get("model_type") == "qwen35moe":
-            result["config"]["model_type"] = "qwen3_5_moe_text"
-            # Generate layer_types from full_attention_interval
-            config = result["config"]
-            num_layers = config.get("num_hidden_layers", 40)
-            interval = config.pop("full_attention_interval", 4)
-            layer_types = []
-            for i in range(num_layers):
-                if (i + 1) % interval == 0:
-                    layer_types.append("full_attention")
-                else:
-                    layer_types.append("linear_attention")
-            config["layer_types"] = layer_types
-            # GGUF stores conv1d.weight as 2D [out, kernel] but HF Conv1d
-            # expects 3D [out, in/groups, kernel]; insert the groups dim.
-            if "tensors" in result:
-                import torch as _torch
-
-                for key in list(result["tensors"].keys()):
-                    if key.endswith("conv1d.weight"):
-                        t = result["tensors"][key]
-                        if t.ndim == 2:
-                            result["tensors"][key] = t.unsqueeze(1)
-        return result
-
-    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
-
-    # Also patch modules that imported load_gguf_checkpoint directly
     import transformers.models.auto.tokenization_auto as tok_auto
     import transformers.configuration_utils as config_utils
-    import transformers.modeling_utils as modeling_utils
 
-    for mod in (tok_auto, config_utils, modeling_utils):
+    gguf_utils.load_gguf_checkpoint = _wrapper
+    for mod in (tok_auto, config_utils):
         if hasattr(mod, "load_gguf_checkpoint"):
-            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+            mod.load_gguf_checkpoint = _wrapper
 
     # 6. Patch get_gguf_hf_weights_map to handle qwen3_5_moe_text -> qwen35moe
     # and add missing ffn_gate_exps/ffn_up_exps -> gate_up_proj mappings.
@@ -236,6 +289,20 @@ class ModelLoader(ForgeModel):
             else:
                 config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
+
+        # Re-apply compat patch immediately before from_pretrained to defeat
+        # cross-loader clobbering: other loaders imported during collection may
+        # overwrite gguf_utils.load_gguf_checkpoint with a narrow-signature
+        # function after our module-level patch ran.  We bypass the entire chain
+        # by finding the real transformers function and wrapping it directly.
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+        import transformers.modeling_utils as _modeling_utils
+
+        _real_fn = _find_real_load_gguf_checkpoint()
+        _compat = _make_qwen35moe_gguf_checkpoint_wrapper(_real_fn)
+        _gguf_utils.load_gguf_checkpoint = _compat
+        if hasattr(_modeling_utils, "load_gguf_checkpoint"):
+            _modeling_utils.load_gguf_checkpoint = _compat
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
