@@ -166,18 +166,23 @@ class ModelLoader(ForgeModel):
         seq_len = inputs["input_ids"].shape[1]
         inputs["position_ids"] = torch.arange(seq_len, dtype=torch.long).unsqueeze(0)
 
-        # Convert tgt_sizes from tensors to nested Python lists.
-        # In the model, tgt_sizes is used to compute max_patch_len = torch.max(patches).
-        # When tgt_sizes is an XLA tensor, max_patch_len becomes a dynamic XLA scalar,
-        # causing torch.zeros((bs, max_patch_len), dtype=bool) to produce a bool tensor
-        # whose dimension XLA pads from 1036→1040 (next multiple of 8) while the paired
-        # float key tensor stays at 1036, causing a shape mismatch in multi-head attention.
-        # Keeping tgt_sizes as Python int lists prevents XLA from treating max_patch_len
-        # as a dynamic shape.
-        inputs["tgt_sizes"] = [
-            ts.tolist() if isinstance(ts, torch.Tensor) else ts
-            for ts in inputs["tgt_sizes"]
-        ]
+        # Flatten tgt_sizes to a list of [h, w] int pairs (Python lists, not tensors).
+        # The processor returns [tensor_of_shape(N,2)] — a list with one 2D tensor.
+        # The model calls torch.vstack(tgt_sizes) to rebuild the (N,2) CPU tensor, and then
+        # computes max_patch_len = torch.max(patch_len). When tgt_sizes is an XLA tensor,
+        # max_patch_len is a dynamic XLA scalar, causing torch.zeros((bs, max_patch_len),
+        # dtype=bool) to produce a bool tensor whose second dim XLA pads from 1036→1040
+        # (next multiple of 8) while the float key tensor stays at 1036, causing an
+        # assertion failure in the resampler's multi-head attention.
+        # Using a flat Python list of [h, w] pairs makes torch.vstack create a CPU tensor,
+        # so max_patch_len is a concrete Python int and the bool tensor gets a static shape.
+        flat_tgt = []
+        for ts in inputs["tgt_sizes"]:
+            if isinstance(ts, torch.Tensor):
+                flat_tgt.extend(ts.tolist())
+            else:
+                flat_tgt.extend(ts)
+        inputs["tgt_sizes"] = flat_tgt
 
         return {"data": inputs}
 
