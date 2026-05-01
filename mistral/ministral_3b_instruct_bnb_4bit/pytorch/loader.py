@@ -5,6 +5,8 @@
 Ministral 3B Instruct BnB 4-bit model loader implementation for multimodal vision-language modeling.
 """
 
+import torch
+import torch.nn as nn
 from typing import Optional
 
 from ....config import (
@@ -58,6 +60,48 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _dequantize_bnb4_to_bf16(model):
+        """Replace all BnB Linear4bit layers with standard bfloat16 Linear layers.
+
+        Params4bit.detach() returns a plain Tensor, which causes
+        Parameter.__new__ to raise RuntimeError when model.to(xla_device) is
+        called. Dequantizing to bf16 before device transfer avoids this.
+        """
+        import bitsandbytes as bnb
+        import bitsandbytes.functional as F
+
+        replacements = []
+        for name, module in model.named_modules():
+            if isinstance(module, bnb.nn.Linear4bit):
+                if hasattr(module.weight, "quant_state") and module.weight.quant_state is not None:
+                    weight_bf16 = F.dequantize_4bit(
+                        module.weight.data, module.weight.quant_state
+                    ).to(torch.bfloat16)
+                else:
+                    weight_bf16 = module.weight.data.to(torch.bfloat16)
+                bias = module.bias
+                new_linear = nn.Linear(
+                    module.in_features,
+                    module.out_features,
+                    bias=bias is not None,
+                    device=weight_bf16.device,
+                    dtype=torch.bfloat16,
+                )
+                new_linear.weight = nn.Parameter(weight_bf16)
+                if bias is not None:
+                    new_linear.bias = nn.Parameter(bias.to(torch.bfloat16))
+                replacements.append((name, new_linear))
+
+        for name, new_module in replacements:
+            parts = name.split(".")
+            parent = model
+            for part in parts[:-1]:
+                parent = getattr(parent, part)
+            setattr(parent, parts[-1], new_module)
+
+        return model
+
     def _load_processor(self, dtype_override=None):
         """Load processor for the current variant."""
         from transformers import AutoProcessor
@@ -100,6 +144,9 @@ class ModelLoader(ForgeModel):
         )
 
         model.eval()
+
+        self._dequantize_bnb4_to_bf16(model)
+
         self.model = model
         self.config = model.config
         return model
