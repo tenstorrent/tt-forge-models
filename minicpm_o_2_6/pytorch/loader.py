@@ -35,8 +35,8 @@ if ALL_PARALLEL_STYLES is None:
 
 # Monkey patch Resampler for compatibility - Fixes: Resampler doesn't have _initialize_weights method in torch 2.7.0
 # Guard prevents double-patching when minicpmv_2_6 has already applied the same fix.
+_original_getattr = nn.Module.__getattr__
 if not getattr(nn.Module, "_tt_resampler_getattr_patched", False):
-    _original_getattr = nn.Module.__getattr__
 
     def patched_getattr(self, name):
         if name == "_initialize_weights" and self.__class__.__name__ == "Resampler":
