@@ -78,9 +78,24 @@ class ModelLoader(ForgeModel):
         )
         model_kwargs |= kwargs
 
-        model = AutoModelForImageSegmentation.from_pretrained(
-            pretrained_model_name, trust_remote_code=True, **model_kwargs
-        )
+        # transformers 5.x instantiates models under torch.device("meta").
+        # SwinTransformer calls torch.linspace(...).item() to build drop-path
+        # rates during __init__; meta tensors have no data so .item() raises.
+        # Return 0.0 for meta scalars — DropPath is a no-op in eval mode anyway.
+        _orig_item = torch.Tensor.item
+
+        def _meta_safe_item(self):
+            if self.device.type == "meta":
+                return 0.0
+            return _orig_item(self)
+
+        torch.Tensor.item = _meta_safe_item
+        try:
+            model = AutoModelForImageSegmentation.from_pretrained(
+                pretrained_model_name, trust_remote_code=True, **model_kwargs
+            )
+        finally:
+            torch.Tensor.item = _orig_item
 
         torch.set_float32_matmul_precision(["high", "highest"][0])
 
