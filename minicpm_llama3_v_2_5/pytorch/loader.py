@@ -66,6 +66,22 @@ def _patch_cached_remote_files():
         if old in text and new not in text:
             path.write_text(text.replace(old, new, 1))
 
+    # Fix 4: torch.vstack() in PyTorch 2.7 requires Tensor elements; it rejects Python
+    # lists. tgt_sizes is now a flat Python list of [h, w] pairs so torch.vstack fails.
+    # Use torch.tensor() for Python list input, which creates a CPU int32 tensor whose
+    # concrete values keep max_patch_len static so XLA never sees a dynamic bool dimension.
+    for path in cache_base.glob(f"{glob_prefix}/modeling_minicpmv.py"):
+        text = path.read_text()
+        old = "                tgt_sizes = torch.vstack(tgt_sizes).type(torch.int32)\n"
+        new = (
+            "                if isinstance(tgt_sizes[0], torch.Tensor):\n"
+            "                    tgt_sizes = torch.vstack(tgt_sizes).type(torch.int32)\n"
+            "                else:\n"
+            "                    tgt_sizes = torch.tensor(tgt_sizes, dtype=torch.int32)\n"
+        )
+        if old in text and new not in text:
+            path.write_text(text.replace(old, new, 1))
+
     # Invalidate the module cache so patched files are re-imported
     for key in list(sys.modules):
         if "MiniCPM_hyphen_Llama3" in key or "minicpm" in key.lower():
