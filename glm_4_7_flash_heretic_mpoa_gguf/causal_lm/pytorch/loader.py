@@ -100,6 +100,20 @@ except Exception:
     pass
 
 
+class _CosSinEmbed(tuple):
+    """Tuple subclass holding (cos, sin) with a .to() method.
+
+    DeepseekV2Attention.forward calls position_embeddings.to(device) before
+    passing to apply_rotary_emb; a plain Python tuple lacks .to(), so this
+    subclass forwards device transfers to each tensor element.
+    """
+
+    def to(self, *args, **kwargs):
+        return _CosSinEmbed(
+            t.to(*args, **kwargs) if hasattr(t, "to") else t for t in self
+        )
+
+
 def _patch_deepseek_v2_rope():
     """Replace complex-tensor RoPE with real-valued equivalent.
 
@@ -120,7 +134,7 @@ def _patch_deepseek_v2_rope():
         freqs = (inv_freq_expanded.to(x.device) @ position_ids_expanded).transpose(1, 2)
         cos = torch.cos(freqs) * self.attention_scaling
         sin = torch.sin(freqs) * self.attention_scaling
-        return (cos, sin)
+        return _CosSinEmbed([cos, sin])
 
     def _patched_apply_rotary_emb(xq, xk, freqs_cis):
         if isinstance(freqs_cis, tuple):
