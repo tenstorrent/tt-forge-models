@@ -70,7 +70,7 @@ class ModelLoader(ForgeModel):
 
     def _load_processor(self, dtype_override=None):
         """Load processor for the current variant."""
-        kwargs = {}
+        kwargs = {"use_fast": False}
         if dtype_override is not None:
             kwargs["torch_dtype"] = dtype_override
 
