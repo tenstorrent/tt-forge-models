@@ -20,6 +20,32 @@ from ...config import (
 )
 
 
+class _LMForwardWrapper(torch.nn.Module):
+    """Wraps LMModel with pre-computed dummy condition tensors as buffers.
+
+    TTSModel.lm requires condition_tensors (speaker_wavs, cfg, control) for
+    every forward call. This wrapper pre-computes dummy conditions at load
+    time and stores them as registered buffers so they move with the model
+    to the TT device.
+    """
+
+    def __init__(self, lm, condition_tensors):
+        super().__init__()
+        self.lm = lm
+        for name, (cond, mask) in condition_tensors.items():
+            self.register_buffer(f"cond_{name}", cond.detach())
+            self.register_buffer(f"mask_{name}", mask.detach())
+        self._condition_names = list(condition_tensors.keys())
+
+    def forward(self, codes):
+        cond_tensors = {
+            name: (getattr(self, f"cond_{name}"), getattr(self, f"mask_{name}"))
+            for name in self._condition_names
+        }
+        out = self.lm(codes, cond_tensors)
+        return out.logits
+
+
 class ModelVariant(StrEnum):
     """Available Kyutai TTS model variants."""
 
@@ -49,24 +75,38 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Kyutai TTS LM backbone."""
+        """Load and return the Kyutai TTS LM backbone wrapped with dummy conditions."""
         from moshi.models.loaders import CheckpointInfo
-        from moshi.models.tts import TTSModel
+        from moshi.models.tts import TTSModel, ConditionAttributes, TensorCondition
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         checkpoint_info = CheckpointInfo.from_hf_repo(pretrained_model_name)
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
         tts_model = TTSModel.from_checkpoint_info(
             checkpoint_info, n_q=32, temp=0.6, device=torch.device("cpu"), dtype=dtype
         )
-        model = tts_model.lm
-        model.eval()
+        lm = tts_model.lm
+        lm.eval()
 
-        self._num_codebooks = model.num_codebooks
-        self._card = model.card
+        self._num_codebooks = lm.num_codebooks
+        self._card = lm.card
 
-        return model
+        # Pre-compute dummy condition tensors. speaker_wavs input dim is 512
+        # (TensorConditioner.output_proj: 512→2048). cfg/control are LUT text conditioners.
+        attrs = ConditionAttributes(
+            text={"cfg": "1.0", "control": "ok"},
+            tensor={
+                "speaker_wavs": TensorCondition(
+                    torch.zeros(1, 1, 512, dtype=torch.float32),
+                    torch.ones(1, 1, dtype=torch.bool),
+                )
+            },
+        )
+        with torch.no_grad():
+            condition_tensors = lm.condition_provider.prepare_and_provide([attrs])
+
+        return _LMForwardWrapper(lm, condition_tensors)
 
     def load_inputs(self, dtype_override=None):
         """Load synthetic discrete code inputs for the Kyutai TTS model.
