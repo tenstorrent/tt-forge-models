@@ -7,6 +7,9 @@ EfficientNetV2 model loader implementation (timm variants)
 
 from typing import Optional
 
+import requests
+from PIL import Image
+
 import timm
 from timm.data import resolve_data_config
 from timm.data.transforms_factory import create_transform
@@ -21,7 +24,6 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
-from datasets import load_dataset
 from ...tools.utils import print_compiled_model_results
 
 
@@ -76,9 +78,13 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size: int = 1):
-        # Load image from HuggingFace dataset
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"].convert("RGB")
+        # Avoid load_dataset: tt_forge_models/spacy/ namespace package pollutes
+        # sys.modules['spacy'] causing AttributeError in datasets/dill fingerprinting.
+        image = Image.open(
+            requests.get(
+                "http://images.cocodataset.org/val2017/000000039769.jpg", stream=True
+            ).raw
+        ).convert("RGB")
 
         # Use cached model if available, otherwise load it
         model_for_config = (
