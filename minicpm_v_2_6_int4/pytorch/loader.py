@@ -248,6 +248,21 @@ def _patch_cached_remote_files():
         if old_patch_len in text and new_patch_len not in text:
             text = text.replace(old_patch_len, new_patch_len, 1)
 
+        # Fix 5b: after Fix patch-len-list, patch_len is a Python list when tgt_sizes
+        # is a list. The bs>1 branch of Fix 5 still calls torch.max(patch_len) which
+        # raises TypeError on a Python list. Use Python max() for lists.
+        old5b = (
+            "        max_patch_len = int(patch_len[0]) if len(patch_len) == 1"
+            " else int(torch.max(patch_len))\n"
+        )
+        new5b = (
+            "        max_patch_len = (int(patch_len[0]) if len(patch_len) == 1\n"
+            "                         else (max(patch_len) if isinstance(patch_len, list)\n"
+            "                               else int(torch.max(patch_len))))\n"
+        )
+        if old5b in text and new5b not in text:
+            text = text.replace(old5b, new5b, 1)
+
         path.write_text(text)
 
     # Fix 7: XLA pads the last dimension of all_pixel_values to a multiple of 8.
