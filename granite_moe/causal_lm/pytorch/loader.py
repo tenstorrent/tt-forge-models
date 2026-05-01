@@ -5,6 +5,7 @@
 Granite MoE model loader implementation for causal language modeling.
 """
 import torch
+import torch.nn.functional as F
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -97,6 +98,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        _patch_moe_experts(model)
+
         self.config = model.config
         self.model = model
         return model
@@ -128,3 +131,57 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name
         )
         return self.config
+
+
+def _patch_moe_experts(model):
+    """Replace GraniteMoe MoE dispatch to avoid expert_size.tolist() D2H transfer.
+
+    GraniteMoeTopKGating.forward calls expert_size.tolist() which triggers a
+    PJRT device-to-host transfer on TT hardware (INTERNAL: Error code: 13).
+    Replace TopKGating and ParallelExperts with static per-expert masked matmul.
+    """
+    from transformers.models.granitemoe.modeling_granitemoe import (
+        GraniteMoeTopKGating,
+        GraniteMoeParallelExperts,
+    )
+
+    def _patched_topk_gating_forward(self, hidden_states):
+        logits = self.layer(hidden_states).float()
+        top_k_logits, top_k_indices = logits.topk(self.top_k, dim=1)
+        top_k_gates = torch.softmax(top_k_logits, dim=1).type_as(hidden_states)
+
+        zeros = torch.zeros(
+            [top_k_gates.size(0), self.num_experts],
+            dtype=top_k_gates.dtype,
+            device=top_k_gates.device,
+        )
+        gates = zeros.scatter(1, top_k_indices, 1)
+        expert_size_tensor = gates.long().sum(0)  # [num_experts] — kept on device
+
+        top_k_experts = top_k_indices.flatten()
+        _, index_sorted_experts = top_k_experts.sort(0)
+        batch_index = index_sorted_experts.div(self.top_k, rounding_mode="trunc")
+
+        top_k_gates = top_k_gates.flatten()
+        batch_gates = top_k_gates[index_sorted_experts]
+
+        # Return sorted expert IDs (tensor) instead of expert_size list so there
+        # is no device-to-host transfer.
+        sorted_experts = top_k_experts[index_sorted_experts]
+        return index_sorted_experts, batch_index, batch_gates, sorted_experts, logits
+
+    def _patched_parallel_experts_forward(self, inputs, sorted_experts):
+        # sorted_experts: [num_tokens * top_k] tensor of expert IDs in sorted order.
+        # Use a static per-expert boolean-mask matmul; avoids dynamic split (which
+        # needs expert_size as a Python list) and any device-to-host transfers.
+        output_list = []
+        for i in range(self.num_experts):
+            mask = (sorted_experts == i).to(inputs.dtype).unsqueeze(-1)
+            # Zero out non-expert-i rows before linear; F.linear has no bias so
+            # output for zeroed rows is zero.
+            expert_out = F.linear(inputs * mask, self.weight[i])
+            output_list.append(expert_out)
+        return sum(output_list)
+
+    GraniteMoeTopKGating.forward = _patched_topk_gating_forward
+    GraniteMoeParallelExperts.forward = _patched_parallel_experts_forward
