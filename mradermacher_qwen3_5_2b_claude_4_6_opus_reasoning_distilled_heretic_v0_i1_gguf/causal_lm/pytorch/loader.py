@@ -49,15 +49,22 @@ def _get_gguf_scalar(reader, key):
     return field.parts[-1].tolist()[0]
 
 
-def _patched_get_gguf_hf_weights_map(hf_model, processor, model_type=None, **kwargs):
+def _patched_get_gguf_hf_weights_map(*args, **kwargs):
     """Alias qwen3_5_text → qwen35 for gguf-py arch lookup."""
-    if model_type is None and hasattr(hf_model, "config"):
-        model_type = getattr(hf_model.config, "model_type", None)
+    args = list(args)
+    # model_type is the 3rd positional arg or a keyword arg
+    if len(args) >= 3:
+        model_type = args[2]
+    else:
+        model_type = kwargs.get("model_type")
+        if model_type is None and args and hasattr(args[0], "config"):
+            model_type = getattr(args[0].config, "model_type", None)
     if model_type == "qwen3_5_text":
-        model_type = "qwen35"
-    return _orig_get_gguf_hf_weights_map(
-        hf_model, processor, model_type=model_type, **kwargs
-    )
+        if len(args) >= 3:
+            args[2] = "qwen35"
+        else:
+            kwargs["model_type"] = "qwen35"
+    return _orig_get_gguf_hf_weights_map(*args, **kwargs)
 
 
 def _patched_load_gguf_checkpoint(*args, **kwargs):
