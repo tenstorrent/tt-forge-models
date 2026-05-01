@@ -105,6 +105,11 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name, **model_kwargs
         )
 
+        # Lfm2HybridConvCache is not a transformers.Cache subclass, so the
+        # comparison evaluator's tree_map cannot handle it as a tensor leaf.
+        # Disable caching so past_key_values is omitted from the output.
+        model.config.use_cache = False
+
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
