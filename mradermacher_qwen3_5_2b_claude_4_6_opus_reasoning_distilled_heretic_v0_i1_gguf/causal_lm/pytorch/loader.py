@@ -8,27 +8,32 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import gguf as _gguf_lib
 import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    get_gguf_hf_weights_map as _orig_get_gguf_hf_weights_map,
     GGUF_SUPPORTED_ARCHITECTURES,
 )
-from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUF_CONFIG_MAPPING
 
 
 def _patch_qwen35_support():
-    """Register qwen35 architecture and qwen3_5_text tokenizer as aliases for qwen3."""
+    """Register qwen35 arch with Qwen3_5-aware config mapping and tensor name alias."""
     if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
         GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
-    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
-        if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
-            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
-                "qwen35",
-                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
-            )
+
+    # Build a qwen35 config map from qwen3 + head_dim from attention.key_length.
+    if "qwen35" not in GGUF_CONFIG_MAPPING and "qwen3" in GGUF_CONFIG_MAPPING:
+        qwen35_cfg = dict(GGUF_CONFIG_MAPPING["qwen3"])
+        qwen35_cfg["attention.key_length"] = "head_dim"
+        GGUF_CONFIG_MAPPING["qwen35"] = qwen35_cfg
+        # Also update the view in GGUF_TO_TRANSFORMERS_MAPPING["config"]
+        _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen35"] = qwen35_cfg
+
     if "qwen3" in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
         GGUF_TO_FAST_CONVERTERS.setdefault(
@@ -36,20 +41,72 @@ def _patch_qwen35_support():
         )
 
 
+def _get_gguf_scalar(reader, key):
+    """Read a scalar value from a GGUFReader field."""
+    field = reader.fields.get(key)
+    if field is None:
+        return None
+    return field.parts[-1].tolist()[0]
+
+
+def _patched_get_gguf_hf_weights_map(hf_model, processor, model_type=None, **kwargs):
+    """Alias qwen3_5_text → qwen35 for gguf-py arch lookup."""
+    if model_type is None and hasattr(hf_model, "config"):
+        model_type = getattr(hf_model.config, "model_type", None)
+    if model_type == "qwen3_5_text":
+        model_type = "qwen35"
+    return _orig_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=model_type, **kwargs
+    )
+
+
 def _patched_load_gguf_checkpoint(*args, **kwargs):
-    """Wrap load_gguf_checkpoint to add qwen35 support and fix model_type."""
+    """Load qwen35 GGUF as Qwen3_5TextConfig with correct hybrid-arch params."""
     _patch_qwen35_support()
     result = _orig_load_gguf_checkpoint(*args, **kwargs)
-    if result.get("config", {}).get("model_type") == "qwen35":
-        result["config"]["model_type"] = "qwen3"
+    if result.get("config", {}).get("model_type") != "qwen35":
+        return result
+
+    config = result["config"]
+    config["model_type"] = "qwen3_5_text"
+
+    # Read hybrid-specific metadata from the GGUF file.
+    gguf_path = args[0]
+    reader = _gguf_lib.GGUFReader(gguf_path, "r")
+    full_attn_interval = _get_gguf_scalar(reader, "qwen35.full_attention_interval")
+    ssm_group_count = _get_gguf_scalar(reader, "qwen35.ssm.group_count")
+    ssm_state_size = _get_gguf_scalar(reader, "qwen35.ssm.state_size")
+    ssm_conv_kernel = _get_gguf_scalar(reader, "qwen35.ssm.conv_kernel")
+
+    if ssm_group_count is not None:
+        config["linear_num_key_heads"] = int(ssm_group_count)
+        config["linear_num_value_heads"] = int(ssm_group_count)
+    if ssm_state_size is not None:
+        config["linear_key_head_dim"] = int(ssm_state_size)
+        config["linear_value_head_dim"] = int(ssm_state_size)
+    if ssm_conv_kernel is not None:
+        config["linear_conv_kernel_dim"] = int(ssm_conv_kernel)
+    if full_attn_interval is not None:
+        n = int(config.get("num_hidden_layers", 24))
+        k = int(full_attn_interval)
+        config["layer_types"] = [
+            "full_attention" if (i + 1) % k == 0 else "linear_attention"
+            for i in range(n)
+        ]
+
     return result
 
 
-_patch_qwen35_support()
-_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+def _install_qwen35_patches():
+    _patch_qwen35_support()
+    _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
+
+_install_qwen35_patches()
 
 from ....base import ForgeModel
 from ....config import (
@@ -191,14 +248,16 @@ class ModelLoader(ForgeModel):
     def load_shard_spec(self, model):
         shard_specs = {}
         for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+            if hasattr(layer, "mlp"):
+                shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+                shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+                shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
 
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+            if hasattr(layer, "self_attn"):
+                shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
         shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
 
