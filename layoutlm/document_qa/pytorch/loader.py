@@ -125,8 +125,8 @@ class ModelLoader(ForgeModel):
             + [[0, 0, 0, 0]]  # SEP
         )
 
-        # token_type_ids: 0 for question, 1 for context
-        token_type_ids = [0] * (len(question_tokens) + 2) + [1] * (len(word_tokens) + 1)
+        # token_type_ids: all 0 because impira/layoutlm-document-qa has type_vocab_size=1
+        token_type_ids = [0] * len(tokens)
 
         attention_mask = [1] * len(input_ids)
 
