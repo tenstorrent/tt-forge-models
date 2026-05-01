@@ -6,20 +6,196 @@ LFM2 GGUF model loader implementation for causal language modeling.
 
 Supports LiquidAI's LFM2 Mixture-of-Experts models in GGUF format.
 """
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+import torch
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
-    LLMModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
+
+
+def _patch_grouped_mm_experts_forward():
+    """Fix grouped_mm_experts_forward to use float histc input on non-CUDA devices.
+
+    torch.histc on CPU (where XLA ops fall back) only supports float input.
+    When device.type is "xla" the int path is chosen, causing:
+        NotImplementedError: "histogram_cpu" not implemented for 'Int'
+    """
+    import transformers.integrations.moe as moe_module
+
+    if getattr(moe_module, "_lfm2moe_histc_patched", False):
+        return
+
+    _grouped_linear = moe_module._grouped_linear
+
+    def _patched_gmef(
+        self: torch.nn.Module,
+        hidden_states: torch.Tensor,
+        top_k_index: torch.Tensor,
+        top_k_weights: torch.Tensor,
+    ) -> torch.Tensor:
+        device = hidden_states.device
+        num_top_k = top_k_index.size(-1)
+        num_tokens = hidden_states.size(0)
+        hidden_dim = hidden_states.size(-1)
+
+        token_idx = (
+            torch.arange(num_tokens, device=device)
+            .unsqueeze(1)
+            .expand(-1, num_top_k)
+            .reshape(-1)
+        )
+        sample_weights = top_k_weights.reshape(-1)
+        expert_ids = top_k_index.reshape(-1)
+
+        selected_hidden_states = hidden_states[token_idx]
+
+        perm = torch.argsort(expert_ids)
+        inv_perm = torch.argsort(perm)
+        expert_ids_g = expert_ids[perm]
+        sample_weights_g = sample_weights[perm]
+        selected_hidden_states_g = selected_hidden_states[perm]
+
+        selected_gate_up = self.gate_up_proj
+        selected_down = self.down_proj
+        selected_gate_up_bias = (
+            self.gate_up_proj_bias[expert_ids_g] if self.has_bias else None
+        )
+        selected_down_bias = (
+            self.down_proj_bias[expert_ids_g] if self.has_bias else None
+        )
+
+        # CUDA supports int histc; CPU and XLA (which falls back to CPU) require float.
+        histc_input = (
+            expert_ids_g.float() if device.type != "cuda" else expert_ids_g.int()
+        )
+        num_tokens_per_expert = torch.histc(
+            histc_input, bins=self.num_experts, min=0, max=self.num_experts - 1
+        )
+        offsets = torch.cumsum(num_tokens_per_expert, dim=0, dtype=torch.int32)
+
+        gate_up_out = _grouped_linear(
+            selected_hidden_states_g,
+            selected_gate_up,
+            selected_gate_up_bias,
+            offsets,
+            is_transposed=self.is_transposed,
+        )
+        gated_out = self._apply_gate(gate_up_out)
+        out_per_sample_g = _grouped_linear(
+            gated_out,
+            selected_down,
+            selected_down_bias,
+            offsets,
+            is_transposed=self.is_transposed,
+        )
+        out_per_sample_g = out_per_sample_g * sample_weights_g.unsqueeze(-1)
+        out_per_sample = out_per_sample_g[inv_perm]
+        final_hidden_states = out_per_sample.view(num_tokens, num_top_k, hidden_dim).sum(
+            dim=1
+        )
+        return final_hidden_states.to(hidden_states.dtype)
+
+    moe_module.grouped_mm_experts_forward = _patched_gmef
+    moe_module.ExpertsInterface._global_mapping["grouped_mm"] = _patched_gmef
+    moe_module._lfm2moe_histc_patched = True
+
+
+def _patch_lfm2moe_gguf_support():
+    """Patch transformers to add lfm2moe GGUF architecture support.
+
+    The GGUF file uses architecture 'lfm2moe' but transformers only knows 'lfm2'.
+    We add 'lfm2moe' as a supported architecture and remap it to the HF model
+    type 'lfm2_moe' after loading.
+    """
+    import transformers.configuration_utils as _config_utils
+    import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+    import transformers.models.auto.tokenization_auto as _auto_tokenizer
+    import transformers.tokenization_utils_tokenizers as _tok_utils
+    from transformers.integrations.ggml import (
+        GGUF_TO_FAST_CONVERTERS,
+        GGUFLlamaConverter,
+    )
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        TENSOR_PROCESSORS,
+        Lfm2TensorProcessor,
+        get_gguf_hf_weights_map as _orig_get_gguf_hf_weights_map,
+        load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    )
+
+    if "lfm2moe" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["lfm2moe"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "norm_eps",
+        "vocab_size": "vocab_size",
+        "shortconv.l_cache": "conv_L_cache",
+        "expert_count": "num_experts",
+        "expert_used_count": "num_experts_per_tok",
+        "expert_feed_forward_length": "moe_intermediate_size",
+    }
+    GGUF_SUPPORTED_ARCHITECTURES.append("lfm2moe")
+    TENSOR_PROCESSORS["lfm2moe"] = Lfm2TensorProcessor
+    GGUF_TO_FAST_CONVERTERS["lfm2_moe"] = GGUFLlamaConverter
+
+    def _patched_load_gguf_checkpoint(*args, **kwargs):
+        result = _orig_load_gguf_checkpoint(*args, **kwargs)
+        if result.get("config", {}).get("model_type") == "lfm2moe":
+            config = result["config"]
+            gguf_num_key_value_heads = config.get("num_key_value_heads")
+            if isinstance(gguf_num_key_value_heads, list):
+                config["num_key_value_heads"] = max(gguf_num_key_value_heads)
+                config["block_auto_adjust_ff_dim"] = False
+                num_layers = config.get(
+                    "num_hidden_layers", len(gguf_num_key_value_heads)
+                )
+                config["layer_types"] = [
+                    "full_attention" if gguf_num_key_value_heads[i] > 0 else "conv"
+                    for i in range(num_layers)
+                ]
+            config["model_type"] = "lfm2_moe"
+        return result
+
+    def _patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type == "lfm2_moe":
+            model_type = "lfm2moe"
+        return _orig_get_gguf_hf_weights_map(
+            hf_model, processor, model_type, num_layers, qual_name
+        )
+
+    _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
+    _patch_grouped_mm_experts_forward()
+
+
+_patch_lfm2moe_gguf_support()
 
 
 class ModelVariant(StrEnum):
