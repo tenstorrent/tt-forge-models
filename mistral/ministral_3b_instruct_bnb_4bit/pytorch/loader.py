@@ -118,12 +118,14 @@ class ModelLoader(ForgeModel):
 
     @staticmethod
     def _patch_get_image_features(model):
-        """Patch Mistral3Model.get_image_features to compute split_sizes on CPU.
+        """Patch Mistral3Model.get_image_features to keep image_sizes on CPU.
 
-        The buggy line is in Mistral3Model (model.model), not the outer wrapper.
-        TT device casts int64 image_sizes tensors to bf16 before arithmetic,
-        corrupting values like 1540→1536 which makes split_sizes wrong (2320
-        instead of 2310). Keeping the metadata computation on CPU avoids this.
+        The buggy lines are in Mistral3Model (model.model), not the outer wrapper:
+        1. multi_modal_projector iterates image_sizes with image_size[0] indexing,
+           triggering aten._local_scalar_dense on the TT device.
+        2. split_sizes computation casts int64→bf16 on TT device, corrupting
+           values like 1540→1536.
+        Fix: move image_sizes to CPU before any metadata arithmetic.
         """
         import types
 
@@ -145,12 +147,16 @@ class ModelLoader(ForgeModel):
                 hs_pool = [image_outputs.hidden_states[layer_idx] for layer_idx in vision_feature_layer]
                 selected_image_feature = torch.cat(hs_pool, dim=-1)
 
-            image_features = self.multi_modal_projector(selected_image_feature.squeeze(0), image_sizes)
+            # Move image_sizes to CPU before multi_modal_projector: it iterates
+            # image_sizes with index access (image_size[0]) which triggers
+            # aten._local_scalar_dense when image_sizes is on TT device.
+            image_sizes_cpu = torch.as_tensor(image_sizes, dtype=torch.long, device="cpu")
+            image_features = self.multi_modal_projector(selected_image_feature.squeeze(0), image_sizes_cpu)
             downsample_ratio = self.vision_tower.patch_size * self.config.spatial_merge_size
             # Keep split_sizes on CPU with int64 precision: TT device casts int64→bf16,
             # corrupting values like 1540→1536 and giving wrong split counts.
             split_sizes = (
-                (torch.as_tensor(image_sizes, dtype=torch.long, device="cpu") // downsample_ratio)
+                (image_sizes_cpu // downsample_ratio)
                 .prod(dim=-1)
                 .tolist()
             )
