@@ -4,7 +4,6 @@
 """
 Llama 3.3 Nemotron Super 49B v1 GGUF model loader implementation for causal language modeling.
 """
-import inspect
 from typing import Optional
 
 import torch
@@ -26,37 +25,13 @@ from ....config import (
 )
 
 
-def _find_func_accepting_kwarg(func, kwarg="model_to_load", _visited=None):
-    """Walk the patch-chain closures to find a function that accepts the kwarg."""
-    if _visited is None:
-        _visited = set()
-    fid = id(func)
-    if fid in _visited:
-        return None
-    _visited.add(fid)
-    try:
-        if kwarg in inspect.signature(func).parameters:
-            return func
-    except (ValueError, TypeError):
-        pass
-    if hasattr(func, "__closure__") and func.__closure__:
-        for cell in func.__closure__:
-            try:
-                val = cell.cell_contents
-            except ValueError:
-                continue
-            if callable(val):
-                result = _find_func_accepting_kwarg(val, kwarg, _visited)
-                if result is not None:
-                    return result
-    return None
-
-
-# Capture the real underlying function (one that accepts model_to_load) before
-# we apply our own patch. Intermediate patches may not forward model_to_load;
-# by walking closures we bypass them and call the authoritative implementation.
-_current = _gguf_utils.load_gguf_checkpoint
-_true_load_gguf_checkpoint = _find_func_accepting_kwarg(_current) or _current
+# Store the TRUE (unpatched) load_gguf_checkpoint the first time any loader runs this
+# code. Later loaders that patch _gguf_utils.load_gguf_checkpoint form a chain, but
+# many intermediate patches don't forward model_to_load. By saving the original here
+# (before we apply our own patch) we can call it directly and bypass the chain.
+if not hasattr(_gguf_utils, "_tt_true_load_gguf_checkpoint"):
+    _gguf_utils._tt_true_load_gguf_checkpoint = _gguf_utils.load_gguf_checkpoint
+_true_load_gguf_checkpoint = _gguf_utils._tt_true_load_gguf_checkpoint
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
