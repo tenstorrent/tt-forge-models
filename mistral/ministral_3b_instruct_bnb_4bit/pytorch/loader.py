@@ -118,14 +118,17 @@ class ModelLoader(ForgeModel):
 
     @staticmethod
     def _patch_get_image_features(model):
-        """Patch Mistral3Model.get_image_features to keep image_sizes on CPU.
+        """Patch Mistral3Model.get_image_features to keep image_sizes as Python ints.
 
-        The buggy lines are in Mistral3Model (model.model), not the outer wrapper:
-        1. multi_modal_projector iterates image_sizes with image_size[0] indexing,
-           triggering aten._local_scalar_dense on the TT device.
-        2. split_sizes computation casts int64→bf16 on TT device, corrupting
+        image_sizes is used in two places:
+        1. vision_tower.forward: uses size[0]//patch_size as a slice bound, which
+           triggers aten._local_scalar_dense when size is a TT device tensor.
+        2. multi_modal_projector.forward: iterates image_sizes with image_size[0]
+           indexing; 0-dim tensors fed to torch.split also trigger _local_scalar_dense.
+        3. split_sizes: int64 values would be cast to bf16 on TT device, corrupting
            values like 1540→1536.
-        Fix: move image_sizes to CPU before any metadata arithmetic.
+        Fix: convert image_sizes to a Python list of [h, w] ints at the start, so
+        all three consumers see plain Python ints and no device tensor arithmetic.
         """
         import types
 
@@ -134,9 +137,13 @@ class ModelLoader(ForgeModel):
             if vision_feature_layer is None:
                 vision_feature_layer = self.config.vision_feature_layer
             kwargs = {k: v for k, v in kwargs.items() if v is not None and k not in ("return_dict",)}
+            # Convert to Python list of [h, w] ints before any consumer sees it.
+            # Both vision_tower and multi_modal_projector index into image_sizes;
+            # if it's a device tensor those accesses trigger _local_scalar_dense.
+            image_sizes_list = torch.as_tensor(image_sizes, dtype=torch.long, device="cpu").tolist()
             image_outputs = self.vision_tower(
                 pixel_values,
-                image_sizes=image_sizes,
+                image_sizes=image_sizes_list,
                 output_hidden_states=True,
                 return_dict=True,
                 **kwargs,
@@ -147,16 +154,8 @@ class ModelLoader(ForgeModel):
                 hs_pool = [image_outputs.hidden_states[layer_idx] for layer_idx in vision_feature_layer]
                 selected_image_feature = torch.cat(hs_pool, dim=-1)
 
-            # Convert image_sizes to a Python list of [h, w] pairs before passing
-            # to multi_modal_projector. Inside that function, image_size[0] and
-            # image_size[1] are used as split sizes; if image_sizes is a tensor
-            # those indexing ops produce 0-dim tensors that trigger
-            # aten._local_scalar_dense when used in torch.split, which the TT
-            # backend cannot compile. Python ints avoid the issue entirely.
-            image_sizes_list = torch.as_tensor(image_sizes, dtype=torch.long, device="cpu").tolist()
             image_features = self.multi_modal_projector(selected_image_feature.squeeze(0), image_sizes_list)
             downsample_ratio = self.vision_tower.patch_size * self.config.spatial_merge_size
-            # Keep split_sizes as Python ints (same reason: avoid _local_scalar_dense).
             split_sizes = [
                 (h // downsample_ratio) * (w // downsample_ratio)
                 for h, w in image_sizes_list
