@@ -31,7 +31,7 @@ def _patch_get_image_features_cpu_split(model):
     on CPU avoids this precision loss.
     """
 
-    def get_image_features(self, pixel_values, image_sizes, vision_feature_layer=None, output_hidden_states=None, **kwargs):
+    def get_image_features(self, pixel_values, image_sizes, vision_feature_layer=None, output_hidden_states=None, return_dict=None, **kwargs):
         kwargs = {k: v for k, v in kwargs.items() if v is not None}
         image_outputs = self.vision_tower(
             pixel_values,
@@ -62,7 +62,8 @@ def _patch_get_image_features_cpu_split(model):
         image_outputs.pooler_output = image_features
         return image_outputs
 
-    model.get_image_features = types.MethodType(get_image_features, model)
+    # Patch on model.model (Mistral3Model) since that's where get_image_features is called
+    model.model.get_image_features = types.MethodType(get_image_features, model.model)
 
 
 class ModelVariant(StrEnum):
