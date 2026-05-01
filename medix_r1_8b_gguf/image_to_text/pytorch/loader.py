@@ -187,6 +187,12 @@ class ModelLoader(ForgeModel):
                         text_config[k] = config.pop(k)
                 config["text_config"] = text_config
                 config["model_type"] = "qwen3_vl"
+                # The GGUF ships no vision_config; the default out_hidden_size
+                # (3584) does not match this model's text hidden_size (4096).
+                # The merger must project to text hidden_size, so fix it here.
+                config.setdefault("vision_config", {})["out_hidden_size"] = (
+                    text_config.get("hidden_size", 4096)
+                )
 
             if return_tensors and model_to_load is not None:
                 # Tensor pass: load directly from GGUF, bypassing narrow-sig chain
