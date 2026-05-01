@@ -28,6 +28,18 @@ class ModelVariant(StrEnum):
     DAC_24KHZ = "DAC 24kHz"
 
 
+class _DacWrapper(torch.nn.Module):
+    """Return only audio_values; the scalar loss in DacOutput has numel=1 and
+    is undefined for PCC comparison, which would poison the minimum PCC to 0."""
+
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, input_values):
+        return self.model(input_values).audio_values
+
+
 class ModelLoader(ForgeModel):
     """Descript Audio Codec model loader implementation."""
 
@@ -60,7 +72,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model = model.to(dtype_override)
 
-        return model
+        return _DacWrapper(model)
 
     def load_inputs(self, dtype_override=None):
         """Load sample audio inputs for the DAC model."""
@@ -72,11 +84,13 @@ class ModelLoader(ForgeModel):
         duration_seconds = 1
         audio = np.random.randn(sampling_rate * duration_seconds).astype(np.float32)
 
-        inputs = processor(
+        processed = processor(
             raw_audio=audio,
             sampling_rate=sampling_rate,
             return_tensors="pt",
         )
+
+        inputs = {"input_values": processed["input_values"]}
 
         if dtype_override is not None:
             inputs = {k: v.to(dtype_override) for k, v in inputs.items()}
