@@ -120,6 +120,20 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         model = AutoModel.from_pretrained(model_name, **model_kwargs)
+
+        # Dequantize Params4bit weights to BF16 so the model can run on TT hardware.
+        # bitsandbytes Linear4bit layers cannot be moved to the XLA device.
+        from transformers.integrations.bitsandbytes import dequantize_and_replace
+
+        quantization_config = getattr(
+            model.config if hasattr(model, "config") else None, "quantization_config", None
+        )
+        model = dequantize_and_replace(
+            model,
+            quantization_config=quantization_config,
+            dtype=torch.bfloat16,
+        )
+
         model.eval()
 
         self._patch_autocast(model)
