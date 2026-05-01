@@ -134,54 +134,66 @@ class ModelLoader(ForgeModel):
 
 
 def _patch_moe_experts(model):
-    """Replace GraniteMoe MoE dispatch to avoid expert_size.tolist() D2H transfer.
+    """Replace GraniteMoeMoE.forward to eliminate device-to-host transfers and
+    stablehlo.scatter with mismatched begins rank.
 
-    GraniteMoeTopKGating.forward calls expert_size.tolist() which triggers a
-    PJRT device-to-host transfer on TT hardware (INTERNAL: Error code: 13).
-    Replace TopKGating and ParallelExperts with static per-expert masked matmul.
+    Two bugs in the original GraniteMoeMoE forward:
+    1. GraniteMoeTopKGating.forward calls expert_size.tolist() → PJRT D2H
+       transfer → INTERNAL: Error code: 13.
+    2. zeros.index_add(0, batch_index, expert_outputs) lowers to
+       stablehlo.scatter; the tt-mlir scatter lowering creates a 2-element
+       slice of a 2D index tensor, but TTNN promotes 2D tensors to 4D at
+       runtime → TT_FATAL: Input rank 4 and begins 2 must have the same size.
+
+    Fix: replace the full GraniteMoeMoE.forward with a static per-expert
+    boolean-mask matmul that never calls .tolist() or index_add.
     """
-    from transformers.models.granitemoe.modeling_granitemoe import (
-        GraniteMoeTopKGating,
-        GraniteMoeParallelExperts,
-    )
+    from transformers.models.granitemoe.modeling_granitemoe import GraniteMoeMoE
 
-    def _patched_topk_gating_forward(self, hidden_states):
-        logits = self.layer(hidden_states).float()
-        top_k_logits, top_k_indices = logits.topk(self.top_k, dim=1)
-        top_k_gates = torch.softmax(top_k_logits, dim=1).type_as(hidden_states)
+    def _patched_moe_forward(self, layer_input):
+        bsz, length, emb_size = layer_input.size()
+        x = layer_input.reshape(-1, emb_size)
+        num_tokens = x.size(0)
 
-        zeros = torch.zeros(
-            [top_k_gates.size(0), self.num_experts],
-            dtype=top_k_gates.dtype,
-            device=top_k_gates.device,
-        )
-        gates = zeros.scatter(1, top_k_indices, 1)
-        expert_size_tensor = gates.long().sum(0)  # [num_experts] — kept on device
+        # Router: compute routing without .tolist() (avoids PJRT D2H transfer).
+        logits = self.router.layer(x).float()
+        top_k_logits, top_k_indices = logits.topk(self.router.top_k, dim=1)
+        top_k_gates = torch.softmax(top_k_logits, dim=1).type_as(x)
 
-        top_k_experts = top_k_indices.flatten()
+        # Sort tokens by expert assignment.
+        top_k_experts = top_k_indices.flatten()  # [num_tokens * top_k]
         _, index_sorted_experts = top_k_experts.sort(0)
-        batch_index = index_sorted_experts.div(self.top_k, rounding_mode="trunc")
+        batch_index = index_sorted_experts.div(self.router.top_k, rounding_mode="trunc")
+        batch_gates = top_k_gates.flatten()[index_sorted_experts]
+        sorted_experts = top_k_experts[index_sorted_experts]  # [num_tokens * top_k]
 
-        top_k_gates = top_k_gates.flatten()
-        batch_gates = top_k_gates[index_sorted_experts]
+        expert_inputs = x[batch_index]  # [num_tokens * top_k, emb_size]
 
-        # Return sorted expert IDs (tensor) instead of expert_size list so there
-        # is no device-to-host transfer.
-        sorted_experts = top_k_experts[index_sorted_experts]
-        return index_sorted_experts, batch_index, batch_gates, sorted_experts, logits
+        # Static per-expert forward: boolean mask per expert so no dynamic split
+        # or expert_size.tolist() is needed.  For non-expert positions the input
+        # is zeroed, so F.linear output (no bias) is also zero.
+        expert_results = []
+        for e in range(self.router.num_experts):
+            mask = (sorted_experts == e).to(x.dtype).unsqueeze(-1)  # [N*K, 1]
+            h_in = F.linear(expert_inputs * mask, self.input_linear.weight[e])
+            h1, h2 = h_in.chunk(2, dim=-1)
+            # h1/h2 zero for non-expert positions; activation(0)=0 for GELU/SiLU
+            h_act = self.activation(h1) * h2
+            out = F.linear(h_act, self.output_linear.weight[e])
+            expert_results.append(out)
 
-    def _patched_parallel_experts_forward(self, inputs, sorted_experts):
-        # sorted_experts: [num_tokens * top_k] tensor of expert IDs in sorted order.
-        # Use a static per-expert boolean-mask matmul; avoids dynamic split (which
-        # needs expert_size as a Python list) and any device-to-host transfers.
-        output_list = []
-        for i in range(self.num_experts):
-            mask = (sorted_experts == i).to(inputs.dtype).unsqueeze(-1)
-            # Zero out non-expert-i rows before linear; F.linear has no bias so
-            # output for zeroed rows is zero.
-            expert_out = F.linear(inputs * mask, self.weight[i])
-            output_list.append(expert_out)
-        return sum(output_list)
+        expert_outputs = sum(expert_results) * batch_gates.unsqueeze(-1)
 
-    GraniteMoeTopKGating.forward = _patched_topk_gating_forward
-    GraniteMoeParallelExperts.forward = _patched_parallel_experts_forward
+        # Per-token aggregation: replace index_add (scatter) with masked sum.
+        # index_add lowers to stablehlo.scatter which generates a 2-element-begins
+        # slice for a tensor that TTNN promotes to 4D, causing a rank mismatch.
+        output_rows = []
+        for j in range(num_tokens):
+            mask_j = (batch_index == j).to(expert_outputs.dtype)  # [N*K]
+            row = (expert_outputs * mask_j.unsqueeze(-1)).sum(0, keepdim=True)
+            output_rows.append(row)
+
+        layer_output = torch.cat(output_rows, dim=0)
+        return layer_output.view(bsz, length, self.input_size)
+
+    GraniteMoeMoE.forward = _patched_moe_forward
