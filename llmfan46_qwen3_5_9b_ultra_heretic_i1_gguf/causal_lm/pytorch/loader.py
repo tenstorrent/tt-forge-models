@@ -180,7 +180,15 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _reinstall_patch(self):
+        """Re-install the qwen35 patch in case a later-imported loader overwrote it."""
+        _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
     def _load_tokenizer(self, dtype_override=None):
+        self._reinstall_patch()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -195,6 +203,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        self._reinstall_patch()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
