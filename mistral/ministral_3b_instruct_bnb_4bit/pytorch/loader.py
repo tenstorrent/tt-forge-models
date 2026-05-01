@@ -72,6 +72,31 @@ class ModelLoader(ForgeModel):
 
         return self.processor
 
+    @staticmethod
+    def _dequantize_bnb_to_linear(model, dtype):
+        import torch.nn as nn
+        import bitsandbytes as bnb
+        import bitsandbytes.functional as bnb_F
+
+        for parent_module in model.modules():
+            for child_name, child_module in list(parent_module.named_children()):
+                if not isinstance(child_module, bnb.nn.Linear4bit):
+                    continue
+                w = child_module.weight
+                if w.shape[1] == 1:
+                    dequant_w = bnb_F.dequantize_4bit(w.data, w.quant_state).to(dtype)
+                else:
+                    dequant_w = w.data.to(dtype)
+                bias = child_module.bias
+                new_linear = nn.Linear(
+                    dequant_w.shape[1], dequant_w.shape[0], bias=bias is not None
+                )
+                new_linear.weight = nn.Parameter(dequant_w)
+                if bias is not None:
+                    new_linear.bias = nn.Parameter(bias.to(dtype))
+                setattr(parent_module, child_name, new_linear)
+        return model
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Ministral 3B Instruct BnB 4-bit model instance.
 
@@ -81,6 +106,7 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The model instance.
         """
+        import torch
         from transformers import Mistral3ForConditionalGeneration
 
         pretrained_model_name = self._variant_config.pretrained_model_name
@@ -98,6 +124,9 @@ class ModelLoader(ForgeModel):
         model = Mistral3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        model = self._dequantize_bnb_to_linear(model, dtype)
 
         model.eval()
         self.model = model
