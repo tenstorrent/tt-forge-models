@@ -119,6 +119,41 @@ class ModelLoader(ForgeModel):
         return self.processor
 
     @staticmethod
+    def _patch_get_placeholder_mask(model):
+        """Patch Mistral3Model.get_placeholder_mask to skip a device-touching check.
+
+        The original method calls torch_compilable_check with:
+          inputs_embeds[special_image_mask].numel() == image_features.numel()
+
+        On XLA device, boolean indexing produces a dynamically-shaped tensor.
+        .numel() on it forces torch_xla.sync() to materialize the shape.
+        The f-string also evaluates str(n_image_tokens) (a scalar XLA tensor),
+        which is another forced sync. Both → INTERNAL Error code: 13.
+
+        The check is a debug assertion; the processor guarantees token/feature
+        counts match during normal inference. Any actual mismatch would produce
+        a visible error in the subsequent masked_scatter call.
+        """
+        import types
+
+        def _get_placeholder_mask(self, input_ids, inputs_embeds, image_features):
+            import torch
+            if input_ids is None:
+                special_image_mask = inputs_embeds == self.get_input_embeddings()(
+                    torch.tensor(self.config.image_token_id, dtype=torch.long, device=inputs_embeds.device)
+                )
+                special_image_mask = special_image_mask.all(-1)
+            else:
+                special_image_mask = input_ids == self.config.image_token_id
+            # Skip torch_compilable_check: it uses boolean indexing on XLA tensors
+            # (.numel()) and f-string str() of scalar XLA tensors, both of which
+            # trigger torch_xla.sync() → INTERNAL Error code: 13.
+            special_image_mask = special_image_mask.unsqueeze(-1).expand_as(inputs_embeds).to(inputs_embeds.device)
+            return special_image_mask
+
+        model.model.get_placeholder_mask = types.MethodType(_get_placeholder_mask, model.model)
+
+    @staticmethod
     def _patch_get_image_features(model):
         """Patch Mistral3Model.get_image_features to keep image_sizes as Python data.
 
@@ -214,6 +249,7 @@ class ModelLoader(ForgeModel):
         model.eval()
 
         self._dequantize_bnb4_to_bf16(model)
+        self._patch_get_placeholder_mask(model)
         self._patch_get_image_features(model)
 
         self.model = model
