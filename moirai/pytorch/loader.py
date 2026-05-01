@@ -118,10 +118,12 @@ class ModelLoader(ForgeModel):
         torch.manual_seed(42)
 
         past_target = torch.randn(1, cfg.context_length, cfg.target_dim)
+        # Use int32 instead of bool: XLA cumsum(bool) returns bool (not int64 like CPU),
+        # causing the cummax→cumsum→sub chain in _generate_time_id to fail at compile time.
         past_observed_target = torch.ones(
-            1, cfg.context_length, cfg.target_dim, dtype=torch.bool
+            1, cfg.context_length, cfg.target_dim, dtype=torch.int32
         )
-        past_is_pad = torch.zeros(1, cfg.context_length, dtype=torch.bool)
+        past_is_pad = torch.zeros(1, cfg.context_length, dtype=torch.int32)
 
         return {
             "past_target": past_target,
