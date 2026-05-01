@@ -43,13 +43,12 @@ class _LMForwardWrapper(torch.nn.Module):
             for name in self._condition_names
         }
         out = self.lm(codes, cond_tensors)
-        # _undelay_sequence fills delay-masked positions with float('NaN').
-        # TT hardware uses non-IEEE bfloat16 that does not preserve NaN; those
-        # positions come back as max_bfloat16 (~3.39e38) instead.  Use the
-        # model's own mask (already computed via bool operations, which are
-        # unaffected) to explicitly zero out invalid positions on both CPU and TT.
-        # out.mask: [B, K, T], True = valid position
-        return torch.where(out.mask.unsqueeze(-1), out.logits, torch.zeros_like(out.logits))
+        # _undelay_sequence fills delay-masked positions with float('NaN') via
+        # in-place assignment.  TT hardware does not preserve bfloat16 NaN; those
+        # positions come back as max_bfloat16 (~3.39e38) or Inf.  The wrapper
+        # patches _undelay_sequence at load time to use 0.0 fill instead, so
+        # out.logits is always finite and we can return it directly.
+        return out.logits
 
 
 class ModelVariant(StrEnum):
@@ -84,6 +83,35 @@ class ModelLoader(ForgeModel):
         """Load and return the Kyutai TTS LM backbone wrapped with dummy conditions."""
         from moshi.models.loaders import CheckpointInfo
         from moshi.models.tts import TTSModel, ConditionAttributes, TensorCondition
+        import moshi.models.lm as _moshi_lm
+
+        # Patch _undelay_sequence to use 0.0 fill instead of float('NaN').
+        # TT hardware (non-IEEE bfloat16) does not preserve NaN; in-place NaN
+        # fill produces max_bfloat16 (~3.39e38) or Inf in the compiled graph.
+        # Using 0.0 fills delay-masked positions with a finite value that the
+        # forward pass can return directly.
+        def _undelay_sequence_zeros(delays, tensor, fill_value=float("NaN")):
+            B, K, T, *_ = tensor.shape
+            assert len(delays) == K
+            mask = torch.ones(B, K, T, dtype=torch.bool, device=tensor.device)
+            outs = []
+            if all(d == 0 for d in delays):
+                return tensor, mask
+            for k, delay in enumerate(delays):
+                assert delay >= 0
+                line = tensor[:, k].roll(-delay, dims=1)
+                if delay > 0:
+                    # Functional replacement for in-place NaN fill: zero out the
+                    # last `delay` columns without creating non-finite constants.
+                    line = torch.cat(
+                        [line[:, : T - delay], torch.zeros_like(line[:, :delay])],
+                        dim=1,
+                    )
+                    mask[:, k, -delay:] = 0
+                outs.append(line)
+            return torch.stack(outs, dim=1), mask
+
+        _moshi_lm._undelay_sequence = _undelay_sequence_zeros
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
