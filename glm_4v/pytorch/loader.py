@@ -148,6 +148,16 @@ class ModelLoader(ForgeModel):
                 inputs["pixel_values"], dtype_override
             )
 
+        # ChatGLMModel.forward evaluates attention_mask.all() to decide
+        # whether to build an explicit causal mask. On TT tensors this is a
+        # device-to-host transfer that raises INTERNAL Error code: 13.
+        # For unpadded inputs (all-ones mask) the two code paths produce
+        # identical outputs, so we drop the mask and let the model use its
+        # default causal attention.
+        if "attention_mask" in inputs and torch.is_tensor(inputs["attention_mask"]):
+            if inputs["attention_mask"].all():
+                del inputs["attention_mask"]
+
         return inputs
 
     def decode_output(self, outputs, input_length=None):
