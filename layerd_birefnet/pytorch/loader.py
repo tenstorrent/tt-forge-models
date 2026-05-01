@@ -6,6 +6,7 @@ cyberagent/layerd-birefnet model loader implementation for image segmentation / 
 """
 
 import torch
+from PIL import Image
 from torchvision import transforms
 from transformers import AutoModelForImageSegmentation
 from typing import Optional
@@ -20,7 +21,6 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from datasets import load_dataset
 
 
 class ModelVariant(StrEnum):
@@ -171,8 +171,8 @@ class ModelLoader(ForgeModel):
         if self.transform_image is None:
             self._setup_transforms()
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        self.image = dataset[0]["image"]
+        # Use a synthetic image to avoid datasets._dill / spacy namespace collision
+        self.image = Image.new("RGB", (1024, 1024))
 
         inputs = self.transform_image(self.image).unsqueeze(0)
 
