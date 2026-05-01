@@ -142,9 +142,19 @@ class ModelLoader(ForgeModel):
     def load_shard_spec(self, model):
         shard_specs = {}
         for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+            mlp = layer.mlp
+            # Qwen3MoeSparseMoeBlock (MoE layers): weights are 3D tensors on experts
+            if hasattr(mlp, "experts") and hasattr(mlp.experts, "gate_up_proj"):
+                shard_specs[mlp.experts.gate_up_proj] = ("model", "batch")
+                shard_specs[mlp.experts.down_proj] = ("batch", "model")
+            else:
+                # Standard MLP (mlp_only layers): gate_proj, up_proj, down_proj
+                if hasattr(mlp, "up_proj"):
+                    shard_specs[mlp.up_proj.weight] = ("model", "batch")
+                if hasattr(mlp, "gate_proj"):
+                    shard_specs[mlp.gate_proj.weight] = ("model", "batch")
+                if hasattr(mlp, "down_proj"):
+                    shard_specs[mlp.down_proj.weight] = ("batch", "model")
 
             shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
