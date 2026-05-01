@@ -7,6 +7,8 @@ MedGemma model loader implementation for multimodal modeling.
 
 from typing import Optional
 
+import torch
+import torch.nn as nn
 from transformers import (
     AutoProcessor,
     Gemma3ForConditionalGeneration,
@@ -79,6 +81,50 @@ class ModelLoader(ForgeModel):
 
         return self.processor
 
+    @staticmethod
+    def _dequantize_bnb_linear4bit(model):
+        """Replace bitsandbytes Linear4bit layers with standard nn.Linear.
+
+        When loaded on CPU, BNB keeps 4-bit weights either as packed uint8
+        (quant_state set) or as full-precision bfloat16 (skip modules). In
+        both cases we convert to nn.Linear so the model can run on TT silicon
+        without a CUDA-initialized quantization state.
+        """
+        try:
+            import bitsandbytes as bnb
+            from bitsandbytes.functional import dequantize_4bit
+        except ImportError:
+            return model
+
+        for module_path, module in list(model.named_modules()):
+            if not isinstance(module, bnb.nn.Linear4bit):
+                continue
+
+            w = module.weight
+            if w.shape[1] == 1:
+                # Packed 4-bit weight — dequantize to bfloat16.
+                weight_fp = dequantize_4bit(w.data, w.quant_state).to(torch.bfloat16)
+            else:
+                # Already full-precision (skip-module layers).
+                weight_fp = w.data.to(torch.bfloat16)
+
+            out_f, in_f = weight_fp.shape
+            has_bias = module.bias is not None
+            new_linear = nn.Linear(in_f, out_f, bias=has_bias, dtype=torch.bfloat16)
+            new_linear.weight = nn.Parameter(weight_fp)
+            if has_bias:
+                new_linear.bias = nn.Parameter(module.bias.data.to(torch.bfloat16))
+
+            if "." in module_path:
+                parent_path, child_name = module_path.rsplit(".", 1)
+                parent = model.get_submodule(parent_path)
+            else:
+                parent = model
+                child_name = module_path
+            setattr(parent, child_name, new_linear)
+
+        return model
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the MedGemma multimodal model instance.
 
@@ -102,6 +148,9 @@ class ModelLoader(ForgeModel):
         model = Gemma3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        if self._variant == ModelVariant.UNSLOTH_MEDGEMMA_4B_IT_BNB_4BIT:
+            model = self._dequantize_bnb_linear4bit(model)
 
         model.eval()
         self.model = model
