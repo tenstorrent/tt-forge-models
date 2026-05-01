@@ -5,8 +5,11 @@
 GPT-BERT model loader implementation for masked language modeling.
 """
 
+import sys
 import torch
+import torch.nn as nn
 from transformers import AutoTokenizer, AutoModelForMaskedLM, AutoConfig
+from transformers import PreTrainedModel
 from third_party.tt_forge_models.config import (
     ModelInfo,
     ModelGroup,
@@ -107,11 +110,86 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForMaskedLM.from_pretrained(
-            self.model_name, trust_remote_code=True, **model_kwargs
-        )
+        # GPTBERTForMaskedLM.__init__ does not call self.post_init(), so
+        # all_tied_weights_keys (required by transformers 5.x _finalize_model_loading)
+        # is never initialised. Patch _finalize_model_loading to call post_init()
+        # when the attribute is absent; restore immediately after loading.
+        _orig_finalize = PreTrainedModel.__dict__["_finalize_model_loading"].__func__
+
+        @staticmethod
+        def _patched_finalize(model, load_config, loading_info):
+            if not hasattr(model, "all_tied_weights_keys"):
+                # Initialize only the attribute needed by _finalize_model_loading;
+                # calling post_init() would re-run _init_weights which crashes on
+                # LayerNorm modules with elementwise_affine=False (bias=None).
+                model.all_tied_weights_keys = (
+                    model.get_expanded_tied_weights_keys(all_submodels=False)
+                )
+            # GPTBERTPreTrainedModel._init_weights does not guard bias=None, so
+            # _finalize_model_loading->_initialize_missing_keys->initialize_weights
+            # crashes on LayerNorm(elementwise_affine=False). Mark them as already
+            # initialized so _initialize_weights skips them.
+            for m in model.modules():
+                if isinstance(m, nn.LayerNorm) and not m.elementwise_affine:
+                    m._is_hf_initialized = True
+            return _orig_finalize(model, load_config, loading_info)
+
+        PreTrainedModel._finalize_model_loading = _patched_finalize
+        try:
+            model = AutoModelForMaskedLM.from_pretrained(
+                self.model_name, trust_remote_code=True, **model_kwargs
+            )
+        finally:
+            PreTrainedModel._finalize_model_loading = staticmethod(_orig_finalize)
+
+        self._patch_inplace_set_slice_dtype(model)
+        self._reinit_position_indices(model)
+
         model.eval()
         return model
+
+    def _patch_inplace_set_slice_dtype(self, model):
+        # The cached modeling_gpt_bert.py uses `torch.Tensor().to(device)` to
+        # create `ret`, which is float32 regardless of `full_tensor.dtype`.
+        # This causes `ret.set_(bfloat16_slice)` to fail with a dtype mismatch
+        # when the model is loaded with torch_dtype=bfloat16.
+        # Fix: replace the forward with one that creates `ret` from the correct
+        # dtype via torch.empty.
+        for key, mod in sys.modules.items():
+            if "babylm" in key and "modeling_gpt_bert" in key and hasattr(
+                mod, "InPlaceSetSlice"
+            ):
+
+                @staticmethod
+                def _fixed_forward(ctx, full_tensor, last_slice, x_idx, x_val):
+                    full_tensor[x_idx] = x_val
+                    ctx.x_idx = x_idx
+                    # Original code uses torch.Tensor().to(device) which creates a
+                    # float32 empty tensor; ret.set_(bfloat16_slice) then fails.
+                    # Avoid set_ entirely: return the slice directly.  x_idx is
+                    # constant at every call site (the for-loop is unrolled by
+                    # torch.compile), so the returned slice has a static shape.
+                    return full_tensor[:x_idx + 1]
+
+                mod.InPlaceSetSlice.forward = _fixed_forward
+                break
+
+    def _reinit_position_indices(self, model):
+        # Transformers 5.x constructs models on meta device; non-persistent
+        # buffers (like Attention.position_indices) are NOT in the checkpoint,
+        # so they are materialised from meta tensors as uninitialised memory.
+        # Re-run the exact computation from Attention.__init__ to fix them.
+        for attn in model.model.attention_layers:
+            cfg = attn.config
+            pi = (
+                torch.arange(cfg.max_position_embeddings, dtype=torch.long).unsqueeze(1)
+                - torch.arange(cfg.max_position_embeddings, dtype=torch.long).unsqueeze(0)
+            )
+            pi = attn.make_log_bucket_position(
+                pi, cfg.position_bucket_size, cfg.max_position_embeddings
+            )
+            pi = cfg.position_bucket_size - 1 + pi
+            attn.register_buffer("position_indices", pi, persistent=False)
 
     def load_inputs(self, dtype_override=None):
         """Prepare sample input for GPT-BERT masked language modeling.
