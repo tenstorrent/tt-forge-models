@@ -5,9 +5,15 @@
 LLaMAFactory tiny-random-Llama-4 model loader implementation for image-text-to-text tasks.
 """
 
+import os
 import torch
 from transformers import AutoProcessor, AutoModelForImageTextToText
 from typing import Optional
+
+# Disable transformers runtime checks that use boolean mask indexing
+# (inputs_embeds[special_image_mask]) during torch.compile graph capture.
+# Under XLA that is a data-dependent op which causes Error code 13.
+os.environ.setdefault("TRANSFORMERS_DISABLE_TORCH_CHECK", "1")
 
 from ....config import (
     LLMModelConfig,
