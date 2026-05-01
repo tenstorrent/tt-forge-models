@@ -161,11 +161,13 @@ def _patch_moe_experts(model):
         top_k_gates = torch.softmax(top_k_logits, dim=1).type_as(x)
 
         # Sort tokens by expert assignment.
-        top_k_experts = top_k_indices.flatten()  # [num_tokens * top_k]
+        # Cast to int32: TT hardware has limited int64 support; comparisons on
+        # int64 tensors (from topk/sort) produce wrong results on silicon.
+        top_k_experts = top_k_indices.flatten().to(torch.int32)  # [num_tokens * top_k]
         _, index_sorted_experts = top_k_experts.sort(0)
-        batch_index = index_sorted_experts.div(self.router.top_k, rounding_mode="trunc")
+        batch_index = index_sorted_experts.div(self.router.top_k, rounding_mode="trunc").to(torch.int32)
         batch_gates = top_k_gates.flatten()[index_sorted_experts]
-        sorted_experts = top_k_experts[index_sorted_experts]  # [num_tokens * top_k]
+        sorted_experts = top_k_experts[index_sorted_experts]  # [num_tokens * top_k], int32
 
         expert_inputs = x[batch_index]  # [num_tokens * top_k, emb_size]
 
