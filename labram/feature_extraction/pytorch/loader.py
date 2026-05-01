@@ -58,6 +58,15 @@ class ModelLoader(ForgeModel):
         model = Labram.from_pretrained(
             self._variant_config.pretrained_model_name, **kwargs
         )
+
+        # _input_channels_mask and _labram_ch_indices are plain tensor attrs (not
+        # registered buffers), so model.to(device) does not move them.  Register
+        # them as non-persistent buffers so they follow the model to XLA.
+        for attr in ("_input_channels_mask", "_labram_ch_indices"):
+            val = getattr(model, attr, None)
+            if val is not None:
+                model.register_buffer(attr, val, persistent=False)
+
         model.eval()
         if dtype_override is not None:
             model.to(dtype_override)
