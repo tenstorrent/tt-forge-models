@@ -81,6 +81,7 @@ class ModelLoader(ForgeModel):
         self.unet = Kandinsky3UNet.from_pretrained(
             self._variant_config.pretrained_model_name,
             subfolder="unet",
+            variant="fp16",
             **load_kwargs,
         )
         return self.unet
