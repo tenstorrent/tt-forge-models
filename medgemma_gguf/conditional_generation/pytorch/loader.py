@@ -31,35 +31,90 @@ from PIL import Image
 
 
 def _find_real_load_gguf_checkpoint():
-    """Traverse the loader-patcher chain to find the real load_gguf_checkpoint.
+    """Find the real (unpatched) load_gguf_checkpoint from transformers.
 
     Several tt_forge_models loaders patch transformers.modeling_gguf_pytorch_utils.
-    load_gguf_checkpoint at import time to support new GGUF architectures, but
-    their wrappers omit the model_to_load kwarg added in transformers 5.x.
-    Walk the __globals__ chain to find the underlying transformers function that
-    does accept model_to_load.
+    load_gguf_checkpoint at module import time but some wrappers omit the
+    model_to_load kwarg added in transformers 5.x.
+
+    Strategy 1 (gc scan): scan all live Python objects for the function whose
+    __module__ and __name__ match the original transformers definition.  This
+    works regardless of how the patcher chain is structured.
+
+    Strategy 2 (BFS over globals/closures): walk the patcher chain via common
+    variable names and closure cells.  Used as fallback if the gc scan fails.
     """
+    import gc
     import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 
-    fn = _gguf_utils.load_gguf_checkpoint
+    _REAL_MODULE = "transformers.modeling_gguf_pytorch_utils"
+    _REAL_NAME = "load_gguf_checkpoint"
+
+    # Strategy 1: scan all live objects — O(objects) but always correct.
+    for obj in gc.get_objects():
+        try:
+            if (callable(obj) and
+                    getattr(obj, "__name__", None) == _REAL_NAME and
+                    getattr(obj, "__module__", None) == _REAL_MODULE):
+                return obj
+        except Exception:
+            pass
+
+    # Strategy 2: BFS over globals chains and closure cells.
+    _ORIG_VAR_NAMES = (
+        "_orig_load_gguf_checkpoint",
+        "orig_load",
+        "_orig",
+        "_original_load_gguf_checkpoint",
+        "original_load_gguf_checkpoint",
+        "_real_load_gguf_checkpoint",
+    )
+
     seen: set = set()
-    while fn is not None:
+    queue = [_gguf_utils.load_gguf_checkpoint]
+    fallback = None
+
+    while queue:
+        fn = queue.pop(0)
+        if fn is None or not callable(fn):
+            continue
         fn_id = id(fn)
         if fn_id in seen:
-            break
+            continue
         seen.add(fn_id)
-        try:
-            sig = inspect.signature(fn)
-            if "model_to_load" in sig.parameters:
-                return fn
-        except (ValueError, TypeError):
-            pass
-        orig = fn.__globals__.get("_orig_load_gguf_checkpoint")
-        if orig is not None and callable(orig) and id(orig) != fn_id:
-            fn = orig
-        else:
-            break
-    return None
+
+        if getattr(fn, "__module__", None) == _REAL_MODULE:
+            return fn
+
+        if fallback is None:
+            try:
+                sig = inspect.signature(fn)
+                if "model_to_load" in sig.parameters:
+                    fallback = fn
+            except (ValueError, TypeError):
+                pass
+
+        fn_globals = getattr(fn, "__globals__", {})
+        for var_name in _ORIG_VAR_NAMES:
+            candidate = fn_globals.get(var_name)
+            if candidate is not None and callable(candidate) and id(candidate) not in seen:
+                queue.append(candidate)
+
+        if getattr(fn, "__closure__", None):
+            for cell in fn.__closure__:
+                try:
+                    val = cell.cell_contents
+                    if callable(val) and id(val) not in seen:
+                        val_mod = getattr(val, "__module__", "") or ""
+                        val_name = getattr(val, "__name__", "") or ""
+                        if (val_mod == _REAL_MODULE or
+                                "gguf" in val_name.lower() or
+                                "gguf" in val_mod.lower()):
+                            queue.append(val)
+                except ValueError:
+                    pass
+
+    return fallback
 
 
 @contextlib.contextmanager
