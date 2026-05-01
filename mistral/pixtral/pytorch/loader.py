@@ -105,10 +105,6 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        # Quantized variants need device_map="cpu" for CPU-based loading
-        if self._variant in (ModelVariant.PIXTRAL_12B_2409_BNB_4BIT,):
-            model_kwargs["device_map"] = "cpu"
-
         model = LlavaForConditionalGeneration.from_pretrained(
             model_name, **model_kwargs
         )
