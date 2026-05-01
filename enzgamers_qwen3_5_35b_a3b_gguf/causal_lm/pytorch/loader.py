@@ -57,7 +57,12 @@ def _patch_qwen35moe_support():
 
 
 def _get_real_load_gguf_fn():
-    """Walk closure chain to find load_gguf_checkpoint that accepts model_to_load."""
+    """Walk closure/global chain to find load_gguf_checkpoint that accepts model_to_load.
+
+    Other loaders install narrow-sig patches using various variable names for the
+    chained original (e.g. _orig_load_gguf_checkpoint, orig_load). Search all
+    callables in both nonlocals and globals to traverse the full chain.
+    """
     fn = _gguf_utils.load_gguf_checkpoint
     seen = set()
     while fn is not None and id(fn) not in seen:
@@ -70,7 +75,23 @@ def _get_real_load_gguf_fn():
         orig = None
         try:
             cvars = inspect.getclosurevars(fn)
-            orig = cvars.nonlocals.get("_orig_load_gguf_checkpoint")
+            all_vars = {**cvars.nonlocals, **cvars.globals}
+            # Try known variable names first, then fall back to any gguf-like callable
+            for name in ("_orig_load_gguf_checkpoint", "orig_load", "original_fn", "_orig"):
+                candidate = all_vars.get(name)
+                if callable(candidate) and id(candidate) not in seen:
+                    orig = candidate
+                    break
+            if orig is None:
+                for v in all_vars.values():
+                    if callable(v) and id(v) not in seen:
+                        try:
+                            name = getattr(v, "__name__", "") or ""
+                            if "gguf" in name.lower() or "checkpoint" in name.lower():
+                                orig = v
+                                break
+                        except Exception:
+                            pass
         except TypeError:
             pass
         if orig is None or not callable(orig):
