@@ -4,6 +4,7 @@
 """
 LFM2.5-VL GGUF model loader implementation for image-text-to-text tasks.
 """
+import numpy as np
 import torch
 from transformers import AutoProcessor, AutoModelForImageTextToText, AutoConfig
 from transformers.image_utils import load_image
@@ -115,6 +116,13 @@ class ModelLoader(ForgeModel):
         for key in inputs:
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+
+        # spatial_shapes is int64 metadata (image patch dimensions) used only for
+        # Python-level .tolist() calls in the vision encoder. Keep it as a numpy
+        # array so the test framework does not move it to the TT device (which has
+        # no int64 support and would trigger device-to-host Error 13).
+        if "spatial_shapes" in inputs and torch.is_tensor(inputs["spatial_shapes"]):
+            inputs["spatial_shapes"] = inputs["spatial_shapes"].numpy()
 
         return inputs
 
