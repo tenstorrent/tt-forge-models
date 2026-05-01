@@ -15,7 +15,18 @@ from typing import Optional
 
 import torch
 from diffusers import AuraFlowTransformer2DModel, GGUFQuantizationConfig
+from diffusers.quantizers.gguf.utils import GGUFParameter
 from huggingface_hub import hf_hub_download
+
+
+def _gguf_parameter_as_tensor(self):
+    # diffusers' as_tensor calls _make_subclass without DisableTorchFunctionSubclass,
+    # which causes __torch_function__ to recurse infinitely under torch.compile/dynamo.
+    with torch._C.DisableTorchFunctionSubclass():
+        return torch.Tensor._make_subclass(torch.Tensor, self, self.requires_grad)
+
+
+GGUFParameter.as_tensor = _gguf_parameter_as_tensor
 
 from ...base import ForgeModel
 from ...config import (
