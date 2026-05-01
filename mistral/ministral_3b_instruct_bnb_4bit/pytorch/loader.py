@@ -5,6 +5,7 @@
 Ministral 3B Instruct BnB 4-bit model loader implementation for multimodal vision-language modeling.
 """
 
+import torch
 from typing import Optional
 
 from ....config import (
@@ -17,6 +18,47 @@ from ....config import (
     StrEnum,
 )
 from ....base import ForgeModel
+
+
+def _dequantize_bnb_4bit(model):
+    """Replace Linear4bit layers with regular Linear layers using dequantized bf16 weights.
+
+    BNB Params4bit cannot be transferred to non-CUDA devices. Dequantize the
+    quantized checkpoint to standard weights so the TT compiler can work with them.
+    Uses bnb.functional.dequantize_4bit to get the correctly shaped weight matrix.
+    """
+    try:
+        import bitsandbytes as bnb
+        from bitsandbytes.nn import Linear4bit
+    except ImportError:
+        return model
+
+    replacements = {}
+    for name, module in model.named_modules():
+        if isinstance(module, Linear4bit):
+            with torch.no_grad():
+                weight = bnb.functional.dequantize_4bit(
+                    module.weight.data, module.weight.quant_state
+                )
+            has_bias = module.bias is not None
+            new_layer = torch.nn.Linear(
+                module.in_features,
+                module.out_features,
+                bias=has_bias,
+            )
+            new_layer.weight = torch.nn.Parameter(weight)
+            if has_bias:
+                new_layer.bias = module.bias
+            replacements[name] = new_layer
+
+    for name, new_layer in replacements.items():
+        parts = name.split(".")
+        parent = model
+        for part in parts[:-1]:
+            parent = getattr(parent, part)
+        setattr(parent, parts[-1], new_layer)
+
+    return model
 
 
 class ModelVariant(StrEnum):
@@ -98,6 +140,7 @@ class ModelLoader(ForgeModel):
         model = Mistral3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        model = _dequantize_bnb_4bit(model)
 
         model.eval()
         self.model = model
