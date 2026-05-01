@@ -7,7 +7,7 @@ Next2.5 VL GGUF model loader implementation for image to text.
 
 from typing import Optional
 
-from transformers import Qwen3VLForConditionalGeneration, AutoProcessor, AutoConfig
+from transformers import Qwen3_5ForConditionalGeneration, AutoProcessor, AutoConfig
 
 from ....base import ForgeModel
 from ....config import (
@@ -83,7 +83,7 @@ class ModelLoader(ForgeModel):
         # Load from the canonical (non-GGUF) repo so that the full config
         # (including vision_config) is available.  The GGUF file only carries a
         # text-only config which is insufficient for the VL model.
-        model = Qwen3VLForConditionalGeneration.from_pretrained(
+        model = Qwen3_5ForConditionalGeneration.from_pretrained(
             self._PROCESSOR_NAME, **model_kwargs
         ).eval()
 
