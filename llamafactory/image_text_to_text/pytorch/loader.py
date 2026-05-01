@@ -5,15 +5,9 @@
 LLaMAFactory tiny-random-Llama-4 model loader implementation for image-text-to-text tasks.
 """
 
-import os
 import torch
 from transformers import AutoProcessor, AutoModelForImageTextToText
 from typing import Optional
-
-# Disable transformers runtime checks that use boolean mask indexing
-# (inputs_embeds[special_image_mask]) during torch.compile graph capture.
-# Under XLA that is a data-dependent op which causes Error code 13.
-os.environ.setdefault("TRANSFORMERS_DISABLE_TORCH_CHECK", "1")
 
 from ....config import (
     LLMModelConfig,
@@ -165,6 +159,25 @@ class ModelLoader(ForgeModel):
             return (self.cos_freqs, self.sin_freqs)
 
         Llama4VisionRotaryEmbedding.forward = _vision_rope_forward
+
+        # get_placeholder_mask calls torch_compilable_check with boolean mask
+        # indexing (inputs_embeds[special_image_mask]) which is a data-dependent
+        # op that XLA can't compile statically → Error code 13. Patch to skip
+        # the validation check (which the CPU run already verified).
+        from transformers.models.llama4.modeling_llama4 import Llama4ForConditionalGeneration
+
+        def _get_placeholder_mask(self, input_ids, inputs_embeds, image_features):
+            if input_ids is None:
+                special_image_mask = inputs_embeds == self.get_input_embeddings()(
+                    torch.tensor(self.config.image_token_id, dtype=torch.long, device=inputs_embeds.device)
+                )
+                special_image_mask = special_image_mask.all(-1)
+            else:
+                special_image_mask = input_ids == self.config.image_token_id
+            special_image_mask = special_image_mask.unsqueeze(-1).expand_as(inputs_embeds).to(inputs_embeds.device)
+            return special_image_mask
+
+        Llama4ForConditionalGeneration.get_placeholder_mask = _get_placeholder_mask
 
         model.eval()
         return model
