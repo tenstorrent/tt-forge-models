@@ -67,6 +67,44 @@ def _find_real_load_gguf_checkpoint():
     return fn
 
 
+def _find_real_get_gguf_hf_weights_map():
+    """Traverse the patcher chain to find the original transformers get_gguf_hf_weights_map.
+
+    Same traversal strategy as _find_real_load_gguf_checkpoint: walk both
+    __globals__['_orig_...'] references and __closure__ cells until we find
+    a function whose __module__ is transformers.modeling_gguf_pytorch_utils.
+    """
+    import transformers.modeling_gguf_pytorch_utils as _gu
+
+    fn = _gu.get_gguf_hf_weights_map
+    seen: set = set()
+    while True:
+        fn_id = id(fn)
+        if fn_id in seen:
+            break
+        seen.add(fn_id)
+        if getattr(fn, "__module__", None) == "transformers.modeling_gguf_pytorch_utils":
+            return fn
+        orig = getattr(fn, "__globals__", {}).get("_orig_get_gguf_hf_weights_map")
+        if orig is not None and id(orig) not in seen:
+            fn = orig
+            continue
+        closure = getattr(fn, "__closure__", None) or ()
+        found_in_closure = False
+        for cell in closure:
+            try:
+                val = cell.cell_contents
+            except ValueError:
+                continue
+            if callable(val) and id(val) not in seen:
+                fn = val
+                found_in_closure = True
+                break
+        if not found_in_closure:
+            break
+    return fn
+
+
 def _make_qwen35moe_gguf_checkpoint_wrapper(real_fn):
     """Return a wrapper around the real transformers *real_fn* that handles qwen35moe.
 
@@ -97,6 +135,40 @@ def _make_qwen35moe_gguf_checkpoint_wrapper(real_fn):
         return result
 
     return patched_load_gguf_checkpoint
+
+
+def _make_qwen35moe_weights_map_wrapper(real_fn):
+    """Return a wrapper around the real transformers get_gguf_hf_weights_map.
+
+    Bypasses any clobbering wrappers and calls the real function directly, then
+    adds ffn_gate_exps/ffn_up_exps alias entries for qwen35moe GGUFs that store
+    expert weights as separate gate/up tensors instead of fused ffn_gate_up_exps.
+    """
+    import re as _re
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
+            model_type = "qwen35moe"
+        result = real_fn(hf_model, processor, model_type, num_layers, qual_name)
+        if model_type == "qwen35moe":
+            gate_up_entries = {
+                k: v
+                for k, v in result.items()
+                if _re.search(r"blk\.\d+\.ffn_gate_up_exps", k)
+            }
+            for fused_key, hf_name in gate_up_entries.items():
+                base = fused_key.removesuffix(".weight").removesuffix(".bias")
+                gate_key = base.replace("ffn_gate_up_exps", "ffn_gate_exps")
+                up_key = base.replace("ffn_gate_up_exps", "ffn_up_exps")
+                result.setdefault(gate_key, hf_name)
+                result.setdefault(up_key, hf_name)
+        return result
+
+    return patched_get_gguf_hf_weights_map
 
 
 def _patch_transformers_qwen35moe_gguf():
@@ -167,40 +239,10 @@ def _patch_transformers_qwen35moe_gguf():
 
     # 6. Patch get_gguf_hf_weights_map to handle qwen3_5_moe_text -> qwen35moe
     # and add missing ffn_gate_exps/ffn_up_exps -> gate_up_proj mappings.
-    # The qwen35moe gguf name map maps ffn_gate_up_exps (fused) to mlp.experts.gate_up_proj,
-    # but some GGUF files store separate ffn_gate_exps/ffn_up_exps tensors instead.
-    # We add explicit mappings so the MoE tensor processor can interleave them correctly.
-    import re as _re
-
-    orig_get_map = gguf_utils.get_gguf_hf_weights_map
-
-    def patched_get_gguf_hf_weights_map(
-        hf_model, processor, model_type=None, num_layers=None, qual_name=""
-    ):
-        if model_type is None:
-            model_type = hf_model.config.model_type
-        if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
-            model_type = "qwen35moe"
-        result = orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
-        if model_type == "qwen35moe":
-            # Build ffn_gate_exps/ffn_up_exps -> gate_up_proj alias mappings.
-            # The fused ffn_gate_up_exps entry is already in result; derive
-            # the per-tensor entries from it so the MoE processor can merge them.
-            gate_up_entries = {
-                k: v
-                for k, v in result.items()
-                if _re.search(r"blk\.\d+\.ffn_gate_up_exps", k)
-            }
-            for fused_key, hf_name in gate_up_entries.items():
-                # process() strips .weight before lookup; add no-suffix keys
-                base = fused_key.removesuffix(".weight").removesuffix(".bias")
-                gate_key = base.replace("ffn_gate_up_exps", "ffn_gate_exps")
-                up_key = base.replace("ffn_gate_up_exps", "ffn_up_exps")
-                result.setdefault(gate_key, hf_name)
-                result.setdefault(up_key, hf_name)
-        return result
-
-    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+    # load_model() re-applies this patch right before from_pretrained() to defeat
+    # cross-loader clobbering by loaders that guard on "qwen35" (not "qwen35moe").
+    real_get_map = _find_real_get_gguf_hf_weights_map()
+    gguf_utils.get_gguf_hf_weights_map = _make_qwen35moe_weights_map_wrapper(real_get_map)
 
 
 # Apply the monkey-patch at import time
@@ -290,11 +332,11 @@ class ModelLoader(ForgeModel):
                 config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        # Re-apply compat patch immediately before from_pretrained to defeat
+        # Re-apply compat patches immediately before from_pretrained to defeat
         # cross-loader clobbering: other loaders imported during collection may
-        # overwrite gguf_utils.load_gguf_checkpoint with a narrow-signature
-        # function after our module-level patch ran.  We bypass the entire chain
-        # by finding the real transformers function and wrapping it directly.
+        # overwrite gguf_utils functions after our module-level patch ran.  We
+        # bypass the entire clobbering chain by finding the real transformers
+        # functions directly and wrapping them.
         import transformers.modeling_gguf_pytorch_utils as _gguf_utils
         import transformers.modeling_utils as _modeling_utils
 
@@ -303,6 +345,11 @@ class ModelLoader(ForgeModel):
         _gguf_utils.load_gguf_checkpoint = _compat
         if hasattr(_modeling_utils, "load_gguf_checkpoint"):
             _modeling_utils.load_gguf_checkpoint = _compat
+
+        _real_map_fn = _find_real_get_gguf_hf_weights_map()
+        _gguf_utils.get_gguf_hf_weights_map = _make_qwen35moe_weights_map_wrapper(
+            _real_map_fn
+        )
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
