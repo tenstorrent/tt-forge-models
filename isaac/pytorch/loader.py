@@ -9,6 +9,19 @@ import torch
 from transformers import AutoProcessor, AutoModelForCausalLM
 from PIL import Image
 from typing import Optional
+
+# Transformers 5.x removed SlidingWindowCache; inject a stub so the trust_remote_code
+# module for Isaac (modular_isaac.py) can be imported (uses it only in isinstance checks).
+import transformers.cache_utils as _cache_utils
+
+if not hasattr(_cache_utils, "SlidingWindowCache"):
+    from transformers.cache_utils import Cache as _Cache
+
+    class _SlidingWindowCache(_Cache):
+        pass
+
+    _cache_utils.SlidingWindowCache = _SlidingWindowCache
+
 from ...tools.utils import get_file, cast_input_to_type
 from ...base import ForgeModel
 from ...config import (
