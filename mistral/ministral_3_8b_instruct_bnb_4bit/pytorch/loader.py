@@ -119,6 +119,55 @@ class ModelLoader(ForgeModel):
         return self.processor
 
     @staticmethod
+    def _patch_generate_block_attention_mask():
+        """Replace generate_block_attention_mask with a functional (Dynamo-traceable) version.
+
+        The original function uses in-place XLA tensor assignment inside a Python for loop:
+          causal_mask[start:end, start:end] = 0
+        Dynamo marks this as "FAILED INLINING" and creates a graph break. The eagerly-run
+        function queues XLA mutations that fail in extract_compiled_graph's torch_xla.sync()
+        (Bad StatusOr access: INTERNAL: Error code: 13).
+
+        For single-image inference the block mask is all-zeros (patches within one image
+        attend to each other freely), so attention_mask=None is semantically equivalent.
+        For multi-image batches we build the mask functionally with torch.where to avoid
+        the in-place pattern.
+        """
+        import transformers.models.pixtral.modeling_pixtral as pixtral_module
+
+        def _functional_generate_block_attention_mask(patch_embeds_list, tensor):
+            import torch
+            dtype = tensor.dtype
+            device = tensor.device
+            seq_len = tensor.shape[1]
+
+            if len(patch_embeds_list) == 1:
+                # Single image: all patches attend to each other; mask is all zeros.
+                return torch.zeros(
+                    tensor.shape[0], 1, seq_len, seq_len, dtype=dtype, device=device
+                )
+
+            # Multi-image: build mask functionally without in-place ops.
+            d_min = torch.finfo(dtype).min
+            row_idx = torch.arange(seq_len, device=device, dtype=torch.long).unsqueeze(1)
+            col_idx = torch.arange(seq_len, device=device, dtype=torch.long).unsqueeze(0)
+            allowed = torch.zeros(seq_len, seq_len, dtype=torch.bool, device=device)
+            start = 0
+            for size in patch_embeds_list:
+                end = start + size
+                block = (row_idx >= start) & (row_idx < end) & (col_idx >= start) & (col_idx < end)
+                allowed = allowed | block
+                start = end
+            causal_mask = torch.where(
+                allowed,
+                torch.zeros(seq_len, seq_len, dtype=dtype, device=device),
+                torch.full((seq_len, seq_len), d_min, dtype=dtype, device=device),
+            )
+            return causal_mask[None, None, :, :].expand(tensor.shape[0], 1, -1, -1)
+
+        pixtral_module.generate_block_attention_mask = _functional_generate_block_attention_mask
+
+    @staticmethod
     def _patch_get_placeholder_mask(model):
         """Patch Mistral3Model.get_placeholder_mask to skip a device-touching check.
 
@@ -249,6 +298,7 @@ class ModelLoader(ForgeModel):
         model.eval()
 
         self._dequantize_bnb4_to_bf16(model)
+        self._patch_generate_block_attention_mask()
         self._patch_get_placeholder_mask(model)
         self._patch_get_image_features(model)
 
