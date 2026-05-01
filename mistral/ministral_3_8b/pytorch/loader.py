@@ -5,7 +5,8 @@
 Ministral 3 8B model loader implementation for causal language modeling
 """
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+import torch.nn as nn
+from transformers import AutoTokenizer, AutoConfig, Mistral3ForConditionalGeneration
 from typing import Optional
 
 from ....base import ForgeModel
@@ -63,33 +64,6 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override)
-
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
-        if self._variant == ModelVariant.MINISTRAL_3_8B_INSTRUCT_2512_BNB_4BIT:
-            model_kwargs["device_map"] = "cpu"
-
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
-
-        self.config = model.config
-        self.model = model
-        return model
-
     def _load_tokenizer(self, dtype_override=None):
         tokenizer_kwargs = {
             "padding_side": "right",
@@ -102,6 +76,82 @@ class ModelLoader(ForgeModel):
         )
         return self.tokenizer
 
+    @staticmethod
+    def _dequantize_bnb4_to_bf16(model):
+        """Replace all BnB Linear4bit layers with standard bfloat16 Linear layers.
+
+        Params4bit.detach() returns a plain Tensor, which causes
+        Parameter.__new__ to raise RuntimeError when model.to(xla_device) is
+        called.  Dequantizing to bf16 before device transfer avoids this.
+        """
+        import bitsandbytes as bnb
+        import bitsandbytes.functional as F
+
+        replacements = []
+        for name, module in model.named_modules():
+            if isinstance(module, bnb.nn.Linear4bit):
+                if hasattr(module.weight, "quant_state") and module.weight.quant_state is not None:
+                    weight_bf16 = F.dequantize_4bit(
+                        module.weight.data, module.weight.quant_state
+                    ).to(torch.bfloat16)
+                else:
+                    # Weight already materialized (e.g. CPU load without quant_state)
+                    weight_bf16 = module.weight.data.to(torch.bfloat16)
+                bias = module.bias
+                new_linear = nn.Linear(
+                    module.in_features,
+                    module.out_features,
+                    bias=bias is not None,
+                    device=weight_bf16.device,
+                    dtype=torch.bfloat16,
+                )
+                new_linear.weight = nn.Parameter(weight_bf16)
+                if bias is not None:
+                    new_linear.bias = nn.Parameter(bias.to(torch.bfloat16))
+                replacements.append((name, new_linear))
+
+        for name, new_module in replacements:
+            parts = name.split(".")
+            parent = model
+            for part in parts[:-1]:
+                parent = getattr(parent, part)
+            setattr(parent, parts[-1], new_module)
+
+        return model
+
+    def load_model(self, *, dtype_override=None, **kwargs):
+        pretrained_model_name = self._variant_config.pretrained_model_name
+
+        if self.tokenizer is None:
+            self._load_tokenizer(dtype_override)
+
+        model_kwargs = {}
+        if dtype_override is not None:
+            model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
+
+        # BnB variants need device_map="cpu" for CPU-based loading
+        if self._variant == ModelVariant.MINISTRAL_3_8B_INSTRUCT_2512_BNB_4BIT:
+            model_kwargs["device_map"] = "cpu"
+
+        if self.num_layers is not None:
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config.text_config.num_hidden_layers = self.num_layers
+            model_kwargs["config"] = config
+
+        # Ministral-3-8B uses Mistral3Config (model_type="mistral3") which requires
+        # Mistral3ForConditionalGeneration; AutoModelForCausalLM does not support it.
+        model = Mistral3ForConditionalGeneration.from_pretrained(
+            pretrained_model_name, **model_kwargs
+        ).eval()
+
+        if self._variant == ModelVariant.MINISTRAL_3_8B_INSTRUCT_2512_BNB_4BIT:
+            self._dequantize_bnb4_to_bf16(model)
+
+        self.config = model.config
+        self.model = model
+        return model
+
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override)
@@ -112,12 +162,6 @@ class ModelLoader(ForgeModel):
         test_input = "How often does the letter r occur in Ministral?"
 
         inputs = self.tokenizer(test_input, return_tensors="pt")
-
-        if (
-            hasattr(self.model.config, "sliding_window")
-            and self.model.config.sliding_window is not None
-        ):
-            self.model.config.sliding_window = inputs["input_ids"].shape[1]
 
         for key in inputs:
             if torch.is_tensor(inputs[key]):
@@ -136,13 +180,13 @@ class ModelLoader(ForgeModel):
     def get_mesh_config(self, num_devices: int):
         mesh_shape = (1, num_devices)
         assert (
-            self.config.num_attention_heads % mesh_shape[1] == 0
+            self.config.text_config.num_attention_heads % mesh_shape[1] == 0
         ), "Attention heads must be divisible by the model axis size"
         return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
         shard_specs = {}
-        for layer in model.model.layers:
+        for layer in model.model.language_model.layers:
             shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
