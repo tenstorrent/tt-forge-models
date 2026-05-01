@@ -107,6 +107,12 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        # Lfm2HybridConvCache is not a transformers.Cache subclass; the
+        # comparison evaluator's tree_map treats it as an opaque leaf and
+        # calls torch.equal(cache, ...) → TypeError.  Disabling the cache
+        # makes the model return only logits with past_key_values=None.
+        model.config.use_cache = False
+
         self.config = model.config
         self.model = model
         return model
