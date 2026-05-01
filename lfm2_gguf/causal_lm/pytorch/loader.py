@@ -110,6 +110,55 @@ def _patch_grouped_mm_experts_forward():
     moe_module._lfm2moe_histc_patched = True
 
 
+def _get_real_load_gguf_checkpoint():
+    """Walk the chain of load_gguf_checkpoint wrappers to find the real function.
+
+    Multiple GGUF loaders patch load_gguf_checkpoint at import time; some use
+    narrow signatures that reject the model_to_load kwarg added in transformers
+    5.2.0. This walks closures and __globals__ to find the original function.
+    """
+    import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+    visited: set = set()
+
+    def _is_real(f) -> bool:
+        return (
+            getattr(f, "__qualname__", "") == "load_gguf_checkpoint"
+            and getattr(f, "__module__", "") == "transformers.modeling_gguf_pytorch_utils"
+        )
+
+    def _search(f):
+        fid = id(f)
+        if fid in visited:
+            return None
+        visited.add(fid)
+        if _is_real(f):
+            return f
+        if getattr(f, "__closure__", None):
+            for cell in f.__closure__:
+                try:
+                    v = cell.cell_contents
+                    if callable(v):
+                        r = _search(v)
+                        if r is not None:
+                            return r
+                except Exception:
+                    pass
+        for name, v in getattr(f, "__globals__", {}).items():
+            if callable(v) and "orig" in name.lower() and id(v) not in visited:
+                r = _search(v)
+                if r is not None:
+                    return r
+        return None
+
+    result = _search(_gguf_utils.load_gguf_checkpoint)
+    return result if result is not None else _gguf_utils.load_gguf_checkpoint
+
+
+# Module-level reference kept so load_model can reinstall it via save/restore.
+_lfm2moe_load_gguf_checkpoint = None
+
+
 def _patch_lfm2moe_gguf_support():
     """Patch transformers to add lfm2moe GGUF architecture support.
 
@@ -117,6 +166,8 @@ def _patch_lfm2moe_gguf_support():
     We add 'lfm2moe' as a supported architecture and remap it to the HF model
     type 'lfm2_moe' after loading.
     """
+    global _lfm2moe_load_gguf_checkpoint
+
     import transformers.configuration_utils as _config_utils
     import transformers.modeling_gguf_pytorch_utils as _gguf_utils
     import transformers.models.auto.tokenization_auto as _auto_tokenizer
@@ -131,7 +182,6 @@ def _patch_lfm2moe_gguf_support():
         TENSOR_PROCESSORS,
         Lfm2TensorProcessor,
         get_gguf_hf_weights_map as _orig_get_gguf_hf_weights_map,
-        load_gguf_checkpoint as _orig_load_gguf_checkpoint,
     )
 
     if "lfm2moe" in GGUF_SUPPORTED_ARCHITECTURES:
@@ -157,8 +207,10 @@ def _patch_lfm2moe_gguf_support():
     TENSOR_PROCESSORS["lfm2moe"] = Lfm2TensorProcessor
     GGUF_TO_FAST_CONVERTERS["lfm2_moe"] = GGUFLlamaConverter
 
+    _real_load_gguf_checkpoint = _get_real_load_gguf_checkpoint()
+
     def _patched_load_gguf_checkpoint(*args, **kwargs):
-        result = _orig_load_gguf_checkpoint(*args, **kwargs)
+        result = _real_load_gguf_checkpoint(*args, **kwargs)
         if result.get("config", {}).get("model_type") == "lfm2moe":
             config = result["config"]
             gguf_num_key_value_heads = config.get("num_key_value_heads")
@@ -174,6 +226,8 @@ def _patch_lfm2moe_gguf_support():
                 ]
             config["model_type"] = "lfm2_moe"
         return result
+
+    _lfm2moe_load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
     def _patched_get_gguf_hf_weights_map(
         hf_model, processor, model_type=None, num_layers=None, qual_name=""
@@ -268,6 +322,9 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        import transformers.configuration_utils as _config_utils
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -286,9 +343,20 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        # Other GGUF loaders install narrow-sig load_gguf_checkpoint wrappers at
+        # import time that reject the model_to_load kwarg added in transformers 5.2.
+        # Temporarily reinstall our wide-sig wrapper so from_pretrained can call it.
+        _saved_gguf = _gguf_utils.load_gguf_checkpoint
+        _saved_config = _config_utils.load_gguf_checkpoint
+        _gguf_utils.load_gguf_checkpoint = _lfm2moe_load_gguf_checkpoint
+        _config_utils.load_gguf_checkpoint = _lfm2moe_load_gguf_checkpoint
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _gguf_utils.load_gguf_checkpoint = _saved_gguf
+            _config_utils.load_gguf_checkpoint = _saved_config
 
         self.config = model.config
         self.model = model
