@@ -186,10 +186,47 @@ def _patch_qwen3vl_for_tt_device(model=None):
             **kwargs,
         )
 
+    # get_placeholder_mask calls torch_compilable_check with
+    # inputs_embeds[special_image_mask] — a boolean-masked gather with
+    # data-dependent output shape that XLA cannot compile. The check is a
+    # runtime validation that the CPU run already verified; skip it.
+    def _patched_get_placeholder_mask(
+        self, input_ids, inputs_embeds, image_features=None, video_features=None
+    ):
+        if input_ids is None:
+            special_image_mask = inputs_embeds == self.get_input_embeddings()(
+                torch.tensor(
+                    self.config.image_token_id,
+                    dtype=torch.long,
+                    device=inputs_embeds.device,
+                )
+            )
+            special_image_mask = special_image_mask.all(-1)
+            special_video_mask = inputs_embeds == self.get_input_embeddings()(
+                torch.tensor(
+                    self.config.video_token_id,
+                    dtype=torch.long,
+                    device=inputs_embeds.device,
+                )
+            )
+            special_video_mask = special_video_mask.all(-1)
+        else:
+            special_image_mask = input_ids == self.config.image_token_id
+            special_video_mask = input_ids == self.config.video_token_id
+
+        special_image_mask = (
+            special_image_mask.unsqueeze(-1).expand_as(inputs_embeds).to(inputs_embeds.device)
+        )
+        special_video_mask = (
+            special_video_mask.unsqueeze(-1).expand_as(inputs_embeds).to(inputs_embeds.device)
+        )
+        return special_image_mask, special_video_mask
+
     modeling_qwen3_vl.Qwen3VLVisionModel.fast_pos_embed_interpolate = _patched_fast_pos
     modeling_qwen3_vl.Qwen3VLVisionModel.rot_pos_emb = _patched_rot_pos
     modeling_qwen3_vl.Qwen3VLModel.get_rope_index = _patched_get_rope
     modeling_qwen3_vl.Qwen3VLModel.get_image_features = _patched_get_image
+    modeling_qwen3_vl.Qwen3VLModel.get_placeholder_mask = _patched_get_placeholder_mask
 
 
 class ModelVariant(StrEnum):
