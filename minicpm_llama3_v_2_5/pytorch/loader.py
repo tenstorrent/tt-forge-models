@@ -55,6 +55,17 @@ def _patch_cached_remote_files():
         if old in text and new not in text:
             path.write_text(text.replace(old, new, 1))
 
+    # Fix 3: MiniCPMVBatchFeature.to() uses cast_tensor() which calls
+    # torch.is_floating_point(v) unconditionally. When tgt_sizes contains Python
+    # int leaves (we convert them to avoid XLA dynamic-shape alignment padding),
+    # cast_tensor receives bare ints and torch.is_floating_point(int) raises TypeError.
+    for path in cache_base.glob(f"{glob_prefix}/image_processing_minicpmv.py"):
+        text = path.read_text()
+        old = "        def cast_tensor(v):\n            # check if v is a floating point\n            if torch.is_floating_point(v):"
+        new = "        def cast_tensor(v):\n            if not isinstance(v, torch.Tensor):\n                return v\n            # check if v is a floating point\n            if torch.is_floating_point(v):"
+        if old in text and new not in text:
+            path.write_text(text.replace(old, new, 1))
+
     # Invalidate the module cache so patched files are re-imported
     for key in list(sys.modules):
         if "MiniCPM_hyphen_Llama3" in key or "minicpm" in key.lower():
