@@ -157,11 +157,14 @@ class ModelLoader(ForgeModel):
         return MapperatorinatorWrapper(model)
 
     def load_inputs(self, dtype_override=None):
-        dtype = dtype_override or torch.float32
         batch_size = 1
         # 1 second of 16kHz audio
         n_samples = 16000
-        frames = torch.randn(batch_size, n_samples, dtype=dtype)
+        # nnAudio MelSpectrogram overrides _apply() to stay float32, and the
+        # model forward casts its output to self.transformer.dtype afterwards.
+        # Always pass raw audio as float32 so the spectrogram has matching dtypes.
+        dtype = dtype_override or torch.float32
+        frames = torch.randn(batch_size, n_samples, dtype=torch.float32)
         # Short decoder sequence with tokens in valid range (vocab_size_in=8339)
         decoder_input_ids = torch.randint(0, 100, (batch_size, 8), dtype=torch.long)
         # Conditioning inputs
