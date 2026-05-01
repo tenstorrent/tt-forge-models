@@ -7,6 +7,62 @@ GPT-OSS 20B Counsel MindBuddi GGUF model loader implementation for causal langua
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+from contextlib import contextmanager
+
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+
+def _find_true_load_gguf_checkpoint():
+    """Return the unpatched load_gguf_checkpoint from transformers.
+
+    Several loaders patch transformers.modeling_gguf_pytorch_utils.
+    load_gguf_checkpoint at import time with a signature that omits the
+    model_to_load kwarg added in transformers 5.x.  Some save the original
+    as _orig_load_gguf_checkpoint in their own namespace.  We search
+    sys.modules for that saved reference to get the true original.
+    """
+    import sys
+    for mod in list(sys.modules.values()):
+        for attr in ("_orig_load_gguf_checkpoint", "load_gguf_checkpoint"):
+            fn = getattr(mod, attr, None)
+            if (
+                fn is not None
+                and callable(fn)
+                and getattr(fn, "__module__", "") == "transformers.modeling_gguf_pytorch_utils"
+                and getattr(fn, "__qualname__", "") == "load_gguf_checkpoint"
+            ):
+                return fn
+    return _gguf_utils.load_gguf_checkpoint
+
+
+@contextmanager
+def _restore_gguf_loader():
+    """Temporarily restore the original load_gguf_checkpoint on all binding sites.
+
+    Some loaders patch load_gguf_checkpoint at import time with a signature that
+    lacks model_to_load, which transformers 5.x requires.  We find the true
+    original (saved by the first patching loader in sys.modules) and install it
+    for the duration of from_pretrained, then restore the previous values.
+    """
+    _true_orig = _find_true_load_gguf_checkpoint()
+    _sites = [
+        (_gguf_utils, "load_gguf_checkpoint"),
+        (_config_utils, "load_gguf_checkpoint"),
+        (_auto_tokenizer, "load_gguf_checkpoint"),
+        (_tok_utils, "load_gguf_checkpoint"),
+    ]
+    _saved = [(m, n, getattr(m, n, None)) for m, n in _sites]
+    try:
+        for m, n, _ in _saved:
+            setattr(m, n, _true_orig)
+        yield
+    finally:
+        for m, n, orig in _saved:
+            if orig is not None:
+                setattr(m, n, orig)
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -94,9 +150,10 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        with _restore_gguf_loader():
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
@@ -108,18 +165,16 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        messages = [
-            {
-                "role": "user",
-                "content": self.sample_text,
-            }
-        ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-        prompts = [text]
+        if self.tokenizer.chat_template is not None:
+            messages = [{"role": "user", "content": self.sample_text}]
+            text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+            prompts = [text]
+        else:
+            prompts = [self.sample_text]
 
         inputs = self.tokenizer(
             prompts,
