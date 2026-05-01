@@ -4,6 +4,7 @@
 """
 Llama 3.3 Nemotron Super 49B v1 GGUF model loader implementation for causal language modeling.
 """
+import inspect
 from typing import Optional
 
 import torch
@@ -11,9 +12,6 @@ import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
-from transformers.modeling_gguf_pytorch_utils import (
-    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
-)
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 
 from ....base import ForgeModel
@@ -28,6 +26,39 @@ from ....config import (
 )
 
 
+def _find_func_accepting_kwarg(func, kwarg="model_to_load", _visited=None):
+    """Walk the patch-chain closures to find a function that accepts the kwarg."""
+    if _visited is None:
+        _visited = set()
+    fid = id(func)
+    if fid in _visited:
+        return None
+    _visited.add(fid)
+    try:
+        if kwarg in inspect.signature(func).parameters:
+            return func
+    except (ValueError, TypeError):
+        pass
+    if hasattr(func, "__closure__") and func.__closure__:
+        for cell in func.__closure__:
+            try:
+                val = cell.cell_contents
+            except ValueError:
+                continue
+            if callable(val):
+                result = _find_func_accepting_kwarg(val, kwarg, _visited)
+                if result is not None:
+                    return result
+    return None
+
+
+# Capture the real underlying function (one that accepts model_to_load) before
+# we apply our own patch. Intermediate patches may not forward model_to_load;
+# by walking closures we bypass them and call the authoritative implementation.
+_current = _gguf_utils.load_gguf_checkpoint
+_true_load_gguf_checkpoint = _find_func_accepting_kwarg(_current) or _current
+
+
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
     """Wrap load_gguf_checkpoint to remap deci model_type to llama.
 
@@ -40,10 +71,7 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load
     kwargs = {"return_tensors": return_tensors}
     if model_to_load is not None:
         kwargs["model_to_load"] = model_to_load
-    try:
-        result = _orig_load_gguf_checkpoint(gguf_path, **kwargs)
-    except TypeError:
-        result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    result = _true_load_gguf_checkpoint(gguf_path, **kwargs)
     config = result.get("config", {})
     if config.get("model_type") == "deci":
         config["model_type"] = "llama"
@@ -141,6 +169,12 @@ class ModelLoader(ForgeModel):
             )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
+
+        # Re-apply patches: other loaders imported after us may have overwritten them.
+        # modeling_utils.py does a local import of load_gguf_checkpoint, so it picks
+        # up the current binding at call time.
+        _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
