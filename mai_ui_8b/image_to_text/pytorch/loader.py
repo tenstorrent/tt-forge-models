@@ -186,6 +186,23 @@ def _patch_qwen3vl_for_tt_device(model=None):
             **kwargs,
         )
 
+    # _deepstack_process uses hidden_states[visual_pos_masks, :] to gather
+    # image token positions (dynamic output shape) then scatters back. Replace
+    # with masked_scatter which is static-shape: zeros filled at mask positions
+    # with visual_embeds elements, then added to hidden_states.
+    orig_deepstack = modeling_qwen3_vl.Qwen3VLVisionTransformer._deepstack_process
+
+    def _patched_deepstack_process(self, hidden_states, visual_pos_masks, visual_embeds):
+        visual_pos_masks = visual_pos_masks.to(hidden_states.device)
+        visual_embeds = visual_embeds.to(hidden_states.device, hidden_states.dtype)
+        expanded_mask = visual_pos_masks.unsqueeze(-1).expand_as(hidden_states)
+        visual_embeds_expanded = torch.zeros_like(hidden_states).masked_scatter(
+            expanded_mask, visual_embeds.contiguous().flatten()
+        )
+        return hidden_states + visual_embeds_expanded
+
+    modeling_qwen3_vl.Qwen3VLTextModel._deepstack_process = _patched_deepstack_process
+
     # get_placeholder_mask calls torch_compilable_check with
     # inputs_embeds[special_image_mask] — a boolean-masked gather with
     # data-dependent output shape that XLA cannot compile. The check is a
