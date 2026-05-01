@@ -113,6 +113,31 @@ class ModelLoader(ForgeModel):
 
         _moshi_lm._undelay_sequence = _undelay_sequence_zeros
 
+        # Patch _delay_sequence to avoid roll() on int64 code tensors.
+        # TT hardware operates in bfloat16; roll() on int64 tensors converts
+        # indices to bfloat16 which loses precision for codes > 256 (bfloat16
+        # can only represent integers exactly up to 2^8=256; codes can be up
+        # to card=2048).  Rounded indices cause wrong embedding lookups in the
+        # depformer, producing PCC=0.07-0.39 for all audio codebooks with
+        # delay > 0.  Replacing roll+in-place with functional cat+slice avoids
+        # any integer arithmetic on TT hardware.
+        def _delay_sequence_functional(delays, tensor, padding):
+            # padding has shape [B, K, 1] (from _get_initial_token().expand)
+            # padding[:, k] is [B, 1]
+            B, K, T = tensor.shape
+            assert len(delays) == K
+            outs = []
+            for k, delay in enumerate(delays):
+                assert delay >= 0
+                if delay == 0:
+                    outs.append(tensor[:, k])
+                else:
+                    pad = padding[:, k].expand(B, delay)  # [B, 1] → [B, delay]
+                    outs.append(torch.cat([pad, tensor[:, k, :T - delay]], dim=1))
+            return torch.stack(outs, dim=1)
+
+        _moshi_lm._delay_sequence = _delay_sequence_functional
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         checkpoint_info = CheckpointInfo.from_hf_repo(pretrained_model_name)
