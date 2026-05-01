@@ -62,6 +62,9 @@ def _register_granitehybrid_gguf_support():
         _ffn_gate_up_re = re.compile(
             r"blk\.(?P<bid>\d+)\.ffn_(?P<w>gate|up)\.weight$"
         )
+        _ffn_down_re = re.compile(
+            r"blk\.(?P<bid>\d+)\.ffn_down\.weight$"
+        )
         _hf_shmlp_input_re = re.compile(
             r"model\.layers\.(?P<bid>\d+)\.shared_mlp\.input_linear(?P<sfx>\.\w+)$"
         )
@@ -105,13 +108,13 @@ def _register_granitehybrid_gguf_support():
                     weights = weights[:, 0]
 
                 tm = kwargs.get("tensor_key_mapping") or {}
+                pp = kwargs.get("parsed_parameters") or {}
+                tensors = pp.get("tensors", {})
 
-                # Regular FFN gate/up: accumulate gate and up, then concatenate
+                # Regular FFN gate/up: accumulate gate and up, then concatenate into input_linear
                 m = re.fullmatch(_ffn_gate_up_re, name)
                 if m:
                     which = m["w"]
-                    pp = kwargs.get("parsed_parameters") or {}
-                    tensors = pp.get("tensors", {})
                     hf_name = tm.get(name)
                     if not hf_name:
                         return GGUFTensor(weights, name, {})
@@ -129,7 +132,16 @@ def _register_granitehybrid_gguf_support():
                     # Return None name so the caller skips default storage
                     return GGUFTensor(weights, None, {})
 
-                return GGUFTensor(weights, tm.get(name, name), {})
+                # gguf-py maps output_linear → ffn_down_shexp but the GGUF uses ffn_down;
+                # store directly under the HF name and skip the standard path
+                m = re.fullmatch(_ffn_down_re, name)
+                if m:
+                    bid = m["bid"]
+                    hf_name = f"model.layers.{bid}.shared_mlp.output_linear.weight"
+                    tensors[hf_name] = torch.from_numpy(np.copy(weights))
+                    return GGUFTensor(weights, None, {})
+
+                return GGUFTensor(weights, name, {})
 
         TENSOR_PROCESSORS["granitehybrid"] = _GraniteHybrid1BTensorProcessor
 
