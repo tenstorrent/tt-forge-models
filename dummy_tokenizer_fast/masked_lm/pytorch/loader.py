@@ -94,8 +94,6 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The model instance for masked language modeling.
         """
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
         if self.config is None:
             self._load_config()
 
@@ -104,9 +102,8 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForMaskedLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        # The repo has a config but no model weights, so create from config directly.
+        model = AutoModelForMaskedLM.from_config(self.config, **model_kwargs)
 
         return model
 
