@@ -63,6 +63,39 @@ def _patch_get_image_features():
     _m3.Mistral3Model.get_image_features = _fixed_get_image_features
 
 
+def _patch_generate_block_attention_mask():
+    """Patch generate_block_attention_mask to build the causal mask on CPU.
+
+    The original creates causal_mask on the TT device and then uses 0-dim CPU
+    tensors from cumsum as slice bounds. A 0-dim CPU tensor as a slice index
+    on a TT device tensor triggers aten._local_scalar_dense, which the TT
+    backend cannot compile. Building the mask on CPU and moving to device at
+    the end avoids the issue entirely.
+    """
+    try:
+        import transformers.models.pixtral.modeling_pixtral as _pixtral
+    except ImportError:
+        return
+
+    def _patched_generate_block_attention_mask(patch_embeds_list, tensor):
+        dtype = tensor.dtype
+        device = tensor.device
+        seq_len = tensor.shape[1]
+        d_min = torch.finfo(dtype).min
+        # Build on CPU; device tensors as slice bounds trigger _local_scalar_dense.
+        causal_mask = torch.full((seq_len, seq_len), fill_value=d_min, dtype=dtype, device="cpu")
+        block_end_idx = torch.tensor(patch_embeds_list).cumsum(-1).tolist()
+        prev = 0
+        for end in block_end_idx:
+            end = int(end)
+            causal_mask[prev:end, prev:end] = 0
+            prev = end
+        causal_mask = causal_mask[None, None, :, :].expand(tensor.shape[0], 1, -1, -1)
+        return causal_mask.to(device=device, dtype=dtype)
+
+    _pixtral.generate_block_attention_mask = _patched_generate_block_attention_mask
+
+
 def _replace_linear4bit(model):
     """Replace Linear4bit layers with regular nn.Linear layers.
 
@@ -185,6 +218,7 @@ class ModelLoader(ForgeModel):
         )
         model = _replace_linear4bit(model)
         _patch_get_image_features()
+        _patch_generate_block_attention_mask()
 
         model.eval()
         self.model = model
