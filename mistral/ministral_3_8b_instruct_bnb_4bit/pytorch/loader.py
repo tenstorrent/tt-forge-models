@@ -119,6 +119,116 @@ class ModelLoader(ForgeModel):
         return self.processor
 
     @staticmethod
+    def _patch_inputs_embedding_merge(model):
+        """Replace masked_scatter in Mistral3Model.forward with a token-level gather.
+
+        The standard masked_scatter decomposition flattens mask to
+        [seq_len * hidden_size] elements and calls cumsum on that. tt-mlir's
+        cumsum pads the reduction axis to tile_size (1024), creating an
+        [N, 1024] intermediate matrix. For N = 2896 * 4096 = 11.8 M this is
+        11.8 M × 1024 × 4 B = 45 GB → OOM on TT hardware.
+
+        The mask pattern is always:
+            mask = (input_ids == image_token_id).unsqueeze(-1).expand_as(inputs_embeds)
+        so every "token" position has ALL hidden-size bits set identically.
+        We exploit this structure: work at token level (2896 elements), compute
+        a token-level cumsum, gather the right image feature per position, then
+        apply with torch.where.  The token-level cumsum is only 2896 elements
+        → [2896, 1024] × 4 B = 12 MB.
+        """
+        import types
+
+        def _patched_model_forward(
+            self,
+            input_ids=None,
+            pixel_values=None,
+            attention_mask=None,
+            position_ids=None,
+            past_key_values=None,
+            inputs_embeds=None,
+            vision_feature_layer=None,
+            use_cache=None,
+            output_attentions=None,
+            output_hidden_states=None,
+            return_dict=None,
+            cache_position=None,
+            image_sizes=None,
+            **kwargs,
+        ):
+            import torch
+            from transformers.models.mistral3.modeling_mistral3 import Mistral3ModelOutputWithPast
+
+            output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+            output_hidden_states = (
+                output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+            )
+            return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+
+            if (input_ids is None) ^ (inputs_embeds is not None):
+                raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
+
+            if inputs_embeds is None:
+                inputs_embeds = self.get_input_embeddings()(input_ids)
+
+            image_features = None
+            if pixel_values is not None:
+                image_features = self.get_image_features(
+                    pixel_values=pixel_values,
+                    vision_feature_layer=vision_feature_layer,
+                    image_sizes=image_sizes,
+                    return_dict=True,
+                ).pooler_output
+                image_features = torch.cat(image_features, dim=0).to(
+                    inputs_embeds.device, inputs_embeds.dtype
+                )
+
+                # Token-level scatter: avoids the seq_len * hidden_size cumsum OOM.
+                # mask shape: [1, seq_len] boolean (which positions are image tokens)
+                token_mask = (input_ids == self.config.image_token_id)  # [1, seq_len]
+                num_image_tokens = image_features.shape[0]
+                hidden_size = image_features.shape[-1]
+
+                # Cumsum at token level (seq_len elements, not seq_len * hidden_size)
+                gather_idx = torch.clamp(
+                    torch.cumsum(token_mask.long(), dim=-1) - 1,
+                    0,
+                    num_image_tokens - 1,
+                )  # [1, seq_len]
+
+                # Gather: output[0, i, k] = image_features[gather_idx[0, i], k]
+                gather_idx_3d = gather_idx.unsqueeze(-1).expand(-1, -1, hidden_size)
+                # [1, num_image_tokens, hidden_size]
+                image_features_3d = image_features.unsqueeze(0)
+                gathered = torch.gather(image_features_3d, dim=1, index=gather_idx_3d)
+
+                # Replace image token positions with gathered features
+                token_mask_expanded = token_mask.unsqueeze(-1).expand_as(inputs_embeds)
+                inputs_embeds = torch.where(token_mask_expanded, gathered, inputs_embeds)
+
+            outputs = self.language_model(
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                past_key_values=past_key_values,
+                inputs_embeds=inputs_embeds,
+                use_cache=use_cache,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                return_dict=True,
+                cache_position=cache_position,
+                **kwargs,
+            )
+
+            return Mistral3ModelOutputWithPast(
+                last_hidden_state=outputs.last_hidden_state,
+                past_key_values=outputs.past_key_values,
+                hidden_states=outputs.hidden_states,
+                attentions=outputs.attentions,
+                image_hidden_states=image_features if pixel_values is not None else None,
+            )
+
+        model.model.forward = types.MethodType(_patched_model_forward, model.model)
+
+    @staticmethod
     def _patch_generate_block_attention_mask():
         """Replace generate_block_attention_mask with a functional (Dynamo-traceable) version.
 
@@ -298,6 +408,7 @@ class ModelLoader(ForgeModel):
         model.eval()
 
         self._dequantize_bnb4_to_bf16(model)
+        self._patch_inputs_embedding_merge(model)
         self._patch_generate_block_attention_mask()
         self._patch_get_placeholder_mask(model)
         self._patch_get_image_features(model)
