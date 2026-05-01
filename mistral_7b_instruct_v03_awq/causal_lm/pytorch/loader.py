@@ -7,6 +7,7 @@ Mistral 7B Instruct v0.3 AWQ model loader implementation for causal language mod
 
 from typing import Optional
 
+import torch.nn as nn
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
@@ -70,6 +71,35 @@ class ModelLoader(ForgeModel):
             self.tokenizer.pad_token = self.tokenizer.eos_token
         return self.tokenizer
 
+    @staticmethod
+    def _dequantize_awq_layers(model, dtype):
+        # gptqmodel TorchAtenAwqLinear raises NotImplementedError on TT device;
+        # dequantize before any forward pass (before transform_cpu() is called).
+        replacements = {}
+        for name, module in model.named_modules():
+            if hasattr(module, "awq_weight_dequantize") and hasattr(
+                module, "in_features"
+            ):
+                weight = module.awq_weight_dequantize(device="cpu", dtype=dtype)
+                has_bias = getattr(module, "bias", None) is not None
+                linear = nn.Linear(
+                    module.in_features, module.out_features, bias=has_bias
+                )
+                linear.weight = nn.Parameter(weight.t().contiguous())
+                if has_bias:
+                    linear.bias = nn.Parameter(module.bias.to(dtype))
+                replacements[name] = linear
+        for name, linear in replacements.items():
+            if "." in name:
+                parent_name, child_name = name.rsplit(".", 1)
+                parent = model
+                for part in parent_name.split("."):
+                    parent = getattr(parent, part)
+            else:
+                parent, child_name = model, name
+            setattr(parent, child_name, linear)
+        return model
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -86,7 +116,10 @@ class ModelLoader(ForgeModel):
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
-        ).eval()
+        )
+        dtype = dtype_override if dtype_override is not None else model.dtype
+        model = self._dequantize_awq_layers(model, dtype)
+        model = model.eval()
 
         self.config = model.config
         self.model = model
