@@ -41,25 +41,36 @@ def _patched_get_extended_attention_mask(self, attention_mask, input_shape, dtyp
 
 
 def _patched_topk_gating_forward(self, hidden_states):
-    """Avoids expert_size.tolist() by returning sorted_expert_ids as a tensor.
+    """Avoids expert_size.tolist() and sort-padding bug.
 
     GraniteMoeTopKGating.forward calls expert_size.tolist() which triggers a
     device-to-host transfer that fails on TT silicon (INTERNAL error code 13).
-    Return sorted_expert_ids as an int32 tensor so the caller can use it with
-    masked matmul instead of dynamic split.
+
+    The original sort-based approach also fails on TT: sorting a flat [N*top_k]
+    tensor causes TT to pad it to the next multiple of 32 (e.g. [48]→[64]),
+    making sort return indices up to 63. Dividing by top_k gives out-of-range
+    token indices (6, 7 for N=6), causing OOB gather/scatter.
+
+    Fix: compute batch_index directly as arange(N).repeat_interleave(top_k).
+    The _patched_parallel_experts_forward uses per-expert masks so it does not
+    require the (token, expert) pairs to be globally sorted by expert.
     """
+    N = hidden_states.shape[0]
     logits = self.layer(hidden_states).float()
-    top_k_logits, top_k_indices = logits.topk(self.top_k, dim=1)
-    top_k_gates = torch.softmax(top_k_logits, dim=1).type_as(hidden_states)
+    top_k_logits, top_k_indices = logits.topk(self.top_k, dim=1)  # [N, top_k]
+    top_k_gates = torch.softmax(top_k_logits, dim=1).type_as(hidden_states)  # [N, top_k]
 
-    top_k_experts = top_k_indices.flatten()
-    _, index_sorted_experts = top_k_experts.sort(0)
-    batch_index = index_sorted_experts.div(self.top_k, rounding_mode="trunc")
+    # batch_index[n * top_k + k] = n: avoids sorting a flat [N*top_k] tensor
+    batch_index = torch.arange(N, device=hidden_states.device).repeat_interleave(
+        self.top_k
+    )  # [N*top_k] values 0..N-1
 
-    sorted_expert_ids = top_k_experts[index_sorted_experts].int()
+    # Expert IDs and gate values in (token, expert-rank) order
+    sorted_expert_ids = top_k_indices.reshape(-1).int()  # [N*top_k]
+    batch_gates = top_k_gates.reshape(-1)  # [N*top_k]
 
-    top_k_gates = top_k_gates.flatten()
-    batch_gates = top_k_gates[index_sorted_experts]
+    # index_sorted_experts: returned as first value (callers assign to _)
+    index_sorted_experts = batch_index
 
     return index_sorted_experts, batch_index, batch_gates, sorted_expert_ids, logits
 
@@ -129,8 +140,36 @@ def _patched_eager_mask(
     return mask
 
 
+def _patched_moe_forward(self, layer_input):
+    """Replace index_add with reshape+sum to avoid EmbeddingBackwardOp overflow.
+
+    The original zeros.index_add(0, batch_index, expert_outputs) lowers to
+    EmbeddingBackwardOp in MLIR, which produces overflow values (max ~3e37)
+    when compiled in a large graph alongside the expert matmuls.
+
+    Since our batch_index = arange(N).repeat_interleave(top_k), expert_outputs
+    rows are grouped as [token0 * top_k, token1 * top_k, ...].  Reshape to
+    [N, top_k, hidden] and sum over dim=1 to accumulate gated expert outputs
+    without any scatter or index_add operation.
+    """
+    bsz, length, emb_size = layer_input.size()
+    N = bsz * length
+    layer_input_flat = layer_input.reshape(N, emb_size)
+    _, batch_index, batch_gates, sorted_expert_ids, _ = self.router(layer_input_flat)
+    expert_inputs = layer_input_flat[batch_index]  # [N*top_k, hidden]
+    hidden_states = self.input_linear(expert_inputs, sorted_expert_ids)
+    chunked = hidden_states.chunk(2, dim=-1)
+    hidden_states = self.activation(chunked[0]) * chunked[1]
+    expert_outputs = self.output_linear(hidden_states, sorted_expert_ids)
+    expert_outputs = expert_outputs * batch_gates[:, None]
+    top_k = self.router.top_k
+    layer_output = expert_outputs.view(N, top_k, self.input_size).sum(dim=1)
+    return layer_output.view(bsz, length, self.input_size)
+
+
 def _patch_moe_experts(model):
     from transformers.models.granitemoe.modeling_granitemoe import (
+        GraniteMoeMoE,
         GraniteMoeParallelExperts,
         GraniteMoeTopKGating,
     )
@@ -140,6 +179,8 @@ def _patch_moe_experts(model):
             module.forward = types.MethodType(_patched_topk_gating_forward, module)
         elif isinstance(module, GraniteMoeParallelExperts):
             module.forward = types.MethodType(_patched_parallel_experts_forward, module)
+        elif isinstance(module, GraniteMoeMoE):
+            module.forward = types.MethodType(_patched_moe_forward, module)
 
 from ....base import ForgeModel
 from ....config import (
