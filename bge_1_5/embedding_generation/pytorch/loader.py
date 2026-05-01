@@ -53,7 +53,8 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="BAAI/bge-base-zh-v1.5",
         ),
         ModelVariant.QDRANT_BGE_SMALL_ZH_V1_5: ModelConfig(
-            pretrained_model_name="Qdrant/bge-small-zh-v1.5",
+            # Qdrant/bge-small-zh-v1.5 is ONNX-only; load PyTorch weights from the upstream source.
+            pretrained_model_name="BAAI/bge-small-zh-v1.5",
         ),
     }
 
