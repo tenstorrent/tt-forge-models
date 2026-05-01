@@ -33,22 +33,6 @@ if ALL_PARALLEL_STYLES is None:
 
     mu.ALL_PARALLEL_STYLES = ["rowwise", "colwise", "headwise"]
 
-# Monkey patch Resampler for compatibility - Fixes: Resampler doesn't have _initialize_weights method in torch 2.7.0
-original_getattr = nn.Module.__getattr__
-
-
-def patched_getattr(self, name):
-    if name == "_initialize_weights" and self.__class__.__name__ == "Resampler":
-
-        def _initialize_weights(module_self):
-            if hasattr(module_self, "_init_weights"):
-                module_self._init_weights(module_self)
-
-        return _initialize_weights
-    return original_getattr(self, name)
-
-
-nn.Module.__getattr__ = patched_getattr
 
 
 @dataclass
@@ -112,18 +96,31 @@ class ModelLoader(ForgeModel):
         """
         config = self._variant_config
 
-        # Load model and tokenizer
-        self.model = AutoModel.from_pretrained(
-            config.pretrained_model_name,
-            trust_remote_code=True,
-            torch_dtype=torch.float32,
-            **kwargs,
-        )
+        _orig = nn.Module.__getattr__
+
+        def _patched_getattr(self, name):
+            if name == "_initialize_weights" and self.__class__.__name__ == "Resampler":
+                def _initialize_weights(module_self):
+                    if hasattr(module_self, "_init_weights"):
+                        module_self._init_weights(module_self)
+                return _initialize_weights
+            return _orig(self, name)
+
+        nn.Module.__getattr__ = _patched_getattr
+        try:
+            self.model = AutoModel.from_pretrained(
+                config.pretrained_model_name,
+                trust_remote_code=True,
+                torch_dtype=torch.float32,
+                **kwargs,
+            )
+        finally:
+            nn.Module.__getattr__ = _orig
+
         self.tokenizer = AutoTokenizer.from_pretrained(
             config.pretrained_model_name, trust_remote_code=True
         )
 
-        # Set model to eval mode
         self.model.eval()
 
         return self.model
