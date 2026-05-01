@@ -32,14 +32,12 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.LFM2_5_VL_1_6B_GGUF: LLMModelConfig(
-            pretrained_model_name="unsloth/LFM2.5-VL-1.6B-GGUF",
+            pretrained_model_name="LiquidAI/LFM2.5-VL-1.6B",
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.LFM2_5_VL_1_6B_GGUF
-
-    GGUF_FILE = "LFM2.5-VL-1.6B-Q4_K_M.gguf"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -79,7 +77,6 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -124,6 +121,5 @@ class ModelLoader(ForgeModel):
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name,
-            gguf_file=self.GGUF_FILE,
         )
         return self.config
