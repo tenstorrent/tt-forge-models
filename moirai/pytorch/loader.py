@@ -92,6 +92,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, **kwargs):
+        from einops import reduce, repeat
         from uni2ts.model.moirai import MoiraiForecast, MoiraiModule
 
         cfg = self._variant_config
@@ -108,6 +109,36 @@ class ModelLoader(ForgeModel):
             past_feat_dynamic_real_dim=0,
             num_samples=cfg.num_samples,
         )
+
+        # Replace cummax (→ stablehlo.reduce_window, unsupported in TT MLIR) with
+        # the equivalent for binary {0,1} sequences: cummax(x) == (cumsum(x) > 0)
+        def _generate_time_id_patched(self_m, patch_size, past_observed_target):
+            past_seq_id = reduce(
+                self_m._patched_seq_pad(patch_size, past_observed_target, -2, left=True),
+                "... (seq patch) dim -> ... seq",
+                "max",
+                patch=patch_size,
+            )
+            past_seq_id = torch.clamp(
+                (past_seq_id.cumsum(dim=-1) > 0).to(past_seq_id.dtype).cumsum(dim=-1) - 1,
+                min=0,
+            )
+            batch_shape = " ".join(map(str, past_observed_target.shape[:-2]))
+            future_seq_id = (
+                repeat(
+                    torch.arange(
+                        self_m.prediction_token_length(patch_size),
+                        device=past_observed_target.device,
+                    ),
+                    f"prediction -> {batch_shape} prediction",
+                )
+                + past_seq_id.max(dim=-1, keepdim=True).values
+                + 1
+            )
+            return past_seq_id, future_seq_id
+
+        import types
+        model._generate_time_id = types.MethodType(_generate_time_id_patched, model)
 
         model.eval()
         return model
