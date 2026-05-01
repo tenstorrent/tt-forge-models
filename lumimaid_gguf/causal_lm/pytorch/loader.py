@@ -45,6 +45,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.LUMIMAID_V0_2_70B_HERETIC_I1_GGUF
 
     _GGUF_FILES = {
+        ModelVariant.LUMIMAID_V0_2_70B_HERETIC_I1_GGUF: "Lumimaid-v0.2-70B-heretic.i1-Q4_K_M.gguf",
         ModelVariant.LUMIMAID_V0_2_70B_HERETIC_GGUF: "Lumimaid-v0.2-70B-heretic.i1-Q4_K_M.gguf",
         ModelVariant.LUMIMAID_V0_2_8B_HERETIC_GGUF: "Lumimaid-v0.2-8B-Heretic.Q4_K_M.gguf",
     }
@@ -121,18 +122,21 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        messages = [
-            {
-                "role": "user",
-                "content": self.sample_text,
-            }
-        ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-        prompts = [text]
+        if self.tokenizer.chat_template is not None:
+            messages = [
+                {
+                    "role": "user",
+                    "content": self.sample_text,
+                }
+            ]
+            text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+            prompts = [text]
+        else:
+            prompts = [self.sample_text]
 
         inputs = self.tokenizer(
             prompts,
