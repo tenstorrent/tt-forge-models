@@ -84,7 +84,7 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The MEXMA-SigLIP2 model instance.
         """
-        from transformers import AutoModel
+        from transformers import AutoModel, PreTrainedModel
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -93,7 +93,22 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        # MexmaSigLIP remote code does not call self.post_init(), so
+        # all_tied_weights_keys (new in transformers 5.x) is never initialized.
+        # Patch _adjust_tied_keys_with_tied_pointers to set it to {} if missing.
+        _orig_adjust = PreTrainedModel._adjust_tied_keys_with_tied_pointers
+
+        def _safe_adjust(self, *args, **kw):
+            if not hasattr(self, "all_tied_weights_keys"):
+                self.all_tied_weights_keys = {}
+            return _orig_adjust(self, *args, **kw)
+
+        PreTrainedModel._adjust_tied_keys_with_tied_pointers = _safe_adjust
+        try:
+            model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        finally:
+            PreTrainedModel._adjust_tied_keys_with_tied_pointers = _orig_adjust
+
         model.eval()
 
         return model
