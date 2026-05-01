@@ -65,6 +65,7 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The Mitra Tab2D model instance.
         """
+        import autogluon.tabular.models.mitra._internal.models.tab2d as _tab2d_mod
         from autogluon.tabular.models.mitra._internal.models.tab2d import Tab2D
 
         # Tab2D.from_pretrained only accepts path_or_repo_id and device.
@@ -73,6 +74,14 @@ class ModelLoader(ForgeModel):
         model = Tab2D.from_pretrained(
             self._variant_config.pretrained_model_name, device="cpu"
         )
+
+        # torch.utils.checkpoint (use_reentrant=False) creates a HigherOrderOperator
+        # that torch.export.export cannot handle (layer_norm appears as a Python
+        # function rather than an aten op).  Gradient checkpointing is a training
+        # optimisation and is not needed for inference; patch it out so the forward
+        # graph is a flat sequence of aten ops.
+        _tab2d_mod.checkpoint = lambda fn, *args, use_reentrant=None, **kwargs: fn(*args, **kwargs)
+
         model.eval()
         return model
 
