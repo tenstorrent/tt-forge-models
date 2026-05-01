@@ -13,7 +13,7 @@ Repository:
 - https://huggingface.co/vantagewithai/LongCat-Video-Avatar-ComfyUI-GGUF
 """
 import torch
-from diffusers import WanTransformer3DModel
+from diffusers import GGUFQuantizationConfig, WanTransformer3DModel
 from typing import Optional
 
 from ...base import ForgeModel
@@ -27,10 +27,9 @@ from ...config import (
     StrEnum,
 )
 
-GGUF_BASE_URL = (
-    "https://huggingface.co/vantagewithai/LongCat-Video-Avatar-ComfyUI-GGUF"
-    "/blob/main"
-)
+GGUF_REPO = "vantagewithai/LongCat-Video-Avatar-ComfyUI-GGUF"
+# WAN 2.1 T2V 14B is the base architecture for LongCat's single-stream transformer
+WAN_CONFIG_REPO = "Wan-AI/Wan2.1-T2V-14B-Diffusers"
 
 
 class ModelVariant(StrEnum):
@@ -78,20 +77,19 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        compute_dtype = dtype_override if dtype_override is not None else torch.bfloat16
         gguf_file = self._GGUF_FILES[self._variant]
-        gguf_url = f"{GGUF_BASE_URL}/{gguf_file}"
+        # from_single_file expects blob/main URLs (resolve/main is not parsed correctly)
+        gguf_url = f"https://huggingface.co/{GGUF_REPO}/blob/main/{gguf_file}"
 
-        load_kwargs = {}
-        if dtype_override is not None:
-            load_kwargs["torch_dtype"] = dtype_override
-
+        quantization_config = GGUFQuantizationConfig(compute_dtype=compute_dtype)
         self.transformer = WanTransformer3DModel.from_single_file(
             gguf_url,
-            **load_kwargs,
+            config=WAN_CONFIG_REPO,
+            subfolder="transformer",
+            quantization_config=quantization_config,
+            torch_dtype=compute_dtype,
         )
-
-        if dtype_override is not None:
-            self.transformer = self.transformer.to(dtype_override)
 
         return self.transformer
 
