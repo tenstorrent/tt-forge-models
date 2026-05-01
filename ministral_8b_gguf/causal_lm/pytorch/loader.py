@@ -64,6 +64,19 @@ def _patch_transformers_mistral3_gguf():
 
     gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
+    # get_gguf_hf_weights_map uses hf_model.config.model_type ("mistral") to look
+    # up the arch in gguf-py's MODEL_ARCH_NAMES, but gguf-py 0.10+ only has
+    # "mistral3" (not "mistral"). Patch the function to remap before the lookup.
+    _orig_get_weights_map = gguf_utils.get_gguf_hf_weights_map
+
+    def _patched_get_gguf_hf_weights_map(hf_model, processor, model_type=None, num_layers=None, qual_name=""):
+        effective_type = hf_model.config.model_type if model_type is None else model_type
+        if effective_type == "mistral":
+            model_type = "mistral3"
+        return _orig_get_weights_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
 
 _patch_transformers_mistral3_gguf()
 from ....config import (
