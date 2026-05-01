@@ -67,12 +67,12 @@ class ModelLoader(ForgeModel):
         """
         from autogluon.tabular.models.mitra._internal.models.tab2d import Tab2D
 
-        # Tab2D.from_pretrained only accepts path_or_repo_id and device
+        # Tab2D.from_pretrained only accepts path_or_repo_id and device.
+        # The model's x_quantile embedding uses torch.quantile which requires
+        # float32; do not cast to bfloat16.
         model = Tab2D.from_pretrained(
             self._variant_config.pretrained_model_name, device="cpu"
         )
-        if dtype_override is not None:
-            model = model.to(dtype_override)
         model.eval()
         return model
 
@@ -83,19 +83,19 @@ class ModelLoader(ForgeModel):
             list: [x_support, y_support, x_query, padding_features,
                    padding_obs_support, padding_obs_query] tensors.
         """
-        dtype = dtype_override if dtype_override is not None else torch.float32
+        # Tab2DQuantileEmbeddingX uses torch.quantile which requires float32.
         batch_size = 1
 
         # Support set: labeled examples for in-context learning
         x_support = torch.randn(
-            batch_size, self._N_SUPPORT, self._N_FEATURES, dtype=dtype
+            batch_size, self._N_SUPPORT, self._N_FEATURES, dtype=torch.float32
         )
         y_support = torch.randint(
             0, self._DIM_OUTPUT, (batch_size, self._N_SUPPORT), dtype=torch.int64
         )
 
         # Query set: examples to classify
-        x_query = torch.randn(batch_size, self._N_QUERY, self._N_FEATURES, dtype=dtype)
+        x_query = torch.randn(batch_size, self._N_QUERY, self._N_FEATURES, dtype=torch.float32)
 
         # No padding - all features and observations are valid
         padding_features = torch.zeros(batch_size, self._N_FEATURES, dtype=torch.bool)
