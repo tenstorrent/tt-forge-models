@@ -13,40 +13,83 @@ import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
 
 def _find_true_load_gguf_checkpoint():
     """Return the unpatched load_gguf_checkpoint from transformers.
 
-    Several loaders patch transformers.modeling_gguf_pytorch_utils.
-    load_gguf_checkpoint at import time with a signature that omits the
-    model_to_load kwarg added in transformers 5.x.  Some save the original
-    as _orig_load_gguf_checkpoint in their own namespace.  We search
-    sys.modules for that saved reference to get the true original.
+    Several loaders patch load_gguf_checkpoint at import time without the
+    model_to_load kwarg required by transformers 5.x.  Early-imported patching
+    loaders (e.g. bartowski_coniccat) save the True Original as
+    _orig_load_gguf_checkpoint.  We search sys.modules for that reference.
     """
     import sys
     for mod in list(sys.modules.values()):
-        for attr in ("_orig_load_gguf_checkpoint", "load_gguf_checkpoint"):
-            fn = getattr(mod, attr, None)
-            if (
-                fn is not None
-                and callable(fn)
-                and getattr(fn, "__module__", "") == "transformers.modeling_gguf_pytorch_utils"
-                and getattr(fn, "__qualname__", "") == "load_gguf_checkpoint"
-            ):
-                return fn
+        fn = getattr(mod, "_orig_load_gguf_checkpoint", None)
+        if (
+            fn is not None
+            and callable(fn)
+            and getattr(fn, "__module__", "") == "transformers.modeling_gguf_pytorch_utils"
+            and getattr(fn, "__qualname__", "") == "load_gguf_checkpoint"
+        ):
+            return fn
     return _gguf_utils.load_gguf_checkpoint
 
 
-@contextmanager
-def _restore_gguf_loader():
-    """Temporarily restore the original load_gguf_checkpoint on all binding sites.
+def _patch_gpt_oss_support():
+    """Register gpt-oss architecture as an alias for qwen3_moe.
 
-    Some loaders patch load_gguf_checkpoint at import time with a signature that
-    lacks model_to_load, which transformers 5.x requires.  We find the true
-    original (saved by the first patching loader in sys.modules) and install it
-    for the duration of from_pretrained, then restore the previous values.
+    GPT-OSS uses the same model architecture as Qwen3 MoE but the GGUF file
+    declares architecture as 'gpt-oss' which transformers does not recognise.
     """
-    _true_orig = _find_true_load_gguf_checkpoint()
+    if "gpt-oss" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+    GGUF_SUPPORTED_ARCHITECTURES.append("gpt-oss")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen3_moe" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            mapping = dict(
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3_moe"]
+            )
+            mapping["expert_feed_forward_length"] = "moe_intermediate_size"
+            mapping["attention.sliding_window"] = "sliding_window"
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["gpt-oss"] = mapping
+    if "qwen3_moe" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["gpt-oss"] = GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
+    if hasattr(_gguf_utils, "GGUF_CONFIG_DEFAULTS_MAPPING"):
+        if "qwen3_moe" in _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING:
+            _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING[
+                "gpt-oss"
+            ] = _gguf_utils.GGUF_CONFIG_DEFAULTS_MAPPING["qwen3_moe"]
+
+
+_patch_gpt_oss_support()
+
+
+@contextmanager
+def _gguf_for_gpt_oss():
+    """Install a correct load_gguf_checkpoint on all binding sites for from_pretrained.
+
+    The context manager:
+    - Uses the True Original (found via sys.modules) to accept model_to_load
+    - Registers gpt-oss architecture so the GGUF reader doesn't reject it
+    - Remaps model_type "gpt-oss" -> "qwen3_moe" so AutoConfig resolves correctly
+    Restores previous bindings on exit.
+    """
+
+    def _patched(gguf_path, return_tensors=False, model_to_load=None):
+        _patch_gpt_oss_support()
+        true_fn = _find_true_load_gguf_checkpoint()
+        result = true_fn(
+            gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
+        )
+        if result.get("config", {}).get("model_type") == "gpt-oss":
+            result["config"]["model_type"] = "qwen3_moe"
+        return result
+
     _sites = [
         (_gguf_utils, "load_gguf_checkpoint"),
         (_config_utils, "load_gguf_checkpoint"),
@@ -56,7 +99,7 @@ def _restore_gguf_loader():
     _saved = [(m, n, getattr(m, n, None)) for m, n in _sites]
     try:
         for m, n, _ in _saved:
-            setattr(m, n, _true_orig)
+            setattr(m, n, _patched)
         yield
     finally:
         for m, n, orig in _saved:
@@ -144,13 +187,14 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
+            with _gguf_for_gpt_oss():
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name, gguf_file=self.GGUF_FILE
+                )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        with _restore_gguf_loader():
+        with _gguf_for_gpt_oss():
             model = AutoModelForCausalLM.from_pretrained(
                 pretrained_model_name, **model_kwargs
             ).eval()
@@ -208,7 +252,8 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        with _gguf_for_gpt_oss():
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
         return self.config
