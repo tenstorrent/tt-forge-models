@@ -12,23 +12,84 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
 
+_GGUF_MOD_NAME = "transformers.modeling_gguf_pytorch_utils"
+
+
+def _find_original_from_transformers(fn):
+    """Find the real transformers load_gguf_checkpoint by BFS through patcher chains.
+
+    Patchers save the previous load_gguf_checkpoint either as a module-level name
+    (visible in __globals__) or as a closure variable (visible in __closure__).
+    We do BFS through every reachable callable whose name contains "gguf" or "checkpoint"
+    (to avoid traversing all of Python's stdlib) until we find the one defined in the
+    transformers module that accepts model_to_load.
+    """
+    from collections import deque
+
+    def _is_gguf_candidate(v, name=""):
+        if not callable(v) or isinstance(v, type):
+            return False
+        mod = getattr(v, "__module__", "") or ""
+        fn_name = (getattr(v, "__name__", "") or "").lower()
+        # Only follow functions that look like gguf loaders or are in our target module
+        return (
+            "gguf" in fn_name
+            or "checkpoint" in fn_name
+            or "gguf" in name.lower()
+            or mod == _GGUF_MOD_NAME
+        )
+
+    queue = deque([fn])
+    seen = set()
+
+    while queue:
+        candidate = queue.popleft()
+        cid = id(candidate)
+        if cid in seen:
+            continue
+        seen.add(cid)
+
+        if getattr(candidate, "__module__", "") == _GGUF_MOD_NAME:
+            try:
+                if "model_to_load" in inspect.signature(candidate).parameters:
+                    return candidate
+            except (TypeError, ValueError):
+                pass
+
+        # Enqueue named globals that look like gguf-related functions
+        for k, v in getattr(candidate, "__globals__", {}).items():
+            if _is_gguf_candidate(v, k) and id(v) not in seen:
+                queue.append(v)
+
+        # Enqueue callable closure cells
+        for cell in getattr(candidate, "__closure__", None) or []:
+            try:
+                v = cell.cell_contents
+            except ValueError:
+                continue
+            if _is_gguf_candidate(v) and id(v) not in seen:
+                queue.append(v)
+
+    return fn
+
+
 @contextmanager
 def _gguf_kwargs_compat():
-    """Temporarily patch load_gguf_checkpoint to accept transformers 5.x kwargs.
+    """Temporarily restore load_gguf_checkpoint to the real transformers implementation.
 
     Other loaders patch transformers.modeling_gguf_pytorch_utils.load_gguf_checkpoint
-    at import time with functions that lack model_to_load/torch_dtype. Transformers
-    5.x always passes these kwargs, so we wrap whatever is currently installed.
+    at import time with functions that drop model_to_load/torch_dtype kwargs.
+    Transformers 5.x always passes these kwargs. We find the saved original (which has
+    __module__ == 'transformers.modeling_gguf_pytorch_utils') in the patched function's
+    globals and temporarily install it.
     """
-    _orig = _gguf_mod.load_gguf_checkpoint
-    if "model_to_load" not in inspect.signature(_orig).parameters:
-        def _compat(gguf_path, return_tensors=False, model_to_load=None, torch_dtype=None):
-            return _orig(gguf_path, return_tensors=return_tensors)
-        _gguf_mod.load_gguf_checkpoint = _compat
+    _load_saved = _gguf_mod.load_gguf_checkpoint
+    _load_real = _find_original_from_transformers(_load_saved)
+    _gguf_mod.load_gguf_checkpoint = _load_real
     try:
         yield
     finally:
-        _gguf_mod.load_gguf_checkpoint = _orig
+        _gguf_mod.load_gguf_checkpoint = _load_saved
 
 from ....base import ForgeModel
 from ....config import (
