@@ -82,6 +82,20 @@ def _patch_cached_remote_files():
         if old in text and new not in text:
             path.write_text(text.replace(old, new, 1))
 
+    # Fix 5: In the resampler, max_patch_len = torch.max(patch_len) produces an XLA
+    # dynamic scalar after a graph break at _adjust_pos_cache (which causes a break via
+    # tensor comparison). The resumed subgraph receives max_patch_len as a symbolic input,
+    # so torch.zeros((bs, max_patch_len), bool, device=xla) has a dynamic bool dimension
+    # that XLA pads from 1036→1040 (next multiple of 8), breaking the attention mask check.
+    # Wrapping in int() forces Python-level eager evaluation before torch.zeros sees it,
+    # keeping the shape static.
+    for path in cache_base.glob(f"{glob_prefix}/resampler.py"):
+        text = path.read_text()
+        old = "        max_patch_len = torch.max(patch_len)\n"
+        new = "        max_patch_len = int(torch.max(patch_len))\n"
+        if old in text and new not in text:
+            path.write_text(text.replace(old, new, 1))
+
     # Invalidate the module cache so patched files are re-imported
     for key in list(sys.modules):
         if "MiniCPM_hyphen_Llama3" in key or "minicpm" in key.lower():
