@@ -4,6 +4,8 @@
 """
 Mindbot Ultra 4B 16b GGUF model loader implementation for causal language modeling.
 """
+import contextlib
+import inspect
 import numpy as np
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -19,6 +21,104 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _find_real_load_gguf_checkpoint():
+    """Walk patcher closure chains to find the real load_gguf_checkpoint.
+
+    Other loaders may have replaced load_gguf_checkpoint at import time with
+    wrappers that lack the model_to_load kwarg. Walk closures to find the
+    original transformers implementation that accepts all kwargs.
+    """
+    import transformers.modeling_gguf_pytorch_utils as m
+
+    seen = set()
+    queue = [m.load_gguf_checkpoint]
+    while queue:
+        fn = queue.pop()
+        fid = id(fn)
+        if fid in seen:
+            continue
+        seen.add(fid)
+        try:
+            if "model_to_load" in inspect.signature(fn).parameters:
+                return fn
+        except (ValueError, TypeError):
+            pass
+        if hasattr(fn, "__closure__") and fn.__closure__:
+            for cell in fn.__closure__:
+                try:
+                    val = cell.cell_contents
+                    if callable(val) and hasattr(val, "__code__"):
+                        queue.append(val)
+                except ValueError:
+                    pass
+    return m.load_gguf_checkpoint
+
+
+def _make_qwen35_load_gguf_checkpoint(base_load_fn):
+    """Build the qwen35-aware load_gguf_checkpoint wrapper around base_load_fn."""
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = base_load_fn(*args, **kwargs)
+        if result.get("config", {}).get("model_type") == "qwen35":
+            result["config"]["model_type"] = "qwen3_5_text"
+            config = result["config"]
+            num_layers = config.get("num_hidden_layers", 32)
+            interval = config.pop("full_attention_interval", 4)
+            layer_types = []
+            for i in range(num_layers):
+                if (i + 1) % interval == 0:
+                    layer_types.append("full_attention")
+                else:
+                    layer_types.append("linear_attention")
+            config["layer_types"] = layer_types
+        return result
+
+    return patched_load_gguf_checkpoint
+
+
+def _get_gguf_patch_modules():
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+    import transformers.configuration_utils as config_utils
+
+    mods = [gguf_utils, config_utils]
+    try:
+        import transformers.models.auto.tokenization_auto as tok_auto
+
+        mods.append(tok_auto)
+    except ImportError:
+        pass
+    try:
+        import transformers.tokenization_utils_tokenizers as tok_utils
+
+        mods.append(tok_utils)
+    except ImportError:
+        pass
+    return mods
+
+
+@contextlib.contextmanager
+def _qwen35_gguf_context():
+    """Context manager that installs the qwen35 GGUF patcher using the real base function.
+
+    Temporarily installs a properly-chained patcher at all binding sites so
+    that load_gguf_checkpoint accepts model_to_load (transformers 5.x) and
+    performs qwen35→qwen3_5_text remapping. Restores the previous state on exit.
+    """
+    real_fn = _find_real_load_gguf_checkpoint()
+    wrapped = _make_qwen35_load_gguf_checkpoint(real_fn)
+
+    mods = _get_gguf_patch_modules()
+    saved = {m: getattr(m, "load_gguf_checkpoint") for m in mods if hasattr(m, "load_gguf_checkpoint")}
+    for mod in saved:
+        setattr(mod, "load_gguf_checkpoint", wrapped)
+
+    try:
+        yield
+    finally:
+        for mod, fn in saved.items():
+            setattr(mod, "load_gguf_checkpoint", fn)
 
 
 def _patch_transformers_qwen35_gguf():
@@ -96,32 +196,13 @@ def _patch_transformers_qwen35_gguf():
 
     TENSOR_PROCESSORS["qwen35"] = Qwen35TensorProcessor
 
-    # 4. Patch load_gguf_checkpoint to handle qwen35 -> qwen3_5_text
-    orig_load = gguf_utils.load_gguf_checkpoint
+    # 4. Patch load_gguf_checkpoint to handle qwen35 -> qwen3_5_text.
+    # Walk closure chain to get the real transformers function so the wrapper
+    # accepts model_to_load even if another loader has already patched the site.
+    real_load = _find_real_load_gguf_checkpoint()
+    patched_load_gguf_checkpoint = _make_qwen35_load_gguf_checkpoint(real_load)
 
-    def patched_load_gguf_checkpoint(*args, **kwargs):
-        result = orig_load(*args, **kwargs)
-        if result.get("config", {}).get("model_type") == "qwen35":
-            result["config"]["model_type"] = "qwen3_5_text"
-            config = result["config"]
-            num_layers = config.get("num_hidden_layers", 32)
-            interval = config.pop("full_attention_interval", 4)
-            layer_types = []
-            for i in range(num_layers):
-                if (i + 1) % interval == 0:
-                    layer_types.append("full_attention")
-                else:
-                    layer_types.append("linear_attention")
-            config["layer_types"] = layer_types
-        return result
-
-    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
-
-    import transformers.models.auto.tokenization_auto as tok_auto
-    import transformers.configuration_utils as config_utils
-    import transformers.modeling_utils as modeling_utils
-
-    for mod in (tok_auto, config_utils, modeling_utils):
+    for mod in _get_gguf_patch_modules():
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
@@ -191,9 +272,10 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
         tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+        with _qwen35_gguf_context():
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -218,9 +300,10 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        with _qwen35_gguf_context():
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
@@ -278,7 +361,8 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        with _qwen35_gguf_context():
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
         return self.config
