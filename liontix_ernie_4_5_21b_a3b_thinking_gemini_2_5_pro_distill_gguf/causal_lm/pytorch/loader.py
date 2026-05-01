@@ -20,6 +20,105 @@ from ....config import (
 )
 
 
+def _patch_transformers_ernie4_5_moe_gguf():
+    """Monkey-patch transformers to add ernie4_5-moe GGUF architecture support.
+
+    Transformers 5.x has Ernie4_5_MoeForCausalLM but lacks GGUF loading support
+    for the ernie4_5-moe architecture. We bridge the gap by registering the
+    config/tensor/tokenizer mappings and converting the model_type hyphen form
+    to the underscore form that AutoConfig recognises.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        TENSOR_PROCESSORS,
+        Qwen2MoeTensorProcessor,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "ernie4_5-moe" in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # Already patched
+
+    # 1. Register ernie4_5-moe as a supported architecture
+    GGUF_SUPPORTED_ARCHITECTURES.append("ernie4_5-moe")
+
+    # 2. Add config mapping: GGUF field names → Ernie4_5_MoeConfig attribute names
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["ernie4_5-moe"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+        # MoE fields
+        "expert_count": "num_experts",
+        "expert_used_count": "num_experts_per_tok",
+        "expert_feed_forward_length": "moe_intermediate_size",
+        "expert_shared_count": "moe_num_shared_experts",
+        # Fields without direct config equivalents — suppress to avoid spurious warnings
+        "interleave_moe_layer_step": None,
+        "leading_dense_block_count": None,
+        "expert_shared_feed_forward_length": None,
+    }
+
+    # 3. Register Qwen2MoeTensorProcessor for packed expert weight handling.
+    #    dequantize() already transposes GGUF tensors to PyTorch (num_experts,
+    #    out, in) layout, so Qwen2MoeTensorProcessor's gate/up interleave logic
+    #    applies unchanged.
+    TENSOR_PROCESSORS["ernie4_5-moe"] = Qwen2MoeTensorProcessor
+
+    # 4. Register tokenizer converter (ERNIE 4.5 embeds a llama/SentencePiece
+    #    tokenizer in the GGUF file; key is model_type after the remap below).
+    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFLlamaConverter
+
+    GGUF_TO_FAST_CONVERTERS.setdefault("ernie4_5_moe", GGUFLlamaConverter)
+
+    # 5. Wrap load_gguf_checkpoint to remap model_type ernie4_5-moe → ernie4_5_moe
+    #    so that AutoConfig can resolve the correct config class.
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        if result.get("config", {}).get("model_type") == "ernie4_5-moe":
+            result["config"]["model_type"] = "ernie4_5_moe"
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    # Patch every module that imported load_gguf_checkpoint directly
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+    import transformers.tokenization_utils_tokenizers as tok_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils, tok_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    # 6. Patch get_gguf_hf_weights_map to translate ernie4_5_moe → ernie4_5-moe
+    #    for the gguf-py MODEL_ARCH_NAMES lookup (gguf-py uses the hyphenated form).
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type == "ernie4_5_moe":
+            model_type = "ernie4_5-moe"
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+
+# Apply the monkey-patch at import time
+_patch_transformers_ernie4_5_moe_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available Liontix ERNIE-4.5-21B-A3B-Thinking Gemini 2.5 Pro Distill GGUF model variants for causal language modeling."""
 
@@ -118,11 +217,15 @@ class ModelLoader(ForgeModel):
                 "content": self.sample_text,
             }
         ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
+
+        if self.tokenizer.chat_template is not None:
+            text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        else:
+            text = self.sample_text
         prompts = [text]
 
         inputs = self.tokenizer(
@@ -152,10 +255,10 @@ class ModelLoader(ForgeModel):
                     shard_specs[mlp.experts.gate_up_proj] = (None, "model", "batch")
                 if hasattr(mlp.experts, "down_proj"):
                     shard_specs[mlp.experts.down_proj] = (None, "batch", "model")
-            if hasattr(mlp, "shared_expert"):
-                shard_specs[mlp.shared_expert.up_proj.weight] = ("model", "batch")
-                shard_specs[mlp.shared_expert.gate_proj.weight] = ("model", "batch")
-                shard_specs[mlp.shared_expert.down_proj.weight] = ("batch", "model")
+            if hasattr(mlp, "shared_experts"):
+                shard_specs[mlp.shared_experts.up_proj.weight] = ("model", "batch")
+                shard_specs[mlp.shared_experts.gate_proj.weight] = ("model", "batch")
+                shard_specs[mlp.shared_experts.down_proj.weight] = ("batch", "model")
             if hasattr(layer, "self_attn"):
                 shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
                 shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
