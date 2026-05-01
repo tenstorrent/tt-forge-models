@@ -5,6 +5,7 @@
 JetMoE model loader implementation for causal language modeling.
 """
 import torch
+import torch.nn.functional as F
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -18,6 +19,77 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patched_jetmoe_moe_forward(self, layer_input):
+    """Static per-expert masked matmul replacing expert_size.tolist() + split."""
+    bsz, length, emb_size = layer_input.size()
+    hidden = layer_input.reshape(-1, emb_size)
+    N = hidden.size(0)
+
+    logits = self.router.layer(hidden).float()
+    top_k_logits, top_k_indices = logits.topk(self.router.top_k, dim=1)
+    top_k_gates = torch.softmax(top_k_logits, dim=1).to(hidden.dtype)
+
+    gate_matrix = hidden.new_zeros(N, self.router.num_experts)
+    gate_matrix.scatter_(1, top_k_indices, top_k_gates)
+
+    output = hidden.new_zeros(N, emb_size)
+    for e in range(self.router.num_experts):
+        gate_e = gate_matrix[:, e : e + 1]
+        h = F.linear(hidden, self.input_linear.weight[e])
+        h1, h2 = h.chunk(2, dim=-1)
+        h = self.activation(h1) * h2
+        h = F.linear(h, self.output_linear.weight[e])
+        output = output + h * gate_e
+
+    return output.view(bsz, length, emb_size) + self.bias
+
+
+def _patched_jetmoa_map(self, layer_input):
+    """Static per-expert Q-projection replacing expert_size.tolist() + split."""
+    bsz, length, emb_size = layer_input.size()
+    hidden = layer_input.reshape(-1, emb_size)
+    N = hidden.size(0)
+
+    logits = self.router.layer(hidden).float()
+    top_k_logits, top_k_indices = logits.topk(self.router.top_k, dim=1)
+    top_k_gates = torch.softmax(top_k_logits, dim=1).to(hidden.dtype)
+
+    layer_output = hidden.new_zeros(N, self.top_k, self.hidden_size)
+    for e in range(self.num_experts):
+        mask_e = (top_k_indices == e).unsqueeze(-1).to(hidden.dtype)
+        q_e = F.linear(hidden, self.input_linear.weight[e]).unsqueeze(1)
+        layer_output = layer_output + q_e * mask_e
+
+    layer_output = layer_output.view(bsz, length, self.top_k, self.hidden_size)
+    topo_info = (top_k_indices, top_k_gates)
+    return layer_output, logits, topo_info
+
+
+def _patched_jetmoa_reduce(self, layer_input, topo_info):
+    """Static per-expert O-projection replacing expert_size.tolist() + split."""
+    top_k_indices, top_k_gates = topo_info
+    bsz, length, k, hidden_size = layer_input.size()
+    hidden = layer_input.reshape(-1, k, hidden_size)
+    N = hidden.size(0)
+    hidden_flat = hidden.reshape(-1, hidden_size)
+
+    output = hidden.new_zeros(N, self.input_size)
+    for e in range(self.num_experts):
+        gate_e = (top_k_gates * (top_k_indices == e).to(top_k_gates.dtype))
+        h_e = F.linear(hidden_flat, self.output_linear.weight[e]).view(N, k, self.input_size)
+        output = output + (h_e * gate_e.unsqueeze(-1)).sum(dim=1)
+
+    return output.view(bsz, length, self.input_size) + self.bias
+
+
+def _patch_jetmoe_moe(model):
+    from transformers.models.jetmoe.modeling_jetmoe import JetMoeMoE, JetMoeMoA
+
+    JetMoeMoE.forward = _patched_jetmoe_moe_forward
+    JetMoeMoA.map = _patched_jetmoa_map
+    JetMoeMoA.reduce = _patched_jetmoa_reduce
 
 
 class ModelVariant(StrEnum):
@@ -131,6 +203,8 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
         self.config = model.config
+
+        _patch_jetmoe_moe(model)
 
         return model
 
