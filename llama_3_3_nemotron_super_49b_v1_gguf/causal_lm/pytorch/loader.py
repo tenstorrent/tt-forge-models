@@ -37,9 +37,13 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load
     for attention head counts (hybrid attention/FFN-only layers). We collapse
     these to scalars by taking the max non-zero value.
     """
-    result = _orig_load_gguf_checkpoint(
-        gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
-    )
+    kwargs = {"return_tensors": return_tensors}
+    if model_to_load is not None:
+        kwargs["model_to_load"] = model_to_load
+    try:
+        result = _orig_load_gguf_checkpoint(gguf_path, **kwargs)
+    except TypeError:
+        result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
     config = result.get("config", {})
     if config.get("model_type") == "deci":
         config["model_type"] = "llama"
