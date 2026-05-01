@@ -167,6 +167,37 @@ class ModelLoader(ForgeModel):
         # Patch the inner Mistral3Model instance (model.model), not the outer wrapper
         model.model.get_image_features = types.MethodType(_get_image_features, model.model)
 
+    @staticmethod
+    def _patch_pixtral_block_attention_mask():
+        """Patch generate_block_attention_mask to build the mask on CPU then move to device.
+
+        The original creates causal_mask on the TT device, then uses 0-dim CPU
+        tensors from cumsum as slice bounds (block_start_idx, block_end_idx).
+        Using a 0-dim CPU tensor as a slice bound on a TT device tensor triggers
+        aten._local_scalar_dense, which the TT backend cannot compile. Creating
+        the mask on CPU avoids the issue; it is moved to device at the end.
+        """
+        import torch
+        import transformers.models.pixtral.modeling_pixtral as _pixtral
+
+        def _patched_generate_block_attention_mask(patch_embeds_list, tensor):
+            dtype = tensor.dtype
+            device = tensor.device
+            seq_len = tensor.shape[1]
+            d_min = torch.finfo(dtype).min
+            # Build on CPU; device tensors as slice bounds trigger _local_scalar_dense
+            causal_mask = torch.full((seq_len, seq_len), fill_value=d_min, dtype=dtype, device="cpu")
+            block_end_idx = torch.tensor(patch_embeds_list).cumsum(-1).tolist()
+            prev = 0
+            for end in block_end_idx:
+                end = int(end)
+                causal_mask[prev:end, prev:end] = 0
+                prev = end
+            causal_mask = causal_mask[None, None, :, :].expand(tensor.shape[0], 1, -1, -1)
+            return causal_mask.to(device=device, dtype=dtype)
+
+        _pixtral.generate_block_attention_mask = _patched_generate_block_attention_mask
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Ministral 3B Instruct BnB 4-bit model instance.
 
@@ -197,6 +228,7 @@ class ModelLoader(ForgeModel):
         model.eval()
 
         self._dequantize_bnb4_to_bf16(model)
+        self._patch_pixtral_block_attention_mask()
         self._patch_get_image_features(model)
 
         self.model = model
