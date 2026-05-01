@@ -23,6 +23,97 @@ from ...config import (
 from ...tools.utils import cast_input_to_type, get_file
 
 
+def _patch_llava_onevision_for_tt_device():
+    """Patch LLaVA-OneVision module-level functions that call .tolist() on device tensors.
+
+    The image_sizes tensor is moved to TT device with other inputs. Three
+    module-level helper functions call image_size.tolist() for Python control
+    flow, which triggers a device-to-host transfer that causes graph breaks and
+    can produce INTERNAL Error code: 13 from the TT compiler.
+
+    Additionally, get_placeholder_mask calls torch_compilable_check with
+    inputs_embeds[bool_mask] (dynamic output shape). TT cannot lower this
+    dynamic boolean indexing, producing INTERNAL:13. The check is an optional
+    assertion (see TRANSFORMERS_DISABLE_TORCH_CHECK) that does not affect the
+    masked_scatter computation; we patch it out to avoid triggering the Tier B
+    dynamic-shape-boolean-index compiler bug.
+    """
+    try:
+        from transformers.models.llava_onevision import modeling_llava_onevision as m
+    except ImportError:
+        return
+
+    # --- tolist() patches ---
+
+    _orig_get_anyres = m.get_anyres_image_grid_shape
+
+    def _patched_get_anyres(image_size, grid_pinpoints, patch_size):
+        if isinstance(image_size, torch.Tensor):
+            image_size = image_size.cpu()
+        return _orig_get_anyres(image_size, grid_pinpoints, patch_size)
+
+    m.get_anyres_image_grid_shape = _patched_get_anyres
+
+    _orig_image_size_to_num = m.image_size_to_num_patches
+
+    def _patched_image_size_to_num(image_size, grid_pinpoints, patch_size):
+        if isinstance(image_size, torch.Tensor):
+            image_size = image_size.cpu()
+        return _orig_image_size_to_num(image_size, grid_pinpoints, patch_size)
+
+    m.image_size_to_num_patches = _patched_image_size_to_num
+
+    _orig_unpad = m.unpad_image
+
+    def _patched_unpad(tensor, original_size):
+        if isinstance(original_size, torch.Tensor):
+            original_size = original_size.cpu()
+        return _orig_unpad(tensor, original_size)
+
+    m.unpad_image = _patched_unpad
+
+    # --- get_placeholder_mask patch ---
+    # Remove torch_compilable_check calls that use inputs_embeds[bool_mask]
+    # (dynamic output shape). The masked_scatter computation at the call site
+    # is unaffected.
+
+    def _patched_get_placeholder_mask(
+        self, input_ids, inputs_embeds, image_features=None, video_features=None
+    ):
+        if input_ids is None:
+            special_image_mask = inputs_embeds == self.get_input_embeddings()(
+                torch.tensor(
+                    self.config.image_token_id,
+                    dtype=torch.long,
+                    device=inputs_embeds.device,
+                )
+            )
+            special_image_mask = special_image_mask.all(-1)
+            special_video_mask = inputs_embeds == self.get_input_embeddings()(
+                torch.tensor(
+                    self.config.video_token_id,
+                    dtype=torch.long,
+                    device=inputs_embeds.device,
+                )
+            )
+            special_video_mask = special_video_mask.all(-1)
+        else:
+            special_image_mask = input_ids == self.config.image_token_id
+            special_video_mask = input_ids == self.config.video_token_id
+
+        special_image_mask = (
+            special_image_mask.unsqueeze(-1).expand_as(inputs_embeds).to(inputs_embeds.device)
+        )
+        special_video_mask = (
+            special_video_mask.unsqueeze(-1).expand_as(inputs_embeds).to(inputs_embeds.device)
+        )
+        return special_image_mask, special_video_mask
+
+    m.LlavaOnevisionForConditionalGeneration.get_placeholder_mask = (
+        _patched_get_placeholder_mask
+    )
+
+
 class ModelVariant(StrEnum):
     """Available LLaVA-OneVision model variants."""
 
@@ -80,6 +171,7 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the LLaVA-OneVision model instance."""
+        _patch_llava_onevision_for_tt_device()
         model_name = self._variant_config.pretrained_model_name
         model = LlavaOnevisionForConditionalGeneration.from_pretrained(
             str(model_name), **kwargs
