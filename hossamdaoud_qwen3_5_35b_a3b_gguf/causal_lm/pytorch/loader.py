@@ -20,6 +20,123 @@ from ....config import (
 )
 
 
+def _patch_transformers_qwen35moe_gguf():
+    """Monkey-patch transformers to add qwen35moe GGUF architecture support.
+
+    Transformers 5.x has Qwen3_5MoeForCausalLM but lacks GGUF loading support
+    for the qwen35moe architecture. We bridge the gap by registering qwen35moe
+    config/tensor mappings and converting the model_type to qwen3_5_moe_text.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+        TENSOR_PROCESSORS,
+    )
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    if "qwen35moe" in GGUF_SUPPORTED_ARCHITECTURES:
+        return
+
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen35moe")
+
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen35moe"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.key_length": "head_dim",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+        "expert_count": "num_experts",
+        "expert_used_count": "num_experts_per_tok",
+        "full_attention_interval": "full_attention_interval",
+    }
+
+    import numpy as _np
+    from transformers.modeling_gguf_pytorch_utils import (
+        Qwen2MoeTensorProcessor as _Qwen2MoeTensorProcessor,
+    )
+
+    class _Qwen35MoeTensorProcessor(_Qwen2MoeTensorProcessor):
+        def process(self, weights, name, **kwargs):
+            if "ssm_conv1d" in name and weights.ndim == 2:
+                # GGUF stores conv1d as [out_ch, kernel] but nn.Conv1d expects
+                # [out_ch, in_ch, kernel]; add the in_ch=1 (depthwise) dimension.
+                weights = _np.expand_dims(weights, axis=1)
+            return super().process(weights, name, **kwargs)
+
+    TENSOR_PROCESSORS["qwen35moe"] = _Qwen35MoeTensorProcessor
+
+    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+    if "qwen3_moe" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS["qwen35moe"] = GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
+        GGUF_TO_FAST_CONVERTERS["qwen3_5_moe_text"] = GGUF_TO_FAST_CONVERTERS[
+            "qwen3_moe"
+        ]
+
+    orig_load = gguf_utils.load_gguf_checkpoint
+
+    def patched_load_gguf_checkpoint(*args, **kwargs):
+        result = orig_load(*args, **kwargs)
+        if result.get("config", {}).get("model_type") == "qwen35moe":
+            result["config"]["model_type"] = "qwen3_5_moe_text"
+            config = result["config"]
+            num_layers = config.get("num_hidden_layers", 40)
+            interval = config.pop("full_attention_interval", 4)
+            layer_types = []
+            for i in range(num_layers):
+                if (i + 1) % interval == 0:
+                    layer_types.append("full_attention")
+                else:
+                    layer_types.append("linear_attention")
+            config["layer_types"] = layer_types
+        return result
+
+    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    import transformers.models.auto.tokenization_auto as tok_auto
+    import transformers.configuration_utils as config_utils
+    import transformers.modeling_utils as modeling_utils
+
+    for mod in (tok_auto, config_utils, modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
+
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
+            model_type = "qwen35moe"
+        result = orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+        # gate_up_proj is nn.Parameter (no .weight suffix), so the result contains
+        # "blk.N.ffn_gate_up_exps" (no suffix) mapping to "...gate_up_proj" (no suffix).
+        # But the GGUF file stores SEPARATE ffn_gate_exps and ffn_up_exps tensors, so
+        # process() looks up "blk.N.ffn_gate_exps" which is missing. Add those entries.
+        extra = {}
+        for k, v in list(result.items()):
+            if ".ffn_gate_up_exps" in k:
+                prefix = k.split(".ffn_gate_up_exps")[0]
+                hf_base = v[: -len(".weight")] if v.endswith(".weight") else v
+                extra[f"{prefix}.ffn_gate_exps"] = hf_base
+                extra[f"{prefix}.ffn_up_exps"] = hf_base
+        result.update(extra)
+        return result
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+
+_patch_transformers_qwen35moe_gguf()
+
+
 class ModelVariant(StrEnum):
     """Available Hossamdaoud Qwen3.5-35B-A3B GGUF model variants for causal language modeling."""
 
@@ -99,6 +216,8 @@ class ModelLoader(ForgeModel):
                     ]
             else:
                 config.num_hidden_layers = self.num_layers
+                if hasattr(config, "layer_types"):
+                    config.layer_types = config.layer_types[: self.num_layers]
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
