@@ -5,7 +5,13 @@
 MedGemma GGUF model loader implementation for multimodal conditional generation.
 """
 import torch
-from transformers import AutoProcessor, AutoModelForImageTextToText, AutoConfig
+from transformers import (
+    AutoProcessor,
+    AutoModelForCausalLM,
+    AutoConfig,
+    Gemma3Config,
+    Gemma3ForConditionalGeneration,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -43,6 +49,9 @@ class ModelLoader(ForgeModel):
         ModelVariant.MEDGEMMA_1_5_4B_IT_Q4_K_M: "medgemma-1.5-4b-it-Q4_K_M.gguf",
     }
 
+    # Public (non-gated) source for processor and full multimodal config.
+    # The GGUF only contains text backbone; the multimodal config with the
+    # SigLIP vision config comes from this repo.
     _PROCESSOR_NAME = "unsloth/medgemma-1.5-4b-it"
 
     sample_text = "Describe any abnormalities in this medical image."
@@ -75,7 +84,11 @@ class ModelLoader(ForgeModel):
         kwargs = {}
         if dtype_override is not None:
             kwargs["torch_dtype"] = dtype_override
-        self.processor = AutoProcessor.from_pretrained(self._PROCESSOR_NAME, use_fast=False, **kwargs)
+        # transformers 5.x defaults to use_fast=True for Gemma3ImageProcessor;
+        # use_fast=False preserves the slow (compatible) processor behavior.
+        self.processor = AutoProcessor.from_pretrained(
+            self._PROCESSOR_NAME, use_fast=False, **kwargs
+        )
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -85,16 +98,43 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.gguf_file
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        model = AutoModelForImageTextToText.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        # The medgemma GGUF only contains the text backbone (Gemma3TextConfig).
+        # transformers 5.x explicitly remaps gemma3 GGUF → gemma3_text, so
+        # AutoModelForImageTextToText refuses to load it.  Work around by:
+        #  1. Loading Gemma3ForCausalLM from the GGUF (text weights only).
+        #  2. Creating Gemma3ForConditionalGeneration from the full multimodal
+        #     config (includes SiglipVisionConfig from _PROCESSOR_NAME).
+        #  3. Copying text weights into language_model.* of the full model.
+        #     The vision_tower and multi_modal_projector are left at their
+        #     random init values, which is acceptable for compiler testing
+        #     (CPU and TT run the same random weights so PCC still measures
+        #     compiler correctness, not vision accuracy).
+        text_model = AutoModelForCausalLM.from_pretrained(
+            pretrained_model_name,
+            gguf_file=self.gguf_file,
+            torch_dtype=dtype,
+        )
 
+        full_config = Gemma3Config.from_pretrained(self._PROCESSOR_NAME)
+        model = Gemma3ForConditionalGeneration(full_config).to(dtype)
+
+        # Map Gemma3ForCausalLM keys → Gemma3ForConditionalGeneration keys:
+        #   model.X  →  model.language_model.X
+        #   lm_head.X  →  lm_head.X  (same)
+        full_sd = model.state_dict()
+        for name, param in text_model.state_dict().items():
+            if name.startswith("model."):
+                target = "model.language_model." + name[len("model."):]
+            else:
+                target = name
+            if target in full_sd:
+                full_sd[target].copy_(param)
+        model.load_state_dict(full_sd)
+        del text_model
+
+        model.eval()
         self.config = model.config
         return model
 
@@ -136,7 +176,5 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         """Load and return the model configuration."""
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
-        )
+        self.config = Gemma3Config.from_pretrained(self._PROCESSOR_NAME)
         return self.config
