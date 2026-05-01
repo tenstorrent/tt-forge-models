@@ -100,6 +100,60 @@ except Exception:
     pass
 
 
+def _patch_deepseek_v2_rope():
+    """Replace complex-tensor RoPE with real-valued equivalent.
+
+    DeepseekV2YarnRotaryEmbedding.forward uses torch.polar → complex tensors,
+    which the TT PJRT backend rejects at buffer_instance.cc with
+    "Complex tensor with num_dims == 0 is not supported."
+    Replace with equivalent cos/sin computation; patch apply_rotary_emb to
+    use real arithmetic instead of view_as_complex / view_as_real.
+    """
+    import transformers.models.deepseek_v2.modeling_deepseek_v2 as _dsv2
+
+    @torch.no_grad()
+    def _patched_yarn_rope_forward(self, x, position_ids):
+        inv_freq_expanded = self.inv_freq[None, :, None].float().expand(
+            position_ids.shape[0], -1, 1
+        )
+        position_ids_expanded = position_ids[:, None, :].float()
+        freqs = (inv_freq_expanded.to(x.device) @ position_ids_expanded).transpose(1, 2)
+        cos = torch.cos(freqs) * self.attention_scaling
+        sin = torch.sin(freqs) * self.attention_scaling
+        return (cos, sin)
+
+    def _patched_apply_rotary_emb(xq, xk, freqs_cis):
+        if isinstance(freqs_cis, tuple):
+            cos, sin = freqs_cis
+        else:
+            # Fallback: extract cos/sin from a complex tensor if already created
+            cos = freqs_cis.real
+            sin = freqs_cis.imag
+        # cos/sin: [batch, seq_len, head_dim/2] → broadcast over heads
+        cos = cos.unsqueeze(1)
+        sin = sin.unsqueeze(1)
+        # xq/xk: [batch, heads, seq_len, qk_rope_head_dim]
+        xq_r = xq.float().reshape(*xq.shape[:-1], -1, 2)
+        xk_r = xk.float().reshape(*xk.shape[:-1], -1, 2)
+        xq_out = torch.stack(
+            [xq_r[..., 0] * cos - xq_r[..., 1] * sin,
+             xq_r[..., 0] * sin + xq_r[..., 1] * cos],
+            dim=-1,
+        ).flatten(-2).type_as(xq)
+        xk_out = torch.stack(
+            [xk_r[..., 0] * cos - xk_r[..., 1] * sin,
+             xk_r[..., 0] * sin + xk_r[..., 1] * cos],
+            dim=-1,
+        ).flatten(-2).type_as(xk)
+        return xq_out, xk_out
+
+    _dsv2.DeepseekV2YarnRotaryEmbedding.forward = _patched_yarn_rope_forward
+    _dsv2.apply_rotary_emb = _patched_apply_rotary_emb
+
+
+_patch_deepseek_v2_rope()
+
+
 class ModelVariant(StrEnum):
     """Available GLM-4.7-Flash-heretic-MPOA GGUF model variants for causal language modeling."""
 
