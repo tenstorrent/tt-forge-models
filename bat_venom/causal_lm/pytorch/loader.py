@@ -2,13 +2,72 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-BatVenom model loader implementation for causal language modeling.
+BatVenom GGUF model loader implementation for causal language modeling.
 """
+import importlib.metadata
 
 from typing import Optional
 
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+import transformers.utils.import_utils as _tx_import_utils
+
+_tx_import_utils.PACKAGE_DISTRIBUTION_MAPPING = (
+    importlib.metadata.packages_distributions()
+)
+
+
+def _find_real_load_gguf_checkpoint(fn):
+    """Traverse patch chain to find the original transformers load_gguf_checkpoint."""
+    seen = set()
+    current = fn
+    while True:
+        fn_id = id(current)
+        if fn_id in seen or not callable(current) or not hasattr(current, "__code__"):
+            return current
+        seen.add(fn_id)
+        if (
+            getattr(current, "__module__", "")
+            == "transformers.modeling_gguf_pytorch_utils"
+        ):
+            return current
+        freevars = current.__code__.co_freevars
+        cells = current.__closure__ or ()
+        next_fn = None
+        for i, varname in enumerate(freevars):
+            if i >= len(cells):
+                break
+            if (
+                "load_gguf_checkpoint" in varname
+                or "orig_load" in varname
+                or "real_fn" in varname
+                or "chain_fn" in varname
+            ):
+                try:
+                    v = cells[i].cell_contents
+                    if callable(v) and id(v) not in seen:
+                        next_fn = v
+                        break
+                except ValueError:
+                    pass
+        if next_fn is None:
+            globs = getattr(current, "__globals__", {})
+            for varname in (
+                "_orig_load_gguf_checkpoint",
+                "_real_load_gguf_checkpoint",
+                "_chain_fn",
+                "_real_fn",
+            ):
+                v = globs.get(varname)
+                if v is not None and callable(v) and id(v) not in seen:
+                    next_fn = v
+                    break
+        if next_fn is None:
+            return current
+        current = next_fn
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -30,7 +89,7 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """BatVenom model loader implementation for causal language modeling tasks."""
+    """BatVenom GGUF model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
         ModelVariant.BAT_VENOM: LLMModelConfig(
@@ -45,6 +104,11 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.BAT_VENOM
 
+    GGUF_FILES = {
+        ModelVariant.BAT_VENOM: "Mistral-BatVenom_V9.1_Q4_K_M.gguf",
+        ModelVariant.BAT_VENOM_V7: "Mistral-BatVenom_V7.2_Q4_K_M.gguf",
+    }
+
     sample_text = "What is the capital of France?"
 
     def __init__(
@@ -53,6 +117,10 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.tokenizer = None
         self.num_layers = num_layers
+
+    @property
+    def gguf_file(self):
+        return self.GGUF_FILES[self._variant]
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -68,10 +136,30 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _fix_gguf_version_detection():
+        """Fix gguf version detection when installed at runtime by RequirementsManager.
+
+        transformers caches PACKAGE_DISTRIBUTION_MAPPING at import time. When gguf
+        is installed later, the mapping is stale and version detection falls back to
+        gguf.__version__ which doesn't exist, yielding 'N/A' and crashing version.parse.
+        """
+        import transformers.utils.import_utils as _import_utils
+
+        if "gguf" not in _import_utils.PACKAGE_DISTRIBUTION_MAPPING:
+            try:
+                importlib.metadata.version("gguf")
+                _import_utils.PACKAGE_DISTRIBUTION_MAPPING["gguf"] = ["gguf"]
+                _import_utils.is_gguf_available.cache_clear()
+            except importlib.metadata.PackageNotFoundError:
+                pass
+
     def _load_tokenizer(self, dtype_override=None):
+        self._fix_gguf_version_detection()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
+        tokenizer_kwargs["gguf_file"] = self.gguf_file
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
@@ -82,6 +170,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        self._fix_gguf_version_detection()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -91,15 +180,34 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+        model_kwargs["gguf_file"] = self.gguf_file
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config = AutoConfig.from_pretrained(
+                pretrained_model_name, gguf_file=self.gguf_file
+            )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        _saved_fn = _gguf_utils.load_gguf_checkpoint
+        _real_fn = _find_real_load_gguf_checkpoint(_saved_fn)
+
+        def _patched(
+            gguf_checkpoint_path, return_tensors=False, model_to_load=None, **kw
+        ):
+            return _real_fn(
+                gguf_checkpoint_path,
+                return_tensors=return_tensors,
+                model_to_load=model_to_load,
+            )
+
+        _gguf_utils.load_gguf_checkpoint = _patched
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _gguf_utils.load_gguf_checkpoint = _saved_fn
 
         self.config = model.config
         return model
@@ -110,15 +218,8 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        messages = [{"role": "user", "content": self.sample_text}]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-
         inputs = self.tokenizer(
-            [text],
+            self.sample_text,
             return_tensors="pt",
             padding=True,
             truncation=True,
@@ -140,7 +241,8 @@ class ModelLoader(ForgeModel):
         return self.tokenizer.decode([next_token])
 
     def load_config(self):
+        self._fix_gguf_version_detection()
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
         )
         return self.config
