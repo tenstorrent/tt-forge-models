@@ -85,14 +85,14 @@ def _patch_transformers_llama4_gguf():
     _orig_get_weights_map = gguf_utils.get_gguf_hf_weights_map
 
     def _patched_get_gguf_hf_weights_map(
-        hf_model, processor, model_type=None, **kwargs
+        hf_model, processor, model_type=None, num_layers=None, **kwargs
     ):
         if model_type is None:
             model_type = hf_model.config.model_type
         if model_type == "llama4_text":
             model_type = "llama4"
         return _orig_get_weights_map(
-            hf_model, processor, model_type=model_type, **kwargs
+            hf_model, processor, model_type=model_type, num_layers=num_layers, **kwargs
         )
 
     gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
