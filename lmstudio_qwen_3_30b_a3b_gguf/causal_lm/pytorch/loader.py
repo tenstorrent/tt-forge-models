@@ -98,6 +98,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        # grouped_mm dispatch uses torch.histc on XLA tensors which is unsupported;
+        # batched_mm uses standard bmm/index_select and avoids this issue.
+        model.config._experts_implementation = "batched_mm"
+
         self.config = model.config
         self.model = model
         return model
