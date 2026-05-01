@@ -92,6 +92,9 @@ if not hasattr(_gpt2_tok, "bytes_to_unicode"):
 
     _gpt2_tok.bytes_to_unicode = _bytes_to_unicode
 
+import numpy as np
+import torch.distributed as dist
+
 from transformers import AutoConfig, AutoTokenizer
 from transformers.dynamic_module_utils import get_class_from_dynamic_module, get_imports
 
@@ -104,6 +107,79 @@ from ...config import (
     ModelTask,
     StrEnum,
 )
+
+
+def _fixed_moe_infer(self, x, topk_ids, topk_weight):
+    # Fix: use .tolist() so loop variables are Python ints, not numpy scalars.
+    # Numpy scalars cause AttributeError under Dynamo's FakeTensor tracing when
+    # the loop body does integer arithmetic that passes through __torch_function__.
+    cnts = topk_ids.new_zeros((topk_ids.shape[0], len(self.experts)))
+    cnts.scatter_(1, topk_ids, 1)
+    tokens_per_expert = cnts.sum(dim=0)
+    idxs = topk_ids.view(-1).argsort()
+    sorted_tokens = x[idxs // topk_ids.shape[1]]
+    sorted_tokens_shape = sorted_tokens.shape
+    if self.ep_size > 1:
+        tokens_per_ep_rank = tokens_per_expert.view(self.ep_size, -1).sum(dim=1)
+        tokens_per_expert_group = tokens_per_expert.new_empty(tokens_per_expert.shape[0])
+        dist.all_to_all_single(tokens_per_expert_group, tokens_per_expert)
+        output_splits = (
+            tokens_per_expert_group.view(self.ep_size, -1).sum(1).cpu().tolist()
+        )
+        gathered_tokens = sorted_tokens.new_empty(
+            tokens_per_expert_group.sum(dim=0).cpu().item(), sorted_tokens.shape[1]
+        )
+        input_split_sizes = tokens_per_ep_rank.cpu().tolist()
+        dist.all_to_all(
+            list(gathered_tokens.split(output_splits)),
+            list(sorted_tokens.split(input_split_sizes)),
+        )
+        tokens_per_expert_post_gather = tokens_per_expert_group.view(
+            self.ep_size, self.experts_per_rank
+        ).sum(dim=0)
+        gatherd_idxs = np.zeros(shape=(gathered_tokens.shape[0],), dtype=np.int32)
+        s = 0
+        for i, k in enumerate(tokens_per_expert_group.cpu().tolist()):
+            gatherd_idxs[s : s + k] = i % self.experts_per_rank
+            s += k
+        gatherd_idxs = gatherd_idxs.argsort()
+        sorted_tokens = gathered_tokens[gatherd_idxs]
+        tokens_per_expert = tokens_per_expert_post_gather
+    tokens_per_expert = tokens_per_expert.cpu().tolist()
+
+    outputs = []
+    start_idx = 0
+    for i, num_tokens in enumerate(tokens_per_expert):
+        end_idx = start_idx + num_tokens
+        if num_tokens == 0:
+            continue
+        expert = self.experts[i + self.ep_rank * self.experts_per_rank]
+        tokens_for_this_expert = sorted_tokens[start_idx:end_idx]
+        expert_out = expert(tokens_for_this_expert)
+        outputs.append(expert_out)
+        start_idx = end_idx
+
+    outs = torch.cat(outputs, dim=0) if len(outputs) else sorted_tokens.new_empty(0)
+    if self.ep_size > 1:
+        new_x = torch.empty_like(outs)
+        new_x[gatherd_idxs] = outs
+        gathered_tokens = new_x.new_empty(*sorted_tokens_shape)
+        dist.all_to_all(
+            list(gathered_tokens.split(input_split_sizes)),
+            list(new_x.split(output_splits)),
+        )
+        outs = gathered_tokens
+
+    new_x = torch.empty_like(outs)
+    new_x[idxs] = outs
+    final_out = (
+        new_x.view(*topk_ids.shape, -1)
+        .type(topk_weight.dtype)
+        .mul_(topk_weight.unsqueeze(dim=-1))
+        .sum(dim=1)
+        .type(new_x.dtype)
+    )
+    return final_out
 
 
 def fixed_get_imports(filename: str | os.PathLike) -> list[str]:
@@ -208,6 +284,14 @@ class ModelLoader(ForgeModel):
                 self.model_name,
                 trust_remote_code=True,
             )
+
+            # Patch moe_infer: remote code uses .cpu().numpy() which yields numpy
+            # scalars that crash Dynamo's FakeTensor evaluation in the loop body.
+            for _mod_name, _mod in list(sys.modules.items()):
+                if "modeling_deepseek" in _mod_name and hasattr(_mod, "DeepseekV3MoE"):
+                    _mod.DeepseekV3MoE.moe_infer = _fixed_moe_infer
+                    break
+
             model = model_class(config)
             model.eval()
 
