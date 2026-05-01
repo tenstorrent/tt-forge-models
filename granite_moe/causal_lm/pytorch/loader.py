@@ -4,9 +4,66 @@
 """
 Granite MoE model loader implementation for causal language modeling.
 """
+import types
 import torch
+import torch.nn.functional as F
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+
+def _patched_topk_gating_forward(self, hidden_states):
+    """Avoids expert_size.tolist() by returning sorted_expert_ids as a tensor.
+
+    GraniteMoeTopKGating.forward calls expert_size.tolist() which triggers a
+    device-to-host transfer that fails on TT silicon (INTERNAL error code 13).
+    Return sorted_expert_ids as an int32 tensor so the caller can use it with
+    masked matmul instead of dynamic split.
+    """
+    logits = self.layer(hidden_states).float()
+    top_k_logits, top_k_indices = logits.topk(self.top_k, dim=1)
+    top_k_gates = torch.softmax(top_k_logits, dim=1).type_as(hidden_states)
+
+    top_k_experts = top_k_indices.flatten()
+    _, index_sorted_experts = top_k_experts.sort(0)
+    batch_index = index_sorted_experts.div(self.top_k, rounding_mode="trunc")
+
+    sorted_expert_ids = top_k_experts[index_sorted_experts].int()
+
+    top_k_gates = top_k_gates.flatten()
+    batch_gates = top_k_gates[index_sorted_experts]
+
+    return index_sorted_experts, batch_index, batch_gates, sorted_expert_ids, logits
+
+
+def _patched_parallel_experts_forward(self, inputs, sorted_expert_ids):
+    """Uses per-expert masked matmul instead of split-by-expert-size.
+
+    GraniteMoeParallelExperts.forward calls inputs.split(expert_size) with a
+    Python list, requiring a device-to-host transfer. For each expert e,
+    compute F.linear for all tokens and zero-out tokens not assigned to e via
+    a boolean mask. All ops stay in tensor-land with no device-to-host transfers.
+    """
+    T = inputs.shape[0]
+    result = torch.zeros(T, self.output_size, dtype=inputs.dtype, device=inputs.device)
+    for e in range(self.num_experts):
+        w_e = self.weight[e]
+        out_e = F.linear(inputs, w_e)
+        mask_e = (sorted_expert_ids == e).to(inputs.dtype).unsqueeze(1)
+        result = result + out_e * mask_e
+    return result
+
+
+def _patch_moe_experts(model):
+    from transformers.models.granitemoe.modeling_granitemoe import (
+        GraniteMoeParallelExperts,
+        GraniteMoeTopKGating,
+    )
+
+    for module in model.modules():
+        if isinstance(module, GraniteMoeTopKGating):
+            module.forward = types.MethodType(_patched_topk_gating_forward, module)
+        elif isinstance(module, GraniteMoeParallelExperts):
+            module.forward = types.MethodType(_patched_parallel_experts_forward, module)
 
 from ....base import ForgeModel
 from ....config import (
@@ -96,6 +153,8 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
+
+        _patch_moe_experts(model)
 
         self.config = model.config
         self.model = model
