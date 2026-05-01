@@ -862,18 +862,21 @@ class Block(nn.Module):
         y = post.unsqueeze(-1) * x.unsqueeze(-2) + torch.sum(comb.unsqueeze(-1) * residual.unsqueeze(-2), dim=2)
         return y.type_as(x)
 
-    def forward(self, x: torch.Tensor, start_pos, input_ids: Optional[torch.Tensor]) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, start_pos, input_ids: Optional[torch.Tensor], return_intermediates: bool = False):
         residual = x
         x, post, comb = self.hc_pre(x, self.hc_attn_fn, self.hc_attn_scale, self.hc_attn_base)
         x = self.attn_norm(x)
-        x = self.attn(x, start_pos)
-        x = self.hc_post(x, residual, post, comb)
+        attn_out = self.attn(x, start_pos)
+        x = self.hc_post(attn_out, residual, post, comb)
+        post_attn = x
 
         residual = x
         x, post, comb = self.hc_pre(x, self.hc_ffn_fn, self.hc_ffn_scale, self.hc_ffn_base)
         x = self.ffn_norm(x)
-        x = self.ffn(x, input_ids)
-        x = self.hc_post(x, residual, post, comb)
+        ffn_out = self.ffn(x, input_ids)
+        x = self.hc_post(ffn_out, residual, post, comb)
+        if return_intermediates:
+            return x, attn_out, post_attn, ffn_out
         return x
 
 
@@ -891,13 +894,17 @@ class ParallelHead(nn.Module):
     def get_logits(self, x):
         return F.linear(x[:, -1].float(), self.weight)
 
-    def forward(self, x: torch.Tensor, hc_fn: torch.Tensor, hc_scale: torch.Tensor, hc_base: torch.Tensor, norm: RMSNorm):
-        x = self.hc_head(x, hc_fn, hc_scale, hc_base)
-        logits = self.get_logits(norm(x))
+    def forward(self, x: torch.Tensor, hc_fn: torch.Tensor, hc_scale: torch.Tensor, hc_base: torch.Tensor, norm: RMSNorm, return_intermediates: bool = False):
+        hc_out = self.hc_head(x, hc_fn, hc_scale, hc_base)
+        norm_out = norm(hc_out)
+        last_token = norm_out[:, -1].float()
+        logits = F.linear(last_token, self.weight)
         if world_size > 1:
             all_logits = [torch.empty_like(logits) for _ in range(world_size)]
             dist.all_gather(all_logits, logits)
             logits = torch.cat(all_logits, dim=-1)
+        if return_intermediates:
+            return logits, hc_out, norm_out, last_token
         return logits
 
     def hc_head(self, x: torch.Tensor, hc_fn: torch.Tensor, hc_scale: torch.Tensor, hc_base: torch.Tensor):
@@ -970,11 +977,26 @@ class Transformer(nn.Module):
             self.hc_head_scale = nn.Parameter(torch.empty(1))
 
     @torch.inference_mode()
-    def forward(self, input_ids: torch.Tensor, start_pos=0, return_hidden_states: bool = False):
+    def forward(self, input_ids: torch.Tensor, start_pos=0, return_hidden_states: bool = False, return_head_intermediates: bool = False, return_block_intermediates: bool = False):
         h = self.embed(input_ids)
         h = h.unsqueeze(2).repeat(1, 1, self.hc_mult, 1)
+        if return_block_intermediates:
+            # Only meaningful for a 1-layer model (the diagnostic test).
+            assert len(self.layers) == 1, "block intermediates only support 1 layer"
+            h, attn_out, post_attn, ffn_out = self.layers[0](h, start_pos, input_ids, return_intermediates=True)
+            logits, hc_out, norm_out, last_token = self.head(
+                h, self.hc_head_fn, self.hc_head_scale, self.hc_head_base, self.norm,
+                return_intermediates=True,
+            )
+            return h, logits, hc_out, norm_out, last_token, attn_out, post_attn, ffn_out
         for layer in self.layers:
             h = layer(h, start_pos, input_ids)
+        if return_head_intermediates:
+            logits, hc_out, norm_out, last_token = self.head(
+                h, self.hc_head_fn, self.hc_head_scale, self.hc_head_base, self.norm,
+                return_intermediates=True,
+            )
+            return h, logits, hc_out, norm_out, last_token
         logits = self.head(h, self.hc_head_fn, self.hc_head_scale, self.hc_head_base, self.norm)
         if return_hidden_states:
             return h, logits
