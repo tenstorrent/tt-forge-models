@@ -107,6 +107,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        # Qwen3MoE expert for-loop segfaults XLA partition; batched_mm avoids the loop
+        if hasattr(model.config, "num_experts"):
+            model.config._experts_implementation = "batched_mm"
+
         self.config = model.config
         self.model = model
         return model
