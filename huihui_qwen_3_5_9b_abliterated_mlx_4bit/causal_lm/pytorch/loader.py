@@ -33,17 +33,25 @@ def _mlx_affine_dequantize(weight_u32, scales, biases, group_size=64):
 
     MLX stores 8 uint4 values (nibbles) per uint32 in little-endian nibble order.
     Affine dequantization: float_val = uint4_val * scale + bias, per group.
+    Uses numpy to avoid TT XLA __torch_function__ interception on CPU tensors.
     """
+    import numpy as np
+
     out_dim, in_packed = weight_u32.shape
     in_dim = in_packed * 8
-    # Cast to int32 first: uint32 bitwise ops aren't supported in all backends
-    w_i32 = weight_u32.view(torch.int32)
-    shifts = torch.arange(8, dtype=torch.int32) * 4
-    int4_vals = ((w_i32.unsqueeze(-1) >> shifts) & 0xF).reshape(out_dim, in_dim)
-    num_groups = in_dim // group_size
-    scales_exp = scales.unsqueeze(-1).expand(-1, -1, group_size).reshape(out_dim, in_dim)
-    biases_exp = biases.unsqueeze(-1).expand(-1, -1, group_size).reshape(out_dim, in_dim)
-    return (int4_vals.float() * scales_exp.float() + biases_exp.float()).to(torch.bfloat16)
+
+    # Unpack uint32 → 8 × uint4 via numpy (bypasses TT XLA CPU tensor override)
+    w_np = weight_u32.numpy().view(np.int32)  # reinterpret bits as int32
+    shifts = np.arange(8, dtype=np.int32) * 4  # [0, 4, 8, ..., 28]
+    int4_vals = ((w_np[:, :, None] >> shifts) & 0xF).reshape(out_dim, in_dim).astype(np.float32)
+
+    scales_f32 = scales.numpy().astype(np.float32)  # [out, num_groups]
+    biases_f32 = biases.numpy().astype(np.float32)
+    scales_exp = np.repeat(scales_f32, group_size, axis=1)  # [out, in_dim]
+    biases_exp = np.repeat(biases_f32, group_size, axis=1)
+
+    result_f32 = int4_vals * scales_exp + biases_exp
+    return torch.from_numpy(result_f32).to(torch.bfloat16)
 
 
 def _load_mlx4bit_state_dict(local_path, group_size=64):
