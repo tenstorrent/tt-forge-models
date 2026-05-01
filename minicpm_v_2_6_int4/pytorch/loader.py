@@ -7,7 +7,6 @@ MiniCPM-V-2_6-int4 model loader implementation for multimodal inference
 
 import importlib
 import sys
-from copy import deepcopy
 from dataclasses import dataclass
 from functools import reduce
 from pathlib import Path
@@ -16,7 +15,7 @@ from typing import Any, Dict, Optional
 import torch
 import torch.nn as nn
 from PIL import Image
-from transformers import AutoModel, AutoProcessor
+from transformers import AutoModel, AutoProcessor, AutoTokenizer
 from transformers.integrations.tensor_parallel import ALL_PARALLEL_STYLES
 
 from ...base import ForgeModel
@@ -351,30 +350,6 @@ def _dequantize_bnb4_to_bf16(model):
     return model
 
 
-class MiniCPMVForwardWrapper(nn.Module):
-    """Wraps MiniCPMV to accept processor output as kwargs instead of a 'data' dict."""
-
-    def __init__(self, model):
-        super().__init__()
-        self.model = model
-
-    def forward(self, input_ids, pixel_values, tgt_sizes, image_bound, **kwargs):
-        seq_len = input_ids.shape[1]
-        position_ids = (
-            torch.arange(seq_len, device=input_ids.device)
-            .unsqueeze(0)
-            .expand_as(input_ids)
-        )
-        data = {
-            "input_ids": input_ids,
-            "pixel_values": pixel_values,
-            "tgt_sizes": tgt_sizes,
-            "image_bound": image_bound,
-            "position_ids": position_ids,
-        }
-        return self.model.forward(data, **kwargs)
-
-
 @dataclass
 class MiniCPMVInt4Config(ModelConfig):
     """Configuration specific to MiniCPM-V-2_6-int4 models"""
@@ -401,11 +376,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = _VARIANTS
     DEFAULT_VARIANT = ModelVariant.DEFAULT
 
-    sample_text = "Describe this image in detail."
-
     def __init__(self, variant=None):
         super().__init__(variant)
-        self.processor = None
+        self.model = None
+        self.tokenizer = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[StrEnum] = None) -> ModelInfo:
@@ -418,92 +392,74 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_processor(self):
-        self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
-        )
-        return self.processor
-
     def load_model(self, **kwargs):
         _patch_cached_remote_files()
 
         config = self._variant_config
-
-        model = AutoModel.from_pretrained(
+        self.model = AutoModel.from_pretrained(
             config.pretrained_model_name,
             trust_remote_code=True,
             torch_dtype=torch.bfloat16,
             **kwargs,
         )
 
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            config.pretrained_model_name, trust_remote_code=True
+        )
+
         # Dequantize bitsandbytes NF4 Linear4bit -> nn.Linear BF16 for TT hardware.
-        _dequantize_bnb4_to_bf16(model)
+        _dequantize_bnb4_to_bf16(self.model)
 
-        model.eval()
-
-        if self.processor is None:
-            self._load_processor()
-
-        return MiniCPMVForwardWrapper(model)
+        self.model.eval()
+        return self.model
 
     def load_inputs(self, **kwargs) -> Dict[str, Any]:
-        if self.processor is None:
-            self._load_processor()
+        config = self._variant_config
 
-        image_file = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
+        image_file = get_file(
+            "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
+        )
         image = Image.open(image_file).convert("RGB")
+        question = "Describe this image in detail."
 
-        msgs = [{"role": "user", "content": [image, self.sample_text]}]
-
-        # Replicate the chat() method's input processing logic
-        copy_msgs = deepcopy(msgs)
-        images = []
-        for msg in copy_msgs:
-            content = msg["content"]
-            if isinstance(content, str):
-                content = [content]
-            cur_msgs = []
-            for c in content:
-                if isinstance(c, Image.Image):
-                    images.append(c)
-                    cur_msgs.append("(<image>./</image>)")
-                elif isinstance(c, str):
-                    cur_msgs.append(c)
-            msg["content"] = "\n".join(cur_msgs)
-
-        prompt = self.processor.tokenizer.apply_chat_template(
-            copy_msgs, tokenize=False, add_generation_prompt=True
+        processor = AutoProcessor.from_pretrained(
+            config.pretrained_model_name, trust_remote_code=True
         )
 
-        inputs = self.processor(
-            [prompt], [images], return_tensors="pt", max_length=8192
+        msgs = [{"role": "user", "content": f"(<image>./</image>)\n{question}"}]
+        prompt = self.tokenizer.apply_chat_template(
+            msgs, tokenize=False, add_generation_prompt=True
         )
+        inputs = processor(prompt, [image], return_tensors="pt", max_length=2048)
+
+        # forward() requires position_ids; compute from sequence length.
+        seq_len = inputs["input_ids"].shape[1]
+        inputs["position_ids"] = torch.arange(seq_len, dtype=torch.long).unsqueeze(0)
+
+        # Fix 8: Flatten tgt_sizes to Python [[h, w], ...] pairs so Fix 10 in
+        # modeling_minicpmv.py can compute max_patches with pure-Python arithmetic
+        # (no graph break, no Dynamo-traced tensor.item() call).
+        flat_tgt = []
+        for ts in inputs["tgt_sizes"]:
+            if isinstance(ts, torch.Tensor):
+                flat_tgt.extend(ts.tolist())
+            else:
+                flat_tgt.extend(ts)
+        inputs["tgt_sizes"] = flat_tgt
+
         inputs.pop("image_sizes", None)
 
-        # Fix 8: Convert tgt_sizes from tensor to Python [[h, w], ...] pairs so
-        # modeling_minicpmv.py Fix 10 can compute max_patches with pure-Python
-        # arithmetic (no graph break). The processor returns a [batch, slices, 2]
-        # tensor; iterating gives [slices, 2] sub-tensors; .tolist() gives [[h,w],...].
-        if "tgt_sizes" in inputs:
-            flat_tgt = []
-            for ts in inputs["tgt_sizes"]:
-                if isinstance(ts, torch.Tensor):
-                    flat_tgt.extend(ts.tolist())
-                else:
-                    flat_tgt.extend(ts)
-            inputs["tgt_sizes"] = flat_tgt
-
         # Fix 8 (cont): Keep image_bound as Python int lists so to_device() doesn't
-        # move bounds to TT device. torch.arange(TT_scalar, TT_scalar) would call
-        # .item() internally, triggering PJRT Error 13 and making scatter a no-op.
+        # move bounds to TT device. torch.arange(TT_scalar, TT_scalar) internally
+        # calls .item() → PJRT Error 13 → image_indices empty → scatter no-op →
+        # LLM runs text-only → PCC ≈ 0.
         if "image_bound" in inputs:
             inputs["image_bound"] = [
                 bounds.tolist() if isinstance(bounds, torch.Tensor) else bounds
                 for bounds in inputs["image_bound"]
             ]
 
-        return dict(inputs)
+        return {"data": inputs}
 
     def unpack_forward_output(self, fwd_output):
         if hasattr(fwd_output, "logits"):
