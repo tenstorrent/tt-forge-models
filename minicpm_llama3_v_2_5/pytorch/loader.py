@@ -5,7 +5,10 @@
 MiniCPM-Llama3-V-2.5 model loader implementation for multimodal visual question answering.
 """
 
+import importlib
+import sys
 import torch
+from pathlib import Path
 from PIL import Image
 from transformers import AutoModel, AutoTokenizer
 from typing import Optional
@@ -21,6 +24,30 @@ from ...config import (
     StrEnum,
 )
 from ...tools.utils import get_file
+
+
+def _patch_cached_resampler():
+    """Fix missing List import in MiniCPM-Llama3-V-2.5's cached resampler.py (Python 3.12)."""
+    cache_base = (
+        Path.home()
+        / ".cache"
+        / "huggingface"
+        / "modules"
+        / "transformers_modules"
+    )
+    old = "from typing import Optional, Tuple"
+    new = "from typing import List, Optional, Tuple"
+    for path in cache_base.glob(
+        "openbmb/MiniCPM_hyphen_Llama3_hyphen_V_hyphen_2_5/*/resampler.py"
+    ):
+        text = path.read_text()
+        if old in text and new not in text:
+            path.write_text(text.replace(old, new, 1))
+            # Clear any partially-cached failed import from sys.modules
+            for key in list(sys.modules):
+                if "resampler" in key and "minicpm" in key.lower():
+                    del sys.modules[key]
+            importlib.invalidate_caches()
 
 
 class ModelVariant(StrEnum):
@@ -69,6 +96,7 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the MiniCPM-Llama3-V-2.5 model instance."""
+        _patch_cached_resampler()
         model_name = self._variant_config.pretrained_model_name
         model = AutoModel.from_pretrained(
             str(model_name),
