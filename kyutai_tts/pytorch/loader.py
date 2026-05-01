@@ -43,9 +43,13 @@ class _LMForwardWrapper(torch.nn.Module):
             for name in self._condition_names
         }
         out = self.lm(codes, cond_tensors)
-        # Delay-masked positions are filled with NaN by _undelay_sequence; replace
-        # with 0 so PCC comparison between CPU and TT is well-defined.
-        return torch.nan_to_num(out.logits, nan=0.0)
+        # _undelay_sequence fills delay-masked positions with float('NaN').
+        # TT hardware uses non-IEEE bfloat16 that does not preserve NaN; those
+        # positions come back as max_bfloat16 (~3.39e38) instead.  Use the
+        # model's own mask (already computed via bool operations, which are
+        # unaffected) to explicitly zero out invalid positions on both CPU and TT.
+        # out.mask: [B, K, T], True = valid position
+        return torch.where(out.mask.unsqueeze(-1), out.logits, torch.zeros_like(out.logits))
 
 
 class ModelVariant(StrEnum):
