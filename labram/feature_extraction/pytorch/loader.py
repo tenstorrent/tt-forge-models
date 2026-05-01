@@ -64,7 +64,9 @@ class ModelLoader(ForgeModel):
         # them as non-persistent buffers so they follow the model to XLA.
         for attr in ("_input_channels_mask", "_labram_ch_indices"):
             val = getattr(model, attr, None)
-            if val is not None:
+            if val is not None and attr not in model._buffers:
+                # Remove plain __dict__ entry so register_buffer can claim the slot
+                model.__dict__.pop(attr, None)
                 model.register_buffer(attr, val, persistent=False)
 
         model.eval()
