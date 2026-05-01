@@ -9,6 +9,7 @@ Boris Dayma's DALL-E Mini/Mega model. Weights are pulled from the Hugging
 Face repo via the ``min_dalle`` package.
 """
 
+import sys
 import tempfile
 from typing import Optional
 
@@ -65,7 +66,25 @@ class ModelLoader(ForgeModel):
         )
 
     def _init_pipeline(self, dtype: torch.dtype):
-        from min_dalle import MinDalle
+        import os
+
+        # The local min_dalle/ directory shadows the installed min_dalle package.
+        # Temporarily remove the project root from sys.path so the pip package is found.
+        project_root = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        original_path = sys.path.copy()
+        sys.path = [p for p in sys.path if p != project_root]
+        cached = {
+            k: sys.modules.pop(k)
+            for k in list(sys.modules)
+            if k == "min_dalle" or k.startswith("min_dalle.")
+        }
+        try:
+            from min_dalle import MinDalle
+        finally:
+            sys.path = original_path
+            sys.modules.update(cached)
 
         # is_reusable=False so we can initialize only the encoder below,
         # avoiding the (mega) decoder / VQ-GAN detokenizer downloads we
