@@ -5,7 +5,6 @@
 Melinoe Qwen3 Omni GGUF model loader implementation for causal language modeling.
 """
 import contextlib
-import inspect
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -30,21 +29,18 @@ def _gguf_model_to_load_compat():
 
     Some loaders patch transformers.modeling_gguf_pytorch_utils.load_gguf_checkpoint
     at import time without forwarding the model_to_load kwarg added in transformers 5.x.
-    Traverse the patch chain to find the nearest function that does accept it.
+    Walk the full patch chain to find the original transformers function (identified by
+    having no _orig_load_gguf_checkpoint in its globals).
     """
     current = _gguf_utils.load_gguf_checkpoint
 
     fn = current
+    seen = set()
     while True:
-        try:
-            sig = inspect.signature(fn)
-            params = sig.parameters
-            if "model_to_load" in params or any(
-                p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
-            ):
-                break
-        except (ValueError, TypeError):
+        fn_id = id(fn)
+        if fn_id in seen:
             break
+        seen.add(fn_id)
         inner = fn.__globals__.get("_orig_load_gguf_checkpoint")
         if inner is None or inner is fn:
             break
