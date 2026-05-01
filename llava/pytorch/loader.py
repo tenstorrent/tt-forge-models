@@ -7,7 +7,7 @@ LLaVA model loader implementation for multimodal conditional generation.
 
 from typing import Optional
 
-from datasets import load_dataset
+from PIL import Image
 from transformers import LlavaForConditionalGeneration, AutoProcessor
 
 from ...base import ForgeModel
@@ -20,7 +20,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from ...tools.utils import cast_input_to_type
+from ...tools.utils import cast_input_to_type, get_file
 
 
 class ModelVariant(StrEnum):
@@ -72,7 +72,8 @@ class ModelLoader(ForgeModel):
 
     def _load_processor(self):
         self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name,
+            use_fast=False,
         )
         return self.processor
 
@@ -110,9 +111,9 @@ class ModelLoader(ForgeModel):
             conversation, padding=True, add_generation_prompt=True
         )
 
-        # Load dataset
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        # Load sample image
+        image_file = get_file(self.sample_image)
+        image = Image.open(image_file)
 
         # Preprocess
         inputs = self.processor(images=image, text=text_prompt, return_tensors="pt")
