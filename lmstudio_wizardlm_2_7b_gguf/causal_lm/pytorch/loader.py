@@ -4,9 +4,80 @@
 """
 lmstudio-community/WizardLM-2-7B-GGUF model loader implementation for causal language modeling.
 """
+import inspect
 import torch
+import transformers.modeling_gguf_pytorch_utils as _gguf_mod
+from contextlib import contextmanager
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+
+_GGUF_MOD_NAME = "transformers.modeling_gguf_pytorch_utils"
+
+
+def _find_original_from_transformers(fn):
+    from collections import deque
+
+    def _is_gguf_candidate(v, name=""):
+        if not callable(v) or isinstance(v, type):
+            return False
+        mod = getattr(v, "__module__", "") or ""
+        fn_name = (getattr(v, "__name__", "") or "").lower()
+        return (
+            "gguf" in fn_name
+            or "checkpoint" in fn_name
+            or "gguf" in name.lower()
+            or mod == _GGUF_MOD_NAME
+        )
+
+    queue = deque([fn])
+    seen = set()
+
+    while queue:
+        candidate = queue.popleft()
+        cid = id(candidate)
+        if cid in seen:
+            continue
+        seen.add(cid)
+
+        if getattr(candidate, "__module__", "") == _GGUF_MOD_NAME:
+            try:
+                if "model_to_load" in inspect.signature(candidate).parameters:
+                    return candidate
+            except (TypeError, ValueError):
+                pass
+
+        for k, v in getattr(candidate, "__globals__", {}).items():
+            if _is_gguf_candidate(v, k) and id(v) not in seen:
+                queue.append(v)
+
+        for cell in getattr(candidate, "__closure__", None) or []:
+            try:
+                v = cell.cell_contents
+            except ValueError:
+                continue
+            if _is_gguf_candidate(v) and id(v) not in seen:
+                queue.append(v)
+
+    return fn
+
+
+@contextmanager
+def _gguf_kwargs_compat():
+    """Temporarily restore load_gguf_checkpoint to the real transformers implementation.
+
+    Other loaders patch transformers.modeling_gguf_pytorch_utils.load_gguf_checkpoint
+    at import time with functions that drop model_to_load/torch_dtype kwargs.
+    Transformers 5.x always passes these kwargs, so we BFS-walk the patcher chain
+    to find the real function and install it temporarily.
+    """
+    _load_saved = _gguf_mod.load_gguf_checkpoint
+    _load_real = _find_original_from_transformers(_load_saved)
+    _gguf_mod.load_gguf_checkpoint = _load_real
+    try:
+        yield
+    finally:
+        _gguf_mod.load_gguf_checkpoint = _load_saved
 
 from ....base import ForgeModel
 from ....config import (
@@ -96,9 +167,10 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        with _gguf_kwargs_compat():
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
