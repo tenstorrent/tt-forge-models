@@ -136,9 +136,14 @@ class ModelLoader(ForgeModel):
                 vision_feature_layer = self.config.vision_feature_layer
             # Strip return_dict and other output-control kwargs (handled by caller)
             kwargs = {k: v for k, v in kwargs.items() if v is not None and k not in ("return_dict",)}
+            # Keep image_sizes on CPU throughout: TT device casts int64→bf16 (1540→1536).
+            # Both vision_tower (PixtralVisionModel line 452) and multi_modal_projector
+            # (Mistral3PatchMerger line 76) iterate over image_sizes in Python, which
+            # triggers Error code: 13 (device-to-host) when the tensor is on TT device.
+            image_sizes_cpu = torch.as_tensor(image_sizes, dtype=torch.long, device="cpu")
             image_outputs = self.vision_tower(
                 pixel_values,
-                image_sizes=image_sizes,
+                image_sizes=image_sizes_cpu,
                 output_hidden_states=True,
                 return_dict=True,
                 **kwargs,
@@ -149,12 +154,10 @@ class ModelLoader(ForgeModel):
                 hs_pool = [image_outputs.hidden_states[layer_idx] for layer_idx in vision_feature_layer]
                 selected_image_feature = torch.cat(hs_pool, dim=-1)
 
-            image_features = self.multi_modal_projector(selected_image_feature.squeeze(0), image_sizes)
+            image_features = self.multi_modal_projector(selected_image_feature.squeeze(0), image_sizes_cpu)
             downsample_ratio = self.vision_tower.patch_size * self.config.spatial_merge_size
-            # Keep split_sizes on CPU with int64 precision: TT device casts int64→bf16,
-            # corrupting values like 1540→1536 and giving wrong split counts.
             split_sizes = (
-                (torch.as_tensor(image_sizes, dtype=torch.long, device="cpu") // downsample_ratio)
+                (image_sizes_cpu // downsample_ratio)
                 .prod(dim=-1)
                 .tolist()
             )
