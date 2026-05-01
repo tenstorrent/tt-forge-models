@@ -83,9 +83,19 @@ def _tt_static_deepseek_v2_moe_forward(experts_module, hidden_states, top_k_inde
 
 
 try:
+    from transformers.modeling_utils import PreTrainedModel
     from transformers.integrations.moe import ALL_EXPERTS_FUNCTIONS
 
     ALL_EXPERTS_FUNCTIONS["tt_static_deepseek_v2_moe"] = _tt_static_deepseek_v2_moe_forward
+
+    _orig_get_correct_experts = PreTrainedModel.get_correct_experts_implementation
+
+    def _patched_get_correct_experts(self, requested_experts):
+        if requested_experts is not None and requested_experts in ALL_EXPERTS_FUNCTIONS:
+            return requested_experts
+        return _orig_get_correct_experts(self, requested_experts)
+
+    PreTrainedModel.get_correct_experts_implementation = _patched_get_correct_experts
 except Exception:
     pass
 
