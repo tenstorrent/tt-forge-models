@@ -85,11 +85,34 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    @staticmethod
+    def _patch_all_tied_weights_keys(model_name):
+        # GigarEmbedModel remote code does not call self.post_init(), so the
+        # all_tied_weights_keys instance attribute (set there in transformers 5.x) is
+        # never initialized.  The bitsandbytes quantizer accesses it in
+        # preprocess_model() → get_keys_to_not_convert(), causing AttributeError.
+        # Inject the attribute as a class-level default before from_pretrained
+        # creates the instance.
+        from transformers import AutoConfig
+        from transformers.dynamic_module_utils import get_class_from_dynamic_module
+
+        try:
+            config = AutoConfig.from_pretrained(model_name, trust_remote_code=True)
+            if hasattr(config, "auto_map") and "AutoModel" in config.auto_map:
+                cls_path = config.auto_map["AutoModel"]
+                cls = get_class_from_dynamic_module(cls_path, model_name)
+                if not hasattr(cls, "all_tied_weights_keys"):
+                    cls.all_tied_weights_keys = {}
+        except Exception:
+            pass
+
     def load_model(self, *, dtype_override=None, **kwargs):
         if self.tokenizer is None:
             self._load_tokenizer()
 
         model_name = self._variant_config.pretrained_model_name
+
+        self._patch_all_tied_weights_keys(model_name)
 
         model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
