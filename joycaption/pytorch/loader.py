@@ -7,7 +7,7 @@ JoyCaption model loader implementation for multimodal conditional generation.
 
 from typing import Optional
 
-from datasets import load_dataset
+from PIL import Image
 from transformers import LlavaForConditionalGeneration, AutoProcessor
 
 from ...base import ForgeModel
@@ -106,9 +106,9 @@ class ModelLoader(ForgeModel):
             conversation, padding=True, add_generation_prompt=True
         )
 
-        # Load sample image
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        # Use a synthetic image to avoid load_dataset which triggers a
+        # spacy namespace-package collision in tt_forge_models/spacy/.
+        image = Image.new("RGB", (224, 224), color=(128, 128, 128))
 
         # Preprocess
         inputs = self.processor(images=image, text=text_prompt, return_tensors="pt")
