@@ -11,6 +11,35 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
 
+def _patched_get_extended_attention_mask(self, attention_mask, input_shape, dtype=None):
+    """Fix f64 promotion: replace Python float literals with dtype-typed tensors.
+
+    The upstream implementation uses `1.0` and `torch.finfo(dtype).min` as Python
+    floats, which XLA traces as float64 constants and promotes the attention mask
+    to f64. TT hardware cannot handle f64. Patch keeps computation in model dtype.
+    """
+    if dtype is None:
+        dtype = self.dtype
+    if attention_mask.dim() == 3:
+        extended = attention_mask[:, None, :, :]
+    elif attention_mask.dim() == 2:
+        from transformers.modeling_utils import ModuleUtilsMixin
+        if getattr(self.config, "is_decoder", None):
+            extended = ModuleUtilsMixin.create_extended_attention_mask_for_decoder(
+                input_shape, attention_mask
+            )
+        else:
+            extended = attention_mask[:, None, None, :]
+    else:
+        raise ValueError(
+            f"Wrong shape for input_ids (shape {input_shape}) or attention_mask (shape {attention_mask.shape})"
+        )
+    extended = extended.to(dtype=dtype)
+    one = torch.tensor(1.0, dtype=dtype)
+    min_val = torch.tensor(torch.finfo(dtype).min, dtype=dtype)
+    return (one - extended) * min_val
+
+
 def _patched_topk_gating_forward(self, hidden_states):
     """Avoids expert_size.tolist() by returning sorted_expert_ids as a tensor.
 
@@ -51,6 +80,53 @@ def _patched_parallel_experts_forward(self, inputs, sorted_expert_ids):
         mask_e = (sorted_expert_ids == e).to(inputs.dtype).unsqueeze(1)
         result = result + out_e * mask_e
     return result
+
+
+def _patched_eager_mask(
+    batch_size,
+    cache_position,
+    kv_length,
+    kv_offset=0,
+    mask_function=None,
+    attention_mask=None,
+    dtype=torch.float32,
+    allow_is_bidirectional_skip=False,
+    use_vmap=False,
+    **kwargs,
+):
+    """Fix f64 promotion: wrap min_dtype as a dtype-typed tensor in torch.where.
+
+    The upstream eager_mask passes torch.finfo(dtype).min as a Python float scalar
+    to torch.where, which XLA traces as a float64 constant and promotes the mask
+    to f64. TT hardware cannot handle f64. This patch keeps the mask in model dtype.
+    """
+    from transformers.masking_utils import sdpa_mask, causal_mask_function
+
+    if mask_function is None:
+        mask_function = causal_mask_function
+    kwargs.pop("allow_is_causal_skip", None)
+    kwargs.pop("allow_torch_fix", None)
+    mask = sdpa_mask(
+        batch_size=batch_size,
+        cache_position=cache_position,
+        kv_length=kv_length,
+        kv_offset=kv_offset,
+        mask_function=mask_function,
+        attention_mask=attention_mask,
+        allow_is_causal_skip=False,
+        allow_is_bidirectional_skip=allow_is_bidirectional_skip,
+        allow_torch_fix=False,
+        use_vmap=use_vmap,
+        **kwargs,
+    )
+    if mask is not None:
+        min_val = torch.tensor(torch.finfo(dtype).min, dtype=dtype, device=mask.device)
+        mask = torch.where(
+            mask,
+            torch.tensor(0.0, dtype=dtype, device=mask.device),
+            min_val,
+        )
+    return mask
 
 
 def _patch_moe_experts(model):
@@ -155,6 +231,12 @@ class ModelLoader(ForgeModel):
         ).eval()
 
         _patch_moe_experts(model)
+        model.get_extended_attention_mask = types.MethodType(
+            _patched_get_extended_attention_mask, model
+        )
+
+        import transformers.masking_utils as _mu
+        _mu.AttentionMaskInterface._global_mapping["eager"] = _patched_eager_mask
 
         self.config = model.config
         self.model = model
