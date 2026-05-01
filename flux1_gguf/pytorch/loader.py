@@ -91,7 +91,7 @@ class ModelLoader(ForgeModel):
             torch_dtype=compute_dtype,
         )
         _dequantize_gguf_and_restore_linear(self.transformer)
-        self.transformer = self.transformer.to(compute_dtype)
+        torch.nn.Module.to(self.transformer, compute_dtype)
         self.transformer.eval()
 
         return self.transformer
