@@ -9,6 +9,43 @@ from typing import Optional
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 
+# Restore a proper (*args, **kwargs) wrapper around load_gguf_checkpoint.
+# Other loaders imported earlier during pytest collection may have installed
+# a narrow-signature patch that omits the model_to_load keyword argument
+# added in transformers 5.2.0.  When transformers calls
+# load_gguf_checkpoint(path, return_tensors=False, model_to_load=model)
+# the narrow-sig wrapper raises TypeError.
+#
+# We capture the REAL transformers function by temporarily evicting the
+# (possibly monkey-patched) module from sys.modules so that a re-import
+# returns the original compiled function, then immediately restore the
+# module cache entry so nothing else is disrupted.
+import sys
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+
+_GGUF_MODULE_KEY = "transformers.modeling_gguf_pytorch_utils"
+_saved_module = sys.modules.pop(_GGUF_MODULE_KEY, None)
+import transformers.modeling_gguf_pytorch_utils as _fresh_gguf
+
+_real_load_gguf_checkpoint = _fresh_gguf.load_gguf_checkpoint
+# Restore the (possibly patched) module so the rest of the process is unaffected.
+if _saved_module is not None:
+    sys.modules[_GGUF_MODULE_KEY] = _saved_module
+
+
+def _patched_load_gguf_checkpoint(*args, **kwargs):
+    """Pass-through wrapper that accepts the full transformers 5.2+ signature."""
+    return _real_load_gguf_checkpoint(*args, **kwargs)
+
+
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
