@@ -95,6 +95,26 @@ def _patch_cached_remote_files():
         if old in text and new not in text:
             path.write_text(text.replace(old, new, 1))
 
+    # Fix 2b: Immediately convert tgt_sizes back to a Python list after Fix 2's tensor
+    # creation.  Keeping tgt_sizes as a Python list of [[h,w],...] pairs means Dynamo
+    # treats each element as a compile-time constant — no abstract tensor, no graph break
+    # from int(tensor.item()), and no force-move to TT device. All downstream code
+    # (Fix 11 loop, _adjust_pos_cache, resampler forward, navit_siglip embeddings) then
+    # uses concrete Python ints for shape arithmetic instead of TT tensor ops.
+    for path in cache_base.glob(f"{glob_prefix}/modeling_minicpmv.py"):
+        text = path.read_text()
+        old2b = (
+            "                else:\n"
+            "                    tgt_sizes = torch.tensor(tgt_sizes, dtype=torch.int32)\n"
+        )
+        new2b = (
+            "                else:\n"
+            "                    tgt_sizes = torch.tensor(tgt_sizes, dtype=torch.int32)\n"
+            "                tgt_sizes = tgt_sizes.tolist() if isinstance(tgt_sizes, torch.Tensor) else tgt_sizes\n"
+        )
+        if old2b in text and new2b not in text:
+            path.write_text(text.replace(old2b, new2b, 1))
+
     # Fix 3: MiniCPMVBatchFeature.to() uses cast_tensor() which calls
     # torch.is_floating_point(v) unconditionally. When tgt_sizes contains Python
     # int leaves (we convert them to avoid XLA dynamic-shape alignment padding),
@@ -189,6 +209,44 @@ def _patch_cached_remote_files():
         )
         if old6 in text and new6 not in text:
             text = text.replace(old6, new6, 1)
+
+        # Fix 4b: After Fix 2b tgt_sizes becomes a Python list [[h,w],...].
+        # _adjust_pos_cache uses tensor slicing tgt_sizes[:, 0] which fails on lists.
+        old4b = (
+            "        max_h = int(tgt_sizes[:, 0][0]) if len(tgt_sizes) == 1"
+            " else int(torch.max(tgt_sizes[:, 0]))\n"
+            "        max_w = int(tgt_sizes[:, 1][0]) if len(tgt_sizes) == 1"
+            " else int(torch.max(tgt_sizes[:, 1]))\n"
+        )
+        new4b = (
+            "        if isinstance(tgt_sizes, (list, tuple)):\n"
+            "            max_h = max(int(r[0]) for r in tgt_sizes)\n"
+            "            max_w = max(int(r[1]) for r in tgt_sizes)\n"
+            "        else:\n"
+            "            max_h = int(tgt_sizes[:, 0][0]) if len(tgt_sizes) == 1"
+            " else int(torch.max(tgt_sizes[:, 0]))\n"
+            "            max_w = int(tgt_sizes[:, 1][0]) if len(tgt_sizes) == 1"
+            " else int(torch.max(tgt_sizes[:, 1]))\n"
+        )
+        if old4b in text and new4b not in text:
+            text = text.replace(old4b, new4b, 1)
+
+        # Fix assert-list: tgt_sizes.shape[0] raises AttributeError on Python list.
+        old_assert = "        assert x.shape[0] == tgt_sizes.shape[0]\n"
+        new_assert = "        assert x.shape[0] == (len(tgt_sizes) if isinstance(tgt_sizes, (list, tuple)) else tgt_sizes.shape[0])\n"
+        if old_assert in text and new_assert not in text:
+            text = text.replace(old_assert, new_assert, 1)
+
+        # Fix patch-len-list: tgt_sizes[:, 0] column-slice fails on Python list.
+        old_patch_len = "        patch_len = tgt_sizes[:, 0] * tgt_sizes[:, 1]\n"
+        new_patch_len = (
+            "        if isinstance(tgt_sizes, (list, tuple)):\n"
+            "            patch_len = [int(r[0]) * int(r[1]) for r in tgt_sizes]\n"
+            "        else:\n"
+            "            patch_len = tgt_sizes[:, 0] * tgt_sizes[:, 1]\n"
+        )
+        if old_patch_len in text and new_patch_len not in text:
+            text = text.replace(old_patch_len, new_patch_len, 1)
 
         path.write_text(text)
 
