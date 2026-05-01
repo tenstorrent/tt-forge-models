@@ -115,6 +115,29 @@ def _patch_cached_remote_files():
         if old2b in text and new2b not in text:
             path.write_text(text.replace(old2b, new2b, 1))
 
+    # Fix 12: Fix 2+2b still calls torch.tensor(python_list).tolist() which creates a
+    # traced tensor inside the compiled function.  On TT, that tensor ends up on the
+    # device and .tolist() → aten._local_scalar_dense → graph break / Error 13.
+    # The loader (Fix 8) already ensures data['tgt_sizes'] is a Python list of [h,w]
+    # pairs, so the else-branch and .tolist() are unnecessary.  Remove them.
+    for path in cache_base.glob(f"{glob_prefix}/modeling_minicpmv.py"):
+        text = path.read_text()
+        old12 = (
+            "                if tgt_sizes and isinstance(tgt_sizes[0], torch.Tensor):\n"
+            "                    tgt_sizes = [tgt_size for tgt_size in tgt_sizes if isinstance(tgt_size, torch.Tensor)]\n"
+            "                    tgt_sizes = torch.vstack(tgt_sizes).type(torch.int32)\n"
+            "                else:\n"
+            "                    tgt_sizes = torch.tensor(tgt_sizes, dtype=torch.int32)\n"
+            "                tgt_sizes = tgt_sizes.tolist() if isinstance(tgt_sizes, torch.Tensor) else tgt_sizes\n"
+        )
+        new12 = (
+            "                if tgt_sizes and isinstance(tgt_sizes[0], torch.Tensor):\n"
+            "                    tgt_sizes = [[int(v) for v in t] for t in tgt_sizes]\n"
+            "                # else: already a Python list of [h, w] pairs from loader\n"
+        )
+        if old12 in text and new12 not in text:
+            path.write_text(text.replace(old12, new12, 1))
+
     # Fix 3: MiniCPMVBatchFeature.to() uses cast_tensor() which calls
     # torch.is_floating_point(v) unconditionally. When tgt_sizes contains Python
     # int leaves (we convert them to avoid XLA dynamic-shape alignment padding),
