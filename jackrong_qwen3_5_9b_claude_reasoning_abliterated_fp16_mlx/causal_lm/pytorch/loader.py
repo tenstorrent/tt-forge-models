@@ -5,8 +5,14 @@
 Jackrong Qwen3.5-9B Claude Reasoning Abliterated fp16 MLX model loader implementation for causal language modeling.
 """
 
+import json
+import os
+
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from huggingface_hub import snapshot_download
+from safetensors.torch import load_file
+from transformers import AutoConfig, AutoTokenizer
+from transformers import Qwen3_5ForCausalLM
 from typing import Optional
 
 from ....base import ForgeModel
@@ -83,21 +89,36 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+        # The checkpoint stores weights in VLM layout (language_model.* prefix)
+        # because it was saved as Qwen3_5ForConditionalGeneration.  AutoModelForCausalLM
+        # resolves to Qwen3_5ForCausalLM (text-only, expects flat model.* / lm_head.*
+        # keys), so the keys never match and the model ends up with random weights.
+        # Fix: download the safetensors shards, strip the "language_model." prefix,
+        # and load the remapped state dict into Qwen3_5ForCausalLM directly.
+        full_config = AutoConfig.from_pretrained(pretrained_model_name)
+        text_config = full_config.text_config
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+            text_config.num_hidden_layers = self.num_layers
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        model_dir = snapshot_download(pretrained_model_name)
+        index_path = os.path.join(model_dir, "model.safetensors.index.json")
+        with open(index_path) as f:
+            index = json.load(f)
 
-        self.config = model.config
+        state_dict = {}
+        for shard_file in sorted(set(index["weight_map"].values())):
+            shard_sd = load_file(os.path.join(model_dir, shard_file))
+            for k, v in shard_sd.items():
+                if k.startswith("language_model."):
+                    state_dict[k[len("language_model."):]] = v
+
+        torch_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        model = Qwen3_5ForCausalLM(text_config)
+        model.load_state_dict(state_dict, strict=False)
+        model = model.to(torch_dtype).eval()
+
+        self.config = text_config
         self.model = model
         return model
 
