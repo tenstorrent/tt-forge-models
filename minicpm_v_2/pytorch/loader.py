@@ -30,22 +30,6 @@ if ALL_PARALLEL_STYLES is None:
 
     mu.ALL_PARALLEL_STYLES = ["rowwise", "colwise", "headwise"]
 
-# Monkey patch Resampler for compatibility with torch 2.7.0
-original_getattr = nn.Module.__getattr__
-
-
-def patched_getattr(self, name):
-    if name == "_initialize_weights" and self.__class__.__name__ == "Resampler":
-
-        def _initialize_weights(module_self):
-            if hasattr(module_self, "_init_weights"):
-                module_self._init_weights(module_self)
-
-        return _initialize_weights
-    return original_getattr(self, name)
-
-
-nn.Module.__getattr__ = patched_getattr
 
 
 class ModelVariant(StrEnum):
@@ -99,7 +83,25 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(model_name, **model_kwargs)
+        # Scope the Resampler._initialize_weights patch to model loading only so it
+        # doesn't permanently alter nn.Module.__getattr__ for other tests in the session.
+        _orig = nn.Module.__getattr__
+
+        def _patched_getattr(self, name):
+            if name == "_initialize_weights" and self.__class__.__name__ == "Resampler":
+
+                def _initialize_weights(module_self):
+                    if hasattr(module_self, "_init_weights"):
+                        module_self._init_weights(module_self)
+
+                return _initialize_weights
+            return _orig(self, name)
+
+        nn.Module.__getattr__ = _patched_getattr
+        try:
+            model = AutoModel.from_pretrained(model_name, **model_kwargs)
+        finally:
+            nn.Module.__getattr__ = _orig
         model.eval()
 
         if self.tokenizer is None:
