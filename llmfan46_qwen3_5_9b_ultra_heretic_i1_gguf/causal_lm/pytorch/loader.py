@@ -3,31 +3,66 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 llmfan46-Qwen3.5-9B-ultra-heretic i1 GGUF model loader implementation for causal language modeling.
+
+Qwen3.5-9B is a hybrid SSM/full-attention model (GGUF architecture "qwen35").
+The GGUF loader has no config-field or tensor-name mapping for "qwen35".  This
+loader monkey-patches that gap via a context manager so other GGUF loaders that
+patch the same binding sites do not interfere at run time.
 """
-import functools
-import re as _re
-import numpy as _np
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+import re
+from contextlib import contextmanager
 from typing import Optional
 
+import numpy as np
+import torch
 import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
-from transformers.modeling_gguf_pytorch_utils import (
-    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
-    GGUF_SUPPORTED_ARCHITECTURES,
-    TensorProcessor as _TensorProcessor,
-    GGUFTensor as _GGUFTensor,
-)
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUFTensor,
+    TensorProcessor,
+    TENSOR_PROCESSORS,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+
+from ....base import ForgeModel
+from ....config import (
+    Framework,
+    LLMModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
+    StrEnum,
+)
+
+# ── GGUF config-field mapping for the "qwen35" architecture ─────────────────
+
+_QWEN35_CONFIG_MAPPING = {
+    "context_length": "max_position_embeddings",
+    "block_count": "num_hidden_layers",
+    "feed_forward_length": "intermediate_size",
+    "embedding_length": "hidden_size",
+    "rope.dimension_count": None,
+    "rope.freq_base": "rope_theta",
+    "attention.head_count": "num_attention_heads",
+    "attention.head_count_kv": "num_key_value_heads",
+    "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+    "attention.key_length": "head_dim",
+    "vocab_size": "vocab_size",
+    "full_attention_interval": "full_attention_interval",
+}
 
 
-class _Qwen35TensorProcessor(_TensorProcessor):
+# ── Tensor processor ─────────────────────────────────────────────────────────
+
+class _Qwen35TensorProcessor(TensorProcessor):
     """Fix qwen35-specific tensor name and shape mismatches during GGUF loading."""
 
-    _DT_BIAS_RE = _re.compile(r"(?:model\.)?layers\.(\d+)\.linear_attn\.dt_bias$")
+    _DT_BIAS_RE = re.compile(r"(?:model\.)?layers\.(\d+)\.linear_attn\.dt_bias$")
 
     def perform_fallback_tensor_mapping(
         self, gguf_to_hf_name_map, suffix, qual_name, hf_name
@@ -38,31 +73,24 @@ class _Qwen35TensorProcessor(_TensorProcessor):
 
     def process(self, weights, name, **kwargs):
         if name.endswith(".ssm_conv1d.weight") and weights.ndim == 2:
-            weights = _np.expand_dims(weights, axis=1)
-        return _GGUFTensor(weights, name, {})
+            weights = np.expand_dims(weights, axis=1)
+        return GGUFTensor(weights, name, {})
 
 
-def _patch_qwen35_support():
-    """Register qwen35 GGUF architecture for loading as qwen3_5_text."""
+# ── Registry patches (idempotent, applied once at import time) ────────────────
+
+_orig_get_gguf_hf_weights_map = None
+
+
+def _patch_qwen35_registry() -> None:
+    """Register qwen35 arch in GGUF tables (idempotent, safe to call repeatedly)."""
+    global _orig_get_gguf_hf_weights_map
+
     if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
         GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
 
-    config_mapping = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING.get("config", {})
-    if "qwen35" not in config_mapping:
-        config_mapping["qwen35"] = {
-            "context_length": "max_position_embeddings",
-            "block_count": "num_hidden_layers",
-            "feed_forward_length": "intermediate_size",
-            "embedding_length": "hidden_size",
-            "rope.dimension_count": None,
-            "rope.freq_base": "rope_theta",
-            "attention.head_count": "num_attention_heads",
-            "attention.head_count_kv": "num_key_value_heads",
-            "attention.layer_norm_rms_epsilon": "rms_norm_eps",
-            "attention.key_length": "head_dim",
-            "vocab_size": "vocab_size",
-            "full_attention_interval": "full_attention_interval",
-        }
+    cfg_map = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]
+    cfg_map["qwen35"] = _QWEN35_CONFIG_MAPPING
 
     if "qwen3" in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
@@ -70,73 +98,111 @@ def _patch_qwen35_support():
             "qwen3_5_text", GGUF_TO_FAST_CONVERTERS["qwen3"]
         )
 
-    _gguf_utils.TENSOR_PROCESSORS.setdefault("qwen35", _Qwen35TensorProcessor)
+    TENSOR_PROCESSORS["qwen35"] = _Qwen35TensorProcessor
 
-    if getattr(_gguf_utils, "_qwen35_weights_map_patched", False):
-        return
-    _orig_weights_map_fn = _gguf_utils.get_gguf_hf_weights_map
+    if _orig_get_gguf_hf_weights_map is None:
+        _orig_get_gguf_hf_weights_map = _gguf_utils.get_gguf_hf_weights_map
 
-    @functools.wraps(_orig_weights_map_fn)
-    def _patched_get_gguf_hf_weights_map(
-        hf_model, processor, model_type=None, num_layers=None, qual_name=""
-    ):
-        if model_type is None and hasattr(hf_model, "config"):
-            model_type = hf_model.config.model_type
-        if model_type == "qwen3_5_text":
-            model_type = "qwen35"
-        return _orig_weights_map_fn(
-            hf_model,
-            processor,
-            model_type=model_type,
-            num_layers=num_layers,
-            qual_name=qual_name,
-        )
+        def _patched_get_gguf_hf_weights_map(
+            hf_model, processor, model_type=None, num_layers=None, qual_name=""
+        ):
+            if model_type is None and hasattr(hf_model, "config"):
+                model_type = hf_model.config.model_type
+            if model_type == "qwen3_5_text":
+                model_type = "qwen35"
+            return _orig_get_gguf_hf_weights_map(
+                hf_model,
+                processor,
+                model_type=model_type,
+                num_layers=num_layers,
+                qual_name=qual_name,
+            )
 
-    _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
-    _gguf_utils._qwen35_weights_map_patched = True
+        _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 
-def _get_raw_gguf_arch(gguf_path):
-    """Read 'general.architecture' from GGUF metadata without going through any patch chain."""
+_patch_qwen35_registry()
+
+
+# ── Context manager for the load_gguf_checkpoint patch ───────────────────────
+
+def _find_real_load_gguf_at_call_time():
+    """BFS over the load_gguf_checkpoint patch chain to find the real function.
+
+    Multiple loaders patch _gguf_utils.load_gguf_checkpoint at import time; the
+    last importer wins alphabetically.  Each wrapper captures its predecessor
+    as either a module global or a closure cell.  We BFS over both until we find
+    a function whose __globals__ IS the _gguf_utils module dict — that function
+    is defined in transformers.modeling_gguf_pytorch_utils and is the real impl.
+    """
+    _GLOBAL_VARS = (
+        "_orig_load_gguf_checkpoint",
+        "orig_load",
+        "_orig_load",
+    )
+    seen: set = set()
+    queue: list = [_gguf_utils.load_gguf_checkpoint]
+
+    while queue:
+        fn = queue.pop(0)
+        if not callable(fn):
+            continue
+        fn_id = id(fn)
+        if fn_id in seen:
+            continue
+        seen.add(fn_id)
+
+        if hasattr(fn, "__globals__") and fn.__globals__ is vars(_gguf_utils):
+            return fn
+
+        if hasattr(fn, "__globals__"):
+            for var in _GLOBAL_VARS:
+                candidate = fn.__globals__.get(var)
+                if candidate is not None and callable(candidate) and id(candidate) not in seen:
+                    queue.append(candidate)
+
+        if getattr(fn, "__closure__", None):
+            for cell in fn.__closure__:
+                try:
+                    val = cell.cell_contents
+                    if callable(val) and id(val) not in seen:
+                        queue.append(val)
+                except ValueError:
+                    pass
+
+    return _gguf_utils.load_gguf_checkpoint  # fallback
+
+
+@contextmanager
+def _qwen35_gguf_context():
+    """Temporarily install the qwen35-aware load_gguf_checkpoint wrapper.
+
+    Applied at call time (not import time) so our patch is in effect regardless
+    of which other loaders were imported after us.
+    """
+    _patch_qwen35_registry()
+    real_fn = _find_real_load_gguf_at_call_time()
+
+    def _my_load_gguf_checkpoint(*args, **kwargs):
+        result = real_fn(*args, **kwargs)
+        if "full_attention_interval" in result.get("config", {}):
+            result["config"]["model_type"] = "qwen3_5_text"
+        return result
+
+    _binding_sites = [
+        (_gguf_utils, "load_gguf_checkpoint"),
+        (_config_utils, "load_gguf_checkpoint"),
+        (_auto_tokenizer, "load_gguf_checkpoint"),
+        (_tok_utils, "load_gguf_checkpoint"),
+    ]
+    saved = [(mod, attr, getattr(mod, attr)) for mod, attr in _binding_sites]
+    for mod, attr in _binding_sites:
+        setattr(mod, attr, _my_load_gguf_checkpoint)
     try:
-        from array import array as _array
-        from gguf import GGUFReader
-
-        _reader = GGUFReader(gguf_path)
-        _field = _reader.fields.get("general.architecture")
-        if _field is None or not _field.data:
-            return None
-        return _array("B", list(_field.parts[_field.data[0]])).tobytes().decode()
-    except Exception:
-        return None
-
-
-def _patched_load_gguf_checkpoint(*args, **kwargs):
-    """Wrap load_gguf_checkpoint to add qwen35 support and fix model_type."""
-    _patch_qwen35_support()
-    result = _orig_load_gguf_checkpoint(*args, **kwargs)
-    gguf_path = args[0] if args else kwargs.get("gguf_checkpoint_path")
-    if gguf_path and _get_raw_gguf_arch(gguf_path) == "qwen35":
-        result["config"]["model_type"] = "qwen3_5_text"
-    return result
-
-
-_patch_qwen35_support()
-_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-
-from ....base import ForgeModel
-from ....config import (
-    LLMModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
-    Framework,
-    StrEnum,
-)
+        yield
+    finally:
+        for mod, attr, orig in saved:
+            setattr(mod, attr, orig)
 
 
 class ModelVariant(StrEnum):
@@ -180,30 +246,22 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _reinstall_patch(self):
-        """Re-install the qwen35 patch in case a later-imported loader overwrote it."""
-        _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-        _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-        _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-        _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-
     def _load_tokenizer(self, dtype_override=None):
-        self._reinstall_patch()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
         tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+        with _qwen35_gguf_context():
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        self._reinstall_patch()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -216,9 +274,10 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
+            with _qwen35_gguf_context():
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name, gguf_file=self.GGUF_FILE
+                )
             if hasattr(config, "text_config"):
                 config.text_config.num_hidden_layers = self.num_layers
                 if hasattr(config.text_config, "layer_types"):
@@ -229,9 +288,10 @@ class ModelLoader(ForgeModel):
                 config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        with _qwen35_gguf_context():
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
@@ -295,7 +355,8 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        with _qwen35_gguf_context():
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
         return self.config
