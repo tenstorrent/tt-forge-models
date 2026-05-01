@@ -58,10 +58,34 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self, dtype_override=None):
-        self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
-        )
+        from transformers.processing_utils import ProcessorMixin
+
+        # transformers 5.x ProcessorMixin.__init__ rejects kwargs that aren't
+        # modality sub-processors; Molmo2Processor passes optional_attributes
+        # (image_use_col_tokens etc.) to super().__init__(), triggering TypeError.
+        # Pop those attrs before they hit the strict validator and set them after.
+        _orig_pm_init = ProcessorMixin.__init__
+
+        def _patched_pm_init(self_pm, *args, **kwargs):
+            opt_attrs = getattr(type(self_pm), "optional_attributes", [])
+            extras = {
+                k: kwargs.pop(k)
+                for k in list(kwargs)
+                if k in opt_attrs and k not in ("chat_template", "audio_tokenizer")
+            }
+            _orig_pm_init(self_pm, *args, **kwargs)
+            for k, v in extras.items():
+                setattr(self_pm, k, v)
+
+        ProcessorMixin.__init__ = _patched_pm_init
+        try:
+            self.processor = AutoProcessor.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                trust_remote_code=True,
+                use_fast=False,
+            )
+        finally:
+            ProcessorMixin.__init__ = _orig_pm_init
 
         return self.processor
 
