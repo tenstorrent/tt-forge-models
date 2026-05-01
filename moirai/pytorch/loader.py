@@ -140,6 +140,55 @@ class ModelLoader(ForgeModel):
         import types
         model._generate_time_id = types.MethodType(_generate_time_id_patched, model)
 
+        # Patch forward to return distribution mean instead of random samples.
+        # MoiraiForecast.forward draws num_samples=100 Monte Carlo samples, which
+        # differ between TT (XLA RNG) and CPU PyTorch RNG, making PCC ≈ 0.
+        # Returning distr.mean (the predictive expectation) is deterministic and
+        # tests correctness of the model computation.
+        def _forward_deterministic(
+            self_m,
+            past_target,
+            past_observed_target,
+            past_is_pad,
+            feat_dynamic_real=None,
+            observed_feat_dynamic_real=None,
+            past_feat_dynamic_real=None,
+            past_observed_feat_dynamic_real=None,
+            num_samples=None,
+        ):
+            distr = self_m._get_distr(
+                self_m.hparams.patch_size,
+                past_target[..., -self_m.hparams.context_length :, :],
+                past_observed_target[..., -self_m.hparams.context_length :, :],
+                past_is_pad[..., -self_m.hparams.context_length :],
+                feat_dynamic_real=(
+                    feat_dynamic_real[..., -self_m.past_length :, :]
+                    if feat_dynamic_real is not None
+                    else None
+                ),
+                observed_feat_dynamic_real=(
+                    observed_feat_dynamic_real[..., -self_m.past_length :, :]
+                    if observed_feat_dynamic_real is not None
+                    else None
+                ),
+                past_feat_dynamic_real=(
+                    past_feat_dynamic_real[..., -self_m.hparams.context_length :, :]
+                    if past_feat_dynamic_real is not None
+                    else None
+                ),
+                past_observed_feat_dynamic_real=(
+                    past_observed_feat_dynamic_real[..., -self_m.hparams.context_length :, :]
+                    if past_observed_feat_dynamic_real is not None
+                    else None
+                ),
+            )
+            # distr.mean shape: [batch, combine_seq, patch]
+            # _format_preds expects [sample, batch, combine_seq, patch]
+            preds = distr.mean.unsqueeze(0)
+            return self_m._format_preds(self_m.hparams.patch_size, preds, past_target.shape[-1])
+
+        model.forward = types.MethodType(_forward_deterministic, model)
+
         model.eval()
         return model
 
