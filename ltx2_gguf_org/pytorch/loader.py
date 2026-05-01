@@ -17,6 +17,43 @@ import torch
 from diffusers import GGUFQuantizationConfig, LTX2VideoTransformer3DModel
 from huggingface_hub import hf_hub_download
 
+# apply_split_rotary_emb uses two patterns incompatible with XLA/TT compilation:
+# 1. In-place addcmul_ on tensor views (XLA requires out-of-place ops)
+# 2. swapaxes(1,2).reshape(b,t,-1) on a non-contiguous tensor (requires .contiguous())
+# Replace with an equivalent out-of-place implementation.
+import diffusers.models.transformers.transformer_ltx2 as _ltx2_module
+
+
+def _apply_split_rotary_emb_xla(x, freqs):
+    cos, sin = freqs
+    x_dtype = x.dtype
+    needs_reshape = False
+    if x.ndim != 4 and cos.ndim == 4:
+        b, h, t, _ = cos.shape
+        x = x.reshape(b, t, h, -1).swapaxes(1, 2)
+        needs_reshape = True
+
+    last = x.shape[-1]
+    r = last // 2
+    split_x = x.reshape(*x.shape[:-1], 2, r).float()
+    first_x = split_x[..., :1, :]
+    second_x = split_x[..., 1:, :]
+    cos_u = cos.unsqueeze(-2)
+    sin_u = sin.unsqueeze(-2)
+
+    # Out-of-place RoPE rotation (equivalent to the original addcmul_ in-place ops)
+    first_out = first_x * cos_u - sin_u * second_x
+    second_out = second_x * cos_u + sin_u * first_x
+
+    out = torch.cat([first_out, second_out], dim=-2).reshape(*split_x.shape[:-2], last)
+    if needs_reshape:
+        # .contiguous() is required before reshape on non-contiguous tensors in XLA
+        out = out.swapaxes(1, 2).contiguous().reshape(b, t, -1)
+    return out.to(dtype=x_dtype)
+
+
+_ltx2_module.apply_split_rotary_emb = _apply_split_rotary_emb_xla
+
 from ...base import ForgeModel
 from ...config import (
     Framework,
