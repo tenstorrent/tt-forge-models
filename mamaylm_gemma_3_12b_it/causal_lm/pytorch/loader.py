@@ -141,7 +141,9 @@ class ModelLoader(ForgeModel):
 
     def load_shard_spec(self, model):
         shard_specs = {}
-        for layer in model.model.layers:
+        # AutoModelForCausalLM → Gemma3ForConditionalGeneration → model (Gemma3Model)
+        # → language_model (Gemma3TextModel) → layers
+        for layer in model.model.language_model.layers:
             shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
