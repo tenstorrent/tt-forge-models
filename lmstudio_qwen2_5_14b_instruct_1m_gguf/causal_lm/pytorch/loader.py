@@ -5,6 +5,7 @@
 lmstudio-community/Qwen2.5-14B-Instruct-1M-GGUF model loader implementation for causal language modeling.
 """
 import torch
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -18,6 +19,44 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _get_real_load_gguf_checkpoint():
+    """Walk the patch chain to find the original transformers load_gguf_checkpoint."""
+    visited: set = set()
+
+    def _is_real(f) -> bool:
+        return (
+            getattr(f, "__qualname__", "") == "load_gguf_checkpoint"
+            and getattr(f, "__module__", "") == "transformers.modeling_gguf_pytorch_utils"
+        )
+
+    def _search(f):
+        fid = id(f)
+        if fid in visited:
+            return None
+        visited.add(fid)
+        if _is_real(f):
+            return f
+        if getattr(f, "__closure__", None):
+            for cell in f.__closure__:
+                try:
+                    v = cell.cell_contents
+                    if callable(v):
+                        r = _search(v)
+                        if r is not None:
+                            return r
+                except Exception:
+                    pass
+        for name, v in getattr(f, "__globals__", {}).items():
+            if callable(v) and "orig" in name.lower() and id(v) not in visited:
+                r = _search(v)
+                if r is not None:
+                    return r
+        return None
+
+    result = _search(_gguf_utils.load_gguf_checkpoint)
+    return result if result is not None else _gguf_utils.load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
@@ -94,9 +133,15 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        _real = _get_real_load_gguf_checkpoint()
+        _prev = _gguf_utils.load_gguf_checkpoint
+        _gguf_utils.load_gguf_checkpoint = _real
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _gguf_utils.load_gguf_checkpoint = _prev
 
         self.config = model.config
         self.model = model
