@@ -93,10 +93,62 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
 
+        self._patch_get_image_features(model)
+
         model.eval()
         self.model = model
         self.config = model.config
         return model
+
+    @staticmethod
+    def _patch_get_image_features(model):
+        """Patch get_image_features to compute split_sizes on CPU.
+
+        TT silicon gives incorrect results for integer arithmetic (// and prod)
+        on device tensors when image_sizes flows through the XLA graph.  The
+        formula (image_sizes // downsample_ratio).prod(-1) returns 2320 instead
+        of the correct 2310, causing torch.split to raise.  Computing on CPU
+        avoids the TT integer-arithmetic bug.
+
+        The instance-method replacement also bypasses the class-level
+        @can_return_tuple and @merge_with_config_defaults decorators, so this
+        function must replicate their relevant behaviours:
+        - pop 'return_dict' from kwargs (can_return_tuple strips it for the body)
+        - default vision_feature_layer from config when None (merge_with_config_defaults)
+        """
+        import types
+
+        def _patched_get_image_features(self_inner, pixel_values, image_sizes, vision_feature_layer=None, **kwargs):
+            # @can_return_tuple pops return_dict; replicate that here.
+            kwargs.pop("return_dict", None)
+            kwargs = {k: v for k, v in kwargs.items() if v is not None}
+
+            # @merge_with_config_defaults supplies vision_feature_layer from config.
+            if vision_feature_layer is None:
+                vision_feature_layer = self_inner.config.vision_feature_layer
+
+            # Pass return_dict via kwargs so vision_tower's @can_return_tuple handles it.
+            image_outputs = self_inner.vision_tower(
+                pixel_values,
+                image_sizes=image_sizes,
+                output_hidden_states=True,
+                **{**kwargs, "return_dict": True},
+            )
+            if isinstance(vision_feature_layer, int):
+                selected_image_feature = image_outputs.hidden_states[vision_feature_layer]
+            else:
+                hs_pool = [image_outputs.hidden_states[i] for i in vision_feature_layer]
+                selected_image_feature = torch.cat(hs_pool, dim=-1)
+
+            image_features = self_inner.multi_modal_projector(selected_image_feature.squeeze(0), image_sizes)
+            downsample_ratio = self_inner.vision_tower.patch_size * self_inner.config.spatial_merge_size
+            # Compute on CPU to avoid TT-silicon integer-arithmetic giving wrong results.
+            split_sizes = [int(s) for s in (image_sizes.cpu() // downsample_ratio).prod(dim=-1).tolist()]
+            image_features = torch.split(image_features.squeeze(0), split_sizes)
+            image_outputs.pooler_output = image_features
+            return image_outputs
+
+        model.model.get_image_features = types.MethodType(_patched_get_image_features, model.model)
 
     def load_inputs(
         self,
