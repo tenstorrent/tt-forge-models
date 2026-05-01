@@ -33,22 +33,29 @@ if ALL_PARALLEL_STYLES is None:
 
     mu.ALL_PARALLEL_STYLES = ["rowwise", "colwise", "headwise"]
 
-# Monkey patch Resampler for compatibility - Fixes: Resampler doesn't have _initialize_weights method in torch 2.7.0
-original_getattr = nn.Module.__getattr__
+from contextlib import contextmanager
 
 
-def patched_getattr(self, name):
-    if name == "_initialize_weights" and self.__class__.__name__ == "Resampler":
+@contextmanager
+def _resampler_init_weights_patch():
+    """Apply Module.__getattr__ patch only during model loading, then restore."""
+    _orig = nn.Module.__getattr__
 
-        def _initialize_weights(module_self):
-            if hasattr(module_self, "_init_weights"):
-                module_self._init_weights(module_self)
+    def _patched(self, name):
+        if name == "_initialize_weights" and self.__class__.__name__ == "Resampler":
 
-        return _initialize_weights
-    return original_getattr(self, name)
+            def _initialize_weights(module_self):
+                if hasattr(module_self, "_init_weights"):
+                    module_self._init_weights(module_self)
 
+            return _initialize_weights
+        return _orig(self, name)
 
-nn.Module.__getattr__ = patched_getattr
+    nn.Module.__getattr__ = _patched
+    try:
+        yield
+    finally:
+        nn.Module.__getattr__ = _orig
 
 
 @dataclass
@@ -112,13 +119,14 @@ class ModelLoader(ForgeModel):
         """
         config = self._variant_config
 
-        # Load model and tokenizer
-        self.model = AutoModel.from_pretrained(
-            config.pretrained_model_name,
-            trust_remote_code=True,
-            torch_dtype=torch.float32,
-            **kwargs
-        )
+        # Load model and tokenizer (patch applied only during loading)
+        with _resampler_init_weights_patch():
+            self.model = AutoModel.from_pretrained(
+                config.pretrained_model_name,
+                trust_remote_code=True,
+                torch_dtype=torch.float32,
+                **kwargs
+            )
         self.tokenizer = AutoTokenizer.from_pretrained(
             config.pretrained_model_name, trust_remote_code=True
         )
