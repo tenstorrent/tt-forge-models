@@ -60,6 +60,7 @@ class ModelLoader(ForgeModel):
     def _load_processor(self):
         self.processor = AutoProcessor.from_pretrained(
             self._variant_config.pretrained_model_name,
+            use_fast=False,
         )
         self.processor.tokenizer.padding_side = "left"
         return self.processor
