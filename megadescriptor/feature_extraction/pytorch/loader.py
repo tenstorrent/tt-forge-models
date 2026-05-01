@@ -6,7 +6,6 @@ MegaDescriptor model loader implementation for feature extraction (PyTorch).
 """
 
 import timm
-from datasets import load_dataset
 from typing import Optional
 from dataclasses import dataclass
 
@@ -117,9 +116,6 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.Tensor: Preprocessed input tensor.
         """
-        if image is None:
-            dataset = load_dataset("huggingface/cats-image", split="test")
-            image = dataset[0]["image"]
         return self.input_preprocess(
             image=image,
             dtype_override=dtype_override,
