@@ -35,15 +35,18 @@ def _dequantize_fp8_to_bf16(model, target_dtype=torch.bfloat16):
     """Replace FP8-typed Linear weights with dequantized BF16 weights.
 
     TT hardware does not support FP8 computation. compressed-tensors stores
-    model weights in float8_e4m3fn. This walks all nn.Linear modules, detects
-    FP8-typed weights, dequantizes them using the stored weight_scale, and
-    replaces the weight parameter with a BF16 tensor. Also sets
-    quantization_enabled=False to suppress per-token activation quantization
-    in the patched quantized_forward, preventing FP8 activations on TT.
+    model weights in float8_e4m3fn. This walks all modules:
+    - For nn.Linear with FP8 weights: dequantizes using weight_scale and
+      replaces the weight parameter with a BF16 tensor.
+    - For any module with a quantization_scheme: sets quantization_enabled=False
+      to suppress both weight re-quantization and dynamic activation quantization
+      (which would produce FP8 intermediate tensors captured in the StableHLO
+      graph and rejected by convertMLIRToPJRTDataType).
+    The vision tower layers (PixtralVisionModel) are not FP8-quantized but
+    compressed-tensors still patches their forward with set_forward_quantized,
+    so they must also have quantization disabled to prevent FP8 activation traces.
     """
     fp8_dtypes = _get_fp8_dtypes()
-    if not fp8_dtypes:
-        return
 
     try:
         from compressed_tensors.quantization.lifecycle.forward import (
@@ -53,7 +56,13 @@ def _dequantize_fp8_to_bf16(model, target_dtype=torch.bfloat16):
         ct_dequantize = None
 
     for _, module in model.named_modules():
-        if not isinstance(module, nn.Linear):
+        # Disable quantization on any module that compressed-tensors has patched,
+        # regardless of whether its weights are FP8 — dynamic activation quantization
+        # in quantized_forward produces FP8 intermediates that TT cannot compile.
+        if getattr(module, "quantization_scheme", None) is not None:
+            module.quantization_enabled = False
+
+        if not isinstance(module, nn.Linear) or not fp8_dtypes:
             continue
         weight = getattr(module, "weight", None)
         if weight is None or weight.dtype not in fp8_dtypes:
@@ -71,9 +80,6 @@ def _dequantize_fp8_to_bf16(model, target_dtype=torch.bfloat16):
             dequant_w = weight.data.to(target_dtype)
 
         module.weight = nn.Parameter(dequant_w.to(target_dtype))
-        # Disable the compressed-tensors quantized_forward to prevent
-        # FP8 activation quantization on TT device
-        module.quantization_enabled = False
 
 
 def _patch_mistral3_split_sizes(model):
