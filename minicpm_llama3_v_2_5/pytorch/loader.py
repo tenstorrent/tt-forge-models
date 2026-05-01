@@ -82,19 +82,36 @@ def _patch_cached_remote_files():
         if old in text and new not in text:
             path.write_text(text.replace(old, new, 1))
 
-    # Fix 5: In the resampler, max_patch_len = torch.max(patch_len) produces an XLA
-    # dynamic scalar after a graph break at _adjust_pos_cache (which causes a break via
-    # tensor comparison). The resumed subgraph receives max_patch_len as a symbolic input,
-    # so torch.zeros((bs, max_patch_len), bool, device=xla) has a dynamic bool dimension
-    # that XLA pads from 1036→1040 (next multiple of 8), breaking the attention mask check.
-    # Wrapping in int() forces Python-level eager evaluation before torch.zeros sees it,
-    # keeping the shape static.
+    # Fix 5: torch.max() on XLA int32/float16 tensors is computed in BF16 internally,
+    # which rounds 1036→1040 (bf16 rounds 1036 to nearest representable = 1040 for this
+    # value). This corrupts max_patch_len (used as the bool mask dimension) and max_h/max_w
+    # (used to update the positional embedding cache). Element-access [0] reads raw bits
+    # and returns the correct value (1036), unlike reduce_max which goes through bf16.
+    # For the non-batch path (batch_vision_input=False), bs=1 always, so len==1 is safe.
     for path in cache_base.glob(f"{glob_prefix}/resampler.py"):
         text = path.read_text()
-        old = "        max_patch_len = torch.max(patch_len)\n"
-        new = "        max_patch_len = int(torch.max(patch_len))\n"
-        if old in text and new not in text:
-            path.write_text(text.replace(old, new, 1))
+        # Fix _adjust_pos_cache: max_h/max_w via torch.max hit the bf16 rounding bug
+        old5a = (
+            "        max_h = torch.max(tgt_sizes[:, 0])\n"
+            "        max_w = torch.max(tgt_sizes[:, 1])\n"
+        )
+        new5a = (
+            "        max_h = int(tgt_sizes[:, 0][0]) if len(tgt_sizes) == 1"
+            " else int(torch.max(tgt_sizes[:, 0]))\n"
+            "        max_w = int(tgt_sizes[:, 1][0]) if len(tgt_sizes) == 1"
+            " else int(torch.max(tgt_sizes[:, 1]))\n"
+        )
+        if old5a in text and new5a not in text:
+            text = text.replace(old5a, new5a, 1)
+        # Fix max_patch_len: torch.max on XLA returns bf16-rounded value
+        old5b = "        max_patch_len = torch.max(patch_len)\n"
+        new5b = (
+            "        max_patch_len = int(patch_len[0]) if len(patch_len) == 1"
+            " else int(torch.max(patch_len))\n"
+        )
+        if old5b in text and new5b not in text:
+            text = text.replace(old5b, new5b, 1)
+        path.write_text(text)
 
     # Invalidate the module cache so patched files are re-imported
     for key in list(sys.modules):
