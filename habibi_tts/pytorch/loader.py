@@ -143,6 +143,8 @@ class ModelLoader(ForgeModel):
 
         wrapper = HabibiDiTWrapper(model.transformer)
         wrapper.eval()
+        if dtype_override is not None:
+            wrapper = wrapper.to(dtype=dtype_override)
         return wrapper
 
     def load_inputs(self, dtype_override=None):
