@@ -147,6 +147,10 @@ class ModelLoader(ForgeModel):
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
+        # Qwen3_5DynamicCache is not a Cache subclass so the evaluator
+        # cannot compare it. Disable caching so past_key_values is None.
+        inputs["use_cache"] = False
+
         return inputs
 
     def _get_text_config(self):
