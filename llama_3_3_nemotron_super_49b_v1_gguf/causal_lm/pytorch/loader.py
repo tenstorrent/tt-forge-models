@@ -25,13 +25,45 @@ from ....config import (
 )
 
 
-# Store the TRUE (unpatched) load_gguf_checkpoint the first time any loader runs this
-# code. Later loaders that patch _gguf_utils.load_gguf_checkpoint form a chain, but
-# many intermediate patches don't forward model_to_load. By saving the original here
-# (before we apply our own patch) we can call it directly and bypass the chain.
-if not hasattr(_gguf_utils, "_tt_true_load_gguf_checkpoint"):
-    _gguf_utils._tt_true_load_gguf_checkpoint = _gguf_utils.load_gguf_checkpoint
-_true_load_gguf_checkpoint = _gguf_utils._tt_true_load_gguf_checkpoint
+def _unwrap_to_true_load_gguf_checkpoint():
+    """Traverse the patch chain to find transformers' original load_gguf_checkpoint.
+
+    Other GGUF loaders (alphabetically earlier) patch _gguf_utils.load_gguf_checkpoint
+    at import time in a chain. Many of those patches capture the previous-in-chain
+    function as a module-level global (e.g. _orig_load_gguf_checkpoint). We walk that
+    chain via __globals__ until we reach the function whose __module__ is
+    'transformers.modeling_gguf_pytorch_utils' — the TRUE original function that
+    accepts the model_to_load kwarg.
+    """
+    target = "transformers.modeling_gguf_pytorch_utils"
+    visited: set = set()
+    queue = [_gguf_utils.load_gguf_checkpoint]
+    while queue:
+        fn = queue.pop(0)
+        fn_id = id(fn)
+        if fn_id in visited:
+            continue
+        visited.add(fn_id)
+        if getattr(fn, "__module__", "") == target:
+            return fn
+        # Follow closure cells (for nested-function patches)
+        for cell in getattr(fn, "__closure__", None) or []:
+            try:
+                v = cell.cell_contents
+                if callable(v):
+                    queue.append(v)
+            except ValueError:
+                pass
+        # Follow module-level globals that look like the captured original
+        for k, v in list((getattr(fn, "__globals__", None) or {}).items()):
+            if callable(v) and id(v) not in visited:
+                k_lower = k.lower()
+                if any(kw in k_lower for kw in ("orig", "true", "real", "load_gguf")):
+                    queue.append(v)
+    return _gguf_utils.load_gguf_checkpoint  # fallback
+
+
+_true_load_gguf_checkpoint = _unwrap_to_true_load_gguf_checkpoint()
 
 
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
