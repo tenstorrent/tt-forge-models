@@ -56,10 +56,10 @@ def _register_qwen35_gguf_tables():
         "attention.key_length": "head_dim",
         "attention.value_length": None,
         "ssm.conv_kernel": "linear_conv_kernel_dim",
-        "ssm.state_size": None,
+        "ssm.state_size": "linear_key_head_dim",
         "ssm.inner_size": None,
-        "ssm.time_step_rank": None,
-        "ssm.group_count": None,
+        "ssm.time_step_rank": "linear_num_value_heads",
+        "ssm.group_count": "linear_num_key_heads",
         "full_attention_interval": "full_attention_interval",
         "vocab_size": "vocab_size",
     }
