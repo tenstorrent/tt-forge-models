@@ -4,9 +4,17 @@
 """
 Hans_Wesker-1B i1 GGUF model loader implementation for causal language modeling.
 """
+import importlib.util
+import inspect
+import os
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 
 from ....base import ForgeModel
 from ....config import (
@@ -18,6 +26,100 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _find_real_load_gguf_checkpoint():
+    """Traverse the patch chain to find the original transformers load_gguf_checkpoint.
+
+    Other loaders may chain-patch load_gguf_checkpoint at module import time with
+    narrow signatures (missing model_to_load). Traverse to the real function defined
+    in the actual transformers source file.
+    """
+    spec = importlib.util.find_spec("transformers.modeling_gguf_pytorch_utils")
+    if spec is None or spec.origin is None:
+        return None
+    real_file = os.path.abspath(spec.origin)
+
+    fn = _gguf_utils.load_gguf_checkpoint
+    visited = set()
+
+    while fn is not None:
+        fn_id = id(fn)
+        if fn_id in visited:
+            break
+        visited.add(fn_id)
+
+        try:
+            fn_file = os.path.abspath(inspect.getfile(fn))
+            if fn_file == real_file:
+                return fn
+        except (TypeError, OSError):
+            pass
+
+        saved = getattr(fn, "_hw_real_fn", None)
+        if saved is not None and callable(saved):
+            return saved
+
+        next_fn = None
+        try:
+            g = fn.__globals__
+            for name in ("_orig_load_gguf_checkpoint", "orig_load", "_orig"):
+                candidate = g.get(name)
+                if callable(candidate) and id(candidate) not in visited:
+                    next_fn = candidate
+                    break
+        except AttributeError:
+            pass
+
+        if next_fn is None:
+            try:
+                freevars = getattr(fn, "__code__", None)
+                freevars = freevars.co_freevars if freevars else ()
+                cells = fn.__closure__ or ()
+                for i, name in enumerate(freevars):
+                    if name in ("orig_load", "_orig", "_orig_load_gguf_checkpoint") and i < len(cells):
+                        try:
+                            val = cells[i].cell_contents
+                            if callable(val) and id(val) not in visited:
+                                next_fn = val
+                                break
+                        except ValueError:
+                            pass
+            except AttributeError:
+                pass
+
+        fn = next_fn
+
+    return None
+
+
+def _ensure_gguf_patch():
+    """Install a wide-sig load_gguf_checkpoint patch so model_to_load is forwarded.
+
+    Called in load_model() to override narrow-sig patches from other loaders
+    that don't pass model_to_load (required by transformers 5.x).
+    """
+    real_fn = _find_real_load_gguf_checkpoint()
+    if real_fn is None:
+        return
+
+    current = _gguf_utils.load_gguf_checkpoint
+    if (
+        getattr(current, "__name__", "") == "_patched_load_gguf_checkpoint"
+        and getattr(current, "_hw_real_fn", None) is real_fn
+    ):
+        return
+
+    def _patched_load_gguf_checkpoint(*args, **kwargs):
+        return real_fn(*args, **kwargs)
+
+    _patched_load_gguf_checkpoint.__name__ = "_patched_load_gguf_checkpoint"
+    _patched_load_gguf_checkpoint._hw_real_fn = real_fn
+
+    _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
@@ -76,6 +178,8 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _ensure_gguf_patch()
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
