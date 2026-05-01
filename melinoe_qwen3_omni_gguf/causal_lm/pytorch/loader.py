@@ -23,31 +23,51 @@ from ....config import (
 )
 
 
-@contextlib.contextmanager
-def _gguf_model_to_load_compat():
-    """Bypass global patches to load_gguf_checkpoint that drop model_to_load.
+def _unwrap_gguf_patcher(fn):
+    """Walk the full load_gguf_checkpoint patch chain and return the original.
 
-    Some loaders patch transformers.modeling_gguf_pytorch_utils.load_gguf_checkpoint
-    at import time without forwarding the model_to_load kwarg added in transformers 5.x.
-    Walk the full patch chain to find the original transformers function (identified by
-    having no _orig_load_gguf_checkpoint in its globals).
+    Patchers store their inner function either in module globals as
+    _orig_load_gguf_checkpoint, or as a closure variable (e.g. orig_load).
+    Walk both until we reach the transformers original (no inner callable found).
     """
-    current = _gguf_utils.load_gguf_checkpoint
-
-    fn = current
     seen = set()
     while True:
         fn_id = id(fn)
         if fn_id in seen:
             break
         seen.add(fn_id)
+
         inner = fn.__globals__.get("_orig_load_gguf_checkpoint")
+
+        if inner is None or inner is fn:
+            if hasattr(fn, "__code__") and fn.__closure__:
+                for cell in fn.__closure__:
+                    try:
+                        content = cell.cell_contents
+                        if callable(content) and content is not fn:
+                            inner = content
+                            break
+                    except ValueError:
+                        pass
+
         if inner is None or inner is fn:
             break
         fn = inner
+    return fn
 
-    if fn is not current:
-        _gguf_utils.load_gguf_checkpoint = fn
+
+@contextlib.contextmanager
+def _gguf_model_to_load_compat():
+    """Bypass global patches to load_gguf_checkpoint that drop model_to_load.
+
+    Some loaders patch transformers.modeling_gguf_pytorch_utils.load_gguf_checkpoint
+    at import time without forwarding the model_to_load kwarg added in transformers 5.x.
+    Walk the full patch chain to reach the original transformers function.
+    """
+    current = _gguf_utils.load_gguf_checkpoint
+    original = _unwrap_gguf_patcher(current)
+    if original is not current:
+        _gguf_utils.load_gguf_checkpoint = original
     try:
         yield
     finally:
