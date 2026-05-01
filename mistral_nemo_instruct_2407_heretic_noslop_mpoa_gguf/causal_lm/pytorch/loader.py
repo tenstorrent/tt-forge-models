@@ -4,9 +4,14 @@
 """
 Mistral Nemo Instruct 2407 Heretic Noslop MPOA GGUF model loader implementation for causal language modeling.
 """
+import contextlib
 from typing import Optional
 
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
@@ -19,6 +24,54 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
+
+
+def _find_real_load_gguf_checkpoint():
+    """Walk the patcher chain to find the original transformers load_gguf_checkpoint.
+
+    Other GGUF loaders patch load_gguf_checkpoint at module-import time with
+    signatures that predate the transformers 5.x model_to_load kwarg.  We identify
+    the real function by checking whether its __globals__ match the
+    modeling_gguf_pytorch_utils module (i.e. it was defined there, not in a loader).
+    """
+    fn = _gguf_utils.load_gguf_checkpoint
+    seen: set = set()
+    while True:
+        fid = id(fn)
+        if fid in seen:
+            return fn
+        seen.add(fid)
+        if fn.__globals__ is vars(_gguf_utils):
+            return fn
+        orig = fn.__globals__.get("_orig_load_gguf_checkpoint")
+        if orig is None or not callable(orig):
+            return fn
+        fn = orig
+
+
+_REAL_load_gguf_checkpoint = _find_real_load_gguf_checkpoint()
+
+
+@contextlib.contextmanager
+def _restore_real_load_gguf():
+    """Temporarily restore the real load_gguf_checkpoint on all patched binding sites."""
+    saved = {
+        "_gguf": _gguf_utils.load_gguf_checkpoint,
+        "_config": _config_utils.load_gguf_checkpoint,
+        "_auto": _auto_tokenizer.load_gguf_checkpoint,
+        "_tok": _tok_utils.load_gguf_checkpoint,
+    }
+    _gguf_utils.load_gguf_checkpoint = _REAL_load_gguf_checkpoint
+    _config_utils.load_gguf_checkpoint = _REAL_load_gguf_checkpoint
+    _auto_tokenizer.load_gguf_checkpoint = _REAL_load_gguf_checkpoint
+    _tok_utils.load_gguf_checkpoint = _REAL_load_gguf_checkpoint
+    try:
+        yield
+    finally:
+        _gguf_utils.load_gguf_checkpoint = saved["_gguf"]
+        _config_utils.load_gguf_checkpoint = saved["_config"]
+        _auto_tokenizer.load_gguf_checkpoint = saved["_auto"]
+        _tok_utils.load_gguf_checkpoint = saved["_tok"]
 
 
 class ModelVariant(StrEnum):
@@ -97,9 +150,10 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        with _restore_real_load_gguf():
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
