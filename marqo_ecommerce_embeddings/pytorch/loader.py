@@ -70,6 +70,9 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The model instance for image-text similarity.
         """
+        from transformers.dynamic_module_utils import get_class_from_dynamic_module
+        from transformers.modeling_utils import local_torch_dtype, init
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {"trust_remote_code": True}
@@ -78,7 +81,41 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        # transformers 5.x wraps __init__ in torch.device("meta"), causing
+        # open_clip.create_model's model.to('cpu') to fail on meta tensors.
+        # Patch get_init_context on the remote class to skip the meta device.
+        #
+        # The remote __init__ also omits post_init(), so all_tied_weights_keys
+        # is never set. Patch __init__ to initialize it to {} when absent.
+        model_cls = get_class_from_dynamic_module(
+            "marqo_fashionSigLIP.MarqoFashionSigLIP",
+            pretrained_model_name,
+            trust_remote_code=True,
+        )
+
+        @classmethod
+        def _no_meta_get_init_context(cls, dtype, is_quantized, _is_ds_init_called):
+            return [local_torch_dtype(dtype, cls.__name__), init.no_tie_weights()]
+
+        orig_cls_init = model_cls.__init__
+
+        def _patched_init(self, config):
+            orig_cls_init(self, config)
+            if not hasattr(self, "all_tied_weights_keys"):
+                self.all_tied_weights_keys = {}
+
+        orig_ctx = model_cls.__dict__.get("get_init_context")
+        model_cls.get_init_context = _no_meta_get_init_context
+        model_cls.__init__ = _patched_init
+        try:
+            model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        finally:
+            model_cls.__init__ = orig_cls_init
+            if orig_ctx is not None:
+                model_cls.get_init_context = orig_ctx
+            else:
+                del model_cls.get_init_context
+
         model.eval()
 
         return model
@@ -118,7 +155,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
 
-        return inputs
+        # forward() only accepts input_ids and pixel_values; drop attention_mask etc.
+        return {
+            "input_ids": inputs["input_ids"],
+            "pixel_values": inputs["pixel_values"],
+        }
 
     def post_process(self, outputs):
         """Post-process model outputs to extract similarity scores.
