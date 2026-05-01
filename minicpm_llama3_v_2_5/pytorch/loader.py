@@ -103,14 +103,20 @@ def _patch_cached_remote_files():
         )
         if old5a in text and new5a not in text:
             text = text.replace(old5a, new5a, 1)
-        # Fix max_patch_len: torch.max on XLA returns bf16-rounded value
-        old5b = "        max_patch_len = torch.max(patch_len)\n"
+        # Fix max_patch_len: torch.max on XLA returns bf16-rounded value.
+        # Two patterns: original file and an intermediate-patched file that already
+        # has int() but still uses reduce_max (both produce the wrong value on XLA).
         new5b = (
             "        max_patch_len = int(patch_len[0]) if len(patch_len) == 1"
             " else int(torch.max(patch_len))\n"
         )
-        if old5b in text and new5b not in text:
-            text = text.replace(old5b, new5b, 1)
+        for old5b in [
+            "        max_patch_len = torch.max(patch_len)\n",
+            "        max_patch_len = int(torch.max(patch_len))\n",
+        ]:
+            if old5b in text and new5b not in text:
+                text = text.replace(old5b, new5b, 1)
+                break
         path.write_text(text)
 
     # Invalidate the module cache so patched files are re-imported
