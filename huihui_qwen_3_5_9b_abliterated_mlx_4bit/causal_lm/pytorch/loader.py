@@ -5,7 +5,9 @@
 Huihui Qwen 3.5 9B Abliterated MLX 4-bit model loader implementation for causal language modeling.
 """
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoTokenizer, AutoConfig
+from transformers.models.qwen3_5.modeling_qwen3_5 import Qwen3_5ForCausalLM
+from safetensors import safe_open
 from typing import Optional
 
 from ....base import ForgeModel
@@ -24,6 +26,74 @@ class ModelVariant(StrEnum):
     """Available Huihui Qwen 3.5 9B Abliterated MLX 4-bit model variants for causal language modeling."""
 
     HUIHUI_QWEN_3_5_9B_ABLITERATED_MLX_4BIT = "9B_Abliterated_MLX_4bit"
+
+
+def _mlx_affine_dequantize(weight_u32, scales, biases, group_size=64):
+    """Dequantize MLX affine int4 weights packed as uint32 to bfloat16.
+
+    MLX stores 8 uint4 values (nibbles) per uint32 in little-endian nibble order.
+    Affine dequantization: float_val = uint4_val * scale + bias, per group.
+    """
+    out_dim, in_packed = weight_u32.shape
+    in_dim = in_packed * 8
+    # Cast to int32 first: uint32 bitwise ops aren't supported in all backends
+    w_i32 = weight_u32.view(torch.int32)
+    shifts = torch.arange(8, dtype=torch.int32) * 4
+    int4_vals = ((w_i32.unsqueeze(-1) >> shifts) & 0xF).reshape(out_dim, in_dim)
+    num_groups = in_dim // group_size
+    scales_exp = scales.unsqueeze(-1).expand(-1, -1, group_size).reshape(out_dim, in_dim)
+    biases_exp = biases.unsqueeze(-1).expand(-1, -1, group_size).reshape(out_dim, in_dim)
+    return (int4_vals.float() * scales_exp.float() + biases_exp.float()).to(torch.bfloat16)
+
+
+def _load_mlx4bit_state_dict(local_path, group_size=64):
+    """Load an MLX affine int4 VLM checkpoint, dequantize, and remap to CausalLM keys.
+
+    The checkpoint stores all weights under the 'language_model.' prefix (VLM layout).
+    Quantized weights have three entries: .weight (uint32-packed int4), .scales (bf16),
+    .biases (bf16). Non-quantized tensors (layer norms, dt_bias, A_log, etc.) are bf16/f32.
+    The MLX conv1d stores kernel as [out, K, in_per_group] vs PyTorch's [out, in_per_group, K].
+    """
+    import os
+    st_path = os.path.join(local_path, "model.safetensors")
+
+    with safe_open(st_path, framework="pt") as f:
+        all_keys = set(f.keys())
+
+    VLM_PREFIX = "language_model."
+    state_dict = {}
+
+    with safe_open(st_path, framework="pt") as f:
+        for key in all_keys:
+            if key.endswith(".scales") or key.endswith(".biases"):
+                continue
+
+            model_key = key[len(VLM_PREFIX):] if key.startswith(VLM_PREFIX) else key
+
+            if key.endswith(".weight"):
+                base = key[: -len(".weight")]
+                scales_key = f"{base}.scales"
+                biases_key = f"{base}.biases"
+
+                tensor = f.get_tensor(key)
+                if (
+                    tensor.dtype == torch.uint32
+                    and scales_key in all_keys
+                    and biases_key in all_keys
+                ):
+                    scales = f.get_tensor(scales_key)
+                    biases = f.get_tensor(biases_key)
+                    tensor = _mlx_affine_dequantize(tensor, scales, biases, group_size)
+
+                # Conv1d: MLX [out, K, in_per_group] → PyTorch [out, in_per_group, K]
+                if "conv1d.weight" in key and tensor.ndim == 3:
+                    tensor = tensor.permute(0, 2, 1).contiguous()
+            else:
+                tensor = f.get_tensor(key)
+
+            state_dict[model_key] = tensor
+
+    return state_dict
 
 
 class ModelLoader(ForgeModel):
@@ -60,45 +130,49 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        from huggingface_hub import snapshot_download
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
+        # Load the outer (VLM) config and extract text sub-config
+        vlm_config = AutoConfig.from_pretrained(pretrained_model_name)
+        text_config = vlm_config.text_config
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+            text_config.num_hidden_layers = self.num_layers
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        # Create the text-only model with the correct sub-config
+        model = Qwen3_5ForCausalLM(text_config).eval()
 
-        self.config = model.config
+        # Download checkpoint and dequantize MLX affine int4 weights
+        local_path = snapshot_download(pretrained_model_name)
+        state_dict = _load_mlx4bit_state_dict(local_path)
+        missing, unexpected = model.load_state_dict(state_dict, strict=False)
+        if missing:
+            print(f"WARNING: {len(missing)} missing keys in state_dict")
+
+        # Cast to requested dtype
+        if dtype_override is not None:
+            dtype = getattr(torch, dtype_override) if isinstance(dtype_override, str) else dtype_override
+            model = model.to(dtype=dtype)
+
+        self.config = text_config
         self.model = model
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
         max_length = self._variant_config.max_length
 
@@ -153,7 +227,8 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
+        vlm_config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name
         )
+        self.config = vlm_config.text_config
         return self.config
