@@ -334,18 +334,25 @@ class ModelLoader(ForgeModel):
         shard_specs = {}
         shard_specs[model.model.embed_tokens.weight] = (None, "batch")
         for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+            # Glm4MLP (glm4 model_type) uses a fused gate_up_proj; Glm4MoeMLP uses separate gate_proj + up_proj
+            if hasattr(layer.mlp, "gate_up_proj"):
+                shard_specs[layer.mlp.gate_up_proj.weight] = ("model", "batch")
+            else:
+                shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+                shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
 
             shard_specs[layer.input_layernorm.weight] = ("batch",)
             shard_specs[layer.post_attention_layernorm.weight] = ("batch",)
             shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.q_proj.bias] = ("model",)
+            if layer.self_attn.q_proj.bias is not None:
+                shard_specs[layer.self_attn.q_proj.bias] = ("model",)
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.bias] = ("model",)
+            if layer.self_attn.k_proj.bias is not None:
+                shard_specs[layer.self_attn.k_proj.bias] = ("model",)
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.bias] = ("model",)
+            if layer.self_attn.v_proj.bias is not None:
+                shard_specs[layer.self_attn.v_proj.bias] = ("model",)
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
         shard_specs[model.model.norm.weight] = ("batch",)
         shard_specs[model.lm_head.weight] = ("model", "batch")
