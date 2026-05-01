@@ -6,6 +6,7 @@ GTE-Multilingual-Base model loader implementation for sentence embedding generat
 """
 
 import torch
+import types
 from transformers import AutoModel, AutoTokenizer
 from typing import Optional
 
@@ -19,6 +20,45 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _reinit_non_persistent_buffers(model):
+    # transformers 5.x initializes models on meta device; non-persistent buffers are excluded
+    # from state_dict so their real-memory tensors contain uninitialized garbage after load.
+    model.embeddings.register_buffer(
+        "position_ids",
+        torch.arange(model.config.max_position_embeddings),
+        persistent=False,
+    )
+    re = model.embeddings.rotary_emb
+    inv_freq = 1.0 / (re.base ** (torch.arange(0, re.dim, 2).float() / re.dim))
+    re.register_buffer("inv_freq", inv_freq, persistent=False)
+    re._set_cos_sin_cache(
+        seq_len=re.max_position_embeddings,
+        device=inv_freq.device,
+        dtype=torch.get_default_dtype(),
+    )
+
+
+def _patched_get_extended_attention_mask(self, attention_mask, input_shape, device=None, dtype=None):
+    # transformers 5.x get_extended_attention_mask uses Python float literals and
+    # torch.finfo(dtype).min (both f64 in Python), which XLA traces as f64 constants and
+    # promotes the whole attention mask computation to f64. TT hardware does not support f64.
+    # Fix: use explicit dtype-typed tensors so the computation stays in the model dtype.
+    if dtype is None:
+        dtype = self.dtype
+    if attention_mask.dim() == 3:
+        extended = attention_mask[:, None, :, :]
+    elif attention_mask.dim() == 2:
+        extended = attention_mask[:, None, None, :]
+    else:
+        raise ValueError(
+            f"Wrong shape for input_ids (shape {input_shape}) or attention_mask (shape {attention_mask.shape})"
+        )
+    extended = extended.to(dtype=dtype)
+    one = torch.tensor(1.0, dtype=dtype)
+    min_val = torch.tensor(torch.finfo(dtype).min, dtype=dtype)
+    return (one - extended) * min_val
 
 
 class ModelVariant(StrEnum):
@@ -82,6 +122,10 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
 
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        _reinit_non_persistent_buffers(model)
+        model.get_extended_attention_mask = types.MethodType(
+            _patched_get_extended_attention_mask, model
+        )
         model.eval()
 
         return model
