@@ -72,7 +72,7 @@ class ModelLoader(ForgeModel):
         config = CLIPConfig.from_pretrained(pretrained_model_name)
         config.text_config.max_position_embeddings = 248
 
-        model_kwargs = {"return_dict": False, "config": config}
+        model_kwargs = {"config": config}
 
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
@@ -83,6 +83,9 @@ class ModelLoader(ForgeModel):
             ignore_mismatched_sizes=True,
             **model_kwargs,
         )
+        # In transformers 5.x, return_dict is no longer an __init__ kwarg;
+        # set it on the config so @can_return_tuple returns a tuple instead.
+        model.config.return_dict = False
         model.eval()
 
         return model
