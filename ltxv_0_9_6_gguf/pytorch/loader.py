@@ -15,6 +15,7 @@ from typing import Any, Optional
 
 import torch
 from diffusers import GGUFQuantizationConfig, LTXVideoTransformer3DModel
+from diffusers.quantizers.gguf.utils import _dequantize_gguf_and_restore_linear
 from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
@@ -94,6 +95,10 @@ class ModelLoader(ForgeModel):
             quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
             torch_dtype=dtype,
         )
+        _dequantize_gguf_and_restore_linear(self._transformer)
+        self._transformer._hf_quantizer = None
+        self._transformer.is_quantized = False
+        self._transformer.to(dtype)
         self._transformer.eval()
         return self._transformer
 
