@@ -43,7 +43,9 @@ class _LMForwardWrapper(torch.nn.Module):
             for name in self._condition_names
         }
         out = self.lm(codes, cond_tensors)
-        return out.logits
+        # Delay-masked positions are filled with NaN by _undelay_sequence; replace
+        # with 0 so PCC comparison between CPU and TT is well-defined.
+        return torch.nan_to_num(out.logits, nan=0.0)
 
 
 class ModelVariant(StrEnum):
