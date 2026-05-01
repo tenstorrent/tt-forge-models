@@ -101,6 +101,11 @@ def _patched_load_gguf_checkpoint(*args, **kwargs):
             for i in range(n)
         ]
 
+    # GGUF stores conv1d.weight as 2D [C, kernel] but nn.Conv1d expects 3D [C, 1, kernel].
+    for key, tensor in result.get("tensors", {}).items():
+        if "conv1d.weight" in key and tensor.ndim == 2:
+            result["tensors"][key] = tensor.unsqueeze(1)
+
     return result
 
 
