@@ -154,7 +154,9 @@ class ModelLoader(ForgeModel):
         """Load the sharding specification for tensor parallel execution."""
         shard_specs = {}
 
-        for layer in model.language_model.layers:
+        # Mistral3ForConditionalGeneration wraps Mistral3Model in model.model;
+        # language_model and vision_tower are children of model.model.
+        for layer in model.model.language_model.layers:
             shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
@@ -164,13 +166,16 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
 
-        for layer in model.vision_tower.vision_model.encoder.layers:
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.out_proj.weight] = ("batch", "model")
+        # vision_tower is a PixtralVisionModel: layers are in .transformer.layers;
+        # attention is at layer.attention and MLP is at layer.feed_forward.
+        for layer in model.model.vision_tower.transformer.layers:
+            shard_specs[layer.attention.q_proj.weight] = ("model", "batch")
+            shard_specs[layer.attention.k_proj.weight] = ("model", "batch")
+            shard_specs[layer.attention.v_proj.weight] = ("model", "batch")
+            shard_specs[layer.attention.o_proj.weight] = ("batch", "model")
 
-            shard_specs[layer.mlp.fc1.weight] = ("model", "batch")
-            shard_specs[layer.mlp.fc2.weight] = ("batch", "model")
+            shard_specs[layer.feed_forward.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.feed_forward.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.feed_forward.down_proj.weight] = ("batch", "model")
 
         return shard_specs
