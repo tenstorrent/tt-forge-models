@@ -9,12 +9,16 @@ model is too large to load directly.
 """
 
 import os
+import sys
 from typing import Optional
 from unittest.mock import patch
 
 import torch
+import transformers.utils
+import transformers.utils.import_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
-from transformers.dynamic_module_utils import get_imports
+from transformers.cache_utils import DynamicCache
+from transformers.dynamic_module_utils import get_class_from_dynamic_module, get_imports
 
 from ....base import ForgeModel
 from ....config import (
@@ -25,12 +29,86 @@ from ....config import (
     ModelTask,
 )
 
+# Patch is_torch_fx_available removed in transformers 5.x
+if not hasattr(transformers.utils.import_utils, "is_torch_fx_available"):
+
+    def _is_torch_fx_available():
+        return False
+
+    transformers.utils.import_utils.is_torch_fx_available = _is_torch_fx_available
+    sys.modules["transformers.utils.import_utils"].__dict__[
+        "is_torch_fx_available"
+    ] = _is_torch_fx_available
+
+# Patch DynamicCache methods removed in transformers 5.x
+if not hasattr(DynamicCache, "from_legacy_cache"):
+
+    @classmethod  # type: ignore[misc]
+    def _from_legacy_cache(cls, past_key_values=None):
+        cache = cls()
+        if past_key_values is not None:
+            for layer_idx, (key, value) in enumerate(past_key_values):
+                cache.update(key, value, layer_idx)
+        return cache
+
+    DynamicCache.from_legacy_cache = _from_legacy_cache
+
+if not hasattr(DynamicCache, "get_usable_length"):
+
+    def _get_usable_length(self, new_seq_length, layer_idx=0):
+        return self.get_seq_length(layer_idx)
+
+    DynamicCache.get_usable_length = _get_usable_length
+
 
 def fixed_get_imports(filename: str | os.PathLike) -> list[str]:
     imports = get_imports(filename)
     if not torch.cuda.is_available() and "flash_attn" in imports:
         imports.remove("flash_attn")
     return imports
+
+
+def _make_fixed_moe_infer(original_moe_infer):
+    """Return a moe_infer that uses .tolist() instead of .numpy() to avoid
+    Dynamo tracing numpy integers as FakeTensor nodes."""
+    import functools
+
+    @functools.wraps(original_moe_infer)
+    def _fixed_moe_infer(self, x, topk_ids, topk_weight):
+        import torch
+
+        cnts = topk_ids.new_zeros((topk_ids.shape[0], len(self.experts)))
+        cnts.scatter_(1, topk_ids, 1)
+        tokens_per_expert = cnts.sum(dim=0)
+        idxs = topk_ids.view(-1).argsort()
+        sorted_tokens = x[idxs // topk_ids.shape[1]]
+        tokens_per_expert = tokens_per_expert.cpu().tolist()
+
+        outputs = []
+        start_idx = 0
+        for i, num_tokens in enumerate(tokens_per_expert):
+            end_idx = start_idx + num_tokens
+            if num_tokens == 0:
+                continue
+            expert = self.experts[i + self.ep_rank * self.experts_per_rank]
+            tokens_for_this_expert = sorted_tokens[start_idx:end_idx]
+            expert_out = expert(tokens_for_this_expert)
+            outputs.append(expert_out)
+            start_idx = end_idx
+
+        outs = torch.cat(outputs, dim=0) if len(outputs) else sorted_tokens.new_empty(0)
+        new_x = torch.empty_like(outs)
+        new_x[idxs] = outs
+        final_out = (
+            new_x.view(*topk_ids.shape, -1)
+            .type(topk_weight.dtype)
+            .mul_(topk_weight.unsqueeze(dim=-1))
+            .sum(dim=1)
+            .type(x.dtype)
+        )
+        return final_out
+
+    return _fixed_moe_infer
 
 
 class ModelLoader(ForgeModel):
@@ -60,7 +138,6 @@ class ModelLoader(ForgeModel):
         with patch("transformers.dynamic_module_utils.get_imports", fixed_get_imports):
             config = AutoConfig.from_pretrained(self.model_name, trust_remote_code=True)
 
-            # Reduce model dimensions for testing
             if self.num_layers is not None:
                 config.num_hidden_layers = self.num_layers
             else:
@@ -82,6 +159,15 @@ class ModelLoader(ForgeModel):
             model_kwargs |= kwargs
 
             model = AutoModelForCausalLM.from_config(config, **model_kwargs)
+
+        # Patch moe_infer to use .tolist() instead of .numpy() so Dynamo
+        # sees Python ints (scalar constants) rather than numpy integer
+        # objects that crash FakeTensor tracing.
+        for mod_name, mod in list(sys.modules.items()):
+            if "modeling_deepseek" in mod_name and hasattr(mod, "DeepseekV3MoE"):
+                original = mod.DeepseekV3MoE.moe_infer
+                mod.DeepseekV3MoE.moe_infer = _make_fixed_moe_infer(original)
+                break
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.model_name, trust_remote_code=True
