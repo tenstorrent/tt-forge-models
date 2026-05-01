@@ -147,7 +147,7 @@ def _patch_deepseek_v2_rope():
         ).flatten(-2).type_as(xk)
         return xq_out, xk_out
 
-    _dsv2.DeepseekV2YarnRotaryEmbedding.forward = _patched_yarn_rope_forward
+    _dsv2.DeepseekV2RotaryEmbedding.forward = _patched_yarn_rope_forward
     _dsv2.apply_rotary_emb = _patched_apply_rotary_emb
 
 
