@@ -143,25 +143,38 @@ def _build_qwen35_patcher(real_fn):
 
 @contextlib.contextmanager
 def _qwen35_load_ctx():
-    """Temporarily install a corrected load_gguf_checkpoint for qwen35->qwen3_5_text.
+    """Temporarily install corrected load_gguf_checkpoint and get_gguf_hf_weights_map.
 
     Loaders imported before this one (bartowski, daniloreddy) and after
     (mradermacher) all remap qwen35->qwen3 which selects Qwen3ForCausalLM
-    and causes weight mismatches. We bypass the entire chain by using a BFS
-    to find the real transformers function and installing our correct remapper
-    directly on the module attributes that transformers reads at call time.
+    and causes weight mismatches. We bypass them via BFS to find the real
+    transformers load_gguf_checkpoint, then wrap get_gguf_hf_weights_map
+    to remap qwen3_5_text->qwen35 for the GGUF tensor-name lookup.
     """
     real_fn = _find_real_load_gguf_checkpoint()
-    patcher = _build_qwen35_patcher(real_fn)
+    load_patcher = _build_qwen35_patcher(real_fn)
+
+    # get_gguf_hf_weights_map: wrap the current chain (including onion008's patcher)
+    # to remap qwen3_5_text -> qwen35 before calling the real function.
+    _current_get_map = _gguf_utils.get_gguf_hf_weights_map
+
+    def _get_map_patcher(hf_model, processor, model_type=None, num_layers=None, **kwargs):
+        if model_type is None:
+            model_type = getattr(getattr(hf_model, "config", None), "model_type", None)
+        if model_type in ("qwen3_5_text", "qwen3_5"):
+            model_type = "qwen35"
+        return _current_get_map(hf_model, processor, model_type, num_layers, **kwargs)
 
     old_gguf = _gguf_utils.load_gguf_checkpoint
     old_cfg = _config_utils.load_gguf_checkpoint
     old_tok = _auto_tokenizer.load_gguf_checkpoint if hasattr(_auto_tokenizer, "load_gguf_checkpoint") else None
+    old_get_map = _gguf_utils.get_gguf_hf_weights_map
 
-    _gguf_utils.load_gguf_checkpoint = patcher
-    _config_utils.load_gguf_checkpoint = patcher
+    _gguf_utils.load_gguf_checkpoint = load_patcher
+    _config_utils.load_gguf_checkpoint = load_patcher
     if old_tok is not None:
-        _auto_tokenizer.load_gguf_checkpoint = patcher
+        _auto_tokenizer.load_gguf_checkpoint = load_patcher
+    _gguf_utils.get_gguf_hf_weights_map = _get_map_patcher
     try:
         yield
     finally:
@@ -169,6 +182,7 @@ def _qwen35_load_ctx():
         _config_utils.load_gguf_checkpoint = old_cfg
         if old_tok is not None:
             _auto_tokenizer.load_gguf_checkpoint = old_tok
+        _gguf_utils.get_gguf_hf_weights_map = old_get_map
 
 
 # Register GGUF tables at import time
