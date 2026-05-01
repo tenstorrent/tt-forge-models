@@ -242,11 +242,126 @@ def _patch_qwen3vl_for_tt_device(model=None):
         )
         return special_image_mask, special_video_mask
 
+    # Qwen3VLModel.forward calls inputs_embeds.masked_scatter(image_mask, image_embeds)
+    # to insert image embeddings into the sequence. XLA lowers masked_scatter via
+    # SORT + set-dimension-size + SCATTER, and tt-mlir generates a CumSumOp that
+    # requires 7.65 GB of DRAM — crashing on the TT device. Replace it with a
+    # @torch.compiler.disable CPU path (same pattern as _patched_deepstack_process)
+    # and patch forward to call it. The 3D mask[..., 0] slice used for visual_pos_masks
+    # and deepstack is preserved unchanged.
+    @torch.compiler.disable
+    def _cpu_masked_scatter(inputs_embeds, mask_3d, embeds):
+        orig_device = inputs_embeds.device
+        hs = inputs_embeds.detach().cpu().clone()
+        mask_2d = mask_3d[..., 0].detach().cpu()
+        em = embeds.detach().cpu().to(hs.dtype)
+        hs[mask_2d] = em
+        if str(orig_device) != "cpu":
+            import torch_xla.core.xla_model as xm
+            [hs] = xm.send_cpu_data_to_device([hs], orig_device)
+        return hs
+
+    _Qwen3VLModelOutputWithPast = modeling_qwen3_vl.Qwen3VLModelOutputWithPast
+
+    def _patched_model_forward(
+        self,
+        input_ids=None,
+        attention_mask=None,
+        position_ids=None,
+        past_key_values=None,
+        inputs_embeds=None,
+        pixel_values=None,
+        pixel_values_videos=None,
+        image_grid_thw=None,
+        video_grid_thw=None,
+        cache_position=None,
+        **kwargs,
+    ):
+        if (input_ids is None) ^ (inputs_embeds is not None):
+            raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
+
+        if inputs_embeds is None:
+            inputs_embeds = self.get_input_embeddings()(input_ids)
+
+        image_mask = None
+        video_mask = None
+
+        if pixel_values is not None:
+            image_outputs = self.get_image_features(pixel_values, image_grid_thw, return_dict=True)
+            image_embeds = image_outputs.pooler_output
+            deepstack_image_embeds = image_outputs.deepstack_features
+            image_embeds = torch.cat(image_embeds, dim=0).to(inputs_embeds.device, inputs_embeds.dtype)
+            image_mask, _ = self.get_placeholder_mask(
+                input_ids, inputs_embeds=inputs_embeds, image_features=image_embeds
+            )
+            inputs_embeds = _cpu_masked_scatter(inputs_embeds, image_mask, image_embeds)
+
+        if pixel_values_videos is not None:
+            video_outputs = self.get_video_features(pixel_values_videos, video_grid_thw, return_dict=True)
+            video_embeds = video_outputs.pooler_output
+            deepstack_video_embeds = video_outputs.deepstack_features
+            video_embeds = torch.cat(video_embeds, dim=0).to(inputs_embeds.device, inputs_embeds.dtype)
+            _, video_mask = self.get_placeholder_mask(
+                input_ids, inputs_embeds=inputs_embeds, video_features=video_embeds
+            )
+            inputs_embeds = _cpu_masked_scatter(inputs_embeds, video_mask, video_embeds)
+
+        visual_pos_masks = None
+        deepstack_visual_embeds = None
+        if image_mask is not None and video_mask is not None:
+            image_mask = image_mask[..., 0]
+            video_mask = video_mask[..., 0]
+            visual_pos_masks = image_mask | video_mask
+            deepstack_visual_embeds = []
+            image_mask_joint = image_mask[visual_pos_masks]
+            video_mask_joint = video_mask[visual_pos_masks]
+            for img_embed, vid_embed in zip(deepstack_image_embeds, deepstack_video_embeds):
+                embed_joint = img_embed.new_zeros(visual_pos_masks.sum(), img_embed.shape[-1]).to(img_embed.device)
+                embed_joint[image_mask_joint, :] = img_embed
+                embed_joint[video_mask_joint, :] = vid_embed
+                deepstack_visual_embeds.append(embed_joint)
+        elif image_mask is not None:
+            image_mask = image_mask[..., 0]
+            visual_pos_masks = image_mask
+            deepstack_visual_embeds = deepstack_image_embeds
+        elif video_mask is not None:
+            video_mask = video_mask[..., 0]
+            visual_pos_masks = video_mask
+            deepstack_visual_embeds = deepstack_video_embeds
+
+        if position_ids is None:
+            position_ids = self.compute_3d_position_ids(
+                input_ids=input_ids,
+                image_grid_thw=image_grid_thw,
+                video_grid_thw=video_grid_thw,
+                inputs_embeds=inputs_embeds,
+                attention_mask=attention_mask,
+                past_key_values=past_key_values,
+            )
+
+        outputs = self.language_model(
+            input_ids=None,
+            position_ids=position_ids,
+            attention_mask=attention_mask,
+            past_key_values=past_key_values,
+            inputs_embeds=inputs_embeds,
+            cache_position=cache_position,
+            visual_pos_masks=visual_pos_masks,
+            deepstack_visual_embeds=deepstack_visual_embeds,
+            **kwargs,
+        )
+
+        return _Qwen3VLModelOutputWithPast(
+            **outputs,
+            rope_deltas=self.rope_deltas,
+        )
+
     modeling_qwen3_vl.Qwen3VLVisionModel.fast_pos_embed_interpolate = _patched_fast_pos
     modeling_qwen3_vl.Qwen3VLVisionModel.rot_pos_emb = _patched_rot_pos
     modeling_qwen3_vl.Qwen3VLModel.get_rope_index = _patched_get_rope
     modeling_qwen3_vl.Qwen3VLModel.get_image_features = _patched_get_image
     modeling_qwen3_vl.Qwen3VLModel.get_placeholder_mask = _patched_get_placeholder_mask
+    modeling_qwen3_vl.Qwen3VLModel.forward = _patched_model_forward
 
 
 class ModelVariant(StrEnum):
