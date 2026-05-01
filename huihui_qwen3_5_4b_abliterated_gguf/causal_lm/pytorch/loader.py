@@ -76,6 +76,31 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     @staticmethod
+    def _patch_qwen35_support():
+        """Register qwen35 GGUF architecture as alias for qwen3.
+
+        Qwen3.5 GGUF files declare architecture 'qwen35' which transformers 5.x
+        does not recognise; register it as a qwen3 alias so parsing succeeds.
+        """
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+        from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
+        from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+        if "qwen35" not in GGUF_SUPPORTED_ARCHITECTURES:
+            GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
+        for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+            if "qwen3" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                    "qwen35",
+                    _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3"],
+                )
+        if "qwen3" in GGUF_TO_FAST_CONVERTERS:
+            GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3"])
+            GGUF_TO_FAST_CONVERTERS.setdefault(
+                "qwen3_5_text", GGUF_TO_FAST_CONVERTERS["qwen3"]
+            )
+
+    @staticmethod
     def _find_original_load_gguf_checkpoint():
         """Walk the monkey-patch chain to find the original transformers function.
 
@@ -141,19 +166,30 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        # Restore the original transformers load_gguf_checkpoint for the
-        # duration of from_pretrained.  Other loaders that patch at import time
-        # drop the model_to_load kwarg added in transformers 5.x; bypassing
-        # them ensures the weight-map lookup receives the dummy model.
+        # Register qwen35 GGUF architecture before parsing the checkpoint.
+        self._patch_qwen35_support()
+
+        # Wrap load_gguf_checkpoint for the duration of from_pretrained:
+        #   1. Use the original transformers function (bypassing import-time
+        #      patches from other loaders that drop model_to_load, added in
+        #      transformers 5.x).
+        #   2. Remap model_type qwen35 → qwen3 after parsing.
+        _orig = self._find_original_load_gguf_checkpoint()
+
+        def _load_gguf_for_huihui(gguf_path, return_tensors=False, model_to_load=None):
+            result = _orig(gguf_path, return_tensors=return_tensors, model_to_load=model_to_load)
+            if result.get("config", {}).get("model_type") == "qwen35":
+                result["config"]["model_type"] = "qwen3"
+            return result
+
         _modules = [_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils]
         _saved = {
             m: m.load_gguf_checkpoint
             for m in _modules
             if hasattr(m, "load_gguf_checkpoint")
         }
-        _orig = self._find_original_load_gguf_checkpoint()
         for m in _saved:
-            m.load_gguf_checkpoint = _orig
+            m.load_gguf_checkpoint = _load_gguf_for_huihui
         try:
             model = AutoModelForCausalLM.from_pretrained(
                 pretrained_model_name, **model_kwargs
