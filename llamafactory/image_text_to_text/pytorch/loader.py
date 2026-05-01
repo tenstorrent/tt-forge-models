@@ -179,6 +179,22 @@ class ModelLoader(ForgeModel):
 
         Llama4ForConditionalGeneration.get_placeholder_mask = _get_placeholder_mask
 
+        # Llama4UnfoldConvolution uses torch.nn.Unfold (→ aten.im2col → stablehlo.reduce_window)
+        # which tt-mlir cannot legalize. Replace with an equivalent reshape+permute decomposition
+        # valid only when stride == kernel_size (non-overlapping patches, as configured here).
+        from transformers.models.llama4.modeling_llama4 import Llama4UnfoldConvolution
+
+        def _unfold_conv_forward(self, hidden_states):
+            B, C, H, W = hidden_states.shape
+            P = self.unfold.kernel_size[0]
+            L_H, L_W = H // P, W // P
+            x = hidden_states.reshape(B, C, L_H, P, L_W, P)
+            x = x.permute(0, 2, 4, 1, 3, 5)
+            x = x.reshape(B, L_H * L_W, C * P * P)
+            return self.linear(x)
+
+        Llama4UnfoldConvolution.forward = _unfold_conv_forward
+
         model.eval()
         return model
 
