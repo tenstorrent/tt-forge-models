@@ -20,12 +20,55 @@ from ....config import (
 from ....base import ForgeModel
 
 
-def _dequantize_bnb_4bit(model):
-    """Replace Linear4bit layers with regular Linear layers using dequantized bf16 weights.
+def _patch_get_image_features():
+    """Patch Mistral3Model.get_image_features to compute split_sizes on CPU.
 
-    BNB Params4bit cannot be transferred to non-CUDA devices. Dequantize the
-    quantized checkpoint to standard weights so the TT compiler can work with them.
-    Uses bnb.functional.dequantize_4bit to get the correctly shaped weight matrix.
+    The split_sizes computation uses torch.as_tensor(image_sizes, device=TT_device)
+    followed by prod(dim=-1). The TT prod reduction gives wrong results for integer
+    products in the bfloat16 precision range (e.g. 42 * 55 → 2320 instead of 2310).
+    Keep the integer metadata computation on CPU to avoid the device arithmetic bug.
+    """
+    import torch
+    try:
+        import transformers.models.mistral3.modeling_mistral3 as _m3
+    except ImportError:
+        return
+
+    def _fixed_get_image_features(self, pixel_values, image_sizes, vision_feature_layer=None, output_hidden_states=None, **kwargs):
+        # @merge_with_config_defaults is on the original method; replicate the None→config fallback here.
+        if vision_feature_layer is None:
+            vision_feature_layer = self.config.vision_feature_layer
+        kwargs = {k: v for k, v in kwargs.items() if v is not None and k not in ("return_dict", "output_hidden_states")}
+        image_outputs = self.vision_tower(
+            pixel_values,
+            image_sizes=image_sizes,
+            output_hidden_states=True,
+            return_dict=True,
+            **kwargs,
+        )
+        if isinstance(vision_feature_layer, int):
+            selected_image_feature = image_outputs.hidden_states[vision_feature_layer]
+        else:
+            hs_pool = [image_outputs.hidden_states[layer_idx] for layer_idx in vision_feature_layer]
+            selected_image_feature = torch.cat(hs_pool, dim=-1)
+
+        image_features = self.multi_modal_projector(selected_image_feature.squeeze(0), image_sizes)
+        downsample_ratio = self.vision_tower.patch_size * self.config.spatial_merge_size
+        # Compute split_sizes on CPU to avoid TT device prod reduction bug.
+        split_sizes = (image_sizes.cpu() // downsample_ratio).prod(dim=-1).tolist()
+        image_features = torch.split(image_features.squeeze(0), split_sizes)
+        image_outputs.pooler_output = image_features
+        return image_outputs
+
+    _m3.Mistral3Model.get_image_features = _fixed_get_image_features
+
+
+def _replace_linear4bit(model):
+    """Replace Linear4bit layers with regular nn.Linear layers.
+
+    bitsandbytes 0.49+ auto-dequantizes on CPU when torch_dtype is set, so
+    weights may already be plain Parameters. Handle both Params4bit and plain
+    Parameter weights.
     """
     try:
         import bitsandbytes as bnb
@@ -35,21 +78,21 @@ def _dequantize_bnb_4bit(model):
 
     replacements = {}
     for name, module in model.named_modules():
-        if isinstance(module, Linear4bit):
-            with torch.no_grad():
-                weight = bnb.functional.dequantize_4bit(
-                    module.weight.data, module.weight.quant_state
-                )
-            has_bias = module.bias is not None
-            new_layer = torch.nn.Linear(
-                module.in_features,
-                module.out_features,
-                bias=has_bias,
-            )
-            new_layer.weight = torch.nn.Parameter(weight)
-            if has_bias:
-                new_layer.bias = module.bias
-            replacements[name] = new_layer
+        if not isinstance(module, Linear4bit):
+            continue
+        with torch.no_grad():
+            w = module.weight
+            if hasattr(w, "quant_state"):
+                weight = bnb.functional.dequantize_4bit(w.data, w.quant_state)
+            else:
+                weight = w.data
+            out_features, in_features = weight.shape
+        has_bias = module.bias is not None
+        new_layer = torch.nn.Linear(in_features, out_features, bias=has_bias)
+        new_layer.weight = torch.nn.Parameter(weight)
+        if has_bias:
+            new_layer.bias = module.bias
+        replacements[name] = new_layer
 
     for name, new_layer in replacements.items():
         parts = name.split(".")
@@ -140,7 +183,8 @@ class ModelLoader(ForgeModel):
         model = Mistral3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
-        model = _dequantize_bnb_4bit(model)
+        model = _replace_linear4bit(model)
+        _patch_get_image_features()
 
         model.eval()
         self.model = model
