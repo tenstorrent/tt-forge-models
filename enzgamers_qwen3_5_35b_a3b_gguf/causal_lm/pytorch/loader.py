@@ -26,34 +26,48 @@ from ....config import (
     StrEnum,
 )
 
+# qwen35moe is a hybrid SSM+full-attention+MoE architecture.
+# transformers 5.x has Qwen3_5MoeForCausalLM (model_type="qwen3_5_moe_text")
+# which supports the layer_types hybrid configuration.
+_QWEN35MOE_CONFIG_MAP = {
+    "context_length": "max_position_embeddings",
+    "block_count": "num_hidden_layers",
+    "embedding_length": "hidden_size",
+    "rope.dimension_count": None,
+    "rope.freq_base": "rope_theta",
+    "attention.key_length": "head_dim",
+    "attention.head_count": "num_attention_heads",
+    "attention.head_count_kv": "num_key_value_heads",
+    "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+    "vocab_size": "vocab_size",
+    "expert_count": "num_experts",
+    "expert_used_count": "num_experts_per_tok",
+    "expert_feed_forward_length": "moe_intermediate_size",
+    "full_attention_interval": "full_attention_interval",
+}
+
 
 def _patch_qwen35moe_support():
-    """Register qwen35moe architecture as an alias for qwen3_moe.
+    """Register qwen35moe architecture and wire it to qwen3_5_moe_text.
 
-    Qwen3.5 35B A3B uses the qwen35moe GGUF architecture, which transformers
-    5.x does not yet recognise. Map it to qwen3_moe (same structure).
+    Qwen3.5 35B A3B uses the qwen35moe GGUF architecture (hybrid SSM + full
+    attention + MoE). transformers 5.x supports this via Qwen3_5MoeForCausalLM
+    (model_type="qwen3_5_moe_text"), but has no GGUF loading support for the
+    qwen35moe arch name. We register the arch and config field mapping here.
     """
     if "qwen35moe" not in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
         _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("qwen35moe")
-    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
-        if "qwen3_moe" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
-            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
-                "qwen35moe",
-                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3_moe"],
-            )
+
+    _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"].setdefault(
+        "qwen35moe", _QWEN35MOE_CONFIG_MAP
+    )
+
+    # Reuse qwen3_moe tokenizer converter for tokenizer fast-loading.
     if "qwen3_moe" in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS.setdefault("qwen35moe", GGUF_TO_FAST_CONVERTERS["qwen3_moe"])
-    # Also register qwen35 → qwen3_moe for this MoE model (in case GGUF reports qwen35 arch)
-    if "qwen35" not in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
-        _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
-    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
-        if "qwen3_moe" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
-            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
-                "qwen35",
-                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3_moe"],
-            )
-    if "qwen3_moe" in GGUF_TO_FAST_CONVERTERS:
-        GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3_moe"])
+        GGUF_TO_FAST_CONVERTERS.setdefault(
+            "qwen3_5_moe_text", GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
+        )
 
 
 def _get_real_load_gguf_fn():
@@ -88,6 +102,45 @@ def _get_real_load_gguf_fn():
                         try:
                             name = getattr(v, "__name__", "") or ""
                             if "gguf" in name.lower() or "checkpoint" in name.lower():
+                                orig = v
+                                break
+                        except Exception:
+                            pass
+        except TypeError:
+            pass
+        if orig is None or not callable(orig):
+            break
+        fn = orig
+    return fn
+
+
+def _get_real_weights_map_fn():
+    """Find the real get_gguf_hf_weights_map (not any narrow wrapper)."""
+    fn = _gguf_utils.get_gguf_hf_weights_map
+    seen = set()
+    while fn is not None and id(fn) not in seen:
+        seen.add(id(fn))
+        try:
+            params = inspect.signature(fn).parameters
+            if "model_type" in params and "num_layers" in params:
+                return fn
+        except (ValueError, TypeError):
+            return fn
+        orig = None
+        try:
+            cvars = inspect.getclosurevars(fn)
+            all_vars = {**cvars.nonlocals, **cvars.globals}
+            for name in ("orig_get_map", "_orig_get_map", "orig_fn", "_orig"):
+                candidate = all_vars.get(name)
+                if callable(candidate) and id(candidate) not in seen:
+                    orig = candidate
+                    break
+            if orig is None:
+                for v in all_vars.values():
+                    if callable(v) and id(v) not in seen:
+                        try:
+                            nm = getattr(v, "__name__", "") or ""
+                            if "weights_map" in nm.lower() or "gguf_hf" in nm.lower():
                                 orig = v
                                 break
                         except Exception:
@@ -158,27 +211,46 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        # Register qwen35moe arch support and install a wide-sig patch that
-        # accepts model_to_load. This overrides any narrow-sig patches installed
-        # by other loaders during test collection (transformers 5.2.0+ passes
-        # model_to_load to load_gguf_checkpoint).
+        # Register qwen35moe arch support and install wide-sig patches.
+        # This overrides any narrow-sig patches installed by other loaders
+        # during test collection (transformers 5.2.0+ passes model_to_load).
         _patch_qwen35moe_support()
-        real_fn = _get_real_load_gguf_fn()
+        real_load_fn = _get_real_load_gguf_fn()
+        real_map_fn = _get_real_weights_map_fn()
 
         def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
-            result = real_fn(gguf_path, return_tensors=return_tensors, model_to_load=model_to_load)
+            result = real_load_fn(gguf_path, return_tensors=return_tensors, model_to_load=model_to_load)
             if result.get("config", {}).get("model_type") in ("qwen35", "qwen35moe"):
-                result["config"]["model_type"] = "qwen3_moe"
+                result["config"]["model_type"] = "qwen3_5_moe_text"
+                # Generate layer_types from full_attention_interval
+                config = result["config"]
+                num_layers = config.get("num_hidden_layers", 40)
+                interval = config.pop("full_attention_interval", 4)
+                config["layer_types"] = [
+                    "full_attention" if (i + 1) % interval == 0 else "linear_attention"
+                    for i in range(num_layers)
+                ]
             return result
+
+        def _patched_get_gguf_hf_weights_map(
+            hf_model, processor, model_type=None, num_layers=None, qual_name=""
+        ):
+            if model_type is None:
+                model_type = getattr(getattr(hf_model, "config", None), "model_type", None)
+            if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
+                model_type = "qwen35moe"
+            return real_map_fn(hf_model, processor, model_type, num_layers, qual_name)
 
         prev_gguf = _gguf_utils.load_gguf_checkpoint
         prev_config = _config_utils.load_gguf_checkpoint
         prev_auto_tok = _auto_tokenizer.load_gguf_checkpoint
         prev_tok_utils = _tok_utils.load_gguf_checkpoint
+        prev_map = _gguf_utils.get_gguf_hf_weights_map
         _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
         _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
         _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
         _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
         try:
             if self.tokenizer is None:
@@ -202,6 +274,8 @@ class ModelLoader(ForgeModel):
                         ]
                 else:
                     config.num_hidden_layers = self.num_layers
+                    if hasattr(config, "layer_types"):
+                        config.layer_types = config.layer_types[: self.num_layers]
                 model_kwargs["config"] = config
 
             model = AutoModelForCausalLM.from_pretrained(
@@ -212,6 +286,7 @@ class ModelLoader(ForgeModel):
             _config_utils.load_gguf_checkpoint = prev_config
             _auto_tokenizer.load_gguf_checkpoint = prev_auto_tok
             _tok_utils.load_gguf_checkpoint = prev_tok_utils
+            _gguf_utils.get_gguf_hf_weights_map = prev_map
 
         self.config = model.config
         self.model = model
