@@ -8,6 +8,10 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.configuration_utils as _config_utils
+import transformers.models.auto.tokenization_auto as _tok_auto
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -18,6 +22,73 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_qwen3next_gguf_support():
+    """Register qwen3next GGUF architecture as an alias for qwen3_next in transformers.
+
+    Qwen3-Next GGUFs use general.architecture = 'qwen3next' (no underscore) but
+    transformers 5.x registers the model type as 'qwen3_next'.  We bridge the gap
+    by registering the GGUF architecture, adding config and tokenizer mappings, and
+    wrapping load_gguf_checkpoint to normalise the model_type field.
+    """
+    from transformers.modeling_gguf_pytorch_utils import (
+        GGUF_SUPPORTED_ARCHITECTURES,
+        GGUF_TO_TRANSFORMERS_MAPPING,
+    )
+    from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+    if "qwen3next" in GGUF_SUPPORTED_ARCHITECTURES:
+        return  # already patched
+
+    # 1. Register architecture
+    GGUF_SUPPORTED_ARCHITECTURES.append("qwen3next")
+
+    # 2. Config field mappings (derived from GGUF KV metadata in the Q4_K_M file)
+    GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen3next"] = {
+        "context_length": "max_position_embeddings",
+        "block_count": "num_hidden_layers",
+        "feed_forward_length": "intermediate_size",
+        "embedding_length": "hidden_size",
+        "rope.dimension_count": None,
+        "rope.freq_base": "rope_theta",
+        "attention.key_length": "head_dim",
+        "attention.head_count": "num_attention_heads",
+        "attention.head_count_kv": "num_key_value_heads",
+        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+        "vocab_size": "vocab_size",
+        "expert_count": "num_experts",
+        "expert_used_count": "num_experts_per_tok",
+        "expert_feed_forward_length": "moe_intermediate_size",
+        "ssm.conv_kernel": "linear_conv_kernel_dim",
+    }
+
+    # 3. Tokenizer converter — Qwen3Next uses Qwen2Tokenizer (same as qwen3)
+    if "qwen3" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("qwen3next", GGUF_TO_FAST_CONVERTERS["qwen3"])
+
+    # 4. Wrap load_gguf_checkpoint to normalise model_type
+    _orig_load = _gguf_utils.load_gguf_checkpoint
+
+    def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+        result = _orig_load(gguf_path, return_tensors=return_tensors, **kwargs)
+        if result.get("config", {}).get("model_type") == "qwen3next":
+            result["config"]["model_type"] = "qwen3_next"
+        return result
+
+    _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _tok_auto.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+    try:
+        import transformers.modeling_utils as _modeling_utils
+        if hasattr(_modeling_utils, "load_gguf_checkpoint"):
+            _modeling_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    except ImportError:
+        pass
+
+
+_patch_qwen3next_gguf_support()
 
 
 class ModelVariant(StrEnum):
@@ -82,6 +153,9 @@ class ModelLoader(ForgeModel):
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
+        if self.tokenizer.chat_template is None:
+            self.tokenizer.chat_template = None
+
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -90,18 +164,23 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
+        # Load config first to set batched_mm experts implementation before model init
+        config = AutoConfig.from_pretrained(
+            pretrained_model_name, gguf_file=self._gguf_file
+        )
+        # Qwen3Next uses grouped_mm experts by default; switch to batched_mm to avoid
+        # histc-on-int failure under TT's XLA device (device.type == "xla" picks int histc)
+        config._experts_implementation = "batched_mm"
+
+        if self.num_layers is not None:
+            config.num_hidden_layers = self.num_layers
+
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self._gguf_file
-
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self._gguf_file
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
@@ -123,12 +202,16 @@ class ModelLoader(ForgeModel):
                 "content": self.sample_text,
             }
         ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-            enable_thinking=True,
-        )
+
+        if self.tokenizer.chat_template is not None:
+            text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=True,
+            )
+        else:
+            text = self.sample_text
         prompts = [text]
 
         inputs = self.tokenizer(
@@ -161,10 +244,12 @@ class ModelLoader(ForgeModel):
                 shard_specs[mlp.shared_expert.gate_proj.weight] = ("model", "batch")
                 shard_specs[mlp.shared_expert.down_proj.weight] = ("batch", "model")
 
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+            attn = getattr(layer, "self_attn", None)
+            if attn is not None:
+                shard_specs[attn.q_proj.weight] = ("model", "batch")
+                shard_specs[attn.k_proj.weight] = ("model", "batch")
+                shard_specs[attn.v_proj.weight] = ("model", "batch")
+                shard_specs[attn.o_proj.weight] = ("batch", "model")
         shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
 
