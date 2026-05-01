@@ -120,12 +120,25 @@ class ModelLoader(ForgeModel):
 
     @staticmethod
     def _patch_get_image_features(model):
-        """Patch Mistral3Model.get_image_features to compute split_sizes on CPU.
+        """Patch Mistral3Model.get_image_features to keep image_sizes as Python data.
 
-        The buggy line is in Mistral3Model (model.model), not the outer wrapper.
-        TT device casts int64 image_sizes tensors to bf16 before arithmetic,
-        corrupting values like 1540→1536 which makes split_sizes wrong (2320
-        instead of 2310). Keeping the metadata computation on CPU avoids this.
+        image_sizes must stay as a Python list of (h, w) tuples throughout the
+        forward pass. Two sites iterate over it in Python:
+          - PixtralVisionModel.forward() line 452: zip(patch_embeds, image_sizes)
+          - Mistral3PatchMerger.forward() line 76: for image_size in image_sizes
+
+        When image_sizes is a TT/XLA device tensor, these iterations trigger a
+        device-to-host transfer (INTERNAL Error code: 13 at torch_xla.sync()).
+        Passing a Python list avoids device promotion and lets XLA compile static
+        shapes from the Python int indices.
+
+        The original split_sizes computation also moves image_sizes to device
+        (corrupting int64→bf16: 1540→1536, giving wrong counts 2320 vs 2310).
+        We replace it with pure Python integer arithmetic.
+
+        load_inputs() converts the processor's image_sizes tensor to a Python
+        list of tuples before returning, so Dynamo never promotes it to a device
+        tensor in the first place.
         """
         import types
 
@@ -136,14 +149,13 @@ class ModelLoader(ForgeModel):
                 vision_feature_layer = self.config.vision_feature_layer
             # Strip return_dict and other output-control kwargs (handled by caller)
             kwargs = {k: v for k, v in kwargs.items() if v is not None and k not in ("return_dict",)}
-            # Keep image_sizes on CPU throughout: TT device casts int64→bf16 (1540→1536).
-            # Both vision_tower (PixtralVisionModel line 452) and multi_modal_projector
-            # (Mistral3PatchMerger line 76) iterate over image_sizes in Python, which
-            # triggers Error code: 13 (device-to-host) when the tensor is on TT device.
-            image_sizes_cpu = torch.as_tensor(image_sizes, dtype=torch.long, device="cpu")
+            # image_sizes is expected to be a Python list of (h, w) tuples
+            # (converted from tensor in load_inputs). Pass it directly to
+            # vision_tower and multi_modal_projector so they can iterate in Python
+            # without triggering device-to-host transfers.
             image_outputs = self.vision_tower(
                 pixel_values,
-                image_sizes=image_sizes_cpu,
+                image_sizes=image_sizes,
                 output_hidden_states=True,
                 return_dict=True,
                 **kwargs,
@@ -154,13 +166,14 @@ class ModelLoader(ForgeModel):
                 hs_pool = [image_outputs.hidden_states[layer_idx] for layer_idx in vision_feature_layer]
                 selected_image_feature = torch.cat(hs_pool, dim=-1)
 
-            image_features = self.multi_modal_projector(selected_image_feature.squeeze(0), image_sizes_cpu)
+            image_features = self.multi_modal_projector(selected_image_feature.squeeze(0), image_sizes)
             downsample_ratio = self.vision_tower.patch_size * self.config.spatial_merge_size
-            split_sizes = (
-                (image_sizes_cpu // downsample_ratio)
-                .prod(dim=-1)
-                .tolist()
-            )
+            # Pure Python arithmetic: image_sizes is a list of (h, w) Python int tuples.
+            # No tensor device involvement → no Error code: 13.
+            split_sizes = [
+                (h // downsample_ratio) * (w // downsample_ratio)
+                for h, w in image_sizes
+            ]
             image_features = torch.split(image_features.squeeze(0), split_sizes)
             image_outputs.pooler_output = image_features
             return image_outputs
@@ -248,5 +261,13 @@ class ModelLoader(ForgeModel):
                 inputs["pixel_values"] = cast_input_to_type(
                     inputs["pixel_values"], dtype_override
                 )
+
+        # Convert image_sizes from tensor to a Python list of (h, w) tuples.
+        # Dynamo treats plain Python lists as static constants and does NOT move
+        # them to TT/XLA device. This prevents device-to-host transfers
+        # (INTERNAL Error code: 13) in PixtralVisionModel and Mistral3PatchMerger,
+        # which iterate over image_sizes in Python during forward.
+        if "image_sizes" in inputs and isinstance(inputs["image_sizes"], torch.Tensor):
+            inputs["image_sizes"] = [tuple(s.tolist()) for s in inputs["image_sizes"]]
 
         return inputs
