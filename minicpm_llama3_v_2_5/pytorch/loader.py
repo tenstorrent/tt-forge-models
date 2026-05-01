@@ -26,8 +26,8 @@ from ...config import (
 from ...tools.utils import get_file
 
 
-def _patch_cached_resampler():
-    """Fix missing List import in MiniCPM-Llama3-V-2.5's cached resampler.py (Python 3.12)."""
+def _patch_cached_remote_files():
+    """Fix transformers-5.x incompatibilities in MiniCPM-Llama3-V-2.5's cached remote files."""
     cache_base = (
         Path.home()
         / ".cache"
@@ -35,19 +35,31 @@ def _patch_cached_resampler():
         / "modules"
         / "transformers_modules"
     )
-    old = "from typing import Optional, Tuple"
-    new = "from typing import List, Optional, Tuple"
-    for path in cache_base.glob(
-        "openbmb/MiniCPM_hyphen_Llama3_hyphen_V_hyphen_2_5/*/resampler.py"
-    ):
+    glob_prefix = "openbmb/MiniCPM_hyphen_Llama3_hyphen_V_hyphen_2_5/*"
+
+    # Fix 1: resampler.py uses List[Tensor] but only imports Optional, Tuple (Python 3.12 NameError)
+    for path in cache_base.glob(f"{glob_prefix}/resampler.py"):
         text = path.read_text()
+        old = "from typing import Optional, Tuple"
+        new = "from typing import List, Optional, Tuple"
         if old in text and new not in text:
             path.write_text(text.replace(old, new, 1))
-            # Clear any partially-cached failed import from sys.modules
-            for key in list(sys.modules):
-                if "resampler" in key and "minicpm" in key.lower():
-                    del sys.modules[key]
-            importlib.invalidate_caches()
+
+    # Fix 2: MiniCPMV.__init__ never calls self.post_init(), so all_tied_weights_keys
+    # (added in transformers 5.x) is never initialized, causing AttributeError in
+    # _adjust_tied_keys_with_tied_pointers during from_pretrained.
+    for path in cache_base.glob(f"{glob_prefix}/modeling_minicpmv.py"):
+        text = path.read_text()
+        old = "        self.transform = self.init_transform()\n"
+        new = "        self.transform = self.init_transform()\n        self.post_init()\n"
+        if old in text and new not in text:
+            path.write_text(text.replace(old, new, 1))
+
+    # Invalidate the module cache so patched files are re-imported
+    for key in list(sys.modules):
+        if "MiniCPM_hyphen_Llama3" in key or "minicpm" in key.lower():
+            del sys.modules[key]
+    importlib.invalidate_caches()
 
 
 class ModelVariant(StrEnum):
@@ -96,7 +108,7 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the MiniCPM-Llama3-V-2.5 model instance."""
-        _patch_cached_resampler()
+        _patch_cached_remote_files()
         model_name = self._variant_config.pretrained_model_name
         model = AutoModel.from_pretrained(
             str(model_name),
