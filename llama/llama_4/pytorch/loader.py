@@ -83,6 +83,16 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
 
+        # freqs_ci is computed in __init__ and assigned as a plain attribute
+        # (not register_buffer). Under init_empty_weights (default low_cpu_mem_usage)
+        # it becomes a meta tensor; re-init from vision config after loading.
+        from transformers.models.llama4.modeling_llama4 import Llama4VisionRotaryEmbedding
+
+        vision_config = model.vision_model.config
+        for module in model.modules():
+            if isinstance(module, Llama4VisionRotaryEmbedding):
+                Llama4VisionRotaryEmbedding.__init__(module, vision_config)
+
         model.eval()
         self.model = model
 
