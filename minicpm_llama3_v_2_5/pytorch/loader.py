@@ -118,6 +118,12 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
 
+        # Disable batch vision input: in the batch path, patch_attn_mask (shape [B,1,N])
+        # and pixel_values (last dim N*14) get padded inconsistently by XLA, causing a
+        # shape mismatch in idefics2's position embedding. The per-image path derives
+        # both tensors from the same pixel_values shape, avoiding the divergence.
+        model.config.batch_vision_input = False
+
         if dtype_override:
             model = model.to(dtype_override)
 
