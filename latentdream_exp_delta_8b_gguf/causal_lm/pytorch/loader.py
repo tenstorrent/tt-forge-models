@@ -15,13 +15,56 @@ import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 
-def _restore_wide_sig_load_gguf():
-    """Re-patch load_gguf_checkpoint to accept model_to_load (transformers 5.2.0+).
+def _find_true_orig_load_gguf():
+    """BFS-walk the patch chain (globals + closures) to find the true load_gguf_checkpoint.
 
-    Some GGUF loaders imported earlier in the pytest session install a narrow-sig
-    wrapper that rejects the model_to_load kwarg added in transformers 5.2.0.
-    Walk the __globals__ chain to recover the true original and re-patch with a
-    pass-through that accepts *args, **kwargs.
+    Some GGUF loaders install narrow-sig wrappers that reject the model_to_load kwarg
+    added in transformers 5.2.0.  Others use closure variables (orig_load) rather than
+    __globals__['_orig_load_gguf_checkpoint'].  BFS through both to find the first
+    function with model_to_load as an explicit named parameter.
+    """
+    start = _gguf_utils.load_gguf_checkpoint
+    visited: set = set()
+    queue = [start]
+
+    while queue:
+        func = queue.pop(0)
+        if not callable(func) or id(func) in visited:
+            continue
+        visited.add(id(func))
+
+        try:
+            if "model_to_load" in inspect.signature(func).parameters:
+                return func
+        except (ValueError, TypeError):
+            pass
+
+        # Follow __globals__['_orig_load_gguf_checkpoint']
+        candidate = getattr(func, "__globals__", {}).get("_orig_load_gguf_checkpoint")
+        if candidate is not None and id(candidate) not in visited:
+            queue.append(candidate)
+
+        # Follow all callable closure variables (e.g. orig_load in onion008-style patchers)
+        code = getattr(func, "__code__", None)
+        closure = getattr(func, "__closure__", None) or ()
+        if code and closure:
+            for i in range(len(code.co_freevars)):
+                try:
+                    val = closure[i].cell_contents
+                    if callable(val) and id(val) not in visited:
+                        queue.append(val)
+                except ValueError:
+                    pass
+
+    return start  # fallback: use whatever is current
+
+
+def _restore_wide_sig_load_gguf():
+    """Re-patch load_gguf_checkpoint with a wide-sig wrapper backed by the true original.
+
+    Called at module import time AND at load_model() time so that narrow-sig patchers
+    installed either before or after this module's import are overridden at the moment
+    that AutoModelForCausalLM.from_pretrained() makes its local import.
     """
     current = _gguf_utils.load_gguf_checkpoint
     try:
@@ -30,23 +73,10 @@ def _restore_wide_sig_load_gguf():
     except (ValueError, TypeError):
         return
 
-    orig = current
-    visited = set()
-    while id(orig) not in visited:
-        visited.add(id(orig))
-        candidate = getattr(orig, "__globals__", {}).get("_orig_load_gguf_checkpoint")
-        if candidate is None:
-            break
-        try:
-            if "model_to_load" in inspect.signature(candidate).parameters:
-                orig = candidate
-                break
-        except (ValueError, TypeError):
-            pass
-        orig = candidate
+    true_orig = _find_true_orig_load_gguf()
 
     def _wide(*args, **kwargs):
-        return orig(*args, **kwargs)
+        return true_orig(*args, **kwargs)
 
     for _mod in [_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils]:
         if hasattr(_mod, "load_gguf_checkpoint"):
@@ -127,6 +157,10 @@ class ModelLoader(ForgeModel):
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
+
+        # Re-apply at call time: loaders imported after us may have re-installed
+        # a narrow-sig wrapper that rejects model_to_load (transformers 5.2.0+).
+        _restore_wide_sig_load_gguf()
 
         model_kwargs = {}
         if dtype_override is not None:
