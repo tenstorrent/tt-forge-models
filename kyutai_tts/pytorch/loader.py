@@ -60,7 +60,7 @@ class ModelLoader(ForgeModel):
         tts_model = TTSModel.from_checkpoint_info(
             checkpoint_info, n_q=32, temp=0.6, device=torch.device("cpu"), dtype=dtype
         )
-        model = tts_model.lm_gen.model
+        model = tts_model.lm
         model.eval()
 
         self._num_codebooks = model.num_codebooks
