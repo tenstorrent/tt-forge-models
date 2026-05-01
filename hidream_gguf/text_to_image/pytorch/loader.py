@@ -13,7 +13,16 @@ from diffusers import (
     GGUFQuantizationConfig,
     HiDreamImageTransformer2DModel,
 )
+from diffusers.quantizers.gguf.utils import GGUFParameter
 from huggingface_hub import hf_hub_download
+
+
+def _gguf_as_tensor(self):
+    with torch._C.DisableTorchFunctionSubclass():
+        return torch.Tensor._make_subclass(torch.Tensor, self, self.requires_grad)
+
+
+GGUFParameter.as_tensor = _gguf_as_tensor
 
 from ....base import ForgeModel
 from ....config import (
