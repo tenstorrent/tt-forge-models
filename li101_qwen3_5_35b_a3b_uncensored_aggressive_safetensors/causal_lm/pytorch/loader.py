@@ -102,6 +102,13 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        # The Li101 safetensors checkpoint stores expert weights at 8-byte-aligned
+        # offsets; torch._grouped_mm (used by "grouped_mm") requires 16-byte alignment.
+        # "batched_mm" uses torch.bmm, which has no alignment requirement.
+        tc = getattr(model.config, "text_config", model.config)
+        if hasattr(tc, "_experts_implementation"):
+            tc._experts_implementation = "batched_mm"
+
         self.config = model.config
         self.model = model
         return model
