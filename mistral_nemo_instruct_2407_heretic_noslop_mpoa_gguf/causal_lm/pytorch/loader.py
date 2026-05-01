@@ -33,20 +33,41 @@ def _find_real_load_gguf_checkpoint():
     signatures that predate the transformers 5.x model_to_load kwarg.  We identify
     the real function by checking whether its __globals__ match the
     modeling_gguf_pytorch_utils module (i.e. it was defined there, not in a loader).
+
+    Two patcher styles exist:
+    1. Module-global: captures orig as `_orig_load_gguf_checkpoint` in module globals
+    2. Closure-based: captures orig as a closure variable inside a helper function
+    We handle both by searching __globals__ and __closure__ recursively.
     """
-    fn = _gguf_utils.load_gguf_checkpoint
     seen: set = set()
-    while True:
+
+    def _find(fn) -> object:
         fid = id(fn)
         if fid in seen:
             return fn
         seen.add(fid)
         if fn.__globals__ is vars(_gguf_utils):
             return fn
+        # Module-global patcher style
         orig = fn.__globals__.get("_orig_load_gguf_checkpoint")
-        if orig is None or not callable(orig):
-            return fn
-        fn = orig
+        if orig is not None and callable(orig):
+            result = _find(orig)
+            if result.__globals__ is vars(_gguf_utils):
+                return result
+        # Closure-based patcher style (e.g. GLM loaders define patcher inside a helper)
+        if fn.__closure__:
+            for cell in fn.__closure__:
+                try:
+                    val = cell.cell_contents
+                    if callable(val):
+                        result = _find(val)
+                        if result.__globals__ is vars(_gguf_utils):
+                            return result
+                except ValueError:
+                    pass
+        return fn
+
+    return _find(_gguf_utils.load_gguf_checkpoint)
 
 
 _REAL_load_gguf_checkpoint = _find_real_load_gguf_checkpoint()
