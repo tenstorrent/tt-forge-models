@@ -1,0 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# Install gptqmodel without transitive deps to avoid upgrading transformers
+# or numpy, which would break the test environment.
+gptqmodel
