@@ -53,7 +53,7 @@ _orig_load = _gguf_utils.load_gguf_checkpoint
 
 def _patched_load_gguf_checkpoint(*args, **kwargs):
     """Wrap load_gguf_checkpoint to generate layer_types for cohere2."""
-    result = _orig_load(gguf_path, return_tensors=return_tensors)
+    result = _orig_load(*args, **kwargs)
     config = result.get("config", {})
     if config.get("model_type") == "cohere2":
         num_layers = config.get("num_hidden_layers", 36)
