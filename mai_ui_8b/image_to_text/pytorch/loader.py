@@ -190,8 +190,6 @@ def _patch_qwen3vl_for_tt_device(model=None):
     # image token positions (dynamic output shape) then scatters back. Replace
     # with masked_scatter which is static-shape: zeros filled at mask positions
     # with visual_embeds elements, then added to hidden_states.
-    orig_deepstack = modeling_qwen3_vl.Qwen3VLVisionTransformer._deepstack_process
-
     def _patched_deepstack_process(self, hidden_states, visual_pos_masks, visual_embeds):
         visual_pos_masks = visual_pos_masks.to(hidden_states.device)
         visual_embeds = visual_embeds.to(hidden_states.device, hidden_states.dtype)
