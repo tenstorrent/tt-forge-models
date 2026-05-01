@@ -145,57 +145,47 @@ def _patch_moe_experts(model):
        slice of a 2D index tensor, but TTNN promotes 2D tensors to 4D at
        runtime → TT_FATAL: Input rank 4 and begins 2 must have the same size.
 
-    Fix: replace the full GraniteMoeMoE.forward with a static per-expert
-    boolean-mask matmul that never calls .tolist() or index_add.
+    Fix: dense-over-experts forward that never calls .tolist(), index_add, sort,
+    or integer comparisons on-device.  Per-expert gate weights are derived via
+    floating-point arithmetic (abs-diff < 0.5) to avoid int64/int32 equality
+    comparisons, which produce wrong results on TT silicon.
     """
     from transformers.models.granitemoe.modeling_granitemoe import GraniteMoeMoE
 
     def _patched_moe_forward(self, layer_input):
         bsz, length, emb_size = layer_input.size()
-        x = layer_input.reshape(-1, emb_size)
-        num_tokens = x.size(0)
+        x = layer_input.reshape(-1, emb_size)  # [T, H]
 
-        # Router: compute routing without .tolist() (avoids PJRT D2H transfer).
+        # Router: compute gating without .tolist() (avoids PJRT D2H transfer).
         logits = self.router.layer(x).float()
         top_k_logits, top_k_indices = logits.topk(self.router.top_k, dim=1)
         top_k_gates = torch.softmax(top_k_logits, dim=1).type_as(x)
+        # top_k_indices: [T, K] int64, top_k_gates: [T, K]
 
-        # Sort tokens by expert assignment.
-        # Cast to int32: TT hardware has limited int64 support; comparisons on
-        # int64 tensors (from topk/sort) produce wrong results on silicon.
-        top_k_experts = top_k_indices.flatten().to(torch.int32)  # [num_tokens * top_k]
-        _, index_sorted_experts = top_k_experts.sort(0)
-        batch_index = index_sorted_experts.div(self.router.top_k, rounding_mode="trunc").to(torch.int32)
-        batch_gates = top_k_gates.flatten()[index_sorted_experts]
-        sorted_experts = top_k_experts[index_sorted_experts]  # [num_tokens * top_k], int32
+        # Build gate_matrix [T, E] without integer comparison on-device.
+        # Integers 0..E-1 are exactly representable in bf16 (E ≤ 64 for any
+        # GraniteMoE checkpoint, and bf16 has 7 mantissa bits → exact up to 128).
+        # diff[j,k,e] = 0.0 when token j's k-th choice is expert e; ≥ 1.0 otherwise.
+        expert_ids = torch.arange(
+            self.router.num_experts, dtype=x.dtype, device=x.device
+        )  # [E]
+        top_k_indices_fp = top_k_indices.to(x.dtype).unsqueeze(-1)  # [T, K, 1]
+        diff = torch.abs(top_k_indices_fp - expert_ids)  # [T, K, E]
+        indicator = (diff < 0.5).to(x.dtype)  # [T, K, E]; 1.0 on match, 0.0 otherwise
+        gate_matrix = (top_k_gates.unsqueeze(-1) * indicator).sum(1)  # [T, E]
 
-        expert_inputs = x[batch_index]  # [num_tokens * top_k, emb_size]
-
-        # Static per-expert forward: boolean mask per expert so no dynamic split
-        # or expert_size.tolist() is needed.  For non-expert positions the input
-        # is zeroed, so F.linear output (no bias) is also zero.
-        expert_results = []
+        # Dense-over-experts: run each expert for ALL tokens and gate the output
+        # to 0 for tokens not routed to that expert.  Avoids sort, gather with
+        # dynamic indices, and scatter (index_add), all of which misbehave on TT.
+        output = torch.zeros_like(x)  # [T, H]
         for e in range(self.router.num_experts):
-            mask = (sorted_experts == e).to(x.dtype).unsqueeze(-1)  # [N*K, 1]
-            h_in = F.linear(expert_inputs * mask, self.input_linear.weight[e])
+            gate_e = gate_matrix[:, e]  # [T]
+            h_in = F.linear(x, self.input_linear.weight[e])  # [T, 2*I]
             h1, h2 = h_in.chunk(2, dim=-1)
-            # h1/h2 zero for non-expert positions; activation(0)=0 for GELU/SiLU
-            h_act = self.activation(h1) * h2
-            out = F.linear(h_act, self.output_linear.weight[e])
-            expert_results.append(out)
+            h_act = self.activation(h1) * h2  # [T, I]
+            out = F.linear(h_act, self.output_linear.weight[e])  # [T, H]
+            output = output + out * gate_e.unsqueeze(-1)
 
-        expert_outputs = sum(expert_results) * batch_gates.unsqueeze(-1)
-
-        # Per-token aggregation: replace index_add (scatter) with masked sum.
-        # index_add lowers to stablehlo.scatter which generates a 2-element-begins
-        # slice for a tensor that TTNN promotes to 4D, causing a rank mismatch.
-        output_rows = []
-        for j in range(num_tokens):
-            mask_j = (batch_index == j).to(expert_outputs.dtype)  # [N*K]
-            row = (expert_outputs * mask_j.unsqueeze(-1)).sum(0, keepdim=True)
-            output_rows.append(row)
-
-        layer_output = torch.cat(output_rows, dim=0)
-        return layer_output.view(bsz, length, self.input_size)
+        return output.view(bsz, length, self.input_size)
 
     GraniteMoeMoE.forward = _patched_moe_forward
