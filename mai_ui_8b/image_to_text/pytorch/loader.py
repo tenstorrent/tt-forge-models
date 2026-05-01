@@ -187,17 +187,22 @@ def _patch_qwen3vl_for_tt_device(model=None):
         )
 
     # _deepstack_process uses hidden_states[visual_pos_masks, :] to gather
-    # image token positions (dynamic output shape) then scatters back. Replace
-    # with masked_scatter which is static-shape: zeros filled at mask positions
-    # with visual_embeds elements, then added to hidden_states.
+    # image token positions (dynamic output shape) then scatters back.
+    # @torch.compiler.disable causes a graph break before this function so it
+    # runs in eager Python mode. We do the boolean-indexed update on CPU tensors
+    # (safe in eager mode) and return the result via send_cpu_data_to_device,
+    # which uses the PJRT buffer API and does NOT trigger a standalone sync.
+    @torch.compiler.disable
     def _patched_deepstack_process(self, hidden_states, visual_pos_masks, visual_embeds):
-        visual_pos_masks = visual_pos_masks.to(hidden_states.device)
-        visual_embeds = visual_embeds.to(hidden_states.device, hidden_states.dtype)
-        expanded_mask = visual_pos_masks.unsqueeze(-1).expand_as(hidden_states)
-        visual_embeds_expanded = torch.zeros_like(hidden_states).masked_scatter(
-            expanded_mask, visual_embeds.contiguous().flatten()
-        )
-        return hidden_states + visual_embeds_expanded
+        orig_device = hidden_states.device
+        hs_cpu = hidden_states.detach().cpu().clone()
+        vm_cpu = visual_pos_masks.cpu()
+        ve_cpu = visual_embeds.cpu().to(hs_cpu.dtype)
+        hs_cpu[vm_cpu] = hs_cpu[vm_cpu] + ve_cpu
+        if str(orig_device) != "cpu":
+            import torch_xla.core.xla_model as xm
+            [hs_cpu] = xm.send_cpu_data_to_device([hs_cpu], orig_device)
+        return hs_cpu
 
     modeling_qwen3_vl.Qwen3VLTextModel._deepstack_process = _patched_deepstack_process
 
