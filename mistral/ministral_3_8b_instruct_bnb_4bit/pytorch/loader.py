@@ -120,17 +120,22 @@ class ModelLoader(ForgeModel):
 
     @staticmethod
     def _patch_get_image_features(model):
-        """Patch get_image_features to compute split_sizes on CPU.
+        """Patch Mistral3Model.get_image_features to compute split_sizes on CPU.
 
-        When image_sizes (int64) is moved to TT device it gets cast to bf16,
-        corrupting values like 1540→1536, which causes split_sizes to be wrong
-        (2320 vs correct 2310). Keeping the metadata computation on CPU avoids this.
+        The buggy line is in Mistral3Model (model.model), not the outer wrapper.
+        TT device casts int64 image_sizes tensors to bf16 before arithmetic,
+        corrupting values like 1540→1536 which makes split_sizes wrong (2320
+        instead of 2310). Keeping the metadata computation on CPU avoids this.
         """
         import types
 
         def _get_image_features(self, pixel_values, image_sizes, vision_feature_layer=None, output_hidden_states=None, **kwargs):
             import torch
-            kwargs = {k: v for k, v in kwargs.items() if v is not None}
+            # Resolve vision_feature_layer from config if not provided
+            if vision_feature_layer is None:
+                vision_feature_layer = self.config.vision_feature_layer
+            # Strip return_dict and other output-control kwargs (handled by caller)
+            kwargs = {k: v for k, v in kwargs.items() if v is not None and k not in ("return_dict",)}
             image_outputs = self.vision_tower(
                 pixel_values,
                 image_sizes=image_sizes,
@@ -157,7 +162,8 @@ class ModelLoader(ForgeModel):
             image_outputs.pooler_output = image_features
             return image_outputs
 
-        model.get_image_features = types.MethodType(_get_image_features, model)
+        # Patch the inner Mistral3Model instance (model.model), not the outer wrapper
+        model.model.get_image_features = types.MethodType(_get_image_features, model.model)
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Ministral 3 8B Instruct BnB 4-bit model instance.
