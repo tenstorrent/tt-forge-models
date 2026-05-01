@@ -6,6 +6,7 @@ ChemLLM model loader implementation for causal language modeling.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
 from typing import Optional
 
 from ....base import ForgeModel
@@ -105,6 +106,39 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    def _patch_internlm_config(self, pretrained_model_name):
+        """Patch InternLMConfig for transformers 5.x compatibility.
+
+        transformers 5.x requires 'factor' in rope_scaling when rope_type='dynamic'.
+        InternLMConfig defaults to {"base": 10000, "type": "dynamic"} without factor.
+        """
+        try:
+            config_cls = get_class_from_dynamic_module(
+                "configuration_internlm.InternLMConfig",
+                pretrained_model_name,
+                local_files_only=True,
+            )
+        except Exception:
+            return
+
+        orig_init = config_cls.__init__
+
+        def patched_init(self_cfg, *args, rotary=None, **kw):
+            if rotary is None:
+                rotary = {"base": 10000, "type": "dynamic", "factor": 1.0}
+            elif isinstance(rotary, dict) and rotary.get("type") == "dynamic" and "factor" not in rotary:
+                rotary = {**rotary, "factor": 1.0}
+            # config.json may also have a top-level rope_scaling that lands in **kwargs
+            # and is consumed by PretrainedConfig.convert_rope_params_to_dict, overwriting
+            # the rope_parameters we just fixed via `rotary`.
+            if "rope_scaling" in kw and isinstance(kw["rope_scaling"], dict):
+                rs = kw["rope_scaling"]
+                if rs.get("type") == "dynamic" and "factor" not in rs:
+                    kw = {**kw, "rope_scaling": {**rs, "factor": 1.0}}
+            orig_init(self_cfg, *args, rotary=rotary, **kw)
+
+        config_cls.__init__ = patched_init
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the ChemLLM model instance for this instance's variant.
 
@@ -118,6 +152,8 @@ class ModelLoader(ForgeModel):
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
+
+        self._patch_internlm_config(pretrained_model_name)
 
         model_kwargs = {}
         if dtype_override is not None:
