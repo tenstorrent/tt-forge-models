@@ -89,13 +89,27 @@ class ModelLoader(ForgeModel):
                 return 0.0
             return _orig_item(self)
 
+        # transformers 5.x _finalize_model_loading needs all_tied_weights_keys,
+        # which post_init() sets. BiRefNet.__init__ never calls post_init().
+        from transformers.modeling_utils import PreTrainedModel
+
+        _orig_finalize = PreTrainedModel.__dict__["_finalize_model_loading"].__func__
+
+        @staticmethod
+        def _patched_finalize(model, load_config, loading_info):
+            if not hasattr(model, "all_tied_weights_keys"):
+                model.post_init()
+            return _orig_finalize(model, load_config, loading_info)
+
         torch.Tensor.item = _meta_safe_item
+        PreTrainedModel._finalize_model_loading = _patched_finalize
         try:
             model = AutoModelForImageSegmentation.from_pretrained(
                 pretrained_model_name, trust_remote_code=True, **model_kwargs
             )
         finally:
             torch.Tensor.item = _orig_item
+            PreTrainedModel._finalize_model_loading = staticmethod(_orig_finalize)
 
         torch.set_float32_matmul_precision(["high", "highest"][0])
 
