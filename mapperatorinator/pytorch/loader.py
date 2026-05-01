@@ -137,7 +137,21 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        # Mapperatorinator.__init__ does not call self.post_init(), which
+        # transformers 5.x requires to set all_tied_weights_keys before
+        # _finalize_model_loading runs.  Patch it once before from_pretrained.
+        _original_init = Mapperatorinator.__init__
+
+        def _patched_init(self, config):
+            _original_init(self, config)
+            if not hasattr(self, "all_tied_weights_keys"):
+                self.post_init()
+
+        Mapperatorinator.__init__ = _patched_init
+        try:
+            model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
+        finally:
+            Mapperatorinator.__init__ = _original_init
         model.eval()
 
         return MapperatorinatorWrapper(model)
