@@ -5,6 +5,7 @@
 GLM-4.7-Flash-heretic-MPOA GGUF model loader implementation for causal language modeling.
 """
 import torch
+import torch.nn.functional as F
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -62,6 +63,31 @@ def _patch_deepseek_v2_gguf():
 
 
 _patch_deepseek_v2_gguf()
+
+
+def _tt_static_deepseek_v2_moe_forward(experts_module, hidden_states, top_k_index, top_k_weights):
+    """Static per-expert masked matmul for DeepseekV2Experts — avoids nonzero() dynamic shapes on XLA.
+
+    Python-int loop is unrolled at trace time into constant-weight F.linear calls.
+    """
+    dtype = hidden_states.dtype
+    out = torch.zeros_like(hidden_states)
+    for expert_idx in range(experts_module.num_experts):
+        mask = (top_k_index == expert_idx)
+        weight = (mask.to(dtype) * top_k_weights.to(dtype)).sum(dim=-1, keepdim=True)
+        gate_up = F.linear(hidden_states, experts_module.gate_up_proj[expert_idx])
+        gate, up = gate_up.chunk(2, dim=-1)
+        hidden_expert = F.linear(experts_module.act_fn(gate) * up, experts_module.down_proj[expert_idx])
+        out = out + hidden_expert * weight
+    return out.to(dtype)
+
+
+try:
+    from transformers.integrations.moe import ALL_EXPERTS_FUNCTIONS
+
+    ALL_EXPERTS_FUNCTIONS["tt_static_deepseek_v2_moe"] = _tt_static_deepseek_v2_moe_forward
+except Exception:
+    pass
 
 
 class ModelVariant(StrEnum):
@@ -146,6 +172,9 @@ class ModelLoader(ForgeModel):
             config.num_key_value_heads = config.num_attention_heads
         if self.num_layers is not None:
             config.num_hidden_layers = self.num_layers
+        # Use static per-expert masked matmul: avoids nonzero() dynamic shapes
+        # (original forward) and histc/gather issues (grouped_mm / batched_mm).
+        config._experts_implementation = "tt_static_deepseek_v2_moe"
         model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(
@@ -196,15 +225,30 @@ class ModelLoader(ForgeModel):
     def load_shard_spec(self, model):
         shard_specs = {}
         for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+            mlp = layer.mlp
+            if hasattr(mlp, "up_proj"):
+                # Dense MLP
+                shard_specs[mlp.up_proj.weight] = ("model", "batch")
+                shard_specs[mlp.gate_proj.weight] = ("model", "batch")
+                shard_specs[mlp.down_proj.weight] = ("batch", "model")
+            # MoE layers use 3-D Parameter tensors; skip for single-device.
 
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-        shard_specs[model.lm_head.weight] = ("model", "batch")
+            attn = layer.self_attn
+            if hasattr(attn, "q_proj"):
+                # Standard GQA attention
+                shard_specs[attn.q_proj.weight] = ("model", "batch")
+                shard_specs[attn.k_proj.weight] = ("model", "batch")
+                shard_specs[attn.v_proj.weight] = ("model", "batch")
+            elif hasattr(attn, "q_b_proj"):
+                # MLA attention (DeepseekV2): no q/k/v projections; use compressed heads
+                shard_specs[attn.q_b_proj.weight] = ("model", "batch")
+                if hasattr(attn, "kv_b_proj"):
+                    shard_specs[attn.kv_b_proj.weight] = ("model", "batch")
+            if hasattr(attn, "o_proj"):
+                shard_specs[attn.o_proj.weight] = ("batch", "model")
+
+        if hasattr(model, "lm_head") and hasattr(model.lm_head, "weight"):
+            shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
 
     def load_config(self):
