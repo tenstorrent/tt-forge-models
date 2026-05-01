@@ -4,6 +4,9 @@
 """
 Granite 4.0 H-1B GGUF model loader implementation for causal language modeling.
 """
+import re
+
+import numpy as np
 import torch
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -19,6 +22,9 @@ def _register_granitehybrid_gguf_support():
     from transformers.modeling_gguf_pytorch_utils import (
         GGUF_TO_TRANSFORMERS_MAPPING,
         GGUF_SUPPORTED_ARCHITECTURES,
+        TensorProcessor,
+        GGUFTensor,
+        TENSOR_PROCESSORS,
     )
 
     if "granitehybrid" not in GGUF_TO_TRANSFORMERS_MAPPING.get("config", {}):
@@ -45,6 +51,91 @@ def _register_granitehybrid_gguf_support():
 
     if "granitehybrid" not in GGUF_TO_FAST_CONVERTERS:
         GGUF_TO_FAST_CONVERTERS["granitehybrid"] = GGUF_TO_FAST_CONVERTERS["llama"]
+
+    # Register a TensorProcessor for granitehybrid that:
+    # 1. Fixes ssm_conv1d.weight: gguf-py gives [channels, kernel], HF needs [channels, 1, kernel]
+    # 2. Fixes ssm_a / ssm_d: gguf-py gives [n, 1], HF needs [n]
+    # 3. Maps ffn_gate.weight + ffn_up.weight → shared_mlp.input_linear.weight (concatenated)
+    # 4. Maps ffn_down.weight → shared_mlp.output_linear.weight
+    # 5. Maps ssm_dt.bias → mamba.dt_bias (gguf-py has no built-in mapping for this)
+    if "granitehybrid" not in TENSOR_PROCESSORS:
+        _FFN_GATE_UP_RE = re.compile(
+            r"blk\.(?P<bid>\d+)\.ffn_(?P<w>gate|up)\.weight$"
+        )
+        _HF_SHMLP_INPUT_RE = re.compile(
+            r"model\.layers\.(?P<bid>\d+)\.shared_mlp\.input_linear(?P<sfx>\.\w+)$"
+        )
+        _HF_SHMLP_OUTPUT_RE = re.compile(
+            r"model\.layers\.(?P<bid>\d+)\.shared_mlp\.output_linear(?P<sfx>\.\w+)$"
+        )
+        _HF_DT_BIAS_RE = re.compile(
+            r"model\.layers\.(?P<bid>\d+)\.mamba\.dt_bias$"
+        )
+
+        class _GraniteHybrid1BTensorProcessor(TensorProcessor):
+            _FFN_GATE_UP_RE = _FFN_GATE_UP_RE
+            _HF_SHMLP_INPUT_RE = _HF_SHMLP_INPUT_RE
+            _HF_SHMLP_OUTPUT_RE = _HF_SHMLP_OUTPUT_RE
+            _HF_DT_BIAS_RE = _HF_DT_BIAS_RE
+
+            def perform_fallback_tensor_mapping(
+                self, gguf_to_hf_name_map, suffix, qual_name, hf_name
+            ):
+                # shared_mlp.input_linear → ffn_gate and ffn_up (regular, non-shexp)
+                if m := re.fullmatch(self._HF_SHMLP_INPUT_RE, hf_name):
+                    full_hf = qual_name + hf_name
+                    bid = m["bid"]
+                    sfx = m["sfx"]
+                    gguf_to_hf_name_map[f"blk.{bid}.ffn_gate{sfx}"] = full_hf
+                    gguf_to_hf_name_map[f"blk.{bid}.ffn_up{sfx}"] = full_hf
+                # shared_mlp.output_linear → ffn_down (regular, non-shexp)
+                elif m := re.fullmatch(self._HF_SHMLP_OUTPUT_RE, hf_name):
+                    full_hf = qual_name + hf_name
+                    bid = m["bid"]
+                    sfx = m["sfx"]
+                    gguf_to_hf_name_map[f"blk.{bid}.ffn_down{sfx}"] = full_hf
+                # mamba.dt_bias → ssm_dt.bias (gguf-py has no mapping for this)
+                elif m := re.fullmatch(self._HF_DT_BIAS_RE, hf_name):
+                    full_hf = qual_name + hf_name
+                    bid = m["bid"]
+                    gguf_to_hf_name_map[f"blk.{bid}.ssm_dt.bias"] = full_hf
+
+            def process(self, weights, name, **kwargs):
+                # Mamba2 conv1d: gguf-py gives [channels, kernel]; HF needs [channels, 1, kernel]
+                if "ssm_conv1d.weight" in name:
+                    weights = weights[:, np.newaxis, :]
+
+                # Mamba2 A_log / D: gguf-py gives [n, 1]; HF needs [n]
+                if ("ssm_a" in name or "ssm_d" in name) and weights.ndim == 2 and weights.shape[1] == 1:
+                    weights = weights[:, 0]
+
+                # Regular FFN gate/up: accumulate gate and up, then concatenate
+                m = re.fullmatch(self._FFN_GATE_UP_RE, name)
+                if m:
+                    which = m["w"]
+                    tm = kwargs.get("tensor_key_mapping") or {}
+                    pp = kwargs.get("parsed_parameters") or {}
+                    tensors = pp.get("tensors", {})
+                    hf_name = tm.get(name)
+                    if not hf_name:
+                        return GGUFTensor(weights, name, {})
+
+                    tw = torch.from_numpy(np.copy(weights))
+                    # weights shape after gguf-py transpose: [intermediate, hidden]
+                    i_size, h = tw.shape
+                    if hf_name not in tensors:
+                        tensors[hf_name] = torch.zeros([i_size * 2, h], dtype=tw.dtype)
+                    out = tensors[hf_name]
+                    if which == "gate":
+                        out[:i_size, :].copy_(tw)
+                    else:  # up
+                        out[i_size:, :].copy_(tw)
+                    # Return None name so the caller skips default storage
+                    return GGUFTensor(weights, None, {})
+
+                return GGUFTensor(weights, name, {})
+
+        TENSOR_PROCESSORS["granitehybrid"] = _GraniteHybrid1BTensorProcessor
 
     # Patch get_gguf_hf_weights_map to remap granitemoehybrid -> granitehybrid
     # (the gguf-py library uses "granitehybrid" but the transformers model_type is "granitemoehybrid")
