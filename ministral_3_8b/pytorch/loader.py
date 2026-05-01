@@ -119,6 +119,8 @@ class ModelLoader(ForgeModel):
         import types
 
         def _patched_get_image_features(self_inner, pixel_values, image_sizes, vision_feature_layer=None, **kwargs):
+            import torch
+
             # @can_return_tuple pops return_dict; replicate that here.
             kwargs.pop("return_dict", None)
             kwargs = {k: v for k, v in kwargs.items() if v is not None}
