@@ -11,6 +11,7 @@ if not hasattr(_trf_generic, "check_model_inputs"):
     _trf_generic.check_model_inputs = lambda fn: fn
 
 import torch
+import torch.nn.functional as F
 from PIL import Image
 from transformers import AutoModelForCausalLM, AutoProcessor
 from typing import Optional
@@ -26,6 +27,55 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_isaac_vision_embeddings(model):
+    """Patch IsaacVisionEmbeddings.resize_positional_embeddings to cast to float32
+    before F.interpolate with antialias=True, which is not supported for bfloat16/float16
+    on any device (the original code only casts on CPU)."""
+    for module in model.modules():
+        if module.__class__.__name__ == "IsaacVisionEmbeddings":
+            cls = module.__class__
+            if getattr(cls, "_tt_resize_patched", False):
+                return
+
+            @staticmethod
+            def resize_positional_embeddings(positional_embeddings, spatial_shapes, max_length):
+                batch_size = spatial_shapes.shape[0]
+                embed_dim = positional_embeddings.shape[-1]
+                source_dtype = positional_embeddings.dtype
+
+                resulted_positional_embeddings = torch.empty(
+                    (batch_size, max_length, embed_dim),
+                    device=positional_embeddings.device,
+                    dtype=source_dtype,
+                )
+
+                positional_embeddings = positional_embeddings.permute(2, 0, 1).unsqueeze(0)
+
+                # antialias=True not supported for bfloat16/float16 on any device
+                if positional_embeddings.dtype in (torch.float16, torch.bfloat16):
+                    positional_embeddings = positional_embeddings.to(torch.float32)
+
+                for i in range(batch_size):
+                    height, width = spatial_shapes[i]
+                    resized_embeddings = F.interpolate(
+                        positional_embeddings,
+                        size=(height, width),
+                        mode="bilinear",
+                        align_corners=False,
+                        antialias=True,
+                    )
+                    resized_embeddings = resized_embeddings.reshape(embed_dim, height * width).transpose(0, 1)
+                    resized_embeddings = resized_embeddings.to(source_dtype)
+                    resulted_positional_embeddings[i, : height * width] = resized_embeddings
+                    resulted_positional_embeddings[i, height * width :] = resized_embeddings[0]
+
+                return resulted_positional_embeddings
+
+            cls.resize_positional_embeddings = resize_positional_embeddings
+            cls._tt_resize_patched = True
+            return
 
 
 class ModelVariant(StrEnum):
@@ -89,6 +139,7 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
         model.eval()
+        _patch_isaac_vision_embeddings(model)
         self.model = model
 
         return model
