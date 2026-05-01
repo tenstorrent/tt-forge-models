@@ -62,6 +62,16 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
+        # is_detectron2_available() is cached at module-import time (before detectron2
+        # is installed by the requirements manager). Clear it so the check re-runs with
+        # the freshly installed package.
+        try:
+            from transformers.utils import is_detectron2_available
+
+            is_detectron2_available.cache_clear()
+        except Exception:
+            pass
+
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
