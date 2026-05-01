@@ -109,9 +109,7 @@ def _patch_llava_onevision_for_tt_device():
         )
         return special_image_mask, special_video_mask
 
-    m.LlavaOnevisionForConditionalGeneration.get_placeholder_mask = (
-        _patched_get_placeholder_mask
-    )
+    m.LlavaOnevisionModel.get_placeholder_mask = _patched_get_placeholder_mask
 
 
 class ModelVariant(StrEnum):
