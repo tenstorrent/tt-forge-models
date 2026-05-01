@@ -4,10 +4,56 @@
 """
 LatentDream Exp Delta 8B GGUF model loader implementation for causal language modeling.
 """
+import inspect
 from typing import Optional
 
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+
+
+def _restore_wide_sig_load_gguf():
+    """Re-patch load_gguf_checkpoint to accept model_to_load (transformers 5.2.0+).
+
+    Some GGUF loaders imported earlier in the pytest session install a narrow-sig
+    wrapper that rejects the model_to_load kwarg added in transformers 5.2.0.
+    Walk the __globals__ chain to recover the true original and re-patch with a
+    pass-through that accepts *args, **kwargs.
+    """
+    current = _gguf_utils.load_gguf_checkpoint
+    try:
+        if "model_to_load" in inspect.signature(current).parameters:
+            return
+    except (ValueError, TypeError):
+        return
+
+    orig = current
+    visited = set()
+    while id(orig) not in visited:
+        visited.add(id(orig))
+        candidate = getattr(orig, "__globals__", {}).get("_orig_load_gguf_checkpoint")
+        if candidate is None:
+            break
+        try:
+            if "model_to_load" in inspect.signature(candidate).parameters:
+                orig = candidate
+                break
+        except (ValueError, TypeError):
+            pass
+        orig = candidate
+
+    def _wide(*args, **kwargs):
+        return orig(*args, **kwargs)
+
+    for _mod in [_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils]:
+        if hasattr(_mod, "load_gguf_checkpoint"):
+            _mod.load_gguf_checkpoint = _wide
+
+
+_restore_wide_sig_load_gguf()
 
 from ....base import ForgeModel
 from ....config import (
