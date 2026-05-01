@@ -10,9 +10,12 @@ diffusers' GGUF quantization support.
 Repository:
 - https://huggingface.co/calcuis/flux1-gguf
 """
+import os
 import torch
 from diffusers import FluxTransformer2DModel, GGUFQuantizationConfig
 from typing import Optional
+
+_LOADER_DIR = os.path.dirname(os.path.abspath(__file__))
 
 from ...base import ForgeModel
 from ...config import (
@@ -82,6 +85,7 @@ class ModelLoader(ForgeModel):
 
         self.transformer = FluxTransformer2DModel.from_single_file(
             f"https://huggingface.co/{repo_id}/blob/main/{gguf_file}",
+            config=_LOADER_DIR,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
