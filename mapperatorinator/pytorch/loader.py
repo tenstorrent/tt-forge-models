@@ -158,8 +158,11 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None):
         batch_size = 1
-        # 1 second of 16kHz audio
-        n_samples = 16000
+        # The Whisper backbone (v29.1) has hop_length=128 and expects exactly
+        # max_source_positions * conv_stride = 512 * 2 = 1024 mel frames.
+        # With nnAudio center=True: n_frames = n_samples // hop_length + 1,
+        # so n_samples = (1024 - 1) * 128 = 130944 to produce exactly 1024 frames.
+        n_samples = 130944
         # nnAudio MelSpectrogram overrides _apply() to stay float32, and the
         # model forward casts its output to self.transformer.dtype afterwards.
         # Always pass raw audio as float32 so the spectrogram has matching dtypes.
