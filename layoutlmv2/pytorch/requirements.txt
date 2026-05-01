@@ -1,0 +1,4 @@
+fvcore
+cloudpickle
+hydra-core>=1.1
+omegaconf>=2.1,<2.4
