@@ -97,14 +97,18 @@ class ModelLoader(ForgeModel):
 
         model = AutoModelForCausalLM.from_config(text_config)
 
-        # Load weights, stripping 'language_model.' prefix to match Qwen3_5ForCausalLM
+        # Load weights, stripping 'language_model.' prefix to match Qwen3_5ForCausalLM.
+        # MLX stores conv1d.weight as (out, kernel, in); PyTorch expects (out, in, kernel).
         weights_path = hf_hub_download(pretrained_model_name, "model.safetensors")
         raw_state_dict = load_safetensors(weights_path, device="cpu")
-        remapped = {
-            k.removeprefix("language_model."): v
-            for k, v in raw_state_dict.items()
-            if k.startswith("language_model.")
-        }
+        remapped = {}
+        for k, v in raw_state_dict.items():
+            if not k.startswith("language_model."):
+                continue
+            new_k = k.removeprefix("language_model.")
+            if new_k.endswith(".conv1d.weight") and v.ndim == 3:
+                v = v.permute(0, 2, 1).contiguous()
+            remapped[new_k] = v
         model.load_state_dict(remapped, strict=False)
         model.tie_weights()
 
