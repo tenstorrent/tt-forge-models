@@ -263,6 +263,15 @@ class ModelLoader(ForgeModel):
                     inputs["pixel_values"], dtype_override
                 )
 
+        # Drop all-ones attention_mask to prevent masking_utils._ignore_causal_mask_sdpa
+        # from calling padding_mask.all() on a TT tensor during graph extraction.
+        # Outside TorchDynamo scope, is_torchdynamo_compiling()=False so is_tracing() is
+        # False, and the .all() check executes on the live TT tensor → INTERNAL Error 13.
+        # For a non-padded single-image input the mask is all-ones; attention_mask=None is
+        # semantically equivalent (MistralModel.forward creates a full causal mask either way).
+        if "attention_mask" in inputs and inputs["attention_mask"].all():
+            del inputs["attention_mask"]
+
         return inputs
 
     def get_mesh_config(self, num_devices: int):
