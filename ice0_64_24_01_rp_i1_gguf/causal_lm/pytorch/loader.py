@@ -4,9 +4,31 @@
 """
 Ice0.64-24.01-RP i1 GGUF model loader implementation for causal language modeling.
 """
+import inspect
 import torch
+import transformers.modeling_gguf_pytorch_utils as _gguf_mod
+from contextlib import contextmanager
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+
+@contextmanager
+def _gguf_kwargs_compat():
+    """Temporarily patch load_gguf_checkpoint to accept transformers 5.x kwargs.
+
+    Other loaders patch transformers.modeling_gguf_pytorch_utils.load_gguf_checkpoint
+    at import time with functions that lack model_to_load/torch_dtype. Transformers
+    5.x always passes these kwargs, so we wrap whatever is currently installed.
+    """
+    _orig = _gguf_mod.load_gguf_checkpoint
+    if "model_to_load" not in inspect.signature(_orig).parameters:
+        def _compat(gguf_path, return_tensors=False, model_to_load=None, torch_dtype=None):
+            return _orig(gguf_path, return_tensors=return_tensors)
+        _gguf_mod.load_gguf_checkpoint = _compat
+    try:
+        yield
+    finally:
+        _gguf_mod.load_gguf_checkpoint = _orig
 
 from ....base import ForgeModel
 from ....config import (
@@ -94,9 +116,10 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        with _gguf_kwargs_compat():
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
@@ -108,17 +131,15 @@ class ModelLoader(ForgeModel):
 
         max_length = self._variant_config.max_length
 
-        messages = [
-            {
-                "role": "user",
-                "content": self.sample_text,
-            }
-        ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
+        if self.tokenizer.chat_template is not None:
+            messages = [{"role": "user", "content": self.sample_text}]
+            text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        else:
+            text = self.sample_text
         prompts = [text]
 
         inputs = self.tokenizer(
