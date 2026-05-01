@@ -147,19 +147,20 @@ class ModelLoader(ForgeModel):
                 hs_pool = [image_outputs.hidden_states[layer_idx] for layer_idx in vision_feature_layer]
                 selected_image_feature = torch.cat(hs_pool, dim=-1)
 
-            # Move image_sizes to CPU before multi_modal_projector: it iterates
-            # image_sizes with index access (image_size[0]) which triggers
-            # aten._local_scalar_dense when image_sizes is on TT device.
-            image_sizes_cpu = torch.as_tensor(image_sizes, dtype=torch.long, device="cpu")
-            image_features = self.multi_modal_projector(selected_image_feature.squeeze(0), image_sizes_cpu)
+            # Convert image_sizes to a Python list of [h, w] pairs before passing
+            # to multi_modal_projector. Inside that function, image_size[0] and
+            # image_size[1] are used as split sizes; if image_sizes is a tensor
+            # those indexing ops produce 0-dim tensors that trigger
+            # aten._local_scalar_dense when used in torch.split, which the TT
+            # backend cannot compile. Python ints avoid the issue entirely.
+            image_sizes_list = torch.as_tensor(image_sizes, dtype=torch.long, device="cpu").tolist()
+            image_features = self.multi_modal_projector(selected_image_feature.squeeze(0), image_sizes_list)
             downsample_ratio = self.vision_tower.patch_size * self.config.spatial_merge_size
-            # Keep split_sizes on CPU with int64 precision: TT device casts int64→bf16,
-            # corrupting values like 1540→1536 and giving wrong split counts.
-            split_sizes = (
-                (image_sizes_cpu // downsample_ratio)
-                .prod(dim=-1)
-                .tolist()
-            )
+            # Keep split_sizes as Python ints (same reason: avoid _local_scalar_dense).
+            split_sizes = [
+                (h // downsample_ratio) * (w // downsample_ratio)
+                for h, w in image_sizes_list
+            ]
             image_features = torch.split(image_features.squeeze(0), split_sizes)
             image_outputs.pooler_output = image_features
             return image_outputs
