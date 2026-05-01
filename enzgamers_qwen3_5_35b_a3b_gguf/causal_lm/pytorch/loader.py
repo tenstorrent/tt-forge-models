@@ -4,10 +4,16 @@
 """
 EnzGamers Qwen3.5 35B A3B GGUF model loader implementation for causal language modeling.
 """
+import inspect
 from typing import Optional
 
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
 from ....base import ForgeModel
 from ....config import (
@@ -19,6 +25,58 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
+
+
+def _patch_qwen35moe_support():
+    """Register qwen35moe architecture as an alias for qwen3_moe.
+
+    Qwen3.5 35B A3B uses the qwen35moe GGUF architecture, which transformers
+    5.x does not yet recognise. Map it to qwen3_moe (same structure).
+    """
+    if "qwen35moe" not in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
+        _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("qwen35moe")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen3_moe" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "qwen35moe",
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3_moe"],
+            )
+    if "qwen3_moe" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("qwen35moe", GGUF_TO_FAST_CONVERTERS["qwen3_moe"])
+    # Also register qwen35 → qwen3_moe for this MoE model (in case GGUF reports qwen35 arch)
+    if "qwen35" not in _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES:
+        _gguf_utils.GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
+    for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
+        if "qwen3_moe" in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]:
+            _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section].setdefault(
+                "qwen35",
+                _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING[section]["qwen3_moe"],
+            )
+    if "qwen3_moe" in GGUF_TO_FAST_CONVERTERS:
+        GGUF_TO_FAST_CONVERTERS.setdefault("qwen35", GGUF_TO_FAST_CONVERTERS["qwen3_moe"])
+
+
+def _get_real_load_gguf_fn():
+    """Walk closure chain to find load_gguf_checkpoint that accepts model_to_load."""
+    fn = _gguf_utils.load_gguf_checkpoint
+    seen = set()
+    while fn is not None and id(fn) not in seen:
+        seen.add(id(fn))
+        try:
+            if "model_to_load" in inspect.signature(fn).parameters:
+                return fn
+        except (ValueError, TypeError):
+            return fn
+        orig = None
+        try:
+            cvars = inspect.getclosurevars(fn)
+            orig = cvars.nonlocals.get("_orig_load_gguf_checkpoint")
+        except TypeError:
+            pass
+        if orig is None or not callable(orig):
+            break
+        fn = orig
+    return fn
 
 
 class ModelVariant(StrEnum):
@@ -79,32 +137,60 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+        # Register qwen35moe arch support and install a wide-sig patch that
+        # accepts model_to_load. This overrides any narrow-sig patches installed
+        # by other loaders during test collection (transformers 5.2.0+ passes
+        # model_to_load to load_gguf_checkpoint).
+        _patch_qwen35moe_support()
+        real_fn = _get_real_load_gguf_fn()
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
+        def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None):
+            result = real_fn(gguf_path, return_tensors=return_tensors, model_to_load=model_to_load)
+            if result.get("config", {}).get("model_type") in ("qwen35", "qwen35moe"):
+                result["config"]["model_type"] = "qwen3_moe"
+            return result
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
-            if hasattr(config, "text_config"):
-                config.text_config.num_hidden_layers = self.num_layers
-                if hasattr(config.text_config, "layer_types"):
-                    config.text_config.layer_types = config.text_config.layer_types[
-                        : self.num_layers
-                    ]
-            else:
-                config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        prev_gguf = _gguf_utils.load_gguf_checkpoint
+        prev_config = _config_utils.load_gguf_checkpoint
+        prev_auto_tok = _auto_tokenizer.load_gguf_checkpoint
+        prev_tok_utils = _tok_utils.load_gguf_checkpoint
+        _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        try:
+            if self.tokenizer is None:
+                self._load_tokenizer(dtype_override=dtype_override)
+
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+            model_kwargs["gguf_file"] = self.GGUF_FILE
+
+            if self.num_layers is not None:
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name, gguf_file=self.GGUF_FILE
+                )
+                if hasattr(config, "text_config"):
+                    config.text_config.num_hidden_layers = self.num_layers
+                    if hasattr(config.text_config, "layer_types"):
+                        config.text_config.layer_types = config.text_config.layer_types[
+                            : self.num_layers
+                        ]
+                else:
+                    config.num_hidden_layers = self.num_layers
+                model_kwargs["config"] = config
+
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            _gguf_utils.load_gguf_checkpoint = prev_gguf
+            _config_utils.load_gguf_checkpoint = prev_config
+            _auto_tokenizer.load_gguf_checkpoint = prev_auto_tok
+            _tok_utils.load_gguf_checkpoint = prev_tok_utils
 
         self.config = model.config
         self.model = model
