@@ -5,6 +5,9 @@
 Llama 3.1 BNB 4-bit model loader implementation for causal language modeling.
 """
 
+import torch
+import torch.nn as nn
+
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
@@ -19,6 +22,33 @@ from ...config import (
 )
 from ...base import ForgeModel
 from ...tools.utils import pad_inputs, cast_input_to_type
+
+
+def _dequantize_bnb_model(model, dtype=torch.bfloat16):
+    import bitsandbytes as bnb
+    import bitsandbytes.functional as bnb_F
+
+    for name, module in list(model.named_modules()):
+        if not isinstance(module, bnb.nn.Linear4bit):
+            continue
+        parent_name, attr = name.rsplit(".", 1) if "." in name else ("", name)
+        parent = model.get_submodule(parent_name) if parent_name else model
+        dq_weight = bnb_F.dequantize_4bit(
+            module.weight.data,
+            module.weight.quant_state,
+            quant_type=module.weight.quant_type,
+        ).to(dtype)
+        new_linear = nn.Linear(
+            dq_weight.shape[1],
+            dq_weight.shape[0],
+            bias=module.bias is not None,
+            dtype=dtype,
+        )
+        new_linear.weight = nn.Parameter(dq_weight)
+        if module.bias is not None:
+            new_linear.bias = nn.Parameter(module.bias.to(dtype))
+        setattr(parent, attr, new_linear)
+    return model
 
 
 class ModelVariant(StrEnum):
@@ -91,6 +121,7 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        model = _dequantize_bnb_model(model, dtype=dtype_override or torch.bfloat16)
         model.eval()
         self.model = model
         self.config = model.config
