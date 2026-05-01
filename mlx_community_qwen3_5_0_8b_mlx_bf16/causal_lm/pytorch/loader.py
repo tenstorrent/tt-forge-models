@@ -7,6 +7,8 @@ mlx-community/Qwen3.5-0.8B-MLX-bf16 model loader for causal language modeling.
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+from safetensors.torch import load_file as load_safetensors
+from huggingface_hub import hf_hub_download
 
 from ....base import ForgeModel
 from ....config import (
@@ -81,28 +83,35 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+        # Weights are stored under 'language_model.' prefix in this VL checkpoint;
+        # load the text model directly using text_config to get the right structure.
+        vl_config = AutoConfig.from_pretrained(pretrained_model_name)
+        text_config = (
+            vl_config.text_config if hasattr(vl_config, "text_config") else vl_config
+        )
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            if hasattr(config, "text_config"):
-                config.text_config.num_hidden_layers = self.num_layers
-                if hasattr(config.text_config, "layer_types"):
-                    config.text_config.layer_types = config.text_config.layer_types[
-                        : self.num_layers
-                    ]
-            else:
-                config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+            text_config.num_hidden_layers = self.num_layers
+            if hasattr(text_config, "layer_types"):
+                text_config.layer_types = text_config.layer_types[: self.num_layers]
 
-        model_kwargs |= kwargs
+        model = AutoModelForCausalLM.from_config(text_config)
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        # Load weights, stripping 'language_model.' prefix to match Qwen3_5ForCausalLM
+        weights_path = hf_hub_download(pretrained_model_name, "model.safetensors")
+        raw_state_dict = load_safetensors(weights_path, device="cpu")
+        remapped = {
+            k.removeprefix("language_model."): v
+            for k, v in raw_state_dict.items()
+            if k.startswith("language_model.")
+        }
+        model.load_state_dict(remapped, strict=False)
+        model.tie_weights()
 
+        if dtype_override is not None:
+            model = model.to(dtype_override)
+
+        model = model.eval()
         self.config = model.config
         self.model = model
         return model
@@ -162,10 +171,11 @@ class ModelLoader(ForgeModel):
                 shard_specs[mlp.shared_expert.gate_proj.weight] = ("model", "batch")
                 shard_specs[mlp.shared_expert.down_proj.weight] = ("batch", "model")
 
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+            if hasattr(layer, "self_attn"):
+                shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
         shard_specs[model.lm_head.weight] = ("model", "batch")
 
         return shard_specs
