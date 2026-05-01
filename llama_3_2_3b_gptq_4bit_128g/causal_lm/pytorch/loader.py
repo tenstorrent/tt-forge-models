@@ -20,6 +20,82 @@ from ....config import (
 )
 
 
+def _dequantize_gptq_weights(model, pretrained_model_name, bits=4, dtype=torch.bfloat16):
+    """Load GPTQ int4-packed weights from safetensors and inject dequantized weights into model.
+
+    transformers 5.x GPTQ quantizer requires optimum+gptqmodel, which conflict with the
+    tt-xla environment (torch 2.9.1+cpu). Dequantize manually using pure PyTorch instead.
+    """
+    from safetensors import safe_open
+    from huggingface_hub import hf_hub_download
+    import json
+    import os
+
+    # Locate safetensors file(s); handle both single-file and sharded checkpoints
+    cache_root = os.path.join(
+        os.path.expanduser("~"), ".cache", "huggingface", "hub"
+    )
+    try:
+        index_path = hf_hub_download(
+            pretrained_model_name, "model.safetensors.index.json"
+        )
+        with open(index_path) as f:
+            index = json.load(f)
+        unique_shards = sorted(set(index["weight_map"].values()))
+        shard_paths = [
+            hf_hub_download(pretrained_model_name, s) for s in unique_shards
+        ]
+    except Exception:
+        shard_paths = [hf_hub_download(pretrained_model_name, "model.safetensors")]
+
+    # Build a lookup: prefix -> open safe_open handle (opened lazily per shard)
+    shifts = torch.arange(0, 32, bits, dtype=torch.int32)
+
+    def _unpack_int32(packed, bits, out_dim_packed_first=True):
+        """Unpack int32 tensor along its last dim (or first) into int4 values."""
+        if out_dim_packed_first:
+            # packed: [K_packed, N] -> [K_packed, 8, N] -> [K, N]
+            K_packed, N = packed.shape
+            unpacked = (packed.unsqueeze(1) >> shifts.view(-1, 1)) & ((1 << bits) - 1)
+            return unpacked.reshape(K_packed * (32 // bits), N)
+        else:
+            # packed: [G, N_packed] -> [G, N_packed, 8] -> [G, N]
+            G, N_packed = packed.shape
+            unpacked = (packed.unsqueeze(2) >> shifts.view(1, 1, -1)) & (
+                (1 << bits) - 1
+            )
+            return unpacked.reshape(G, N_packed * (32 // bits))
+
+    for shard_path in shard_paths:
+        with safe_open(shard_path, framework="pt", device="cpu") as sf:
+            all_keys = set(sf.keys())
+            for mod_name, module in model.named_modules():
+                if not isinstance(module, torch.nn.Linear):
+                    continue
+                qweight_key = f"{mod_name}.qweight"
+                if qweight_key not in all_keys:
+                    continue
+
+                qweight = sf.get_tensor(qweight_key)
+                qzeros = sf.get_tensor(f"{mod_name}.qzeros")
+                scales = sf.get_tensor(f"{mod_name}.scales")
+                g_idx = sf.get_tensor(f"{mod_name}.g_idx")
+
+                # Unpack int32 packed tensors to int4 values
+                w_int = _unpack_int32(qweight, bits, out_dim_packed_first=True)
+                z_int = _unpack_int32(qzeros, bits, out_dim_packed_first=False)
+
+                # Dequantize: weight = (w - zeros) * scales, indexed by g_idx
+                s = scales[g_idx.long()]  # [K, N] float16
+                z = z_int[g_idx.long()].float()  # [K, N]
+                weight = (w_int.float() - z) * s.float()  # [K, N]
+
+                # nn.Linear.weight is [out_features, in_features] = [N, K]
+                module.weight.data = weight.T.to(dtype)
+
+    return model
+
+
 class ModelVariant(StrEnum):
     """Available Llama 3.2 3B GPTQ 4-bit 128 group size model variants for causal language modeling."""
 
@@ -78,19 +154,30 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
+        # Strip quantization_config so from_pretrained doesn't invoke the GPTQ
+        # quantizer (which requires optimum+gptqmodel, incompatible with this env).
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        if hasattr(config, "quantization_config"):
+            delattr(config, "quantization_config")
+        if self.num_layers is not None:
+            config.num_hidden_layers = self.num_layers
+
+        model_kwargs = {"device_map": "cpu", "config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
+
+        # Inject dequantized BF16 weights for all GPTQ-quantized linear layers
+        model = _dequantize_gptq_weights(
+            model,
+            pretrained_model_name,
+            bits=4,
+            dtype=dtype_override if dtype_override is not None else torch.bfloat16,
+        )
 
         self.config = model.config
         self.model = model
