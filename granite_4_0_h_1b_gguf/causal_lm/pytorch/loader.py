@@ -59,43 +59,38 @@ def _register_granitehybrid_gguf_support():
     # 4. Maps ffn_down.weight → shared_mlp.output_linear.weight
     # 5. Maps ssm_dt.bias → mamba.dt_bias (gguf-py has no built-in mapping for this)
     if "granitehybrid" not in TENSOR_PROCESSORS:
-        _FFN_GATE_UP_RE = re.compile(
+        _ffn_gate_up_re = re.compile(
             r"blk\.(?P<bid>\d+)\.ffn_(?P<w>gate|up)\.weight$"
         )
-        _HF_SHMLP_INPUT_RE = re.compile(
+        _hf_shmlp_input_re = re.compile(
             r"model\.layers\.(?P<bid>\d+)\.shared_mlp\.input_linear(?P<sfx>\.\w+)$"
         )
-        _HF_SHMLP_OUTPUT_RE = re.compile(
+        _hf_shmlp_output_re = re.compile(
             r"model\.layers\.(?P<bid>\d+)\.shared_mlp\.output_linear(?P<sfx>\.\w+)$"
         )
-        _HF_DT_BIAS_RE = re.compile(
+        _hf_dt_bias_re = re.compile(
             r"model\.layers\.(?P<bid>\d+)\.mamba\.dt_bias$"
         )
 
         class _GraniteHybrid1BTensorProcessor(TensorProcessor):
-            _FFN_GATE_UP_RE = _FFN_GATE_UP_RE
-            _HF_SHMLP_INPUT_RE = _HF_SHMLP_INPUT_RE
-            _HF_SHMLP_OUTPUT_RE = _HF_SHMLP_OUTPUT_RE
-            _HF_DT_BIAS_RE = _HF_DT_BIAS_RE
-
             def perform_fallback_tensor_mapping(
                 self, gguf_to_hf_name_map, suffix, qual_name, hf_name
             ):
                 # shared_mlp.input_linear → ffn_gate and ffn_up (regular, non-shexp)
-                if m := re.fullmatch(self._HF_SHMLP_INPUT_RE, hf_name):
+                if m := re.fullmatch(_hf_shmlp_input_re, hf_name):
                     full_hf = qual_name + hf_name
                     bid = m["bid"]
                     sfx = m["sfx"]
                     gguf_to_hf_name_map[f"blk.{bid}.ffn_gate{sfx}"] = full_hf
                     gguf_to_hf_name_map[f"blk.{bid}.ffn_up{sfx}"] = full_hf
                 # shared_mlp.output_linear → ffn_down (regular, non-shexp)
-                elif m := re.fullmatch(self._HF_SHMLP_OUTPUT_RE, hf_name):
+                elif m := re.fullmatch(_hf_shmlp_output_re, hf_name):
                     full_hf = qual_name + hf_name
                     bid = m["bid"]
                     sfx = m["sfx"]
                     gguf_to_hf_name_map[f"blk.{bid}.ffn_down{sfx}"] = full_hf
                 # mamba.dt_bias → ssm_dt.bias (gguf-py has no mapping for this)
-                elif m := re.fullmatch(self._HF_DT_BIAS_RE, hf_name):
+                elif m := re.fullmatch(_hf_dt_bias_re, hf_name):
                     full_hf = qual_name + hf_name
                     bid = m["bid"]
                     gguf_to_hf_name_map[f"blk.{bid}.ssm_dt.bias"] = full_hf
@@ -110,7 +105,7 @@ def _register_granitehybrid_gguf_support():
                     weights = weights[:, 0]
 
                 # Regular FFN gate/up: accumulate gate and up, then concatenate
-                m = re.fullmatch(self._FFN_GATE_UP_RE, name)
+                m = re.fullmatch(_ffn_gate_up_re, name)
                 if m:
                     which = m["w"]
                     tm = kwargs.get("tensor_key_mapping") or {}
