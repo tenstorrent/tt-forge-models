@@ -104,11 +104,12 @@ def _register_granitehybrid_gguf_support():
                 if ("ssm_a" in name or "ssm_d" in name) and weights.ndim == 2 and weights.shape[1] == 1:
                     weights = weights[:, 0]
 
+                tm = kwargs.get("tensor_key_mapping") or {}
+
                 # Regular FFN gate/up: accumulate gate and up, then concatenate
                 m = re.fullmatch(_ffn_gate_up_re, name)
                 if m:
                     which = m["w"]
-                    tm = kwargs.get("tensor_key_mapping") or {}
                     pp = kwargs.get("parsed_parameters") or {}
                     tensors = pp.get("tensors", {})
                     hf_name = tm.get(name)
@@ -128,7 +129,7 @@ def _register_granitehybrid_gguf_support():
                     # Return None name so the caller skips default storage
                     return GGUFTensor(weights, None, {})
 
-                return GGUFTensor(weights, name, {})
+                return GGUFTensor(weights, tm.get(name, name), {})
 
         TENSOR_PROCESSORS["granitehybrid"] = _GraniteHybrid1BTensorProcessor
 
