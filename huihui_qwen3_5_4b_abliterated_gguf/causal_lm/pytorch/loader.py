@@ -12,6 +12,7 @@ from typing import Optional
 
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.configuration_utils as _config_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
 
 from ....base import ForgeModel
 from ....config import (
@@ -80,52 +81,98 @@ def _register_qwen35_gguf_tables():
     GGUF_TO_FAST_CONVERTERS.setdefault("qwen3_5_text", GGUFQwen2Converter)
 
 
-# Register GGUF tables at import time; save the loader function BEFORE any
-# later patcher (e.g. mradermacher) installs a qwen35→qwen3 remap that
-# would load the wrong model class.
-_register_qwen35_gguf_tables()
-_captured_orig_load = _gguf_utils.load_gguf_checkpoint
+def _find_real_load_gguf_checkpoint():
+    """Walk the patcher chain to find the real transformers load_gguf_checkpoint.
+
+    Multiple loaders (bartowski, daniloreddy, mradermacher, etc.) install
+    _patched_load_gguf_checkpoint that remaps qwen35->qwen3. We must bypass
+    all of them and call the real function so our qwen35->qwen3_5_text remap
+    takes effect.
+    """
+    seen = set()
+    queue = [_gguf_utils.load_gguf_checkpoint]
+    while queue:
+        fn = queue.pop(0)
+        fid = id(fn)
+        if fid in seen:
+            continue
+        seen.add(fid)
+        # The real function lives in modeling_gguf_pytorch_utils module
+        if hasattr(fn, "__globals__") and fn.__globals__ is vars(_gguf_utils):
+            return fn
+        # Walk __globals__ for saved originals
+        if hasattr(fn, "__globals__"):
+            for name in ("_orig_load_gguf_checkpoint", "orig_load", "_real_load"):
+                nxt = fn.__globals__.get(name)
+                if callable(nxt) and id(nxt) not in seen:
+                    queue.append(nxt)
+        # Walk closure cells
+        if hasattr(fn, "__closure__") and fn.__closure__:
+            for cell in fn.__closure__:
+                try:
+                    val = cell.cell_contents
+                    if callable(val) and id(val) not in seen:
+                        queue.append(val)
+                except ValueError:
+                    pass
+    # Fallback: return whatever is currently installed
+    return _gguf_utils.load_gguf_checkpoint
 
 
-def _qwen35_load(orig_load, *args, **kwargs):
-    """Call orig_load and remap qwen35 → qwen3_5_text for SSM hybrid."""
-    result = orig_load(*args, **kwargs)
-    cfg = result.get("config", {})
-    if cfg.get("model_type") == "qwen35":
-        cfg["model_type"] = "qwen3_5_text"
-        num_layers = cfg.get("num_hidden_layers", 32)
-        interval = cfg.pop("full_attention_interval", 4)
-        layer_types = []
-        for i in range(num_layers):
-            if (i + 1) % interval == 0:
-                layer_types.append("full_attention")
-            else:
-                layer_types.append("linear_attention")
-        cfg["layer_types"] = layer_types
-    return result
+def _build_qwen35_patcher(real_fn):
+    """Return a load_gguf_checkpoint wrapper that remaps qwen35->qwen3_5_text."""
+
+    def _patcher(*args, **kwargs):
+        result = real_fn(*args, **kwargs)
+        cfg = result.get("config", {})
+        if cfg.get("model_type") == "qwen35":
+            cfg["model_type"] = "qwen3_5_text"
+            num_layers = cfg.get("num_hidden_layers", 32)
+            interval = cfg.pop("full_attention_interval", 4)
+            layer_types = []
+            for i in range(num_layers):
+                if (i + 1) % interval == 0:
+                    layer_types.append("full_attention")
+                else:
+                    layer_types.append("linear_attention")
+            cfg["layer_types"] = layer_types
+        return result
+
+    return _patcher
 
 
 @contextlib.contextmanager
 def _qwen35_load_ctx():
-    """Temporarily override load_gguf_checkpoint to ensure qwen35→qwen3_5_text.
+    """Temporarily install a corrected load_gguf_checkpoint for qwen35->qwen3_5_text.
 
-    Other loaders (e.g. mradermacher_qwen3_5_4b_abliterated_i1_gguf) remap
-    qwen35→qwen3, which selects Qwen3ForCausalLM and causes weight mismatches.
-    We reinstall the correct remapper at call time by patching the module
-    attributes that transformers reads at call time via lazy import.
+    Loaders imported before this one (bartowski, daniloreddy) and after
+    (mradermacher) all remap qwen35->qwen3 which selects Qwen3ForCausalLM
+    and causes weight mismatches. We bypass the entire chain by using a BFS
+    to find the real transformers function and installing our correct remapper
+    directly on the module attributes that transformers reads at call time.
     """
-    def _our_patcher(*args, **kwargs):
-        return _qwen35_load(_captured_orig_load, *args, **kwargs)
+    real_fn = _find_real_load_gguf_checkpoint()
+    patcher = _build_qwen35_patcher(real_fn)
 
     old_gguf = _gguf_utils.load_gguf_checkpoint
     old_cfg = _config_utils.load_gguf_checkpoint
-    _gguf_utils.load_gguf_checkpoint = _our_patcher
-    _config_utils.load_gguf_checkpoint = _our_patcher
+    old_tok = _auto_tokenizer.load_gguf_checkpoint if hasattr(_auto_tokenizer, "load_gguf_checkpoint") else None
+
+    _gguf_utils.load_gguf_checkpoint = patcher
+    _config_utils.load_gguf_checkpoint = patcher
+    if old_tok is not None:
+        _auto_tokenizer.load_gguf_checkpoint = patcher
     try:
         yield
     finally:
         _gguf_utils.load_gguf_checkpoint = old_gguf
         _config_utils.load_gguf_checkpoint = old_cfg
+        if old_tok is not None:
+            _auto_tokenizer.load_gguf_checkpoint = old_tok
+
+
+# Register GGUF tables at import time
+_register_qwen35_gguf_tables()
 
 
 class ModelVariant(StrEnum):
@@ -194,8 +241,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
-        # use_cache=False avoids Qwen3_5DynamicCache in output (evaluator does
-        # not know how to compare it)
+        # use_cache=False avoids Qwen3_5DynamicCache in model output
         model_kwargs.setdefault("use_cache", False)
 
         if self.num_layers is not None:
