@@ -139,8 +139,10 @@ def _patch_transformers_qwen35moe_gguf():
                 if _re.search(r"blk\.\d+\.ffn_gate_up_exps", k)
             }
             for fused_key, hf_name in gate_up_entries.items():
-                gate_key = fused_key.replace("ffn_gate_up_exps", "ffn_gate_exps")
-                up_key = fused_key.replace("ffn_gate_up_exps", "ffn_up_exps")
+                # process() strips .weight before lookup; add no-suffix keys
+                base = fused_key.removesuffix(".weight").removesuffix(".bias")
+                gate_key = base.replace("ffn_gate_up_exps", "ffn_gate_exps")
+                up_key = base.replace("ffn_gate_up_exps", "ffn_up_exps")
                 result.setdefault(gate_key, hf_name)
                 result.setdefault(up_key, hf_name)
         return result
