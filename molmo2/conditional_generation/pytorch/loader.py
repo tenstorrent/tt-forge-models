@@ -143,86 +143,79 @@ class ModelLoader(ForgeModel):
             ).sum(1)
             counts = raw_counts // 2
             N = counts.size(0)
-            device = input_ids.device
-            num_images = int(counts.sum().item())
+
+            # All count arithmetic uses Python ints on CPU to avoid BF16
+            # rounding on TT device (e.g. 23*33=759 rounds to 760 in BF16).
+            counts_list = counts.cpu().tolist()
+            num_images = sum(counts_list)
             assert image_grids.size(0) == num_images
             assert image_num_crops.size(0) == num_images
 
-            # Compute pooled-patch counts on CPU (int64) to avoid BF16 rounding
             ig_cpu = image_grids.cpu().long()
-            with torch.no_grad():
-                first_prod = ig_cpu[:, :2].prod(dim=1)
-                second_prod = ig_cpu[:, 2:].prod(dim=1)
-                num_pooled_patches_per_image = (
-                    (first_prod + second_prod)
-                    .to(dtype=image_num_crops.cpu().dtype)
-                    .to(device)
-                )
+            num_pooled_per_img = (
+                ig_cpu[:, :2].prod(1) + ig_cpu[:, 2:].prod(1)
+            ).tolist()
+
+            inc_cpu = image_num_crops.cpu().long().tolist()
 
             n_crops, n_patches, pixels_per_patch = pixel_values.shape
 
-            example_ids_for_image = (
-                torch.arange(N, device=device).repeat_interleave(counts)
-            )
-            assert example_ids_for_image.numel() == num_images
-
-            crops_per_example = torch.zeros(
-                N, dtype=image_num_crops.dtype, device=image_num_crops.device
-            )
-            crops_per_example.index_add_(
-                0, example_ids_for_image, image_num_crops
-            )
-
-            patches_per_image = image_num_crops * n_patches
-
-            counts_list = counts.tolist()
-            index_offset_per_example_list = []
-            offset_img = 0
+            # Per-example aggregates as Python ints
+            crops_per_example_list = []
+            num_pooled_per_example_list = []
+            img_offset = 0
             for c in counts_list:
-                per_img_patches = patches_per_image[offset_img : offset_img + c]
-                index_offset = [0] + per_img_patches.cumsum(0).tolist()[:-1]
-                index_offset_per_example_list.append(index_offset)
-                offset_img += c
+                crops_per_example_list.append(sum(inc_cpu[img_offset : img_offset + c]))
+                num_pooled_per_example_list.append(
+                    sum(num_pooled_per_img[img_offset : img_offset + c])
+                )
+                img_offset += c
 
-            num_pooled_patches_per_example = torch.zeros(
-                N,
-                dtype=num_pooled_patches_per_image.dtype,
-                device=device,
-            )
-            num_pooled_patches_per_example.index_add_(
-                0, example_ids_for_image, num_pooled_patches_per_image
-            )
-
-            total_crops = int(crops_per_example.sum().item())
+            total_crops = sum(crops_per_example_list)
             assert total_crops == n_crops, (
                 f"Expected {total_crops} crops, but got {n_crops}"
             )
 
-            total_num_pooled_patches = int(
-                num_pooled_patches_per_example.sum().item()
-            )
+            total_num_pooled_patches = sum(num_pooled_per_example_list)
             assert total_num_pooled_patches == image_token_pooling.size(0), (
                 f"Expected {total_num_pooled_patches} pooled patches, "
                 f"but got {image_token_pooling.size(0)}"
             )
 
-            M = int(crops_per_example.max().item())
+            # Per-example per-image patch offsets (Python ints, no BF16)
+            patches_per_image_list = [inc * n_patches for inc in inc_cpu]
+            index_offset_per_example_list = []
+            img_offset = 0
+            for c in counts_list:
+                per_img = patches_per_image_list[img_offset : img_offset + c]
+                offsets = [0]
+                cum = 0
+                for p in per_img[:-1]:
+                    cum += p
+                    offsets.append(cum)
+                index_offset_per_example_list.append(offsets)
+                img_offset += c
+
+            # Build images tensor
+            M = max(crops_per_example_list) if crops_per_example_list else 0
+            device = pixel_values.device
             images = torch.full(
                 (N, M, n_patches, pixels_per_patch),
                 fill_value=-1,
                 dtype=pixel_values.dtype,
-                device=pixel_values.device,
+                device=device,
             )
 
             offset_crop = 0
             for i in range(N):
-                num = int(crops_per_example[i].item())
+                num = crops_per_example_list[i]
                 cur = pixel_values[offset_crop : offset_crop + num]
                 images[i, :num] = cur
                 offset_crop += num
             assert offset_crop == n_crops
 
-            P = int(num_pooled_patches_per_example.max().item())
+            # Build new_token_pooling tensor
+            P = max(num_pooled_per_example_list) if num_pooled_per_example_list else 0
             _, dim = image_token_pooling.shape
             new_token_pooling = torch.full(
                 (N, P, dim),
@@ -234,21 +227,17 @@ class ModelLoader(ForgeModel):
             patch_offset = 0
             img_offset = 0
             for i, c in enumerate(counts_list):
-                num_patches = int(num_pooled_patches_per_example[i].item())
+                num_patches = num_pooled_per_example_list[i]
                 cur = image_token_pooling[
                     patch_offset : patch_offset + num_patches
                 ].clone()
                 index_offset_per_example = index_offset_per_example_list[i]
-                per_img_pooled = num_pooled_patches_per_image[
-                    img_offset : img_offset + c
-                ]
-                assert (
-                    len(index_offset_per_example) == per_img_pooled.numel()
-                )
+                per_img_pooled = num_pooled_per_img[img_offset : img_offset + c]
+                assert len(index_offset_per_example) == len(per_img_pooled)
                 offset = 0
                 for j in range(c):
-                    idx_off = int(index_offset_per_example[j])
-                    n = int(per_img_pooled[j].item())
+                    idx_off = index_offset_per_example[j]
+                    n = per_img_pooled[j]
                     cur_slice = cur[offset : offset + n]
                     cur[offset : offset + n] = torch.where(
                         cur_slice >= 0,
