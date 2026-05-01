@@ -81,26 +81,38 @@ class ModelLoader(ForgeModel):
 
         Other loaders in the session patch load_gguf_checkpoint at import time
         with functions that drop the model_to_load kwarg added in transformers
-        5.x.  Walk the chain via __globals__ until we find a version that
-        explicitly accepts model_to_load.
+        5.x.  Walk the chain via __globals__ and __closure__ until we find the
+        function defined in transformers.modeling_gguf_pytorch_utils itself,
+        which accepts model_to_load correctly.
         """
-        import inspect
         import transformers.modeling_gguf_pytorch_utils as _m
 
         fn = _m.load_gguf_checkpoint
         seen: set = set()
         while id(fn) not in seen:
-            try:
-                if "model_to_load" in inspect.signature(fn).parameters:
-                    return fn
-            except (ValueError, TypeError):
-                pass
+            if getattr(fn, "__module__", "") == "transformers.modeling_gguf_pytorch_utils":
+                return fn
             seen.add(id(fn))
+            inner = None
+            # Check module globals for saved original
             for key in ("_orig_load_gguf_checkpoint", "orig_load"):
                 candidate = fn.__globals__.get(key)
                 if candidate is not None and callable(candidate):
-                    fn = candidate
+                    inner = candidate
                     break
+            # Check closure variables (for functions defined inside helpers)
+            if inner is None and fn.__closure__:
+                for name, cell in zip(fn.__code__.co_freevars, fn.__closure__):
+                    if name in ("orig_load", "_orig_load_gguf_checkpoint"):
+                        try:
+                            candidate = cell.cell_contents
+                            if callable(candidate):
+                                inner = candidate
+                                break
+                        except ValueError:
+                            pass
+            if inner is not None:
+                fn = inner
             else:
                 break
         return fn
