@@ -129,13 +129,14 @@ class ModelLoader(ForgeModel):
         latent_height = 2
         latent_width = 2
         video_seq_len = latent_num_frames * latent_height * latent_width
+        audio_num_frames = 2
         frame_rate = 24.0
 
         hidden_states = torch.randn(
             batch_size, video_seq_len, config.in_channels, dtype=dtype
         )
         audio_hidden_states = torch.randn(
-            batch_size, 2, config.audio_in_channels, dtype=dtype
+            batch_size, audio_num_frames, config.audio_in_channels, dtype=dtype
         )
 
         caption_channels = config.caption_channels
@@ -146,10 +147,12 @@ class ModelLoader(ForgeModel):
             batch_size, 8, caption_channels, dtype=dtype
         )
 
-        timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
-        audio_timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
-        sigma = torch.tensor([0.5], dtype=dtype).expand(batch_size)
-        audio_sigma = torch.tensor([0.5], dtype=dtype).expand(batch_size)
+        # forward() expects Long timestep scaled by timestep_scale_multiplier (=1000),
+        # shape (batch_size, num_video_tokens) which is then flattened internally.
+        timestep = torch.full(
+            (batch_size, video_seq_len), 500, dtype=torch.long
+        )
+        audio_timestep = torch.full((batch_size,), 500, dtype=torch.long)
 
         return {
             "hidden_states": hidden_states,
@@ -158,13 +161,11 @@ class ModelLoader(ForgeModel):
             "audio_encoder_hidden_states": audio_encoder_hidden_states,
             "timestep": timestep,
             "audio_timestep": audio_timestep,
-            "sigma": sigma,
-            "audio_sigma": audio_sigma,
             "num_frames": latent_num_frames,
             "height": latent_height,
             "width": latent_width,
             "fps": frame_rate,
-            "audio_num_frames": 2,
+            "audio_num_frames": audio_num_frames,
             "return_dict": False,
         }
 
