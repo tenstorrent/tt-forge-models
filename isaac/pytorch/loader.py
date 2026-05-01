@@ -6,9 +6,20 @@ Isaac model loader implementation for multimodal visual question answering
 """
 
 import torch
-from transformers import AutoProcessor, AutoModelForCausalLM
+from transformers import AutoProcessor, AutoModelForCausalLM, AutoConfig
 from PIL import Image
 from typing import Optional
+
+# Transformers 5.x removed the bare "eager" key from ALL_ATTENTION_FUNCTIONS (only
+# "paged|eager" remains). modular_isaac.py captures _ORIGINAL_ATTENTION_FUNCTIONS["eager"]
+# at import time; if absent, _isaac_eager_forward raises ValueError even for
+# IsaacVisionAttention. Alias the real "paged|eager" implementation (which handles GQA
+# via repeat_kv) so non-vision text attention works correctly too.
+from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS as _ALL_ATTN_FNS
+
+if "eager" not in _ALL_ATTN_FNS:
+    if "paged|eager" in _ALL_ATTN_FNS:
+        _ALL_ATTN_FNS.register("eager", _ALL_ATTN_FNS["paged|eager"])
 
 # Transformers 5.x removed SlidingWindowCache; inject a stub so the trust_remote_code
 # module for Isaac (modular_isaac.py) can be imported (uses it only in isinstance checks).
@@ -21,6 +32,49 @@ if not hasattr(_cache_utils, "SlidingWindowCache"):
         pass
 
     _cache_utils.SlidingWindowCache = _SlidingWindowCache
+
+# Transformers 5.x renamed DefaultFastImageProcessorKwargs → ImagesKwargs.
+# Isaac's modular code inherits from it; alias it back so the module imports.
+import transformers.image_processing_utils_fast as _img_utils
+
+if not hasattr(_img_utils, "DefaultFastImageProcessorKwargs"):
+    from transformers.image_processing_utils_fast import ImagesKwargs as _ImagesKwargs
+
+    _img_utils.DefaultFastImageProcessorKwargs = _ImagesKwargs
+
+# Transformers 5.x moved TensorType from tokenization_utils to tokenization_utils_base.
+# Isaac's modular code imports it from the old location; inject it back.
+import transformers.tokenization_utils as _tok_utils
+
+if not hasattr(_tok_utils, "TensorType"):
+    from transformers.tokenization_utils_base import TensorType as _TensorType
+
+    _tok_utils.TensorType = _TensorType
+
+# Transformers 5.x changed RoPE config: rope_theta must live inside rope_parameters dict.
+# IsaacConfig.__init__ can overwrite rope_parameters with an incomplete _rope_scaling dict
+# (missing rope_theta) after convert_rope_params_to_dict already set it correctly.
+# Patch compute_default_rope_parameters to fall back to config.rope_theta attribute.
+def _make_rope_patch(cls):
+    orig = cls.compute_default_rope_parameters
+
+    @staticmethod
+    def patched(config, device=None, seq_len=None):
+        params = config.rope_parameters or {}
+        if "rope_theta" not in params:
+            params = dict(params)
+            params["rope_theta"] = getattr(config, "rope_theta", 10000.0)
+            config.rope_parameters = params
+        return orig(config, device, seq_len)
+
+    cls.compute_default_rope_parameters = patched
+
+
+from transformers.models.qwen3.modeling_qwen3 import Qwen3RotaryEmbedding as _Qwen3RotaryEmbedding
+from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLRotaryEmbedding as _Qwen25VLRotaryEmbedding
+
+_make_rope_patch(_Qwen3RotaryEmbedding)
+_make_rope_patch(_Qwen25VLRotaryEmbedding)
 
 from ...tools.utils import get_file, cast_input_to_type
 from ...base import ForgeModel
@@ -83,7 +137,14 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        model_kwargs = {"trust_remote_code": True}
+        # Load config first so we can override the vision attn implementation.
+        # IsaacVisionConfig defaults to "flash_attention_2" which requires CUDA;
+        # override to "sdpa" before instantiating the model.
+        config = AutoConfig.from_pretrained(pretrained_model_name, trust_remote_code=True)
+        if hasattr(config, "vision_config") and hasattr(config.vision_config, "_attn_implementation"):
+            config.vision_config._attn_implementation = "sdpa"
+
+        model_kwargs = {"trust_remote_code": True, "attn_implementation": "eager", "config": config}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -92,6 +153,17 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
         model.eval()
+
+        # attn_implementation="eager" propagates recursively and overrides the
+        # vision_config._attn_implementation we set before loading. IsaacVisionAttention's
+        # eager path uses a broken packed-sequence matmul ([L,H,D]@[L,D,H]=[L,H,H] instead
+        # of the correct [H,L,L]). sdpa_document_mask_forward handles packed sequences
+        # correctly. Re-patch after loading so vision attention uses sdpa.
+        for module in model.modules():
+            if type(module).__name__ == "IsaacVisionAttention":
+                module.vision_config._attn_implementation = "sdpa"
+                break  # all share the same vision_config object
+
         self.model = model
 
         return model
@@ -105,13 +177,14 @@ class ModelLoader(ForgeModel):
         )
         image = Image.open(image_file)
 
+        # Isaac's chat template expects string content; list-style content produces
+        # empty content and the <image> token never appears in the text.
+        # Use the string format recommended in the HuggingFace README.
+        vision_token = getattr(self.processor, "vision_token", "<image>")
         conversation = [
             {
                 "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": "What is shown in this image?"},
-                ],
+                "content": f"{vision_token}\nWhat is shown in this image?",
             }
         ]
 
@@ -119,7 +192,7 @@ class ModelLoader(ForgeModel):
             conversation, tokenize=False, add_generation_prompt=True
         )
 
-        inputs = self.processor(images=image, text=text_prompt, return_tensors="pt")
+        inputs = self.processor(text=text_prompt, images=[image], return_tensors="pt")
 
         if dtype_override is not None:
             for key in inputs:
