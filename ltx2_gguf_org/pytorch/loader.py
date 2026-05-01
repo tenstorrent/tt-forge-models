@@ -89,11 +89,30 @@ class ModelLoader(ForgeModel):
             filename=gguf_filename,
         )
 
+        # The GGUF contains pre-conversion keys (e.g. "patchify_proj.weight") that
+        # match the older "ltx-video" checkpoint signature, causing diffusers to
+        # mis-identify the model as LTX-Video-0.9.7 and load config from
+        # Lightricks/LTX-Video-0.9.7-dev (caption_channels=4096) instead of the
+        # correct Lightricks/LTX-2 config (caption_channels=3840).  Provide the
+        # config repo + subfolder explicitly to bypass the broken auto-detection.
         self._transformer = LTX2VideoTransformer3DModel.from_single_file(
             gguf_path,
+            config="Lightricks/LTX-2",
+            subfolder="transformer",
             quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
             torch_dtype=dtype,
         )
+
+        # GGUFParameter.__torch_function__ recurses infinitely under TorchDynamo
+        # tracing.  Eagerly dequantize all GGUF linear layers to plain nn.Linear
+        # before handing the model to the compiler.
+        from diffusers.quantizers.gguf.utils import _dequantize_gguf_and_restore_linear
+
+        _dequantize_gguf_and_restore_linear(self._transformer)
+        self._transformer._hf_quantizer = None
+        self._transformer.is_quantized = False
+        self._transformer.to(dtype)
+
         self._transformer.eval()
         return self._transformer
 
