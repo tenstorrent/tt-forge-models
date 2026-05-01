@@ -69,6 +69,8 @@ class ModelLoader(ForgeModel):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
 
         return self.tokenizer
 
@@ -82,17 +84,34 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
 
+        # compressed-tensors keeps weights in int8 by default (run_compressed=True).
+        # TT does not support int8 matmuls via this path, so set run_compressed=False to
+        # dequantize all quantized Linear weights to bfloat16 during load.
+        config = AutoConfig.from_pretrained(pretrained_model_name)
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        qc = getattr(config, "quantization_config", None)
+        if isinstance(qc, dict):
+            qc["run_compressed"] = False
+        elif qc is not None:
+            qc.run_compressed = False
+        model_kwargs["config"] = config
 
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
-        ).eval()
+        )
 
+        # compressed-tensors leaves a quantized_forward instance method bound on every
+        # quantized Linear after decompression. It accesses weight.data unconditionally,
+        # which conflicts with TT-XLA's __torch_function__ during torch.compile.
+        # Restore the class-level forward by removing the instance-level override.
+        for m in model.modules():
+            if "forward" in m.__dict__:
+                del m.__dict__["forward"]
+
+        model.eval()
         self.config = model.config
         return model
 
