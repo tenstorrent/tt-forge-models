@@ -166,7 +166,8 @@ class ModelLoader(ForgeModel):
                 hs_pool = [image_outputs.hidden_states[layer_idx] for layer_idx in vision_feature_layer]
                 selected_image_feature = torch.cat(hs_pool, dim=-1)
 
-            image_features = self.multi_modal_projector(selected_image_feature.squeeze(0), image_sizes)
+            # Use [0] indexing instead of squeeze(0) to avoid prims.view_of
+            image_features = self.multi_modal_projector(selected_image_feature[0], image_sizes)
             downsample_ratio = self.vision_tower.patch_size * self.config.spatial_merge_size
             # Pure Python arithmetic: image_sizes is a list of (h, w) Python int tuples.
             # No tensor device involvement → no Error code: 13.
@@ -174,7 +175,9 @@ class ModelLoader(ForgeModel):
                 (h // downsample_ratio) * (w // downsample_ratio)
                 for h, w in image_sizes
             ]
-            image_features = torch.split(image_features.squeeze(0), split_sizes)
+            # multi_modal_projector returns [N_merged, d] (2D); squeeze(0) is a no-op
+            # but decomposes to prims.view_of which breaks XLA functionalization.
+            image_features = torch.split(image_features, split_sizes)
             image_outputs.pooler_output = image_features
             return image_outputs
 
