@@ -71,8 +71,7 @@ def _register_qwen35_gguf_tables():
         def process(self, weights, name, **kwargs):
             if "ssm_conv1d.weight" in name and weights.ndim == 2:
                 weights = np.expand_dims(weights, axis=1)
-            if "ssm_a" in name:
-                weights = np.log(-weights)
+            # GGUF ssm_a is already stored as log(-A) (A_log); pass through unchanged.
             return GGUFTensor(weights, name, {})
 
     TENSOR_PROCESSORS["qwen35"] = Qwen35TensorProcessor
