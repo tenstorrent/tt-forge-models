@@ -8,6 +8,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import numpy as np
 import gguf as _gguf_lib
 import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
@@ -17,8 +18,20 @@ from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
     get_gguf_hf_weights_map as _orig_get_gguf_hf_weights_map,
     GGUF_SUPPORTED_ARCHITECTURES,
+    TENSOR_PROCESSORS,
+    TensorProcessor,
+    GGUFTensor,
 )
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUF_CONFIG_MAPPING
+
+
+class _Qwen35TensorProcessor(TensorProcessor):
+    """Reshape ssm_conv1d.weight from GGUF 2D [C, K] to Conv1d 3D [C, 1, K]."""
+
+    def process(self, weights, name, **kwargs):
+        if "ssm_conv1d" in name and weights.ndim == 2:
+            weights = np.expand_dims(weights, axis=1)
+        return GGUFTensor(weights, name, {})
 
 
 def _patch_qwen35_support():
@@ -39,6 +52,9 @@ def _patch_qwen35_support():
         GGUF_TO_FAST_CONVERTERS.setdefault(
             "qwen3_5_text", GGUF_TO_FAST_CONVERTERS["qwen3"]
         )
+
+    # Register the tensor processor so ssm_conv1d weights are correctly shaped.
+    TENSOR_PROCESSORS.setdefault("qwen35", _Qwen35TensorProcessor)
 
 
 def _get_gguf_scalar(reader, key):
@@ -100,11 +116,6 @@ def _patched_load_gguf_checkpoint(*args, **kwargs):
             "full_attention" if (i + 1) % k == 0 else "linear_attention"
             for i in range(n)
         ]
-
-    # GGUF stores conv1d.weight as 2D [C, kernel] but nn.Conv1d expects 3D [C, 1, kernel].
-    for key, tensor in result.get("tensors", {}).items():
-        if "conv1d.weight" in key and tensor.ndim == 2:
-            result["tensors"][key] = tensor.unsqueeze(1)
 
     return result
 
