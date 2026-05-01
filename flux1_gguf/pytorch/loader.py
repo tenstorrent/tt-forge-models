@@ -13,6 +13,7 @@ Repository:
 import os
 import torch
 from diffusers import FluxTransformer2DModel, GGUFQuantizationConfig
+from diffusers.quantizers.gguf.utils import _dequantize_gguf_and_restore_linear
 from typing import Optional
 
 _LOADER_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -89,6 +90,8 @@ class ModelLoader(ForgeModel):
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
+        _dequantize_gguf_and_restore_linear(self.transformer)
+        self.transformer = self.transformer.to(compute_dtype)
         self.transformer.eval()
 
         return self.transformer
