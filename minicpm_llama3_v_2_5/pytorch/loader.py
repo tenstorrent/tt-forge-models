@@ -10,7 +10,7 @@ import sys
 import torch
 from pathlib import Path
 from PIL import Image
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModel, AutoProcessor, AutoTokenizer
 from typing import Optional
 
 from ...base import ForgeModel
@@ -131,12 +131,25 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
+        processor = AutoProcessor.from_pretrained(
+            self._variant_config.pretrained_model_name, trust_remote_code=True
+        )
+
         image_file = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
         image = Image.open(image_file).convert("RGB")
 
-        msgs = [{"role": "user", "content": self.sample_text}]
+        # Build prompt with image placeholder the same way chat() does
+        msgs = [{"role": "user", "content": f"(<image>./</image>)\n{self.sample_text}"}]
+        prompt = self.tokenizer.apply_chat_template(
+            msgs, tokenize=False, add_generation_prompt=True
+        )
+        inputs = processor(prompt, [image], return_tensors="pt", max_length=2048)
 
-        return {"image": image, "msgs": msgs}
+        # forward() requires position_ids; generate them from the sequence length
+        seq_len = inputs["input_ids"].shape[1]
+        inputs["position_ids"] = torch.arange(seq_len, dtype=torch.long).unsqueeze(0)
+
+        return {"data": inputs}
 
     def unpack_forward_output(self, fwd_output):
         if hasattr(fwd_output, "logits"):
