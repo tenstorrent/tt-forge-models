@@ -4,9 +4,16 @@
 """
 Humanizer Styles GGUF model loader implementation for causal language modeling.
 """
+import gc
+import contextlib
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 
 from ....base import ForgeModel
 from ....config import (
@@ -18,6 +25,47 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _find_real_load_gguf_checkpoint():
+    """Find the original load_gguf_checkpoint from transformers (not a monkey-patch)."""
+    _REAL_MODULE = "transformers.modeling_gguf_pytorch_utils"
+    _REAL_NAME = "load_gguf_checkpoint"
+    for obj in gc.get_objects():
+        try:
+            if (
+                callable(obj)
+                and getattr(obj, "__name__", None) == _REAL_NAME
+                and getattr(obj, "__module__", None) == _REAL_MODULE
+            ):
+                return obj
+        except Exception:
+            pass
+    return None
+
+
+@contextlib.contextmanager
+def _use_real_load_gguf_checkpoint():
+    """Temporarily restore the real load_gguf_checkpoint to bypass broken patchers."""
+    real_fn = _find_real_load_gguf_checkpoint()
+    if real_fn is None:
+        yield
+        return
+    saved_gguf = _gguf_utils.load_gguf_checkpoint
+    saved_config = _config_utils.load_gguf_checkpoint
+    saved_auto_tok = _auto_tokenizer.load_gguf_checkpoint
+    saved_tok = _tok_utils.load_gguf_checkpoint
+    _gguf_utils.load_gguf_checkpoint = real_fn
+    _config_utils.load_gguf_checkpoint = real_fn
+    _auto_tokenizer.load_gguf_checkpoint = real_fn
+    _tok_utils.load_gguf_checkpoint = real_fn
+    try:
+        yield
+    finally:
+        _gguf_utils.load_gguf_checkpoint = saved_gguf
+        _config_utils.load_gguf_checkpoint = saved_config
+        _auto_tokenizer.load_gguf_checkpoint = saved_auto_tok
+        _tok_utils.load_gguf_checkpoint = saved_tok
 
 
 class ModelVariant(StrEnum):
@@ -121,9 +169,10 @@ class ModelLoader(ForgeModel):
             tokenizer_kwargs["torch_dtype"] = dtype_override
         tokenizer_kwargs["gguf_file"] = self.gguf_file
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+        with _use_real_load_gguf_checkpoint():
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -148,9 +197,10 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        with _use_real_load_gguf_checkpoint():
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
@@ -207,7 +257,8 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
-        )
+        with _use_real_load_gguf_checkpoint():
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, gguf_file=self.gguf_file
+            )
         return self.config
