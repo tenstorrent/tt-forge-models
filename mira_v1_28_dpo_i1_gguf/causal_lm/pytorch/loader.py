@@ -6,9 +6,14 @@ Mira v1.28 DPO GGUF model loader implementation for causal language modeling.
 
 Based on Gemma 3 architecture, quantized from Lambent/Mira-v1.28-dpo.
 """
+import contextlib
+import inspect as _inspect
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.configuration_utils as _config_utils
 
 from ....base import ForgeModel
 from ....config import (
@@ -20,6 +25,71 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _unwrap_to_transformers(fn, src_fragment):
+    """Walk the monkey-patch chain to find the real transformers function.
+
+    Old-style loaders patch load_gguf_checkpoint at import time using
+    module-level globals like `_orig_load_gguf_checkpoint = ...`.  We walk
+    both __closure__ and __globals__ until we find a callable whose source
+    file contains src_fragment.
+    """
+    visited = set()
+    queue = [fn]
+    while queue:
+        candidate = queue.pop(0)
+        cid = id(candidate)
+        if cid in visited:
+            continue
+        visited.add(cid)
+        try:
+            if src_fragment in _inspect.getfile(candidate):
+                return candidate
+        except (TypeError, OSError):
+            pass
+        if getattr(candidate, "__closure__", None):
+            for cell in candidate.__closure__:
+                try:
+                    val = cell.cell_contents
+                    if callable(val):
+                        queue.append(val)
+                except ValueError:
+                    pass
+        for key, val in getattr(candidate, "__globals__", {}).items():
+            if callable(val) and key.startswith("_orig") and "gguf" in key.lower():
+                queue.append(val)
+    return fn
+
+
+_true_orig_load_gguf_checkpoint = _unwrap_to_transformers(
+    _gguf_utils.load_gguf_checkpoint, "modeling_gguf_pytorch_utils"
+)
+
+
+@contextlib.contextmanager
+def _restored_load_gguf_checkpoint():
+    """Temporarily restore original load_gguf_checkpoint around from_pretrained.
+
+    Other loaders patch load_gguf_checkpoint at import time with a signature
+    that omits `model_to_load`, causing TypeError when transformers 5.x passes
+    that kwarg.  This context manager installs the true original for the
+    duration of from_pretrained, then restores whatever was there before.
+    """
+    modules = [
+        (_gguf_utils, "load_gguf_checkpoint"),
+        (_config_utils, "load_gguf_checkpoint"),
+    ]
+    saved = [(mod, attr, getattr(mod, attr, None)) for mod, attr in modules]
+    try:
+        for mod, attr in modules:
+            if hasattr(mod, attr):
+                setattr(mod, attr, _true_orig_load_gguf_checkpoint)
+        yield
+    finally:
+        for mod, attr, val in saved:
+            if val is not None:
+                setattr(mod, attr, val)
 
 
 class ModelVariant(StrEnum):
@@ -96,9 +166,10 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        with _restored_load_gguf_checkpoint():
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
@@ -116,11 +187,15 @@ class ModelLoader(ForgeModel):
                 "content": self.sample_text,
             }
         ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
+
+        if self.tokenizer.chat_template is not None:
+            text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        else:
+            text = f"User: {self.sample_text}\nAssistant:"
         prompts = [text]
 
         inputs = self.tokenizer(
