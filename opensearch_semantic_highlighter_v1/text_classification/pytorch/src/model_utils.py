@@ -29,6 +29,7 @@ class BertTaggerForSentenceExtractionWithBackoff(BertPreTrainedModel):
         attention_mask=None,
         token_type_ids=None,
         sentence_ids=None,
+        max_sentences=None,
     ):
         outputs = self.bert(
             input_ids,
@@ -37,50 +38,39 @@ class BertTaggerForSentenceExtractionWithBackoff(BertPreTrainedModel):
         )
 
         sequence_output = self.dropout(outputs[0])
-
-        def _get_agg_output(ids, seq_out):
-            max_sentences = torch.max(ids) + 1
-            d_model = seq_out.size(-1)
-
-            agg_out, global_offsets, num_sents = [], [], []
-            for i, sen_ids in enumerate(ids):
-                out, local_ids = [], sen_ids.clone()
-                mask = local_ids != -100
-                offset = local_ids[mask].min()
-                global_offsets.append(offset)
-                local_ids[mask] -= offset
-                n_sent = local_ids.max() + 1
-                num_sents.append(n_sent)
-
-                for j in range(int(n_sent)):
-                    out.append(seq_out[i, local_ids == j].mean(dim=-2, keepdim=True))
-
-                if max_sentences - n_sent:
-                    padding = torch.zeros(
-                        (int(max_sentences - n_sent), d_model),
-                        device=seq_out.device,
-                    )
-                    out.append(padding)
-                agg_out.append(torch.cat(out, dim=0))
-            return torch.stack(agg_out), global_offsets, num_sents
-
-        agg_output, offsets, num_sents_item = _get_agg_output(
-            sentence_ids, sequence_output
-        )
+        agg_output = _aggregate_by_sentence(sentence_ids, sequence_output, max_sentences)
         logits = self.classifier(agg_output)
         probs = torch.softmax(logits, dim=-1)[:, :, 1]
+        return probs
 
-        def _get_preds(pp, offs, num_s, threshold=0.5, alpha=0.05):
-            preds = []
-            for p, off, ns in zip(pp, offs, num_s):
-                rel_probs = p[:ns]
-                hits = (rel_probs >= threshold).int()
-                if hits.sum() == 0 and rel_probs.max().item() >= alpha:
-                    hits[rel_probs.argmax()] = 1
-                preds.append(torch.where(hits == 1)[0] + off)
-            return preds
 
-        return tuple(_get_preds(probs, offsets, num_sents_item))
+def _aggregate_by_sentence(ids, seq_out, max_sents):
+    """
+    Vectorized sentence aggregation without D2H transfers.
+
+    ids: [B, S] — sentence IDs (-100 for padding, 0-based otherwise)
+    seq_out: [B, S, D]
+    max_sents: Python int (precomputed on CPU, avoids device→host transfer)
+
+    Returns: [B, max_sents, D] mean embedding per sentence (zero for empty slots)
+    """
+    B, S, D = seq_out.shape
+    valid_mask = ids != -100  # [B, S]
+
+    # Per-batch minimum valid sentence ID (offset to normalise to 0-based)
+    ids_for_min = torch.where(valid_mask, ids, torch.full_like(ids, max_sents))
+    offsets = ids_for_min.min(dim=1).values  # [B]
+
+    local_ids = ids - offsets.unsqueeze(1)  # [B, S]
+    local_ids = torch.where(valid_mask, local_ids, torch.full_like(local_ids, -1))
+
+    # One-hot membership: sent_mask[b, s, j] = 1 iff token s → sentence j
+    j = torch.arange(max_sents, device=ids.device)  # [max_sents]
+    sent_mask = (local_ids.unsqueeze(-1) == j).float()  # [B, S, max_sents]
+
+    sent_sum = torch.einsum("bsd,bsj->bjd", seq_out, sent_mask)  # [B, max_sents, D]
+    sent_count = sent_mask.sum(dim=1)  # [B, max_sents]
+    return sent_sum / sent_count.unsqueeze(-1).clamp(min=1.0)
 
 
 def build_sentence_ids(document_sentences):
@@ -140,4 +130,5 @@ def prepare_highlighter_inputs(
         "attention_mask": torch.tensor([attention_mask], dtype=torch.long),
         "token_type_ids": torch.tensor([token_type_ids], dtype=torch.long),
         "sentence_ids": torch.tensor([sentence_ids], dtype=torch.long),
+        "max_sentences": len(document_sentences),
     }
