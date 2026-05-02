@@ -37,7 +37,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.XENOVA_MDEBERTA_V3_BASE_XNLI_MULTILINGUAL_NLI_2MIL7: ModelConfig(
-            pretrained_model_name="Xenova/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7",
+            pretrained_model_name="MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7",
         ),
     }
 
