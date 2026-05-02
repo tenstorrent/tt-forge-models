@@ -158,6 +158,9 @@ class ModelLoader(ForgeModel):
         text_config = vlm_config.text_config
         if self.num_layers is not None:
             text_config.num_hidden_layers = self.num_layers
+        # Disable KV cache: output includes Qwen3_5DynamicCache which tree_map
+        # in the comparison evaluator cannot handle (not a Tensor).
+        text_config.use_cache = False
 
         # Create the text-only model with the correct sub-config
         model = Qwen3_5ForCausalLM(text_config).eval()
