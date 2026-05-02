@@ -23,7 +23,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from .src.model import Voc
+from .src.model import Voc, BufferConv1d, BufferConvTranspose1d
 
 
 class VocDecodeWrapper(nn.Module):
@@ -43,6 +43,14 @@ class VocDecodeWrapper(nn.Module):
         self.decoder = model.decoder
 
     def forward(self, codes):
+        # Reset streaming state so each single-step decode starts from scratch.
+        # Without this, the CPU run leaves self.partial / self.previous on CPU
+        # and Dynamo fails with a cross-device tensor conflict on the XLA run.
+        for m in self.modules():
+            if isinstance(m, BufferConv1d):
+                m.previous = None
+            elif isinstance(m, BufferConvTranspose1d):
+                m.partial = None
         x = self.quantizer.decode(codes)
         x = self.upsample(x)
         x = self.decoder_transformer(x)
