@@ -144,6 +144,10 @@ class ModelLoader(ForgeModel):
 
         config = AutoConfig.from_pretrained(self._PROCESSOR_SOURCE)
         config.use_cache = False
+        # transformers 5.x: Qwen2_5_VLConfig has no top-level num_hidden_layers;
+        # get_gguf_hf_weights_map reads it directly to build the tensor name map.
+        if not hasattr(config, "num_hidden_layers") and hasattr(config, "text_config"):
+            config.num_hidden_layers = config.text_config.num_hidden_layers
 
         model_kwargs = {"low_cpu_mem_usage": True, "use_cache": False, "config": config}
 
