@@ -22,6 +22,29 @@ from ....config import (
 )
 
 
+class _EmbeddingWrapper(torch.nn.Module):
+    """Returns the final transformer hidden state instead of CausalLMOutputWithPast.
+
+    The model's forward() returns CausalLMOutputWithPast where every field is
+    None unless explicitly requested (no LM head → logits=None; hidden_states
+    only populated when output_hidden_states=True). ModelOutput.__post_init__
+    skips None values, leaving an empty OrderedDict, which makes the pytree
+    evaluator crash with "max() iterable argument is empty". This wrapper forces
+    output_hidden_states=True and returns only hidden_states[-1] (the final
+    transformer output that the embedding pooling uses), giving the test
+    framework a concrete tensor to compare.
+    """
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.model = model
+
+    def forward(self, *args, **kwargs):
+        kwargs["output_hidden_states"] = True
+        output = self.model(*args, **kwargs)
+        return output.hidden_states[-1]
+
+
 class ModelVariant(StrEnum):
     """Available Nemotron Embed VL model variants."""
 
@@ -75,7 +98,7 @@ class ModelLoader(ForgeModel):
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
 
-        return model
+        return _EmbeddingWrapper(model)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.processor is None:
