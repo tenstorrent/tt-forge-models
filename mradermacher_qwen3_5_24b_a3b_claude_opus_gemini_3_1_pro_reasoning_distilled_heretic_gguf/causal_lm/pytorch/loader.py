@@ -68,12 +68,28 @@ def _patch_transformers_qwen35moe_gguf():
             GGUF_TO_FAST_CONVERTERS["qwen35moe"] = GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
             GGUF_TO_FAST_CONVERTERS["qwen3_5_moe_text"] = GGUF_TO_FAST_CONVERTERS["qwen3_moe"]
 
-    # 2. Find the real load_gguf_checkpoint by traversing narrow-sig wrapper chains.
-    # Narrow-sig loaders (def fn(gguf_path, return_tensors=False)) capture the previous
-    # function as _orig_load_gguf_checkpoint in their globals. We traverse this chain
-    # until we reach the real transformers function that has model_to_load explicitly.
-    # Some wrappers use (*args, **kwargs) but still wrap a narrow-sig _orig — we must
-    # traverse through those too; only stop when model_to_load is in the signature.
+    # 2. Find the real load_gguf_checkpoint by traversing wrapper chains.
+    # Wrappers store the previous function in two ways:
+    #   - globals: _orig_load_gguf_checkpoint = gguf_utils.load_gguf_checkpoint (gpt_oss style)
+    #   - closure: orig_load = gguf_utils.load_gguf_checkpoint (onion008 style)
+    # Our own patched function also stores real_load in its closure.
+    # Only stop when we find the real transformers function with model_to_load explicitly.
+
+    def _get_chained_orig(f):
+        orig = f.__globals__.get("_orig_load_gguf_checkpoint")
+        if orig is not None and orig is not f:
+            return orig
+        if f.__closure__ and f.__code__.co_freevars:
+            for name, cell in zip(f.__code__.co_freevars, f.__closure__):
+                if name in ("orig_load", "real_load", "orig_fn", "_orig_load"):
+                    try:
+                        val = cell.cell_contents
+                        if callable(val) and val is not f:
+                            return val
+                    except ValueError:
+                        pass
+        return None
+
     fn = gguf_utils.load_gguf_checkpoint
     seen = set()
     while fn is not None and id(fn) not in seen:
@@ -81,8 +97,8 @@ def _patch_transformers_qwen35moe_gguf():
         params = inspect.signature(fn).parameters
         if "model_to_load" in params:
             break
-        orig = fn.__globals__.get("_orig_load_gguf_checkpoint")
-        if orig is not None and orig is not fn:
+        orig = _get_chained_orig(fn)
+        if orig is not None:
             fn = orig
         else:
             break
