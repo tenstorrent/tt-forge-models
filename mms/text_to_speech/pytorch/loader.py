@@ -159,6 +159,128 @@ modeling_vits._unconstrained_rational_quadratic_spline = (
     _patched_unconstrained_rational_quadratic_spline
 )
 
+
+# VitsModel.forward at line 1362 calls torch.arange(predicted_lengths.max(), ...)
+# where predicted_lengths is an XLA tensor.  Getting .max() requires a
+# device-to-host transfer which fails on TT.  Replace with a static upper bound
+# derived from the input sequence length, so the arange argument is a Python int.
+_MAX_FRAMES_PER_INPUT_TOKEN = 100  # generous upper bound for TTS duration
+
+
+def _patched_vits_forward(
+    self,
+    input_ids=None,
+    attention_mask=None,
+    speaker_id=None,
+    output_attentions=None,
+    output_hidden_states=None,
+    return_dict=None,
+    labels=None,
+    **kwargs,
+):
+    from transformers.models.vits.modeling_vits import VitsModelOutput
+
+    output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+    output_hidden_states = (
+        output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+    )
+    return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+
+    if labels is not None:
+        raise NotImplementedError("Training of VITS is not supported yet.")
+
+    mask_dtype = self.text_encoder.embed_tokens.weight.dtype
+    if attention_mask is not None:
+        input_padding_mask = attention_mask.unsqueeze(-1).to(mask_dtype)
+    else:
+        input_padding_mask = torch.ones_like(input_ids).unsqueeze(-1).to(mask_dtype)
+
+    if self.config.num_speakers > 1 and speaker_id is not None:
+        if not 0 <= speaker_id < self.config.num_speakers:
+            raise ValueError(f"Set `speaker_id` in the range 0-{self.config.num_speakers - 1}.")
+        if isinstance(speaker_id, int):
+            speaker_id = torch.full(size=(1,), fill_value=speaker_id, device=self.device)
+        speaker_embeddings = self.embed_speaker(speaker_id).unsqueeze(-1)
+    else:
+        speaker_embeddings = None
+
+    text_encoder_output = self.text_encoder(
+        input_ids=input_ids,
+        padding_mask=input_padding_mask,
+        attention_mask=attention_mask,
+        output_attentions=output_attentions,
+        output_hidden_states=output_hidden_states,
+        return_dict=return_dict,
+    )
+    hidden_states = text_encoder_output[0] if not return_dict else text_encoder_output.last_hidden_state
+    hidden_states = hidden_states.transpose(1, 2)
+    input_padding_mask = input_padding_mask.transpose(1, 2)
+    prior_means = text_encoder_output[1] if not return_dict else text_encoder_output.prior_means
+    prior_log_variances = text_encoder_output[2] if not return_dict else text_encoder_output.prior_log_variances
+
+    if self.config.use_stochastic_duration_prediction:
+        log_duration = self.duration_predictor(
+            hidden_states,
+            input_padding_mask,
+            speaker_embeddings,
+            reverse=True,
+            noise_scale=self.noise_scale_duration,
+        )
+    else:
+        log_duration = self.duration_predictor(hidden_states, input_padding_mask, speaker_embeddings)
+
+    length_scale = 1.0 / self.speaking_rate
+    duration = torch.ceil(torch.exp(log_duration) * input_padding_mask * length_scale)
+    predicted_lengths = torch.clamp_min(torch.sum(duration, [1, 2]), 1).long()
+
+    # Use a static upper bound derived from the input length to avoid
+    # predicted_lengths.max() (device-to-host transfer).
+    static_max_output_length = input_ids.shape[1] * _MAX_FRAMES_PER_INPUT_TOKEN
+    indices = torch.arange(static_max_output_length, dtype=predicted_lengths.dtype, device=predicted_lengths.device)
+    output_padding_mask = indices.unsqueeze(0) < predicted_lengths.unsqueeze(1)
+    output_padding_mask = output_padding_mask.unsqueeze(1).to(input_padding_mask.dtype)
+
+    attn_mask = torch.unsqueeze(input_padding_mask, 2) * torch.unsqueeze(output_padding_mask, -1)
+    batch_size, _, output_length, input_length = attn_mask.shape
+    cum_duration = torch.cumsum(duration, -1).view(batch_size * input_length, 1)
+    indices = torch.arange(output_length, dtype=duration.dtype, device=duration.device)
+    valid_indices = indices.unsqueeze(0) < cum_duration
+    valid_indices = valid_indices.to(attn_mask.dtype).view(batch_size, input_length, output_length)
+    padded_indices = valid_indices - nn.functional.pad(valid_indices, [0, 0, 1, 0, 0, 0])[:, :-1]
+    attn = padded_indices.unsqueeze(1).transpose(2, 3) * attn_mask
+
+    prior_means = torch.matmul(attn.squeeze(1), prior_means).transpose(1, 2)
+    prior_log_variances = torch.matmul(attn.squeeze(1), prior_log_variances).transpose(1, 2)
+
+    prior_latents = prior_means + torch.randn_like(prior_means) * torch.exp(prior_log_variances) * self.noise_scale
+    latents = self.flow(prior_latents, output_padding_mask, speaker_embeddings, reverse=True)
+
+    spectrogram = latents * output_padding_mask
+    waveform = self.decoder(spectrogram, speaker_embeddings)
+    waveform = waveform.squeeze(1)
+    upsample_factor = 1
+    for r in self.config.upsample_rates:
+        upsample_factor *= r
+    sequence_lengths = predicted_lengths * upsample_factor
+
+    if not return_dict:
+        outputs = (waveform, sequence_lengths, spectrogram) + text_encoder_output[3:]
+        return outputs
+
+    return VitsModelOutput(
+        waveform=waveform,
+        sequence_lengths=sequence_lengths,
+        spectrogram=spectrogram,
+        hidden_states=text_encoder_output.hidden_states,
+        attentions=text_encoder_output.attentions,
+    )
+
+
+from transformers.models.vits.modeling_vits import VitsModel
+
+VitsModel.forward = _patched_vits_forward
+
+
 from ....base import ForgeModel
 from ....config import (
     Framework,
