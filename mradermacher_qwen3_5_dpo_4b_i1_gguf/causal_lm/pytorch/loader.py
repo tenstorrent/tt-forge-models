@@ -35,9 +35,11 @@ def _patch_qwen35_support():
         )
 
 
-def _patched_load_gguf_checkpoint(*args, **kwargs):
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None, **kwargs):
+    # model_to_load is a transformers 5.x addition; accepted but not forwarded
+    # since the chain of patched originals doesn't accept it either.
     _patch_qwen35_support()
-    result = _orig_load_gguf_checkpoint(*args, **kwargs)
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
     if result.get("config", {}).get("model_type") == "qwen35":
         result["config"]["model_type"] = "qwen3"
     return result
