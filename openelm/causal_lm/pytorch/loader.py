@@ -117,9 +117,15 @@ class ModelLoader(ForgeModel):
         finally:
             OpenELMRotaryEmbedding._compute_sin_cos_embeddings = _orig_compute
 
-        # inv_freq is persistent=False so it is not stored in the checkpoint.
-        # Under transformers 5.x meta-device init the buffer is materialised with
-        # uninitialised memory.  Reinitialise every RoPE layer on CPU.
+        # Both inv_freq and causal_mask are persistent=False buffers, absent from
+        # the checkpoint.  Under transformers 5.x meta-device init they materialise
+        # with uninitialised memory.  Reinitialise from the config constants.
+        ctx_len = config.max_context_length
+        causal_mask_data = torch.triu(
+            torch.ones(ctx_len, ctx_len, dtype=torch.bool), diagonal=1
+        )
+        model.transformer.register_buffer("causal_mask", causal_mask_data, persistent=False)
+
         for module in model.modules():
             if isinstance(module, OpenELMRotaryEmbedding):
                 inv_freq = 1.0 / (
