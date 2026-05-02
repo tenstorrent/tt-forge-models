@@ -5,7 +5,8 @@
 OpenAI OSS 20B Evo model loader implementation for causal language modeling.
 """
 import torch
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+import torch.nn as nn
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -18,6 +19,33 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _dequantize_bnb_model(model, dtype=torch.bfloat16):
+    import bitsandbytes as bnb
+    import bitsandbytes.functional as bnb_F
+
+    for name, module in list(model.named_modules()):
+        if not isinstance(module, bnb.nn.Linear4bit):
+            continue
+        parent_name, attr = name.rsplit(".", 1) if "." in name else ("", name)
+        parent = model.get_submodule(parent_name) if parent_name else model
+        dq_weight = bnb_F.dequantize_4bit(
+            module.weight.data,
+            module.weight.quant_state,
+            quant_type=module.weight.quant_type,
+        ).to(dtype)
+        new_linear = nn.Linear(
+            dq_weight.shape[1],
+            dq_weight.shape[0],
+            bias=module.bias is not None,
+            dtype=dtype,
+        )
+        new_linear.weight = nn.Parameter(dq_weight)
+        if module.bias is not None:
+            new_linear.bias = nn.Parameter(module.bias.to(dtype))
+        setattr(parent, attr, new_linear)
+    return model
 
 
 class ModelVariant(StrEnum):
@@ -79,11 +107,20 @@ class ModelLoader(ForgeModel):
 
         self.load_config()
 
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_compute_dtype=torch.bfloat16,
+        )
+
         model_kwargs = {
             "config": self.config,
             "low_cpu_mem_usage": True,
             "trust_remote_code": True,
             "attn_implementation": "eager",
+            "quantization_config": bnb_config,
+            "device_map": "cpu",
         }
 
         if dtype_override is not None:
@@ -95,6 +132,7 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             self._variant_config.pretrained_model_name, **model_kwargs
         )
+        model = _dequantize_bnb_model(model, dtype=dtype_override or torch.bfloat16)
         model.eval()
 
         self.model = model
