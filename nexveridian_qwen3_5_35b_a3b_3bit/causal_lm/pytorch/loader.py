@@ -26,39 +26,54 @@ from ....config import (
 )
 
 
-def _dequantize_mlx3bit(
+def _dequantize_mlx_affine(
     weight_uint32: torch.Tensor,
     scales: torch.Tensor,
     biases: torch.Tensor,
+    bits: int,
     group_size: int = 64,
 ) -> torch.Tensor:
-    """Dequantize MLX 3-bit affine group quantization.
+    """Dequantize MLX affine group quantization for any bit width.
 
-    weight_uint32: (rows, cols_packed) uint32 — 3 bits per value, packed LSB-first.
+    weight_uint32: (rows, cols_packed) uint32 — bits-per-value, packed LSB-first.
     scales:  (rows, num_groups) bfloat16 — scale per group.
     biases:  (rows, num_groups) bfloat16 — bias (zero-point) per group.
-    Returns bfloat16 tensor of shape (rows, cols_packed * 32 // 3).
+    bits:    number of bits per weight value (3 or 8).
+    Returns bfloat16 tensor of shape (rows, in_features) where in_features is
+    determined from cols_packed and bits.
     """
     rows, cols_packed = weight_uint32.shape
-    in_features = (cols_packed * 32) // 3  # e.g. 192*32//3 = 2048
+    mask = (1 << bits) - 1
 
-    w_np = weight_uint32.cpu().numpy().view(np.uint32)  # (rows, cols_packed)
-
-    # Build index arrays for vectorised bit extraction
-    bit_positions = np.arange(in_features, dtype=np.int64) * 3
-    w32_idx = (bit_positions // 32).astype(np.int32)
-    bit_off = (bit_positions % 32).astype(np.int32)
-
-    main = (w_np[:, w32_idx] >> bit_off) & 7  # (rows, in_features) uint32
-
-    # Fix the ~6% of elements that span a uint32 boundary
-    for i in np.where(bit_off + 3 > 32)[0]:
-        wi = w32_idx[i]
-        bo = bit_off[i]
-        bits_first = 32 - bo
-        low = (w_np[:, wi] >> bo) & ((1 << bits_first) - 1)
-        high = w_np[:, wi + 1] & ((1 << (3 - bits_first)) - 1)
-        main[:, i] = low | (high << bits_first)
+    if 32 % bits == 0:
+        # Exact packing: bits divides 32, so no cross-boundary values.
+        # View as the smallest integer type that holds `bits` bits.
+        in_features = cols_packed * (32 // bits)
+        w_bytes = weight_uint32.cpu().numpy().view(np.uint8)  # (rows, cols_packed*4)
+        if bits == 8:
+            # Each byte is one 8-bit weight.
+            main = w_bytes.astype(np.uint32)  # (rows, in_features)
+        else:
+            # bits == 4: two nibbles per byte.
+            low = (w_bytes & 0xF).astype(np.uint32)
+            high = ((w_bytes >> 4) & 0xF).astype(np.uint32)
+            main = np.stack([low, high], axis=-1).reshape(rows, -1)
+    else:
+        # Non-exact packing (e.g. bits==3): values span uint32 boundaries.
+        in_features = (cols_packed * 32) // bits
+        w_np = weight_uint32.cpu().numpy().view(np.uint32)
+        bit_positions = np.arange(in_features, dtype=np.int64) * bits
+        w32_idx = (bit_positions // 32).astype(np.int32)
+        bit_off = (bit_positions % 32).astype(np.int32)
+        main = (w_np[:, w32_idx] >> bit_off) & mask
+        # Fix values that span a uint32 boundary.
+        for i in np.where(bit_off + bits > 32)[0]:
+            wi = w32_idx[i]
+            bo = bit_off[i]
+            bits_first = 32 - bo
+            low = (w_np[:, wi] >> bo) & ((1 << bits_first) - 1)
+            high = w_np[:, wi + 1] & ((1 << (bits - bits_first)) - 1)
+            main[:, i] = low | (high << bits_first)
 
     # Group-expand scales and biases then apply: w = q * scale + bias
     scales_f = scales.float().cpu().numpy()  # (rows, num_groups)
@@ -154,10 +169,30 @@ class ModelLoader(ForgeModel):
                     if key.startswith(PREFIX):
                         all_raw[key] = sf.get_tensor(key)
 
-        # Build state dict: strip prefix, dequantize uint32 (3-bit MLX) tensors
+        # Build per-tensor bit-width lookup from quantization config overrides.
+        # The config stores overrides keyed by "language_model.model.layers.N.mlp.gate"
+        # (without the trailing ".weight"); the default is bits=3.
+        quant_cfg = full_config.quantization
+        default_bits = quant_cfg.get("bits", 3)
+        default_group_size = quant_cfg.get("group_size", 64)
+        per_tensor_bits: dict[str, int] = {}
+        per_tensor_gs: dict[str, int] = {}
+        for cfg_key, cfg_val in quant_cfg.items():
+            if isinstance(cfg_val, dict):
+                per_tensor_bits[cfg_key] = cfg_val.get("bits", default_bits)
+                per_tensor_gs[cfg_key] = cfg_val.get("group_size", default_group_size)
+
+        def _get_quant_params(raw_key: str):
+            # Strip ".weight" suffix to find the config entry.
+            base_key = raw_key.rsplit(".", 1)[0]
+            return (
+                per_tensor_bits.get(base_key, default_bits),
+                per_tensor_gs.get(base_key, default_group_size),
+            )
+
+        # Build state dict: strip prefix, dequantize uint32 (MLX) tensors
         SCALES_SUFFIX = ".scales"
         BIASES_SUFFIX = ".biases"
-        group_size = full_config.quantization.get("group_size", 64)
         state_dict: dict[str, torch.Tensor] = {}
         for key, tensor in all_raw.items():
             if key.endswith(SCALES_SUFFIX) or key.endswith(BIASES_SUFFIX):
@@ -167,7 +202,8 @@ class ModelLoader(ForgeModel):
                 base = key.rsplit(".", 1)[0]
                 scales = all_raw[base + SCALES_SUFFIX]
                 biases = all_raw[base + BIASES_SUFFIX]
-                tensor = _dequantize_mlx3bit(tensor, scales, biases, group_size)
+                bits, gs = _get_quant_params(key)
+                tensor = _dequantize_mlx_affine(tensor, scales, biases, bits, gs)
             state_dict[model_key] = tensor
 
         # Construct on meta device to avoid double-allocating the model weights
