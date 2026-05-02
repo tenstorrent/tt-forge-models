@@ -4,22 +4,63 @@
 """
 Qwen3-30B-A3B-Instruct-2507 Malaysian DoRA GGUF model loader implementation for causal language modeling.
 """
+import importlib
+import os
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers
 import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
-from transformers.modeling_gguf_pytorch_utils import (
-    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+
+_GGUF_UTILS_FILE = os.path.abspath(
+    os.path.join(os.path.dirname(transformers.__file__), "modeling_gguf_pytorch_utils.py")
 )
 
 
+def _find_real_load_gguf_checkpoint(func):
+    """Follow the narrow-sig wrapper chain to the real transformers load_gguf_checkpoint.
+
+    Other loaders patch _gguf_utils.load_gguf_checkpoint with narrow-sig wrappers that
+    call _orig_load_gguf_checkpoint from their module globals (LOAD_GLOBAL, not closure).
+    We trace through those global references until we reach the function whose __code__
+    lives in the transformers source file.
+    """
+    seen = set()
+    while func is not None:
+        fid = id(func)
+        if fid in seen:
+            return None
+        seen.add(fid)
+        code = getattr(func, "__code__", None)
+        if code and os.path.abspath(code.co_filename) == _GGUF_UTILS_FILE:
+            return func
+        # Narrow-sig loaders store the previous function as _orig_load_gguf_checkpoint
+        # in their module's global namespace (accessed via LOAD_GLOBAL, not closure).
+        globals_ = getattr(func, "__globals__", {})
+        next_func = globals_.get("_orig_load_gguf_checkpoint")
+        if next_func is None or not callable(next_func):
+            return None
+        func = next_func
+    return None
+
+
+# Capture whatever was in the module before we install our patch (may be a
+# narrow-sig wrapper from another loader imported earlier during test collection).
+_before_our_patch = _gguf_utils.__dict__.get("load_gguf_checkpoint")
+_real_load_gguf = _find_real_load_gguf_checkpoint(_before_our_patch)
+
+
 def _patched_load_gguf_checkpoint(*args, **kwargs):
-    """Pass through to original, accepting model_to_load kwarg added in transformers 5.2."""
-    return _orig_load_gguf_checkpoint(*args, **kwargs)
+    """Pass through to real transformers load_gguf_checkpoint, accepting model_to_load kwarg."""
+    if _real_load_gguf is not None:
+        return _real_load_gguf(*args, **kwargs)
+    # Fallback: reload the module to restore the unpatched original.
+    importlib.reload(_gguf_utils)
+    return _gguf_utils.load_gguf_checkpoint(*args, **kwargs)
 
 
 _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
@@ -101,6 +142,13 @@ class ModelLoader(ForgeModel):
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
+
+        # Re-apply patch here (not just at import time) so other narrow-sig loaders
+        # imported after us cannot clobber it before load_model is called.
+        _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+        _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
         model_kwargs = {}
         if dtype_override is not None:
