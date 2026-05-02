@@ -36,6 +36,14 @@ def _ensure_flash_attn_stub():
 
     def _flash_attn_func(q, k, v, dropout_p=0.0, softmax_scale=None, causal=False, **kwargs):
         # flash-attn layout: (batch, seqlen, nheads, headdim)
+        # The model casts float32 q/k/v to float16 before calling flash_attn (which
+        # requires half precision).  Our SDPA stub doesn't need half precision, and
+        # float16 SDPA on TT hardware produces NaN for this model.  Upgrade float16
+        # inputs to bfloat16 so the computation runs in a dtype TT handles reliably.
+        if q.dtype == torch.float16:
+            q = q.to(torch.bfloat16)
+            k = k.to(torch.bfloat16)
+            v = v.to(torch.bfloat16)
         q = q.transpose(1, 2)  # → (batch, nheads, seqlen, headdim)
         k = k.transpose(1, 2)
         v = v.transpose(1, 2)
@@ -213,6 +221,10 @@ class ModelLoader(ForgeModel):
                 pretrained_model_name,
                 config=config,
                 trust_remote_code=True,
+                # Load in float32 for numerical stability across 38 decoder layers
+                # (bfloat16 produces NaN on CPU for this model).  The attention
+                # module casts q/k/v to float16 before flash_attn; our stub
+                # upgrades float16 → bfloat16 for TT hardware compatibility.
                 torch_dtype=dtype_override if dtype_override is not None else torch.float32,
                 **kwargs,
             )
