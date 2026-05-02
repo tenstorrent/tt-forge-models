@@ -8,6 +8,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import numpy as np
 import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
@@ -15,8 +16,19 @@ import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers.modeling_gguf_pytorch_utils import (
     load_gguf_checkpoint as _orig_load_gguf_checkpoint,
     GGUF_SUPPORTED_ARCHITECTURES,
+    TensorProcessor,
+    GGUFTensor,
 )
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+
+class _Qwen35TensorProcessor(TensorProcessor):
+    def process(self, weights, name, **kwargs):
+        # GGUF stores linear_attn.conv1d.weight as [out, kernel]; PyTorch Conv1d
+        # expects [out_channels, in_channels, kernel_size] = [out, 1, kernel].
+        if "linear_attn.conv1d.weight" in name and weights.ndim == 2:
+            weights = np.expand_dims(weights, axis=1)
+        return GGUFTensor(weights, name, {})
 
 
 def _patch_qwen35_support():
@@ -33,6 +45,7 @@ def _patch_qwen35_support():
         GGUF_TO_FAST_CONVERTERS.setdefault(
             "qwen3_5_text", GGUF_TO_FAST_CONVERTERS["qwen3"]
         )
+    _gguf_utils.TENSOR_PROCESSORS.setdefault("qwen35", _Qwen35TensorProcessor())
 
 
 def _find_true_original():
