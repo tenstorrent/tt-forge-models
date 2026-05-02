@@ -5,7 +5,10 @@
 jeffcookio Mistral Small 3.2 24B Instruct 2506 AWQ symmetric model loader implementation for multimodal vision-language modeling.
 """
 
+import types
 from typing import Optional
+
+import torch
 
 from ...config import (
     LLMModelConfig,
@@ -17,6 +20,53 @@ from ...config import (
     StrEnum,
 )
 from ...base import ForgeModel
+
+
+def _patch_get_image_features_cpu_split(model):
+    """Patch get_image_features to compute split_sizes on CPU.
+
+    On TT device, int64 arithmetic is promoted to bfloat16 internally.
+    bfloat16(2310) = 2320, so prod() on an XLA/TT int64 tensor returns
+    wrong results (e.g., 42*55=2310 rounds to 2320). Computing split_sizes
+    on CPU avoids this precision loss.
+
+    Also captures return_dict as an explicit named parameter to avoid
+    conflicts when the @can_return_tuple-decorated caller passes it.
+    """
+
+    def get_image_features(self, pixel_values, image_sizes, vision_feature_layer=None, output_hidden_states=None, return_dict=None, **kwargs):
+        kwargs = {k: v for k, v in kwargs.items() if v is not None}
+        image_outputs = self.vision_tower(
+            pixel_values,
+            image_sizes=image_sizes,
+            output_hidden_states=True,
+            return_dict=True,
+            **kwargs,
+        )
+        if vision_feature_layer is None:
+            vision_feature_layer = self.config.vision_feature_layer
+        if isinstance(vision_feature_layer, int):
+            selected_image_feature = image_outputs.hidden_states[vision_feature_layer]
+        else:
+            hs_pool = [image_outputs.hidden_states[layer_idx] for layer_idx in vision_feature_layer]
+            selected_image_feature = torch.cat(hs_pool, dim=-1)
+
+        image_features = self.multi_modal_projector(selected_image_feature.squeeze(0), image_sizes)
+        downsample_ratio = self.vision_tower.patch_size * self.config.spatial_merge_size
+        # Compute split_sizes on CPU to avoid TT int64→bfloat16 precision loss:
+        # prod() on XLA int64 uses bfloat16 arithmetic; bfloat16(2310)=2320.
+        image_sizes_cpu = (
+            image_sizes.cpu().to(torch.int64)
+            if isinstance(image_sizes, torch.Tensor)
+            else torch.tensor(image_sizes, dtype=torch.int64)
+        )
+        split_sizes = (image_sizes_cpu // downsample_ratio).prod(dim=-1).tolist()
+        image_features = torch.split(image_features.squeeze(0), split_sizes)
+        image_outputs.pooler_output = image_features
+        return image_outputs
+
+    # Patch on model.model (Mistral3Model) since that's where get_image_features is called
+    model.model.get_image_features = types.MethodType(get_image_features, model.model)
 
 
 class ModelVariant(StrEnum):
@@ -90,6 +140,9 @@ class ModelLoader(ForgeModel):
         model.eval()
         self.model = model
         self.config = model.config
+
+        _patch_get_image_features_cpu_split(model)
+
         return model
 
     def load_inputs(
