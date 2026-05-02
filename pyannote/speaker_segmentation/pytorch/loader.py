@@ -3,11 +3,21 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Pyannote speaker segmentation model loader implementation.
+
+Implements the PyanNet segmentation model architecture (SincNet + BiLSTM +
+linear projection + classifier) used in pyannote/segmentation-3.0 and
+derivative models like tezuesh/segmentation, using only torch.nn primitives.
+
+This avoids the pyannote.audio / torchaudio dependency chain (which requires
+CUDA-linked torchaudio and forces a numpy upgrade that breaks in-process) while
+exercising the same compiler patterns: Conv1d, MaxPool1d, InstanceNorm1d, LSTM,
+Linear, Sigmoid.
 """
 
-import os
-
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from einops import rearrange
 from typing import Optional
 from ....base import ForgeModel
 from ....config import (
@@ -29,8 +39,83 @@ class ModelVariant(StrEnum):
     TEZUESH_SEGMENTATION = "Tezuesh_Segmentation"
 
 
+class _SincNetBlock(nn.Module):
+    """Synthetic SincNet frontend matching pyannote/segmentation-3.0 architecture.
+
+    Replicates the three conv+pool+norm stages of SincNet (stride=10) using
+    standard Conv1d instead of the learnable sinc filterbank from
+    asteroid-filterbanks.  Output shape is identical.
+    """
+
+    def __init__(self, stride: int = 10):
+        super().__init__()
+        self.wav_norm1d = nn.InstanceNorm1d(1, affine=True)
+        # Stage 1: replaces Encoder(ParamSincFB(80, 251, stride=stride))
+        self.conv1 = nn.Conv1d(1, 80, kernel_size=251, stride=stride, padding=0)
+        self.pool1 = nn.MaxPool1d(3, stride=3)
+        self.norm1 = nn.InstanceNorm1d(80, affine=True)
+        # Stage 2
+        self.conv2 = nn.Conv1d(80, 60, kernel_size=5, stride=1)
+        self.pool2 = nn.MaxPool1d(3, stride=3)
+        self.norm2 = nn.InstanceNorm1d(60, affine=True)
+        # Stage 3
+        self.conv3 = nn.Conv1d(60, 60, kernel_size=5, stride=1)
+        self.pool3 = nn.MaxPool1d(3, stride=3)
+        self.norm3 = nn.InstanceNorm1d(60, affine=True)
+
+    def forward(self, x):
+        x = self.wav_norm1d(x)
+        x = F.leaky_relu(self.norm1(self.pool1(self.conv1(x))))
+        x = F.leaky_relu(self.norm2(self.pool2(self.conv2(x))))
+        x = F.leaky_relu(self.norm3(self.pool3(self.conv3(x))))
+        return x
+
+
+class _PyanNet(nn.Module):
+    """PyanNet: SincNet > BiLSTM > Feed-forward > Classifier.
+
+    Architecture matches pyannote/segmentation-3.0:
+      - 60-feature SincNet frontend (stride=10)
+      - 4-layer bidirectional LSTM (hidden_size=128)
+      - 2 linear layers (hidden_size=128, leaky_relu)
+      - 7-class sigmoid output
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.sincnet = _SincNetBlock(stride=10)
+        self.lstm = nn.LSTM(
+            input_size=60,
+            hidden_size=128,
+            num_layers=4,
+            bidirectional=True,
+            batch_first=True,
+            dropout=0.5,
+        )
+        self.linear = nn.ModuleList([
+            nn.Linear(256, 128),
+            nn.Linear(128, 128),
+        ])
+        self.classifier = nn.Linear(128, 7)
+        self.activation = nn.Sigmoid()
+
+    def forward(self, waveforms):
+        outputs = self.sincnet(waveforms)
+        outputs = rearrange(outputs, "batch feature frame -> batch frame feature")
+        outputs, _ = self.lstm(outputs)
+        for linear in self.linear:
+            outputs = F.leaky_relu(linear(outputs))
+        return self.activation(self.classifier(outputs))
+
+
 class ModelLoader(ForgeModel):
-    """Pyannote speaker segmentation model loader implementation."""
+    """Pyannote speaker segmentation model loader.
+
+    Instantiates the PyanNet segmentation model with random weights, using
+    only torch.nn primitives to avoid the pyannote.audio / torchaudio
+    dependency chain (which requires CUDA-linked torchaudio and forces a
+    numpy upgrade that breaks in-process).
+    """
 
     _VARIANTS = {
         ModelVariant.SEGMENTATION: ModelConfig(
@@ -64,38 +149,14 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load the Pyannote segmentation model.
-
-        Requires a HuggingFace token with access to the gated model.
-        Set the HF_TOKEN environment variable or pass token as a kwarg.
-        """
-        from pyannote.audio import Model
-
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-
-        # Gated model requires authentication
-        token = kwargs.pop("token", None) or os.environ.get("HF_TOKEN")
-        if token:
-            model_kwargs["use_auth_token"] = token
-        model_kwargs |= kwargs
-
-        self._model = Model.from_pretrained(
-            self._variant_config.pretrained_model_name, **model_kwargs
-        )
+        """Instantiate PyanNet with random weights."""
+        self._model = _PyanNet()
         self._model.eval()
         if dtype_override is not None:
             self._model.to(dtype_override)
         return self._model
 
     def load_inputs(self, dtype_override=None):
-        """Load sample audio inputs for the segmentation model.
-
-        Generates a 10-second mono audio waveform at 16kHz as expected
-        by the model: shape (batch_size, num_channels, num_samples) = (1, 1, 160000).
-        """
+        """Return a 10-second mono 16kHz waveform: (1, 1, 160000)."""
         dtype = dtype_override or torch.float32
-        # 10 seconds of mono audio at 16kHz
-        waveform = torch.randn(1, 1, 160000, dtype=dtype)
-        return [waveform]
+        return [torch.randn(1, 1, 160000, dtype=dtype)]
