@@ -9,6 +9,7 @@ from transformers import AutoModel, AutoTokenizer
 from torchvision import transforms
 from torchvision.transforms import InterpolationMode
 from typing import Optional
+from PIL import Image
 
 from ...base import ForgeModel
 from ...config import (
@@ -20,7 +21,6 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from datasets import load_dataset
 
 
 class ModelVariant(StrEnum):
@@ -92,6 +92,47 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
+        # Pre-import the remote module so its module-level code runs once.
+        # modeling_keep.py does: timm.models.vision_transformer.LayerScale = RenameLayerScale
+        # That class lacks device/dtype params that newer timm passes via Block(**dd).
+        # After pre-import we replace the global with a compat subclass before from_pretrained
+        # builds the model (module code won't re-execute on the second import).
+        from transformers.dynamic_module_utils import get_class_from_dynamic_module
+        import timm.models.vision_transformer as _timm_vit
+
+        _KEEPModel = get_class_from_dynamic_module(
+            "modeling_keep.KEEPModel",
+            pretrained_model_name,
+            trust_remote_code=True,
+        )
+
+        # Fix 1: RenameLayerScale doesn't accept device/dtype kwargs that newer
+        # timm Block passes via dd = {'device': device, 'dtype': dtype}.
+        _rename_cls = _timm_vit.LayerScale  # now == RenameLayerScale
+
+        class _CompatLayerScale(_rename_cls):
+            def __init__(
+                self,
+                dim: int,
+                init_values: float = 1e-5,
+                inplace: bool = False,
+                device=None,
+                dtype=None,
+            ) -> None:
+                super().__init__(dim, init_values=init_values, inplace=inplace)
+
+        _timm_vit.LayerScale = _CompatLayerScale
+
+        # Fix 2: KEEPModel.__init__ never calls post_init(), so transformers 5.x
+        # _finalize_model_loading fails when accessing all_tied_weights_keys.
+        _orig_keep_init = _KEEPModel.__init__
+
+        def _keep_init_with_post_init(self, config):
+            _orig_keep_init(self, config)
+            self.post_init()
+
+        _KEEPModel.__init__ = _keep_init_with_post_init
+
         model = AutoModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
 
@@ -110,9 +151,8 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        # Load image from HuggingFace dataset
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"].convert("RGB")
+        # Use a synthetic image to avoid load_dataset + dill/spacy namespace conflict
+        image = Image.new("RGB", (224, 224))
 
         # Apply image preprocessing
         transform = self._get_image_transform()
