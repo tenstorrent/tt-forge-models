@@ -81,6 +81,9 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        # NVFP4 weights have packed shapes that differ from the model definition;
+        # ignore_mismatched_sizes=True is required without nvidia-modelopt installed.
+        model_kwargs["ignore_mismatched_sizes"] = True
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
