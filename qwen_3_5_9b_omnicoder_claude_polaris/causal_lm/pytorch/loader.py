@@ -126,6 +126,11 @@ class ModelLoader(ForgeModel):
             max_length=max_length,
         )
 
+        # Qwen3_5DynamicCache is not a transformers Cache subclass; the
+        # evaluator's convert_and_match raises TypeError when comparing it.
+        # Disable KV-cache to ensure past_key_values=None in the graph.
+        inputs["use_cache"] = False
+
         for key in inputs:
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
@@ -143,10 +148,17 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
 
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+            # Qwen3.5 is a hybrid GDA+attention model. Layers alternate between
+            # full_attention (have self_attn) and linear_attention (have linear_attn).
+            if hasattr(layer, "self_attn"):
+                shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+            elif hasattr(layer, "linear_attn"):
+                shard_specs[layer.linear_attn.in_proj_qkv.weight] = ("model", "batch")
+                shard_specs[layer.linear_attn.in_proj_z.weight] = ("model", "batch")
+                shard_specs[layer.linear_attn.out_proj.weight] = ("batch", "model")
         shard_specs[model.lm_head.weight] = ("model", "batch")
         return shard_specs
 
