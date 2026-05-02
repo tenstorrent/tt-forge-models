@@ -4,6 +4,7 @@
 """
 Moonlight-L3-15B-v2.5-64k i1 GGUF model loader implementation for causal language modeling.
 """
+import gc
 import inspect
 import torch
 import transformers.configuration_utils as _config_utils
@@ -17,11 +18,10 @@ from typing import Optional
 def _restore_load_gguf_checkpoint():
     """Re-install load_gguf_checkpoint with model_to_load support if a broken patch is active.
 
-    Multiple loaders patch load_gguf_checkpoint in a chain, each storing the
-    previous function as _orig_load_gguf_checkpoint in their module globals.
-    Walk the chain via a BFS over __globals__ entries whose names suggest they
-    are GGUF-related, until we find the transformers original that accepts
-    model_to_load.
+    Multiple loaders in the same pytest session patch load_gguf_checkpoint with
+    functions that drop the model_to_load kwarg added in transformers 5.x.  The
+    patches form a cyclic chain that BFS cannot fully traverse.  Use gc.get_objects()
+    to find the original function directly by its __qualname__ and __module__.
     """
     current = _gguf_utils.load_gguf_checkpoint
     try:
@@ -30,38 +30,21 @@ def _restore_load_gguf_checkpoint():
     except (ValueError, TypeError):
         pass
 
-    # BFS: for each function, look in its __globals__ for gguf/orig-related callables.
-    visited: set = set()
-    queue = [current]
     real_fn = None
-    while queue and real_fn is None:
-        fn = queue.pop(0)
-        fid = id(fn)
-        if fid in visited:
-            continue
-        visited.add(fid)
-        # Check if this function is the real original
-        try:
-            if "model_to_load" in inspect.signature(fn).parameters:
-                if getattr(fn, "__module__", "") == "transformers.modeling_gguf_pytorch_utils":
-                    real_fn = fn
-                    break
-                elif real_fn is None:
-                    real_fn = fn
-        except (ValueError, TypeError):
-            pass
-        # Enqueue candidates from this function's globals (names suggesting gguf/orig chain)
-        for name, val in list((getattr(fn, "__globals__", None) or {}).items()):
-            if not callable(val) or id(val) in visited:
-                continue
-            low = name.lower()
-            if "load_gguf" in low or "gguf_check" in low or low.startswith("_orig"):
-                queue.append(val)
+    for obj in gc.get_objects():
+        if (
+            callable(obj)
+            and getattr(obj, "__qualname__", "") == "load_gguf_checkpoint"
+            and getattr(obj, "__module__", "")
+            == "transformers.modeling_gguf_pytorch_utils"
+        ):
+            real_fn = obj
+            break
 
     if real_fn is None:
         raise RuntimeError(
-            "Cannot find load_gguf_checkpoint accepting model_to_load; "
-            "update broken GGUF loaders for transformers 5.x compatibility."
+            "Cannot find original load_gguf_checkpoint from "
+            "transformers.modeling_gguf_pytorch_utils in the live object graph."
         )
 
     def _patched(gguf_path, return_tensors=False, model_to_load=None):
