@@ -5,10 +5,9 @@
 OpenVLA-OFT model loader implementation for action prediction.
 """
 import torch
-from transformers import AutoTokenizer
+from transformers import AutoProcessor
 from PIL import Image
 from typing import Optional
-from datasets import load_dataset
 
 from ...base import ForgeModel
 from ...config import (
@@ -20,11 +19,8 @@ from ...config import (
     Framework,
     StrEnum,
 )
+from ...tools.utils import get_file
 from ...openvla.pytorch.src.modeling_prismatic import OpenVLAForActionPrediction
-from ...openvla.pytorch.src.processing_prismatic import (
-    PrismaticImageProcessor,
-    PrismaticProcessor,
-)
 
 
 class ModelVariant(StrEnum):
@@ -127,10 +123,8 @@ class ModelLoader(ForgeModel):
             The loaded processor instance
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
-        image_processor = PrismaticImageProcessor.from_pretrained(pretrained_model_name)
-        tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
-        self.processor = PrismaticProcessor(
-            image_processor=image_processor, tokenizer=tokenizer
+        self.processor = AutoProcessor.from_pretrained(
+            pretrained_model_name, trust_remote_code=True
         )
 
         return self.processor
@@ -177,9 +171,9 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        # Load image from HuggingFace dataset
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"].convert("RGB")
+        # Load the sample image from URL
+        image_file = get_file(self.sample_image_url)
+        image = Image.open(image_file).convert("RGB")
 
         # Choose the prompt based on variant
         sample_prompt = (
