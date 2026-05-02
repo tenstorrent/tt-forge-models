@@ -28,12 +28,46 @@ class ModelVariant(StrEnum):
     S4 = "S4"
 
 
-# Mapping from variant to OpenCLIP tokenizer name
-_TOKENIZER_NAME = {
-    ModelVariant.S0: "MobileCLIP2-S0",
-    ModelVariant.S2: "MobileCLIP2-S2",
-    ModelVariant.S4: "MobileCLIP2-S4",
+# Mapping from variant to HuggingFace model repo for tokenizer.
+# open_clip 2.32.0 does not register "MobileCLIP2-S*" in its local config
+# registry, so get_tokenizer("MobileCLIP2-S*") raises AssertionError.
+# Additionally, open_clip's HFTokenizer calls batch_encode_plus which was
+# removed from transformers 5.x CLIPTokenizer.  We load the tokenizer
+# directly from HuggingFace and wrap it to return a plain tensor.
+_TOKENIZER_HF_REPO = {
+    ModelVariant.S0: "timm/MobileCLIP2-S0-OpenCLIP",
+    ModelVariant.S2: "timm/MobileCLIP2-S2-OpenCLIP",
+    ModelVariant.S4: "timm/MobileCLIP2-S4-OpenCLIP",
 }
+
+
+class _CLIPTokenizerWrapper:
+    """Wraps a HuggingFace CLIPTokenizer to match the open_clip tokenizer interface.
+
+    open_clip tokenizers are callables that accept a list of strings and return
+    a torch.Tensor of shape [batch, context_length].  This wrapper provides the
+    same interface using transformers' CLIPTokenizer directly, avoiding the
+    broken batch_encode_plus call in open_clip 2.32.0 under transformers 5.x.
+    """
+
+    _CONTEXT_LENGTH = 77
+
+    def __init__(self, hf_repo: str):
+        from transformers import AutoTokenizer
+
+        self._tok = AutoTokenizer.from_pretrained(hf_repo)
+
+    def __call__(self, texts):
+        if isinstance(texts, str):
+            texts = [texts]
+        encoding = self._tok(
+            texts,
+            return_tensors="pt",
+            max_length=self._CONTEXT_LENGTH,
+            padding="max_length",
+            truncation=True,
+        )
+        return encoding.input_ids
 
 
 class ModelLoader(ForgeModel):
@@ -79,12 +113,12 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The MobileCLIP2 model instance.
         """
-        from open_clip import create_model_from_pretrained, get_tokenizer
+        from open_clip import create_model_from_pretrained
 
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model, self.preprocess = create_model_from_pretrained(pretrained_model_name)
-        self.tokenizer = get_tokenizer(_TOKENIZER_NAME[self._variant])
+        self.tokenizer = _CLIPTokenizerWrapper(_TOKENIZER_HF_REPO[self._variant])
 
         if dtype_override is not None:
             model = model.to(dtype_override)
@@ -102,19 +136,23 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors containing image and text tokens.
         """
-        from open_clip import create_model_from_pretrained, get_tokenizer
+        from open_clip import create_model_from_pretrained
 
         if self.preprocess is None or self.tokenizer is None:
             _, self.preprocess = create_model_from_pretrained(
                 self._variant_config.pretrained_model_name
             )
-            self.tokenizer = get_tokenizer(_TOKENIZER_NAME[self._variant])
+            self.tokenizer = _CLIPTokenizerWrapper(_TOKENIZER_HF_REPO[self._variant])
 
-        # Load image from HuggingFace dataset
-        from datasets import load_dataset
+        # Load a sample image via URL to avoid the spacy namespace-package
+        # collision that makes load_dataset("huggingface/cats-image") crash
+        # when tt_forge_models/spacy/ is on sys.path.
+        from PIL import Image
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        from ...tools.utils import get_file
+
+        image_path = get_file("http://images.cocodataset.org/val2017/000000039769.jpg")
+        image = Image.open(str(image_path)).convert("RGB")
 
         self.text_prompts = ["a photo of a cat", "a photo of a dog"]
 
