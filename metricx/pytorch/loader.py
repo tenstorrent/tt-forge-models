@@ -127,7 +127,7 @@ class MT5ForRegression(_MT5PreTrainedModel):
         hidden_states = encoder_outputs[0]
 
         batch_size = input_ids.size(0)
-        decoder_input_ids = torch.LongTensor([0]).repeat(batch_size).reshape(-1, 1)
+        decoder_input_ids = torch.zeros(batch_size, 1, dtype=torch.long, device=input_ids.device)
 
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
