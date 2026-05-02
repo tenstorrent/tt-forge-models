@@ -30,33 +30,32 @@ def _patched_unconstrained_rational_quadratic_spline(
     min_derivative=1e-3,
 ):
     inside_interval_mask = (inputs >= -tail_bound) & (inputs <= tail_bound)
-    outside_interval_mask = ~inside_interval_mask
 
-    outputs = torch.zeros_like(inputs)
-    log_abs_det = torch.zeros_like(inputs)
+    # math.log/math.exp avoids numpy scalars that confuse Dynamo under TorchFunctionMode.
     constant = math.log(math.exp(1 - min_derivative) - 1)
 
     unnormalized_derivatives = nn.functional.pad(unnormalized_derivatives, pad=(1, 1))
     unnormalized_derivatives[..., 0] = constant
     unnormalized_derivatives[..., -1] = constant
 
-    outputs[outside_interval_mask] = inputs[outside_interval_mask]
-    log_abs_det[outside_interval_mask] = 0.0
-
-    (
-        outputs[inside_interval_mask],
-        log_abs_det[inside_interval_mask],
-    ) = modeling_vits._rational_quadratic_spline(
-        inputs=inputs[inside_interval_mask],
-        unnormalized_widths=unnormalized_widths[inside_interval_mask, :],
-        unnormalized_heights=unnormalized_heights[inside_interval_mask, :],
-        unnormalized_derivatives=unnormalized_derivatives[inside_interval_mask, :],
+    # Clamp to valid range so _rational_quadratic_spline's bounds check passes when
+    # called on the full tensor.  torch.where then restores the identity transform
+    # (output=input, log_abs_det=0) for elements outside the interval.
+    clamped_inputs = inputs.clamp(-tail_bound, tail_bound)
+    full_outputs, full_log_abs_det = modeling_vits._rational_quadratic_spline(
+        inputs=clamped_inputs,
+        unnormalized_widths=unnormalized_widths,
+        unnormalized_heights=unnormalized_heights,
+        unnormalized_derivatives=unnormalized_derivatives,
         reverse=reverse,
         tail_bound=tail_bound,
         min_bin_width=min_bin_width,
         min_bin_height=min_bin_height,
         min_derivative=min_derivative,
     )
+
+    outputs = torch.where(inside_interval_mask, full_outputs, inputs)
+    log_abs_det = torch.where(inside_interval_mask, full_log_abs_det, torch.zeros_like(inputs))
     return outputs, log_abs_det
 
 
