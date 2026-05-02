@@ -15,9 +15,11 @@ Two additional loader bugs are fixed:
      get_expanded_tied_weights_keys.  Fix: patch to None on the remote model class.
 """
 import torch
+import torch.nn.functional as F
 from transformers import AutoProcessor, AutoConfig
 from transformers.dynamic_module_utils import get_class_from_dynamic_module
 from transformers.image_utils import load_image
+from transformers.models.siglip2.modeling_siglip2 import Siglip2VisionEmbeddings
 from safetensors import safe_open
 from huggingface_hub import hf_hub_download
 from typing import Optional
@@ -38,6 +40,51 @@ class ModelVariant(StrEnum):
     """Available mlx-community LFM2-VL-1.6B-4bit model variants for image-text-to-text tasks."""
 
     LFM2_VL_1_6B_4BIT = "1_6B_4bit"
+
+
+def _patched_resize_positional_embeddings(positional_embeddings, spatial_shapes, max_length):
+    """Replaces Siglip2VisionEmbeddings.resize_positional_embeddings.
+
+    The upstream implementation only upcasts to float32 when device.type == 'cpu'.
+    F.interpolate with antialias=True does not support bfloat16 on TT silicon either,
+    so we cast unconditionally and cast back.  The .tolist() on spatial_shapes is kept
+    but runs from CPU inputs (the test passes spatial_shapes as a CPU tensor).
+    """
+    batch_size = spatial_shapes.shape[0]
+    embed_dim = positional_embeddings.shape[-1]
+    source_dtype = positional_embeddings.dtype
+
+    resulted_positional_embeddings = torch.empty(
+        (batch_size, max_length, embed_dim),
+        device=positional_embeddings.device,
+        dtype=source_dtype,
+    )
+
+    positional_embeddings = positional_embeddings.permute(2, 0, 1).unsqueeze(0)
+    # Always cast to float32: antialias bilinear is not implemented for bf16/fp16
+    positional_embeddings = positional_embeddings.to(torch.float32)
+
+    for i in range(batch_size):
+        height, width = spatial_shapes[i].tolist()
+        resized_embeddings = F.interpolate(
+            positional_embeddings,
+            size=(height, width),
+            mode="bilinear",
+            align_corners=False,
+            antialias=True,
+        )
+        resized_embeddings = resized_embeddings.reshape(embed_dim, height * width).transpose(0, 1)
+        resized_embeddings = resized_embeddings.to(source_dtype)
+        resulted_positional_embeddings[i, : height * width] = resized_embeddings
+        resulted_positional_embeddings[i, height * width :] = resized_embeddings[0]
+
+    return resulted_positional_embeddings
+
+
+# Patch Siglip2VisionEmbeddings globally so any instance of the vision encoder picks it up.
+Siglip2VisionEmbeddings.resize_positional_embeddings = staticmethod(
+    _patched_resize_positional_embeddings
+)
 
 
 def _dequantize_mlx_affine_4bit(w_packed, scales, biases, group_size=64):
@@ -189,7 +236,9 @@ class ModelLoader(ForgeModel):
         group_size = getattr(getattr(config, "quantization", None), "group_size", None) or 64
         state_dict = _load_and_dequantize_mlx_checkpoint(pretrained_model_name, group_size)
         model.load_state_dict(state_dict, strict=False)
-        model.tie_weights()
+        # _tied_weights_keys was patched to None to avoid transformers 5.x AttributeError;
+        # tie_weights() no longer auto-ties lm_head.weight, so do it manually.
+        model.lm_head.weight = model.model.language_model.embed_tokens.weight
 
         self.config = config
         self.model = model
