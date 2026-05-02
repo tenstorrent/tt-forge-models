@@ -5,6 +5,7 @@
 MeloTTS-French model loader implementation for text-to-speech tasks.
 """
 import json
+import math
 import os
 import sys
 
@@ -119,6 +120,16 @@ class ModelLoader(ForgeModel):
             sys.path.insert(0, melo_dir)
 
         from melo.models import SynthesizerTrn
+        import melo.transforms as melo_transforms
+
+        # melo/transforms.py uses numpy for a constant scalar computation that Dynamo
+        # traces as a 0-dim float64 FakeTensor, causing FX propagation to fail.
+        # Replace the numpy reference with Python math so the constant stays a plain float.
+        class _MathAsNp:
+            log = staticmethod(math.log)
+            exp = staticmethod(math.exp)
+
+        melo_transforms.np = _MathAsNp()
 
         repo_id = self._variant_config.pretrained_model_name
         config_path = hf_hub_download(repo_id=repo_id, filename="config.json")
