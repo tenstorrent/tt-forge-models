@@ -151,6 +151,8 @@ class ModelLoader(ForgeModel):
                 _bs = input_ids.size(0) if inputs_embeds is None else inputs_embeds.size(0)
                 _am = attention_mask.to(dtype=torch.float32).view(_bs, -1)[:, None, None, :]
                 _am = (1.0 - _am) * torch.finfo(torch.float32).min
+                # Expand (B,1,1,S) → (B,1,S,S): TTIR requires dim 2 == query seq len.
+                _am = _am.expand(-1, -1, _am.shape[-1], -1)
                 attention_bias = _am if attention_bias is None else attention_bias + _am
                 attention_mask = None
             return _orig_fwd(
