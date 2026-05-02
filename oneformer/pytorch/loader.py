@@ -7,6 +7,7 @@ OneFormer model loader implementation for universal segmentation tasks.
 
 import torch
 from typing import Optional
+from PIL import Image
 from transformers import OneFormerProcessor, OneFormerForUniversalSegmentation
 
 from ...base import ForgeModel
@@ -19,7 +20,6 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from datasets import load_dataset
 
 
 class ModelVariant(StrEnum):
@@ -58,7 +58,7 @@ class ModelLoader(ForgeModel):
 
     def _load_processor(self):
         self.processor = OneFormerProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, use_fast=False
         )
         return self.processor
 
@@ -79,8 +79,7 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        image = Image.new("RGB", (512, 512), color=(128, 128, 128))
 
         inputs = self.processor(
             images=image, task_inputs=["semantic"], return_tensors="pt"
