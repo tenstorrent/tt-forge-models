@@ -36,7 +36,13 @@ class ModelVariant(StrEnum):
 
 
 def _dequantize_bnb4_to_bf16(model):
-    """Replace all BnB Linear4bit layers with plain bf16 nn.Linear."""
+    """Replace all BnB Linear4bit layers with plain bf16 nn.Linear.
+
+    Unsloth models may store weights in bfloat16 in the safetensors files even
+    though the module structure uses Linear4bit (from quantization_config).  In
+    that case module.weight is a plain Parameter (no quant_state) and we just
+    cast it to bfloat16 directly without calling dequantize_4bit.
+    """
     import bitsandbytes as bnb
 
     replacements = []
@@ -44,9 +50,13 @@ def _dequantize_bnb4_to_bf16(model):
         if isinstance(module, bnb.nn.Linear4bit):
             replacements.append((name, module))
     for name, module in replacements:
-        dq_weight = bnb.functional.dequantize_4bit(
-            module.weight.data, module.weight.quant_state
-        ).to(torch.bfloat16)
+        quant_state = getattr(module.weight, "quant_state", None)
+        if quant_state is not None:
+            dq_weight = bnb.functional.dequantize_4bit(
+                module.weight.data, quant_state
+            ).to(torch.bfloat16)
+        else:
+            dq_weight = module.weight.data.to(torch.bfloat16)
         new_linear = nn.Linear(
             dq_weight.shape[1],
             dq_weight.shape[0],
