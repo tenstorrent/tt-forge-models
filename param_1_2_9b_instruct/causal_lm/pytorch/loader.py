@@ -101,6 +101,23 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        # Non-persistent buffers (cos_cached, sin_cached) are computed in
+        # __init__ via init_empty_weights and end up as uninitialized (NaN)
+        # tensors when the model is loaded with a dtype override.  Reinitialize
+        # them after loading.
+        target_dtype = dtype_override if dtype_override is not None else torch.get_default_dtype()
+        for module in model.modules():
+            if (
+                hasattr(module, "_set_cos_sin_cache")
+                and hasattr(module, "inv_freq")
+                and hasattr(module, "max_seq_len_cached")
+            ):
+                module._set_cos_sin_cache(
+                    seq_len=module.max_seq_len_cached,
+                    device=module.inv_freq.device,
+                    dtype=target_dtype,
+                )
+
         self.config = model.config
         self.model = model
         return model
