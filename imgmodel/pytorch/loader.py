@@ -66,6 +66,31 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    @staticmethod
+    def _dequantize_gguf_params(model, dtype):
+        """Pre-dequantize all Q4_0-quantized GGUFParameter tensors.
+
+        diffusers GGUFLinear.forward_native dequantizes weights on-the-fly, but
+        biases, GroupNorm scale/bias, Conv2d weight/bias, and other non-linear-layer
+        parameters are not dequantized before use. This GGUF stores all of these
+        as Q4_0, causing shape mismatches at runtime. Replace every GGUFParameter
+        with a plain nn.Parameter holding the dequantized values cast to dtype.
+        GGUFLinear.forward_native's dequantize_gguf_tensor call becomes a no-op
+        for already-plain tensors (it returns early if quant_type attribute absent).
+        """
+        from diffusers.quantizers.gguf.utils import GGUFParameter, dequantize_gguf_tensor
+
+        for name, param in list(model.named_parameters()):
+            if isinstance(param, GGUFParameter):
+                with torch.no_grad():
+                    dequant = dequantize_gguf_tensor(param).to(dtype)
+                    # Navigate to the parent module and replace the parameter
+                    parts = name.split(".")
+                    parent = model
+                    for part in parts[:-1]:
+                        parent = getattr(parent, part)
+                    setattr(parent, parts[-1], torch.nn.Parameter(dequant))
+
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load the GGUF-quantized UNet and build the SD pipeline.
 
@@ -90,6 +115,7 @@ class ModelLoader(ForgeModel):
             quantization_config=quantization_config,
             torch_dtype=dtype,
         )
+        self._dequantize_gguf_params(unet, dtype)
 
         self.pipeline = StableDiffusionPipeline.from_pretrained(
             BASE_PIPELINE,
