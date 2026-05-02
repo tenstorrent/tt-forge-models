@@ -116,6 +116,24 @@ class ModelLoader(ForgeModel):
             )
         finally:
             OpenELMRotaryEmbedding._compute_sin_cos_embeddings = _orig_compute
+
+        # inv_freq is persistent=False so it is not stored in the checkpoint.
+        # Under transformers 5.x meta-device init the buffer is materialised with
+        # uninitialised memory.  Reinitialise every RoPE layer on CPU.
+        for module in model.modules():
+            if isinstance(module, OpenELMRotaryEmbedding):
+                inv_freq = 1.0 / (
+                    module.freq_constant
+                    ** (
+                        torch.arange(0, module.model_dim, 2, dtype=torch.float32)
+                        / module.model_dim
+                    )
+                )
+                module.register_buffer("inv_freq", inv_freq, persistent=False)
+                module._cached_cos = None
+                module._cached_sin = None
+                module._cached_seq_length = module.max_seq_length
+
         if dtype_override is not None:
             model = model.to(dtype_override)
         model.eval()
