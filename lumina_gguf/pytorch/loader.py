@@ -12,7 +12,6 @@ Repository:
 """
 import torch
 from diffusers import GGUFQuantizationConfig, Lumina2Transformer2DModel
-from diffusers.quantizers.gguf.utils import _dequantize_gguf_and_restore_linear
 from huggingface_hub import hf_hub_download
 from typing import Optional
 
@@ -91,7 +90,8 @@ class ModelLoader(ForgeModel):
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
-        _dequantize_gguf_and_restore_linear(self.transformer)
+        self.transformer = self.transformer.dequantize()
+        self.transformer.is_quantized = False
         self.transformer = self.transformer.to(compute_dtype)
         self.transformer.eval()
 
