@@ -108,6 +108,8 @@ class ModelLoader(ForgeModel):
         model = Gemma3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        model.config.use_cache = False
+        model.config.text_config.use_cache = False
 
         model.eval()
         self.model = model
