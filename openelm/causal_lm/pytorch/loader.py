@@ -6,7 +6,9 @@ OpenELM causal language modeling loader
 """
 from typing import Optional
 
-from transformers import AutoTokenizer, AutoModelForCausalLM
+import torch
+from transformers import AutoConfig, AutoTokenizer, AutoModelForCausalLM
+from transformers.dynamic_module_utils import get_class_from_dynamic_module
 
 from ....config import (
     ModelConfig,
@@ -80,12 +82,40 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         self._ensure_tokenizer()
 
-        model_kwargs = {"use_cache": False, "trust_remote_code": True}
+        # OpenELMForCausalLM.__init__ only accepts `config`; pass use_cache via config
+        config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name, trust_remote_code=True
+        )
+        config.use_cache = False
+
+        # OpenELMRotaryEmbedding._compute_sin_cos_embeddings runs during __init__ but
+        # transformers 5.x initializes on meta device first.  Use
+        # get_class_from_dynamic_module so the module hash is set before patching;
+        # otherwise the second call from from_pretrained re-executes the module file
+        # and wipes the patch.
+        OpenELMRotaryEmbedding = get_class_from_dynamic_module(
+            "modeling_openelm.OpenELMRotaryEmbedding",
+            self._variant_config.pretrained_model_name,
+            trust_remote_code=True,
+        )
+        _orig_compute = OpenELMRotaryEmbedding._compute_sin_cos_embeddings
+
+        def _compute_skip_meta(self, key_len, key_device=torch.device("cpu"), key_dtype=torch.float32):
+            if self.inv_freq.device.type == "meta":
+                return
+            _orig_compute(self, key_len, key_device=key_device, key_dtype=key_dtype)
+
+        OpenELMRotaryEmbedding._compute_sin_cos_embeddings = _compute_skip_meta
+
+        model_kwargs = {"config": config, "trust_remote_code": True}
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            self._variant_config.pretrained_model_name, **model_kwargs
-        )
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                self._variant_config.pretrained_model_name, **model_kwargs
+            )
+        finally:
+            OpenELMRotaryEmbedding._compute_sin_cos_embeddings = _orig_compute
         if dtype_override is not None:
             model = model.to(dtype_override)
         model.eval()
