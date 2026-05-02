@@ -8,6 +8,37 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+from transformers.modeling_gguf_pytorch_utils import GGUF_SUPPORTED_ARCHITECTURES
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFGPTConverter
+
+
+def _patch_olmo2_gguf_support():
+    """Register olmo2 GGUF architecture in transformers.
+
+    transformers 5.x does not include olmo2 in GGUF_CONFIG_MAPPING or
+    GGUF_TO_FAST_CONVERTERS, so AutoModelForCausalLM.from_pretrained raises
+    ValueError for olmo2 GGUFs. OLMo2 uses a GPT2-BPE tokenizer.
+    """
+    if "olmo2" not in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]:
+        _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"]["olmo2"] = {
+            "context_length": "max_position_embeddings",
+            "block_count": "num_hidden_layers",
+            "feed_forward_length": "intermediate_size",
+            "embedding_length": "hidden_size",
+            "rope.freq_base": "rope_theta",
+            "attention.head_count": "num_attention_heads",
+            "attention.head_count_kv": "num_key_value_heads",
+            "attention.layer_norm_rms_epsilon": "rms_norm_eps",
+            "vocab_size": "vocab_size",
+        }
+    if "olmo2" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("olmo2")
+    GGUF_TO_FAST_CONVERTERS.setdefault("olmo2", GGUFGPTConverter)
+
+
+_patch_olmo2_gguf_support()
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
