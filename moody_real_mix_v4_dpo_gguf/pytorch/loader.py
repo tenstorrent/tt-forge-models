@@ -10,7 +10,21 @@ Gthalmie1/moody-real-mix-v4-dpo-gguf, a DPO-tuned Lumina-Image-2.0 checkpoint.
 
 import torch
 from diffusers import GGUFQuantizationConfig, Lumina2Transformer2DModel
+from huggingface_hub import hf_hub_download
 from typing import Optional
+
+# GGUFParameter.as_tensor() calls _make_subclass which re-dispatches through
+# __torch_function__ on the subclass, causing infinite recursion under Dynamo.
+# DisableTorchFunctionSubclass breaks the cycle.
+from diffusers.quantizers.gguf.utils import GGUFParameter as _GGUFParameter
+
+
+def _patched_as_tensor(self):
+    with torch.DisableTorchFunctionSubclass():
+        return torch.Tensor._make_subclass(torch.Tensor, self, self.requires_grad)
+
+
+_GGUFParameter.as_tensor = _patched_as_tensor
 
 from ...base import ForgeModel
 from ...config import (
@@ -77,8 +91,9 @@ class ModelLoader(ForgeModel):
         repo_id = self._variant_config.pretrained_model_name
         gguf_filename = _GGUF_FILES[self._variant]
 
+        model_path = hf_hub_download(repo_id=repo_id, filename=gguf_filename)
         self.transformer = Lumina2Transformer2DModel.from_single_file(
-            f"https://huggingface.co/{repo_id}/resolve/main/{gguf_filename}",
+            model_path,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
