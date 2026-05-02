@@ -209,6 +209,12 @@ class ModelLoader(ForgeModel):
         # call, causing Dynamo recompilation past its limit. Replace with a stable version.
         _fix_eva_rope_forward_accumulation(model)
 
+        # The text tower's config overrides dtype to float32/float16 via a nested
+        # _from_config call; text parameters end up with a different dtype than
+        # vision parameters.  Cast the whole model to unify.
+        if dtype_override is not None:
+            model = model.to(dtype=dtype_override)
+
         model.eval()
 
         return model
