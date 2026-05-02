@@ -58,29 +58,30 @@ def _patch_qwen35_support():
         GGUF_SUPPORTED_ARCHITECTURES.append("qwen35")
 
     # 2. Add qwen35 → HF config-field mapping.
+    # Use setdefault per-key so that partial patches from other loaders in the same
+    # session (which add qwen35 without SSM fields) are extended rather than skipped.
     config_mapping = _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING.get("config", {})
-    if "qwen35" not in config_mapping:
-        config_mapping["qwen35"] = {
-            "context_length": "max_position_embeddings",
-            "block_count": "num_hidden_layers",
-            "feed_forward_length": "intermediate_size",
-            "embedding_length": "hidden_size",
-            "rope.dimension_count": None,
-            "rope.freq_base": "rope_theta",
-            "attention.head_count": "num_attention_heads",
-            "attention.head_count_kv": "num_key_value_heads",
-            "attention.layer_norm_rms_epsilon": "rms_norm_eps",
-            # head_dim differs from rope.dimension_count for Qwen3.5
-            "attention.key_length": "head_dim",
-            "vocab_size": "vocab_size",
-            # drives layer_types generation in Qwen3_5TextConfig.__init__
-            "full_attention_interval": "full_attention_interval",
-            # SSM/GDA (GatedDeltaNet) layer dimensions
-            "ssm.time_step_rank": "linear_num_value_heads",
-            "ssm.group_count": "linear_num_key_heads",
-            "ssm.state_size": "linear_key_head_dim",
-            "ssm.conv_kernel": "linear_conv_kernel_dim",
-        }
+    qwen35_map = config_mapping.setdefault("qwen35", {})
+    for gguf_key, hf_key in [
+        ("context_length", "max_position_embeddings"),
+        ("block_count", "num_hidden_layers"),
+        ("feed_forward_length", "intermediate_size"),
+        ("embedding_length", "hidden_size"),
+        ("rope.dimension_count", None),
+        ("rope.freq_base", "rope_theta"),
+        ("attention.head_count", "num_attention_heads"),
+        ("attention.head_count_kv", "num_key_value_heads"),
+        ("attention.layer_norm_rms_epsilon", "rms_norm_eps"),
+        ("attention.key_length", "head_dim"),
+        ("vocab_size", "vocab_size"),
+        ("full_attention_interval", "full_attention_interval"),
+        # SSM/GDA (GatedDeltaNet) layer dimensions — absent in other loaders' patches
+        ("ssm.time_step_rank", "linear_num_value_heads"),
+        ("ssm.group_count", "linear_num_key_heads"),
+        ("ssm.state_size", "linear_key_head_dim"),
+        ("ssm.conv_kernel", "linear_conv_kernel_dim"),
+    ]:
+        qwen35_map.setdefault(gguf_key, hf_key)
 
     # 3. Wire up a fast tokenizer converter (same BPE vocab as Qwen3).
     if "qwen3" in GGUF_TO_FAST_CONVERTERS:
