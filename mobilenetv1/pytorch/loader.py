@@ -21,7 +21,6 @@ from ...config import (
 )
 from ...base import ForgeModel
 from ...tools.utils import VisionPreprocessor, VisionPostprocessor
-from datasets import load_dataset
 from .src.utils import MobileNetV1
 
 
@@ -253,9 +252,6 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.Tensor: Preprocessed input tensor.
         """
-        if image is None:
-            dataset = load_dataset("huggingface/cats-image", split="test")
-            image = dataset[0]["image"]
         return self.input_preprocess(
             image=image,
             dtype_override=dtype_override,
