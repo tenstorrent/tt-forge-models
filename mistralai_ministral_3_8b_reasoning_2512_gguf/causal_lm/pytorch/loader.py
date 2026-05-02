@@ -5,29 +5,79 @@
 mistralai Ministral-3-8B-Reasoning-2512 GGUF model loader implementation for causal language modeling.
 """
 import contextlib
+import inspect
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
 import transformers.configuration_utils as _config_utils
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.modeling_utils as _modeling_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers.modeling_gguf_pytorch_utils import (
-    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
     get_gguf_hf_weights_map as _orig_get_gguf_hf_weights_map,
     GGUF_SUPPORTED_ARCHITECTURES,
 )
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
 
-def _patch_mistral3_support():
-    """Register mistral3 architecture as an alias for mistral.
+def _find_true_load_gguf_checkpoint():
+    """Walk the patcher chain to find the real modeling_gguf_pytorch_utils function.
 
-    Ministral-3B GGUF files declare architecture as 'mistral3', which
-    transformers 5.x does not yet recognise. The model is structurally
-    compatible with the existing 'mistral' implementation.
+    Multiple loaders patch load_gguf_checkpoint at import time. Each captures
+    the current function as its "original". Walking the __closure__ and
+    __globals__ of each wrapper eventually reaches the real function whose
+    source is modeling_gguf_pytorch_utils.py.
     """
+    fn = _gguf_utils.load_gguf_checkpoint
+    visited = set()
+    while fn is not None and id(fn) not in visited:
+        visited.add(id(fn))
+        try:
+            src = inspect.getfile(fn)
+            if "modeling_gguf_pytorch_utils" in src:
+                return fn
+        except (TypeError, OSError):
+            pass
+        # Walk closures first
+        next_fn = None
+        if fn.__closure__:
+            for cell in fn.__closure__:
+                try:
+                    val = cell.cell_contents
+                    if callable(val) and id(val) not in visited:
+                        try:
+                            s = inspect.getfile(val)
+                            if "modeling_gguf_pytorch_utils" in s:
+                                return val
+                        except (TypeError, OSError):
+                            pass
+                        if next_fn is None:
+                            next_fn = val
+                except ValueError:
+                    pass
+        # Fall back to globals with _orig / gguf keys
+        if next_fn is None:
+            for key, val in fn.__globals__.items():
+                if ("_orig" in key or "gguf" in key.lower()) and callable(val) and id(val) not in visited:
+                    try:
+                        s = inspect.getfile(val)
+                        if "modeling_gguf_pytorch_utils" in s:
+                            return val
+                    except (TypeError, OSError):
+                        pass
+                    if next_fn is None:
+                        next_fn = val
+        fn = next_fn
+    # Fallback: import directly from the module's original attribute
+    import importlib
+    mod = importlib.import_module("transformers.modeling_gguf_pytorch_utils")
+    return mod.__dict__.get("load_gguf_checkpoint", _gguf_utils.load_gguf_checkpoint)
+
+
+def _patch_mistral3_support():
+    """Register mistral3 architecture as an alias for mistral."""
     if "mistral3" not in GGUF_SUPPORTED_ARCHITECTURES:
         GGUF_SUPPORTED_ARCHITECTURES.append("mistral3")
     for section in _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING:
@@ -41,26 +91,21 @@ def _patch_mistral3_support():
         GGUF_TO_FAST_CONVERTERS.setdefault("mistral3", GGUF_TO_FAST_CONVERTERS["llama"])
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
-    """Wrap load_gguf_checkpoint to add mistral3 support and fix model_type."""
-    _patch_mistral3_support()
-    result = _orig_load_gguf_checkpoint(
-        gguf_path, return_tensors=return_tensors, **kwargs
-    )
-    if result.get("config", {}).get("model_type") == "mistral3":
-        result["config"]["model_type"] = "mistral"
-    return result
+def _make_patched_load_gguf_checkpoint(true_orig):
+    """Return a patched load_gguf_checkpoint that wraps the true original."""
+    def _patched(gguf_path, return_tensors=False, **kwargs):
+        _patch_mistral3_support()
+        result = true_orig(gguf_path, return_tensors=return_tensors, **kwargs)
+        if result.get("config", {}).get("model_type") == "mistral3":
+            result["config"]["model_type"] = "mistral"
+        return result
+    return _patched
 
 
 def _patched_get_gguf_hf_weights_map(
     hf_model, processor, model_type=None, num_layers=None, qual_name=""
 ):
-    """Remap 'mistral' model_type to 'mistral3' for gguf-py tensor name lookup.
-
-    gguf-py only knows 'mistral3' (not 'mistral') for Ministral models. The HF
-    config uses 'mistral' so the model loads correctly, but the weight map
-    lookup must use 'mistral3'.
-    """
+    """Remap 'mistral' model_type to 'mistral3' for gguf-py tensor name lookup."""
     if model_type is None:
         model_type = getattr(hf_model.config, "model_type", None)
     if model_type == "mistral":
@@ -76,42 +121,27 @@ def _patched_get_gguf_hf_weights_map(
 
 @contextlib.contextmanager
 def _gguf_patch_context():
-    """Re-install our patches around from_pretrained to handle patcher chain ordering.
-
-    Other loaders installed at collection time may overwrite our module-level
-    patches. Re-installing them inside the load call ensures they are active
-    when transformers' modeling_utils.py does its lazy
-    `from .modeling_gguf_pytorch_utils import load_gguf_checkpoint`.
-    """
+    """Re-install our patches around from_pretrained to handle patcher chain ordering."""
     _patch_mistral3_support()
-    saved = {
-        "_gguf_utils_load": _gguf_utils.load_gguf_checkpoint,
-        "_config_utils_load": _config_utils.load_gguf_checkpoint,
-        "_auto_tokenizer_load": _auto_tokenizer.load_gguf_checkpoint,
-        "_tok_utils_load": _tok_utils.load_gguf_checkpoint,
-        "_gguf_utils_map": _gguf_utils.get_gguf_hf_weights_map,
-    }
-    _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-    _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-    _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-    _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    true_orig = _find_true_load_gguf_checkpoint()
+    patched_load = _make_patched_load_gguf_checkpoint(true_orig)
+    _modules = [_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils, _modeling_utils]
+    saved_load = {m: getattr(m, "load_gguf_checkpoint", None) for m in _modules}
+    saved_map = _gguf_utils.get_gguf_hf_weights_map
+    for m in _modules:
+        if hasattr(m, "load_gguf_checkpoint"):
+            m.load_gguf_checkpoint = patched_load
     _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
     try:
         yield
     finally:
-        _gguf_utils.load_gguf_checkpoint = saved["_gguf_utils_load"]
-        _config_utils.load_gguf_checkpoint = saved["_config_utils_load"]
-        _auto_tokenizer.load_gguf_checkpoint = saved["_auto_tokenizer_load"]
-        _tok_utils.load_gguf_checkpoint = saved["_tok_utils_load"]
-        _gguf_utils.get_gguf_hf_weights_map = saved["_gguf_utils_map"]
+        for m in _modules:
+            if saved_load[m] is not None:
+                m.load_gguf_checkpoint = saved_load[m]
+        _gguf_utils.get_gguf_hf_weights_map = saved_map
 
 
 _patch_mistral3_support()
-_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 from ....base import ForgeModel
 from ....config import (
