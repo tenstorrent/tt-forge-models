@@ -27,6 +27,48 @@ from ...config import (
 from ...tools.utils import get_file
 
 
+def _get_alibi_slopes(nheads):
+    """Compute ALiBi attention slopes for the given number of heads."""
+    def get_slopes_power_of_2(n):
+        start = 2 ** (-(2 ** -(math.log2(n) - 3)))
+        ratio = start
+        return [start * ratio ** i for i in range(n)]
+
+    if math.log2(nheads).is_integer():
+        return get_slopes_power_of_2(nheads)
+    else:
+        closest = 2 ** math.floor(math.log2(nheads))
+        return (
+            get_slopes_power_of_2(closest)
+            + _get_alibi_slopes(2 * closest)[0::2][: nheads - closest]
+        )
+
+
+def _recompute_alibi_buffers(model):
+    """Recompute alibi_slopes and linear_biases non-persistent buffers after meta init.
+
+    JinaBERT's SelfAttention computes alibi_slopes under the meta device context,
+    leaving them as garbage after materialization.  linear_biases (derived from
+    the slopes) becomes NaN due to overflow, poisoning all text embeddings.
+    Recompute both on CPU using num_heads inferred from the buffer shape.
+    """
+    for module in model.modules():
+        if type(module).__name__ not in ("SelfAttention", "FlashSelfAttention"):
+            continue
+        alibi_slopes_buf = getattr(module, "alibi_slopes", None)
+        if alibi_slopes_buf is None:
+            continue
+        nheads = alibi_slopes_buf.shape[0]
+        slopes = torch.tensor(_get_alibi_slopes(nheads), dtype=torch.float32)
+        module.register_buffer("alibi_slopes", slopes, persistent=False)
+
+        if hasattr(module, "_build_linear_biases") and hasattr(module, "linear_biases"):
+            module.linear_biases  # ensure attribute exists
+            seqlen = module.linear_biases.shape[-1] if module.linear_biases is not None else 16
+            new_biases = module._build_linear_biases(seqlen)
+            module.register_buffer("linear_biases", new_biases, persistent=False)
+
+
 def _recompute_rope_buffers(model):
     """Recompute VisionRotaryEmbeddingFast non-persistent buffers after meta init.
 
@@ -204,6 +246,12 @@ class ModelLoader(ForgeModel):
         # transformers materializes them with uninitialized (NaN) data after loading.
         # Recompute them on CPU using config params.
         _recompute_rope_buffers(model)
+
+        # JinaBERT SelfAttention registers alibi_slopes (computed via get_alibi_slopes)
+        # and linear_biases as non-persistent buffers. Both are computed under the meta
+        # device context and end up with garbage/NaN values after materialization,
+        # poisoning all text embeddings. Recompute on CPU.
+        _recompute_alibi_buffers(model)
 
         # forward_features re-wraps self.rope.forward with a new partial each eval
         # call, causing Dynamo recompilation past its limit. Replace with a stable version.
