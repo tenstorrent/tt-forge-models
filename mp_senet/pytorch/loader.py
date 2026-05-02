@@ -9,6 +9,7 @@ denoising audio waveforms using a conformer-based architecture.
 """
 
 import torch
+import torch.nn as nn
 import numpy as np
 from typing import Optional
 
@@ -23,11 +24,35 @@ from ...config import (
     StrEnum,
 )
 
+# STFT hyperparameters for the DNS checkpoint (from JacobLinCool/MP-SENet-DNS config)
+_DNS_N_FFT = 400
+_DNS_HOP_SIZE = 100
+_DNS_WIN_SIZE = 400
+_DNS_COMPRESS_FACTOR = 0.3
+_DNS_SEGMENT_SIZE = 32000
+
 
 class ModelVariant(StrEnum):
     """Available MP-SENet model variants."""
 
     DNS = "DNS"
+
+
+class _MPSENetForwardWrapper(nn.Module):
+    """Wraps MPSENet to expose forward(noisy_amp, noisy_pha) through __call__.
+
+    MPSENet.__call__ is overridden to do STFT preprocessing internally,
+    which requires float32 and cannot run on TT device.  This wrapper
+    bypasses __call__ and invokes the pure-neural-network forward() path
+    directly, so the compiled graph never sees complex-valued STFT tensors.
+    """
+
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, noisy_amp, noisy_pha):
+        return self.model.forward(noisy_amp, noisy_pha)
 
 
 class ModelLoader(ForgeModel):
@@ -61,17 +86,29 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model = model.to(dtype=dtype_override)
 
-        return model
+        return _MPSENetForwardWrapper(model)
 
     def load_inputs(self, dtype_override=None):
-        # Generate a synthetic 1-second audio waveform at 16kHz
-        sampling_rate = 16000
-        duration_seconds = 1
-        audio = np.random.randn(sampling_rate * duration_seconds).astype(np.float32)
+        # Pre-compute STFT on CPU in float32.  MKL FFT doesn't support bfloat16,
+        # and torch.stft returns a complex tensor that TT XLA cannot handle.
+        # model.forward() takes real-valued magnitude/phase spectra directly.
+        from MPSENet.model.mpsenet import mag_pha_stft
 
-        audio_tensor = torch.from_numpy(audio)
+        hann_window = torch.hann_window(_DNS_WIN_SIZE)
+        audio = np.random.randn(_DNS_SEGMENT_SIZE).astype(np.float32)
+        segment = torch.from_numpy(audio).unsqueeze(0)
+
+        noisy_amp, noisy_pha, _ = mag_pha_stft(
+            segment,
+            hann_window,
+            _DNS_N_FFT,
+            _DNS_HOP_SIZE,
+            _DNS_WIN_SIZE,
+            _DNS_COMPRESS_FACTOR,
+        )
 
         if dtype_override is not None:
-            audio_tensor = audio_tensor.to(dtype_override)
+            noisy_amp = noisy_amp.to(dtype_override)
+            noisy_pha = noisy_pha.to(dtype_override)
 
-        return audio_tensor
+        return noisy_amp, noisy_pha
