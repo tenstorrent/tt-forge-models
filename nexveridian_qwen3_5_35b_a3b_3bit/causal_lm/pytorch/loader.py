@@ -219,6 +219,31 @@ class ModelLoader(ForgeModel):
                 tensor = tensor.permute(0, 2, 1).contiguous()
             state_dict[model_key] = tensor
 
+        # Remap MLX split expert weights to the transformers batched layout.
+        # Checkpoint: switch_mlp.gate_proj.weight + switch_mlp.up_proj.weight (separate)
+        # Transformers: experts.gate_up_proj = cat([gate, up], dim=1)
+        # Checkpoint: switch_mlp.down_proj.weight → experts.down_proj (rename only)
+        gate_bufs: dict[str, torch.Tensor] = {}
+        up_bufs: dict[str, torch.Tensor] = {}
+        remapped: dict[str, torch.Tensor] = {}
+        _GATE = "mlp.switch_mlp.gate_proj.weight"
+        _UP = "mlp.switch_mlp.up_proj.weight"
+        _DOWN = "mlp.switch_mlp.down_proj.weight"
+        for mk, t in state_dict.items():
+            if mk.endswith(_GATE):
+                gate_bufs[mk[: -len(_GATE)]] = t
+            elif mk.endswith(_UP):
+                up_bufs[mk[: -len(_UP)]] = t
+            elif mk.endswith(_DOWN):
+                remapped[mk[: -len(_DOWN)] + "mlp.experts.down_proj"] = t
+            else:
+                remapped[mk] = t
+        for pfx, gate in gate_bufs.items():
+            remapped[pfx + "mlp.experts.gate_up_proj"] = torch.cat(
+                [gate, up_bufs[pfx]], dim=1
+            )
+        state_dict = remapped
+
         # Construct on meta device to avoid double-allocating the model weights
         with torch.device("meta"):
             model = Qwen3_5MoeForCausalLM(text_config)
