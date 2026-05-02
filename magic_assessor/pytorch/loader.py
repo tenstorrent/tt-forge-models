@@ -90,10 +90,12 @@ def _patch_qwen2_5_vl_for_tt():
         window_index, cu_window_seqlens = self.get_window_index(grid_thw)
 
         device = hidden_states.device
-        cu_window_seqlens = torch.tensor(
-            cu_window_seqlens, device=device, dtype=torch.int32,
-        )
+        # unique_consecutive and tensor construction stay on CPU — TT silicon
+        # implements unique_consecutive via tiled reductions which can read stale
+        # padding cells and produce off-by-spatial_merge_unit results.
+        cu_window_seqlens = torch.tensor(cu_window_seqlens, dtype=torch.int32)
         cu_window_seqlens = torch.unique_consecutive(cu_window_seqlens)
+        cu_window_seqlens = cu_window_seqlens.to(device)
 
         seq_len, _ = hidden_states.size()
         # window_index is CPU int64; move to device for TT gather (int64 H2D + gather)
