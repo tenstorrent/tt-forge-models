@@ -13,6 +13,7 @@ Available variants:
 - DISTILLED_Q4_K_M: Distilled 10-step Q4_K_M quantized transformer
 """
 
+from contextlib import contextmanager
 from typing import Any, Optional
 
 import torch
@@ -31,9 +32,11 @@ from ...config import (
 
 REPO_ID = "Gthalmie1/moody-wild-mix-v1-gguf"
 
-# Lumina-Image-2.0 architecture constants
+# Lumina-Image-2.0 architecture constants for this model variant.
+# This variant uses hidden_size=3840 (not 2048) and cap_feat_dim=2560
+# (text encoder output), not the standard Gemma-2-2b 2304.
 IN_CHANNELS = 16
-CAP_FEAT_DIM = 2304  # Gemma-2-2b hidden size
+CAP_FEAT_DIM = 2560  # text encoder output dim (cap_embedder input size)
 
 
 class ModelVariant(StrEnum):
@@ -47,6 +50,99 @@ _GGUF_FILES = {
     ModelVariant.BASE_Q4_K_M: "moodyWildMix_v10Base50steps_q4_k_m.gguf",
     ModelVariant.DISTILLED_Q4_K_M: "moodyWildMix_v10Distilled10steps_q4_k_m.gguf",
 }
+
+
+@contextmanager
+def _patch_lumina2_converter():
+    """Patch the diffusers Lumina2 converter to handle MHA models.
+
+    The standard diffusers converter hardcodes QKV split dims for the reference
+    Lumina-Image-2.0 GQA model (q_dim=2304, k/v_dim=768). This model uses full
+    MHA with equal Q/K/V dimensions (hidden_size=3840, head_dim=128), so the
+    split must be computed dynamically from the actual tensor shape.
+    """
+    import diffusers.loaders.single_file_utils as _sfu
+
+    original = _sfu.convert_lumina2_to_diffusers
+
+    def _patched(checkpoint, **kwargs):
+        converted_state_dict = {}
+
+        checkpoint.pop("norm_final.weight", None)
+
+        keys = list(checkpoint.keys())
+        for k in keys:
+            if "model.diffusion_model." in k:
+                checkpoint[k.replace("model.diffusion_model.", "")] = checkpoint.pop(k)
+
+        LUMINA_KEY_MAP = {
+            "cap_embedder": "time_caption_embed.caption_embedder",
+            "t_embedder.mlp.0": "time_caption_embed.timestep_embedder.linear_1",
+            "t_embedder.mlp.2": "time_caption_embed.timestep_embedder.linear_2",
+            "attention": "attn",
+            ".out.": ".to_out.0.",
+            "k_norm": "norm_k",
+            "q_norm": "norm_q",
+            "w1": "linear_1",
+            "w2": "linear_2",
+            "w3": "linear_3",
+            "adaLN_modulation.1": "norm1.linear",
+        }
+        ATTENTION_NORM_MAP = {
+            "attention_norm1": "norm1.norm",
+            "attention_norm2": "norm2",
+        }
+        CONTEXT_REFINER_MAP = {
+            "context_refiner.0.attention_norm1": "context_refiner.0.norm1",
+            "context_refiner.0.attention_norm2": "context_refiner.0.norm2",
+            "context_refiner.1.attention_norm1": "context_refiner.1.norm1",
+            "context_refiner.1.attention_norm2": "context_refiner.1.norm2",
+        }
+        FINAL_LAYER_MAP = {
+            "final_layer.adaLN_modulation.1": "norm_out.linear_1",
+            "final_layer.linear": "norm_out.linear_2",
+        }
+
+        def _split_qkv(tensor, diffusers_key):
+            total_dim = tensor.shape[0]
+            # Standard GQA model: q_dim=2304, k/v_dim=768 (sum=3840)
+            if total_dim == 2304 + 768 + 768:
+                q_dim, k_dim, v_dim = 2304, 768, 768
+            else:
+                # MHA variant: equal Q/K/V splits
+                q_dim = k_dim = v_dim = total_dim // 3
+            to_q, to_k, to_v = torch.split(tensor, [q_dim, k_dim, v_dim], dim=0)
+            return {
+                diffusers_key.replace("qkv", "to_q"): to_q,
+                diffusers_key.replace("qkv", "to_k"): to_k,
+                diffusers_key.replace("qkv", "to_v"): to_v,
+            }
+
+        for key in keys:
+            diffusers_key = key
+            for k, v in CONTEXT_REFINER_MAP.items():
+                diffusers_key = diffusers_key.replace(k, v)
+            for k, v in FINAL_LAYER_MAP.items():
+                diffusers_key = diffusers_key.replace(k, v)
+            for k, v in ATTENTION_NORM_MAP.items():
+                diffusers_key = diffusers_key.replace(k, v)
+            for k, v in LUMINA_KEY_MAP.items():
+                diffusers_key = diffusers_key.replace(k, v)
+
+            if "qkv" in diffusers_key:
+                converted_state_dict.update(
+                    _split_qkv(checkpoint.pop(key), diffusers_key)
+                )
+            else:
+                converted_state_dict[diffusers_key] = checkpoint.pop(key)
+
+        return converted_state_dict
+
+    _sfu.convert_lumina2_to_diffusers = _patched
+    try:
+        yield
+    finally:
+        _sfu.convert_lumina2_to_diffusers = original
 
 
 class ModelLoader(ForgeModel):
@@ -92,11 +188,12 @@ class ModelLoader(ForgeModel):
             filename=gguf_filename,
         )
 
-        self._transformer = Lumina2Transformer2DModel.from_single_file(
-            gguf_path,
-            quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
-            torch_dtype=dtype,
-        )
+        with _patch_lumina2_converter():
+            self._transformer = Lumina2Transformer2DModel.from_single_file(
+                gguf_path,
+                quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
+                torch_dtype=dtype,
+            )
         self._transformer.eval()
         return self._transformer
 
@@ -115,7 +212,8 @@ class ModelLoader(ForgeModel):
         # Timestep: (B,)
         timestep = torch.tensor([1.0 / 1000], dtype=dtype).expand(batch_size)
 
-        # Text encoder hidden states from Gemma-2-2b: (B, seq_len, cap_feat_dim)
+        # Text encoder hidden states: (B, seq_len, cap_feat_dim)
+        # This model uses cap_feat_dim=2560 (not Gemma-2-2b's 2304)
         max_sequence_length = 128
         encoder_hidden_states = torch.randn(
             batch_size, max_sequence_length, CAP_FEAT_DIM, dtype=dtype
