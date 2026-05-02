@@ -11,7 +11,7 @@ eye generation in text-to-image diffusion.
 Reference: https://huggingface.co/bdsqlsz/qinglong_DetailedEyes_Z-Image
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 import torch
 from diffusers import DiffusionPipeline
@@ -66,36 +66,57 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Z-Image-Turbo pipeline with DetailedEyes LoRA.
-
-        Loads the base Tongyi-MAI/Z-Image-Turbo pipeline and applies the
-        qinglong_DetailedEyes_Z-Image LoRA adapter weights on top.
+        """Load the Z-Image-Turbo transformer with DetailedEyes LoRA applied.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
 
         Returns:
-            DiffusionPipeline: The pipeline with LoRA weights loaded.
+            torch.nn.Module: The Z-Image-Turbo DiT transformer with LoRA weights.
         """
-        dtype = dtype_override or torch.float16
-        self.pipeline = DiffusionPipeline.from_pretrained(
-            self.base_model, torch_dtype=dtype, **kwargs
-        )
-        self.pipeline.load_lora_weights(
-            self._variant_config.pretrained_model_name,
-        )
-        return self.pipeline
+        dtype = dtype_override or torch.bfloat16
+        if self.pipeline is None:
+            self.pipeline = DiffusionPipeline.from_pretrained(
+                self.base_model, torch_dtype=dtype, **kwargs
+            )
+            self.pipeline.load_lora_weights(
+                self._variant_config.pretrained_model_name,
+            )
+            self.pipeline.fuse_lora()
+        if dtype_override is not None:
+            self.pipeline.transformer = self.pipeline.transformer.to(dtype_override)
+        return self.pipeline.transformer
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the model.
-
-        Args:
-            dtype_override: This parameter is ignored for this model.
-            batch_size: Optional batch size for the inputs.
+    def load_inputs(self, **kwargs) -> Any:
+        """Load and return sample inputs for the transformer.
 
         Returns:
-            dict: Dictionary containing prompt for text-to-image generation.
+            list: [latent_input_list, timestep, prompt_embeds]
         """
-        return {
-            "prompt": [self.prompt] * batch_size,
-        }
+        dtype = kwargs.get("dtype_override", torch.bfloat16)
+        height = 128
+        width = 128
+
+        if self.pipeline is None:
+            self.load_model(dtype_override=dtype)
+
+        prompt_embeds, _ = self.pipeline.encode_prompt(
+            prompt=self.prompt,
+            device="cpu",
+            do_classifier_free_guidance=False,
+        )
+
+        num_channels_latents = self.pipeline.transformer.in_channels
+        vae_scale = self.pipeline.vae_scale_factor * 2
+        latent_h = height // vae_scale
+        latent_w = width // vae_scale
+        latents = torch.randn(
+            1, num_channels_latents, latent_h, latent_w, dtype=torch.float32
+        )
+
+        timestep = torch.tensor([0.5], dtype=dtype)
+
+        latent_input = latents.to(dtype).unsqueeze(2)
+        latent_input_list = list(latent_input.unbind(dim=0))
+
+        return [latent_input_list, timestep, prompt_embeds]
