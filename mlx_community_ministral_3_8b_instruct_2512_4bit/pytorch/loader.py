@@ -125,6 +125,34 @@ class ModelLoader(ForgeModel):
 
         model.eval()
 
+        # Patch generate_block_attention_mask globally to avoid in-place XLA tensor
+        # mutation.  The original does causal_mask[start:end, start:end] = 0 on a TT
+        # tensor inside a for loop (iterating TT tensor elements → Dynamo graph break →
+        # torch_xla.sync() → INTERNAL Error code: 13).
+        # Fix: for a single image the mask is all-zeros; for multiple images build on CPU.
+        import transformers.models.pixtral.modeling_pixtral as _pixtral_mod
+
+        def _fixed_generate_block_attention_mask(patch_embeds_list, tensor):
+            dtype = tensor.dtype
+            device = tensor.device
+            seq_len = tensor.shape[1]
+            if len(patch_embeds_list) == 1:
+                return torch.zeros(
+                    (tensor.shape[0], 1, seq_len, seq_len), dtype=dtype, device=device
+                )
+            d_min = torch.finfo(dtype).min
+            causal_mask_cpu = torch.full((seq_len, seq_len), fill_value=d_min, dtype=dtype)
+            start = 0
+            for block_len in patch_embeds_list:
+                end = start + int(block_len)
+                causal_mask_cpu[start:end, start:end] = 0.0
+                start = end
+            return causal_mask_cpu.to(device)[None, None, :, :].expand(
+                tensor.shape[0], 1, -1, -1
+            )
+
+        _pixtral_mod.generate_block_attention_mask = _fixed_generate_block_attention_mask
+
         # Patch get_image_features on model.model (Mistral3Model) to compute
         # split_sizes on CPU in int64.  On TT, int64 arithmetic uses bfloat16
         # internally: bfloat16(2310) == 2320, which makes split_with_sizes fail
