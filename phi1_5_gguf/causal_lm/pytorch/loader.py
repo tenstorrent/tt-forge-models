@@ -8,6 +8,16 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    GGUF_SUPPORTED_ARCHITECTURES,
+)
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFGPTConverter
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -18,6 +28,45 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+# phi2 is the GGUF architecture name for Phi-1.5/Phi-2 models.
+# transformers 5.x does not register it; patch in the mapping so
+# load_gguf_checkpoint can parse the checkpoint metadata.
+_PHI2_CONFIG_KEYS = {
+    "context_length": "max_position_embeddings",
+    "embedding_length": "hidden_size",
+    "feed_forward_length": "intermediate_size",
+    "block_count": "num_hidden_layers",
+    "attention.head_count": "num_attention_heads",
+    "attention.head_count_kv": "num_key_value_heads",
+    "attention.layer_norm_epsilon": "layer_norm_eps",
+    "rope.dimension_count": None,
+    "vocab_size": "vocab_size",
+}
+
+
+def _patch_phi2_support():
+    if "phi2" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("phi2")
+    _gguf_utils.GGUF_TO_TRANSFORMERS_MAPPING["config"].setdefault(
+        "phi2", _PHI2_CONFIG_KEYS
+    )
+    GGUF_TO_FAST_CONVERTERS.setdefault("phi2", GGUFGPTConverter)
+
+
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+    _patch_phi2_support()
+    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors, **kwargs)
+    if result.get("config", {}).get("model_type") == "phi2":
+        result["config"]["model_type"] = "phi"
+    return result
+
+
+_patch_phi2_support()
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
 
 
 class ModelVariant(StrEnum):
