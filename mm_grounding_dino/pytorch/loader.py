@@ -9,6 +9,30 @@ from PIL import Image
 from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
 from typing import Optional
 
+
+def _patch_mm_grounding_dino_text_pos_embed_dtype():
+    """Patch get_text_position_embeddings to cast position embeddings to text_features.dtype.
+
+    get_sine_pos_embed always produces float32 tensors. When the model runs with
+    torch_dtype=bfloat16, the float32 position embedding is added to bfloat16 text
+    features in with_pos_embed(), promoting queries to float32. The subsequent
+    F.linear call then fails because queries (float32) and weight (bfloat16) mismatch.
+    """
+    from transformers.models.mm_grounding_dino.modeling_mm_grounding_dino import (
+        MMGroundingDinoEncoderLayer,
+    )
+
+    _orig = MMGroundingDinoEncoderLayer.get_text_position_embeddings
+
+    def _patched(self, text_features, text_position_embedding, text_position_ids):
+        result = _orig(self, text_features, text_position_embedding, text_position_ids)
+        if result is not None:
+            result = result.to(text_features.dtype)
+        return result
+
+    MMGroundingDinoEncoderLayer.get_text_position_embeddings = _patched
+
+
 from ...base import ForgeModel
 from ...config import (
     ModelConfig,
@@ -103,6 +127,9 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The MM Grounding DINO model instance for zero-shot object detection.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        if dtype_override is not None:
+            _patch_mm_grounding_dino_text_pos_embed_dtype()
 
         model_kwargs = {"return_dict": False}
 
