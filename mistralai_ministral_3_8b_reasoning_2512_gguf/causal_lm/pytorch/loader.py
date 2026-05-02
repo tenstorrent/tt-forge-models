@@ -4,6 +4,7 @@
 """
 mistralai Ministral-3-8B-Reasoning-2512 GGUF model loader implementation for causal language modeling.
 """
+import contextlib
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -71,6 +72,38 @@ def _patched_get_gguf_hf_weights_map(
         num_layers=num_layers,
         qual_name=qual_name,
     )
+
+
+@contextlib.contextmanager
+def _gguf_patch_context():
+    """Re-install our patches around from_pretrained to handle patcher chain ordering.
+
+    Other loaders installed at collection time may overwrite our module-level
+    patches. Re-installing them inside the load call ensures they are active
+    when transformers' modeling_utils.py does its lazy
+    `from .modeling_gguf_pytorch_utils import load_gguf_checkpoint`.
+    """
+    _patch_mistral3_support()
+    saved = {
+        "_gguf_utils_load": _gguf_utils.load_gguf_checkpoint,
+        "_config_utils_load": _config_utils.load_gguf_checkpoint,
+        "_auto_tokenizer_load": _auto_tokenizer.load_gguf_checkpoint,
+        "_tok_utils_load": _tok_utils.load_gguf_checkpoint,
+        "_gguf_utils_map": _gguf_utils.get_gguf_hf_weights_map,
+    }
+    _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+    try:
+        yield
+    finally:
+        _gguf_utils.load_gguf_checkpoint = saved["_gguf_utils_load"]
+        _config_utils.load_gguf_checkpoint = saved["_config_utils_load"]
+        _auto_tokenizer.load_gguf_checkpoint = saved["_auto_tokenizer_load"]
+        _tok_utils.load_gguf_checkpoint = saved["_tok_utils_load"]
+        _gguf_utils.get_gguf_hf_weights_map = saved["_gguf_utils_map"]
 
 
 _patch_mistral3_support()
@@ -166,9 +199,10 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        with _gguf_patch_context():
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
