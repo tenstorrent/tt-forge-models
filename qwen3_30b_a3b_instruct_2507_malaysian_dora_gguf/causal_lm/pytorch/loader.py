@@ -8,6 +8,25 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+)
+
+
+def _patched_load_gguf_checkpoint(*args, **kwargs):
+    """Pass through to original, accepting model_to_load kwarg added in transformers 5.2."""
+    return _orig_load_gguf_checkpoint(*args, **kwargs)
+
+
+_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -99,6 +118,13 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
+
+        # Qwen3MoeExperts.forward uses a Python for-loop over a dynamically-sized
+        # expert_hit tensor that XLA/torch.compile cannot statically trace, causing
+        # a segfault in partition_fx_graph_for_cpu_fallback. batched_mm uses only
+        # static tensor operations and is fully XLA-compatible.
+        if hasattr(model, "config"):
+            model.config._experts_implementation = "batched_mm"
 
         self.config = model.config
         self.model = model
