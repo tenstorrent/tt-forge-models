@@ -113,6 +113,8 @@ class ModelLoader(ForgeModel):
             return_dict=None,
             **kwargs,
         ):
+            if vision_feature_layer is None:
+                vision_feature_layer = self.config.vision_feature_layer
             kwargs = {k: v for k, v in kwargs.items() if v is not None}
             image_outputs = self.vision_tower(
                 pixel_values,
