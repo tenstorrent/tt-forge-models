@@ -21,6 +21,39 @@ from ....config import (
 )
 
 
+def _dequantize_mlx_affine_8bit(raw_sd, group_size=64):
+    """Dequantize MLX affine-8bit state dict to standard float tensors.
+
+    mlx-community models store weights as uint32-packed int8 with per-group
+    bf16 scales and biases.  Dequant formula: x_float = x_uint8 * scale + bias
+    """
+    skip = {k for k in raw_sd if k.endswith(".scales") or k.endswith(".biases")}
+    result = {}
+    for key, tensor in raw_sd.items():
+        if key in skip:
+            continue
+        scales_key = key[: -len(".weight")] + ".scales"
+        biases_key = key[: -len(".weight")] + ".biases"
+        if (
+            key.endswith(".weight")
+            and tensor.dtype == torch.uint32
+            and scales_key in raw_sd
+            and biases_key in raw_sd
+        ):
+            scales = raw_sd[scales_key]
+            biases = raw_sd[biases_key]
+            out_f = tensor.shape[0]
+            w_u8 = tensor.view(torch.uint8).reshape(out_f, -1)
+            in_f = w_u8.shape[1]
+            n_grp = in_f // group_size
+            sc = scales.float().reshape(out_f, n_grp, 1).expand(-1, -1, group_size).reshape(out_f, in_f)
+            bi = biases.float().reshape(out_f, n_grp, 1).expand(-1, -1, group_size).reshape(out_f, in_f)
+            result[key] = (w_u8.float() * sc + bi).to(torch.bfloat16)
+        else:
+            result[key] = tensor
+    return result
+
+
 class ModelVariant(StrEnum):
     """Available lmstudio-community Qwen2.5-Coder-7B-Instruct MLX 8-bit model variants."""
 
@@ -61,12 +94,8 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -79,13 +108,20 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+
+        # The MLX-quantized config.json has quantization_config without quant_method
+        # (only group_size/bits).  Transformers >=5.x raises ValueError on this.
+        # Weights are uint32-packed int8 that need manual dequantization.
+        from safetensors.torch import load_file
+        from huggingface_hub import hf_hub_download
+        import json
+
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        if hasattr(config, "quantization_config"):
+            del config.quantization_config
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
             if hasattr(config, "text_config"):
                 config.text_config.num_hidden_layers = self.num_layers
                 if hasattr(config.text_config, "layer_types"):
@@ -94,11 +130,28 @@ class ModelLoader(ForgeModel):
                     ]
             else:
                 config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        # Load sharded safetensors via the index
+        index_path = hf_hub_download(pretrained_model_name, "model.safetensors.index.json")
+        with open(index_path) as f:
+            index = json.load(f)
+        shard_files = sorted(set(index["weight_map"].values()))
+
+        raw_sd = {}
+        for shard in shard_files:
+            shard_path = hf_hub_download(pretrained_model_name, shard)
+            raw_sd.update(load_file(shard_path))
+
+        state_dict = _dequantize_mlx_affine_8bit(raw_sd, group_size=64)
+
+        model_kwargs = {"dtype": dtype}
+        model_kwargs.update(kwargs)
+
+        model = AutoModelForCausalLM.from_config(config, **model_kwargs)
+        missing, unexpected = model.load_state_dict(state_dict, strict=False)
+        if unexpected:
+            raise RuntimeError(f"Unexpected keys in state dict: {unexpected[:5]}")
+        model.eval()
 
         self.config = model.config
         self.model = model
@@ -159,7 +212,10 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
+        config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name
         )
+        if hasattr(config, "quantization_config"):
+            del config.quantization_config
+        self.config = config
         return self.config
