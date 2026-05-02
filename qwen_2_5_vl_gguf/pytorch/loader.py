@@ -63,17 +63,20 @@ def _patch_qwen2vl_gguf():
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
 
-    # XLA repeat_interleave tile-aligns values (e.g. 2204 → 2208 = ceil(2204/32)*32),
-    # breaking the cu_seqlens split in the vision encoder forward. Move grid_thw to CPU
-    # so cumsum is computed correctly.
+    # XLA repeat_interleave tile-aligns integer values (e.g. 2204 → 2208) which breaks
+    # both the cu_seqlens split inside the vision encoder and the split_sizes computation
+    # in get_image_features. Move image_grid_thw to CPU at get_image_features entry so
+    # both self.visual() and the prod(-1).tolist() use correct host-side values.
     from transformers.models.qwen2_5_vl import modeling_qwen2_5_vl as _qvl
 
-    _orig_vis_fwd = _qvl.Qwen2_5_VisionTransformerPretrainedModel.forward
+    _orig_get_image_features = _qvl.Qwen2_5_VLForConditionalGeneration.get_image_features
 
-    def _patched_vis_fwd(self, hidden_states, grid_thw, **kwargs):
-        return _orig_vis_fwd(self, hidden_states, grid_thw.cpu(), **kwargs)
+    def _patched_get_image_features(self, pixel_values, image_grid_thw=None, **kwargs):
+        if image_grid_thw is not None:
+            image_grid_thw = image_grid_thw.cpu()
+        return _orig_get_image_features(self, pixel_values, image_grid_thw=image_grid_thw, **kwargs)
 
-    _qvl.Qwen2_5_VisionTransformerPretrainedModel.forward = _patched_vis_fwd
+    _qvl.Qwen2_5_VLForConditionalGeneration.get_image_features = _patched_get_image_features
 
 
 _patch_qwen2vl_gguf()
