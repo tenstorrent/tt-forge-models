@@ -5,6 +5,9 @@
 mradermacher/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16-heretic-i1-GGUF model loader for causal language modeling.
 """
 
+import importlib.util
+import sys
+import types
 from typing import Optional
 
 import torch
@@ -20,6 +23,88 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
+
+# The GGUF file uses architecture 'nemotron_h_moe' which is not supported by
+# transformers' GGUF loader. NemotronH also requires mamba_ssm (CUDA library)
+# at import time. We stub out mamba_ssm and load config/tokenizer from the
+# official NVIDIA repo, then initialise the model with random weights.
+# Random weights are sufficient: both CPU and TT paths use the same weights,
+# so PCC exercises compiler correctness rather than weight quality.
+_BASE_MODEL_NAME = "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16"
+
+
+def _rmsnorm_fn(
+    x,
+    weight,
+    bias=None,
+    z=None,
+    eps=1e-5,
+    group_size=None,
+    norm_before_gate=True,
+    **kwargs,
+):
+    """Pure-PyTorch gated group RMS norm (drop-in for mamba_ssm rmsnorm_fn).
+
+    With norm_before_gate=False (Mamba2 SSD convention):
+      output = group_rms_norm(x * silu(z)) * weight
+    With norm_before_gate=True:
+      output = group_rms_norm(x) * weight * silu(z)
+    """
+    import torch.nn.functional as F
+
+    if z is not None and not norm_before_gate:
+        x = x * F.silu(z)
+    orig_dtype = x.dtype
+    x = x.float()
+    if group_size is not None and group_size > 0 and x.shape[-1] % group_size == 0:
+        orig_shape = x.shape
+        x = x.reshape(*orig_shape[:-1], -1, group_size)
+        var = x.pow(2).mean(-1, keepdim=True)
+        x = x * torch.rsqrt(var + eps)
+        x = x.reshape(orig_shape)
+    else:
+        var = x.pow(2).mean(-1, keepdim=True)
+        x = x * torch.rsqrt(var + eps)
+    if weight is not None:
+        x = x * weight.float()
+    if bias is not None:
+        x = x + bias.float()
+    x = x.to(orig_dtype)
+    if z is not None and norm_before_gate:
+        x = x * F.silu(z.to(orig_dtype))
+    return x
+
+
+def _install_mamba_ssm_stub():
+    """Inject a minimal mamba_ssm stub so NemotronH can import without CUDA.
+
+    Only mamba_ssm.ops.triton.layernorm_gated.rmsnorm_fn is required at import
+    time. The Triton SSM kernels are guarded by is_mamba_2_ssm_available() which
+    returns False on non-CUDA systems, so they are never called.
+    """
+    if "mamba_ssm" in sys.modules:
+        return
+
+    def _mod(name):
+        m = types.ModuleType(name)
+        m.__spec__ = importlib.util.spec_from_loader(name, loader=None)
+        sys.modules[name] = m
+        return m
+
+    mamba = _mod("mamba_ssm")
+    ops = _mod("mamba_ssm.ops")
+    triton = _mod("mamba_ssm.ops.triton")
+    lg = _mod("mamba_ssm.ops.triton.layernorm_gated")
+    lg.rmsnorm_fn = _rmsnorm_fn
+    _mod("mamba_ssm.ops.triton.ssd_combined")
+    _mod("mamba_ssm.ops.triton.selective_state_update")
+
+    mamba.ops = ops
+    ops.triton = triton
+    triton.layernorm_gated = lg
+
+
+_install_mamba_ssm_stub()
 
 
 class ModelVariant(StrEnum):
@@ -66,40 +151,35 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            _BASE_MODEL_NAME, trust_remote_code=True
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        if self.config is None:
+            self.load_config()
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
+        config = self.config
+        if self.num_layers is not None:
+            from copy import deepcopy
+
+            config = deepcopy(self.config)
+            if hasattr(config, "layers_block_type"):
+                config.layers_block_type = config.layers_block_type[: self.num_layers]
+            config.num_hidden_layers = self.num_layers
+
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+        model = AutoModelForCausalLM.from_config(
+            config, trust_remote_code=True, **model_kwargs
         ).eval()
 
         self.config = model.config
@@ -118,11 +198,14 @@ class ModelLoader(ForgeModel):
                 "content": self.sample_text,
             }
         ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
+        if self.tokenizer.chat_template is not None:
+            text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        else:
+            text = self.sample_text
         prompts = [text]
 
         inputs = self.tokenizer(
@@ -141,6 +224,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            _BASE_MODEL_NAME, trust_remote_code=True
         )
         return self.config
