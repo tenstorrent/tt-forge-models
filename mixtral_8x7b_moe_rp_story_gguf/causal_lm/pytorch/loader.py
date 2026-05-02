@@ -88,6 +88,11 @@ class ModelLoader(ForgeModel):
         gguf_path = hf_hub_download(repo_id=pretrained_model_name, filename=self.GGUF_FILE)
         model = _load_mixtral_from_gguf(gguf_path, dtype=dtype_override or torch.bfloat16)
 
+        # MixtralExperts.forward uses a Python for-loop with a runtime-determined
+        # trip count (nonzero(expert_hit)), which XLA cannot trace. Switch to
+        # batched_mm which uses only static tensor operations.
+        model.config._experts_implementation = "batched_mm"
+
         self.config = model.config
         self.model = model
         return model
@@ -149,15 +154,21 @@ def _read_gguf_field(reader, name: str):
     field = reader.fields.get(name)
     if field is None:
         return None
-    return field.data[0]
+    # field.data is a list of indices into field.parts; field.data[0] is the
+    # index of the part that holds the actual scalar value.
+    return field.parts[field.data[0]][0]
 
 
 def _build_mixtral_config_from_gguf(reader) -> MixtralConfig:
     def _f(name):
         return _read_gguf_field(reader, name)
 
+    # tokenizer.ggml.tokens is an array field; len(field.data) == vocab_size.
+    tokens_field = reader.fields.get("tokenizer.ggml.tokens")
+    vocab_size = len(tokens_field.data) if tokens_field is not None else int(_f("llama.vocab_size") or 32000)
+
     return MixtralConfig(
-        vocab_size=int(_f("llama.vocab_size") or _f("tokenizer.ggml.tokens") or 32002),
+        vocab_size=vocab_size,
         hidden_size=int(_f("llama.embedding_length")),
         intermediate_size=int(_f("llama.feed_forward_length")),
         num_hidden_layers=int(_f("llama.block_count")),
