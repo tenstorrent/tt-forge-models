@@ -10,23 +10,47 @@ from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
 from typing import Optional
 
 
+def _register_valid_ratios_hooks(model):
+    """Register forward pre-hooks to cast valid_ratios to the correct dtype.
+
+    MMGroundingDinoModel.forward hard-codes valid_ratios = valid_ratios.float() before
+    passing it to the encoder and decoder. This causes dtype mismatches when the model
+    runs in bfloat16 (bfloat16 * float32 → float32 → F.linear fails).
+    """
+
+    def _encoder_hook(module, args, kwargs):
+        if kwargs.get("valid_ratios") is not None and kwargs.get("vision_features") is not None:
+            kwargs["valid_ratios"] = kwargs["valid_ratios"].to(kwargs["vision_features"].dtype)
+        return args, kwargs
+
+    def _decoder_hook(module, args, kwargs):
+        if kwargs.get("valid_ratios") is not None and kwargs.get("inputs_embeds") is not None:
+            kwargs["valid_ratios"] = kwargs["valid_ratios"].to(kwargs["inputs_embeds"].dtype)
+        return args, kwargs
+
+    model.model.encoder.register_forward_pre_hook(_encoder_hook, with_kwargs=True)
+    model.model.decoder.register_forward_pre_hook(_decoder_hook, with_kwargs=True)
+
+
 def _patch_mm_grounding_dino_dtype():
     """Patch MM Grounding DINO model to fix dtype mismatches when running with bfloat16.
 
-    Two locations always produce float32 tensors regardless of model dtype:
-    1. get_text_position_embeddings / get_sine_pos_embed: text position embeddings are
-       always float32. Added to bfloat16 text_features in with_pos_embed(), promoting
-       queries to float32. The subsequent F.linear fails (float32 vs bfloat16 weight).
-    2. get_reference_points: reference points are always float32. Adding float32
-       reference_points to bfloat16 sampling_offsets promotes sampling_locations to
-       float32. grid_sample then fails (bfloat16 value vs float32 grid).
-    """
-    from transformers.models.mm_grounding_dino.modeling_mm_grounding_dino import (
-        MMGroundingDinoEncoderLayer,
-        MultiScaleDeformableAttention,
-    )
+    The model has several places that always produce float32 tensors regardless of model
+    dtype (get_sine_pos_embed, get_reference_points, generate_encoder_output_proposals,
+    valid_ratios = valid_ratios.float()). When mixed with bfloat16 features, PyTorch type
+    promotion produces float32 intermediates that fail at subsequent linear layers.
 
-    _orig_get_text_pos = MMGroundingDinoEncoderLayer.get_text_position_embeddings
+    Fixes applied:
+    1. get_text_position_embeddings: cast text pos embed output to text_features.dtype
+    2. MultiScaleDeformableAttention.forward: cast sampling_locations to value.dtype for grid_sample
+    3. get_sine_pos_embed: cast output to pos_tensor.dtype
+    4. generate_encoder_output_proposals: cast output_proposals to enc_output.dtype
+    5. Instance hooks on encoder/decoder: cast valid_ratios to vision/query features dtype
+    """
+    import transformers.models.mm_grounding_dino.modeling_mm_grounding_dino as _mmgd
+
+    # Fix 1: text position embeddings dtype
+    _orig_get_text_pos = _mmgd.MMGroundingDinoEncoderLayer.get_text_position_embeddings
 
     def _patched_get_text_pos(self, text_features, text_position_embedding, text_position_ids):
         result = _orig_get_text_pos(self, text_features, text_position_embedding, text_position_ids)
@@ -34,35 +58,40 @@ def _patch_mm_grounding_dino_dtype():
             result = result.to(text_features.dtype)
         return result
 
-    MMGroundingDinoEncoderLayer.get_text_position_embeddings = _patched_get_text_pos
+    _mmgd.MMGroundingDinoEncoderLayer.get_text_position_embeddings = _patched_get_text_pos
 
-    import torch.nn as nn
-
-    _orig_msda_forward = MultiScaleDeformableAttention.forward
+    # Fix 2: grid_sample dtype in multiscale deformable attention
+    _orig_msda_forward = _mmgd.MultiScaleDeformableAttention.forward
 
     def _patched_msda_forward(
-        self,
-        value,
-        value_spatial_shapes,
-        value_spatial_shapes_list,
-        level_start_index,
-        sampling_locations,
-        attention_weights,
-        im2col_step,
+        self, value, value_spatial_shapes, value_spatial_shapes_list,
+        level_start_index, sampling_locations, attention_weights, im2col_step,
     ):
         sampling_locations = sampling_locations.to(value.dtype)
         return _orig_msda_forward(
-            self,
-            value,
-            value_spatial_shapes,
-            value_spatial_shapes_list,
-            level_start_index,
-            sampling_locations,
-            attention_weights,
-            im2col_step,
+            self, value, value_spatial_shapes, value_spatial_shapes_list,
+            level_start_index, sampling_locations, attention_weights, im2col_step,
         )
 
-    MultiScaleDeformableAttention.forward = _patched_msda_forward
+    _mmgd.MultiScaleDeformableAttention.forward = _patched_msda_forward
+
+    # Fix 3: get_sine_pos_embed always returns float32; cast to input dtype
+    _orig_get_sine = _mmgd.get_sine_pos_embed
+
+    def _patched_get_sine_pos_embed(pos_tensor, num_pos_feats=128, temperature=10000, exchange_xy=True):
+        result = _orig_get_sine(pos_tensor, num_pos_feats, temperature, exchange_xy)
+        return result.to(pos_tensor.dtype)
+
+    _mmgd.get_sine_pos_embed = _patched_get_sine_pos_embed
+
+    # Fix 4: generate_encoder_output_proposals uses float32 linspace; cast proposals to enc dtype
+    _orig_gen_proposals = _mmgd.MMGroundingDinoModel.generate_encoder_output_proposals
+
+    def _patched_gen_proposals(self, enc_output, padding_mask, spatial_shapes_list):
+        object_query, output_proposals = _orig_gen_proposals(self, enc_output, padding_mask, spatial_shapes_list)
+        return object_query, output_proposals.to(enc_output.dtype)
+
+    _mmgd.MMGroundingDinoModel.generate_encoder_output_proposals = _patched_gen_proposals
 
 
 from ...base import ForgeModel
@@ -173,6 +202,9 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
         model.eval()
+
+        if dtype_override is not None:
+            _register_valid_ratios_hooks(model)
 
         return model
 
