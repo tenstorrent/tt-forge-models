@@ -14,8 +14,104 @@ from torch import nn
 from transformers import AutoTokenizer, VitsModel
 from transformers.models.vits import modeling_vits
 
-# Monkey-patch _unconstrained_rational_quadratic_spline to use math.log/math.exp
-# instead of np.log/np.exp, which conflicts with TorchFunctionMode during Dynamo tracing.
+# Two patches for the VITS spline functions:
+#
+# 1. _unconstrained_rational_quadratic_spline: replace boolean mask indexing
+#    (dynamic shapes → CPU-fallback AttributeError) with torch.where on full
+#    tensors, and replace np.log/np.exp with math equivalents to avoid the
+#    numpy-float64 / Dynamo TorchFunctionMode interaction.
+#
+# 2. _rational_quadratic_spline: in the reverse path, clamp discriminant ≥ 0
+#    before sqrt because clamped outside-interval elements can produce
+#    (spurious) negative discriminants; torch.where in the outer function
+#    discards those results anyway.
+
+
+def _patched_rational_quadratic_spline(
+    inputs,
+    unnormalized_widths,
+    unnormalized_heights,
+    unnormalized_derivatives,
+    reverse,
+    tail_bound,
+    min_bin_width,
+    min_bin_height,
+    min_derivative,
+):
+    upper_bound = tail_bound
+    lower_bound = -tail_bound
+    num_bins = unnormalized_widths.shape[-1]
+
+    widths = nn.functional.softmax(unnormalized_widths, dim=-1)
+    widths = min_bin_width + (1 - min_bin_width * num_bins) * widths
+    cumwidths = torch.cumsum(widths, dim=-1)
+    cumwidths = nn.functional.pad(cumwidths, pad=(1, 0), mode="constant", value=0.0)
+    cumwidths = (upper_bound - lower_bound) * cumwidths + lower_bound
+    cumwidths[..., 0] = lower_bound
+    cumwidths[..., -1] = upper_bound
+    widths = cumwidths[..., 1:] - cumwidths[..., :-1]
+
+    derivatives = min_derivative + nn.functional.softplus(unnormalized_derivatives)
+
+    heights = nn.functional.softmax(unnormalized_heights, dim=-1)
+    heights = min_bin_height + (1 - min_bin_height * num_bins) * heights
+    cumheights = torch.cumsum(heights, dim=-1)
+    cumheights = nn.functional.pad(cumheights, pad=(1, 0), mode="constant", value=0.0)
+    cumheights = (upper_bound - lower_bound) * cumheights + lower_bound
+    cumheights[..., 0] = lower_bound
+    cumheights[..., -1] = upper_bound
+    heights = cumheights[..., 1:] - cumheights[..., :-1]
+
+    bin_locations = cumheights if reverse else cumwidths
+    bin_locations[..., -1] += 1e-6
+    bin_idx = torch.sum(inputs[..., None] >= bin_locations, dim=-1) - 1
+    bin_idx = bin_idx[..., None]
+
+    input_cumwidths = cumwidths.gather(-1, bin_idx)[..., 0]
+    input_bin_widths = widths.gather(-1, bin_idx)[..., 0]
+    input_cumheights = cumheights.gather(-1, bin_idx)[..., 0]
+    delta = heights / widths
+    input_delta = delta.gather(-1, bin_idx)[..., 0]
+    input_derivatives = derivatives.gather(-1, bin_idx)[..., 0]
+    input_derivatives_plus_one = derivatives[..., 1:].gather(-1, bin_idx)[..., 0]
+    input_heights = heights.gather(-1, bin_idx)[..., 0]
+
+    intermediate1 = input_derivatives + input_derivatives_plus_one - 2 * input_delta
+    if not reverse:
+        theta = (inputs - input_cumwidths) / input_bin_widths
+        theta_one_minus_theta = theta * (1 - theta)
+        numerator = input_heights * (
+            input_delta * theta.pow(2) + input_derivatives * theta_one_minus_theta
+        )
+        denominator = input_delta + intermediate1 * theta_one_minus_theta
+        outputs = input_cumheights + numerator / denominator
+        derivative_numerator = input_delta.pow(2) * (
+            input_derivatives_plus_one * theta.pow(2)
+            + 2 * input_delta * theta_one_minus_theta
+            + input_derivatives * (1 - theta).pow(2)
+        )
+        log_abs_det = torch.log(derivative_numerator) - 2 * torch.log(denominator)
+        return outputs, log_abs_det
+    else:
+        intermediate2 = inputs - input_cumheights
+        intermediate3 = intermediate2 * intermediate1
+        a = input_heights * (input_delta - input_derivatives) + intermediate3
+        b = input_heights * input_derivatives - intermediate3
+        c = -input_delta * intermediate2
+        # Clamp discriminant ≥ 0: outside-interval elements (clamped to boundary)
+        # can produce spurious negatives; torch.where in the caller discards them.
+        discriminant = torch.clamp(b.pow(2) - 4 * a * c, min=0)
+        root = (2 * c) / (-b - torch.sqrt(discriminant))
+        outputs = root * input_bin_widths + input_cumwidths
+        theta_one_minus_theta = root * (1 - root)
+        denominator = input_delta + intermediate1 * theta_one_minus_theta
+        derivative_numerator = input_delta.pow(2) * (
+            input_derivatives_plus_one * root.pow(2)
+            + 2 * input_delta * theta_one_minus_theta
+            + input_derivatives * (1 - root).pow(2)
+        )
+        log_abs_det = torch.log(derivative_numerator) - 2 * torch.log(denominator)
+        return outputs, -log_abs_det
 
 
 def _patched_unconstrained_rational_quadratic_spline(
@@ -38,11 +134,11 @@ def _patched_unconstrained_rational_quadratic_spline(
     unnormalized_derivatives[..., 0] = constant
     unnormalized_derivatives[..., -1] = constant
 
-    # Clamp to valid range so _rational_quadratic_spline's bounds check passes when
-    # called on the full tensor.  torch.where then restores the identity transform
+    # Clamp to valid range so the bounds check in _rational_quadratic_spline passes
+    # for all elements.  torch.where below restores the identity transform
     # (output=input, log_abs_det=0) for elements outside the interval.
     clamped_inputs = inputs.clamp(-tail_bound, tail_bound)
-    full_outputs, full_log_abs_det = modeling_vits._rational_quadratic_spline(
+    full_outputs, full_log_abs_det = _patched_rational_quadratic_spline(
         inputs=clamped_inputs,
         unnormalized_widths=unnormalized_widths,
         unnormalized_heights=unnormalized_heights,
