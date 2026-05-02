@@ -13,6 +13,51 @@ from transformers import (
 )
 from typing import Optional
 
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+from transformers.modeling_gguf_pytorch_utils import (
+    GGUF_SUPPORTED_ARCHITECTURES,
+    GGUF_TO_TRANSFORMERS_MAPPING,
+)
+
+
+def _patch_qwen3vl_support():
+    """Register qwen3vl GGUF architecture and patch weights-map for qwen3_vl HF model type.
+
+    - qwen3vl is not in GGUF_SUPPORTED_ARCHITECTURES in transformers 5.x.
+    - get_gguf_hf_weights_map uses hf_model.config.model_type ('qwen3_vl') to
+      look up in gguf-py MODEL_ARCH_NAMES, which only has 'qwen3vl' (no underscore).
+    """
+    if "qwen3vl" not in GGUF_SUPPORTED_ARCHITECTURES:
+        GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vl")
+
+    if "qwen3vl" not in GGUF_TO_TRANSFORMERS_MAPPING.get("config", {}):
+        if "qwen3" in GGUF_TO_TRANSFORMERS_MAPPING.get("config", {}):
+            GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen3vl"] = dict(
+                GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen3"]
+            )
+
+    orig_get_map = _gguf_utils.get_gguf_hf_weights_map
+
+    def _patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type == "qwen3_vl":
+            model_type = "qwen3vl"
+            if num_layers is None:
+                cfg = hf_model.config
+                text_cfg = getattr(cfg, "text_config", cfg)
+                num_layers = getattr(text_cfg, "num_hidden_layers", None)
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    if not getattr(_gguf_utils.get_gguf_hf_weights_map, "_qwen3vl_patched", False):
+        _patched_get_gguf_hf_weights_map._qwen3vl_patched = True
+        _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
+
+_patch_qwen3vl_support()
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -87,6 +132,8 @@ class ModelLoader(ForgeModel):
             "Qwen/Qwen3-VL-8B-Instruct",
         )
 
+        # Pass explicit config to bypass qwen3vl architecture check in GGUF config loading.
+        # Tensor loading still calls get_gguf_hf_weights_map (patched above at import time).
         config = Qwen3VLConfig()
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, config=config, **model_kwargs
