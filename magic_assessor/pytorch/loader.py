@@ -80,7 +80,8 @@ def _patch_qwen2_5_vl_for_tt():
         grid_thw_cpu = getattr(self, "_tt_grid_thw_cpu", None)
         if grid_thw_cpu is None:
             grid_thw_cpu = grid_thw.cpu().long()
-        return _orig_get_window_index(self, grid_thw_cpu)
+        window_index, cu_window_seqlens = _orig_get_window_index(self, grid_thw_cpu)
+        return window_index, cu_window_seqlens
 
     def _patched_vt_forward(self, hidden_states, grid_thw, **kwargs):
         """Replaces VisionTransformerPretrainedModel.forward with TT-safe indexing.
@@ -121,11 +122,12 @@ def _patch_qwen2_5_vl_for_tt():
         emb = torch.cat((rotary_pos_emb, rotary_pos_emb), dim=-1)
         position_embeddings = (emb.cos(), emb.sin())
 
-        # CPU int64 for repeat_interleave avoids float32-repeats dispatch failure
-        cu_seqlens = torch.repeat_interleave(
-            grid_thw_cpu[:, 1] * grid_thw_cpu[:, 2], grid_thw_cpu[:, 0]
-        ).cumsum(dim=0, dtype=torch.int32)
-        cu_seqlens = F.pad(cu_seqlens, (1, 0), value=0).to(device)
+        # Build cu_seqlens via pure-Python arithmetic (.tolist() forces concrete ints,
+        # avoiding data-dependent-shape issues in the Dynamo/XLA trace).
+        _cu_list = [0]
+        for _g_t, _g_h, _g_w in grid_thw_cpu.tolist():
+            _cu_list.append(_cu_list[-1] + int(_g_t) * int(_g_h) * int(_g_w))
+        cu_seqlens = torch.tensor(_cu_list, dtype=torch.int32).to(device)
 
         for layer_num, blk in enumerate(self.blocks):
             cu_seqlens_now = cu_seqlens if layer_num in self.fullatt_block_indexes else cu_window_seqlens
@@ -167,15 +169,19 @@ def _patch_qwen2_5_vl_for_tt():
         **kwargs,
     ):
         device = input_ids.device if input_ids is not None else None
-        # image_grid_thw is float32 (cast in load_inputs); float32 D2H to CPU int64
-        # input_ids stays as-is: embedding/comparison ops work on TT with int64
+        # get_rope_index contains argwhere, boolean indexing, and .tolist() which
+        # cannot be compiled by TT silicon (INTERNAL error 13). Run on CPU instead.
+        # Use cached CPU input_ids if available (set by _patched_model_forward).
+        input_ids_cpu = getattr(self, "_tt_input_ids_cpu", None)
+        if input_ids_cpu is None and input_ids is not None:
+            input_ids_cpu = input_ids.cpu()
         position_ids, rope_deltas = _orig_get_rope_index(
             self,
-            input_ids,
+            input_ids_cpu,
             image_grid_thw.cpu().long() if image_grid_thw is not None else None,
             video_grid_thw.cpu().long() if video_grid_thw is not None else None,
             second_per_grid_ts,
-            attention_mask,
+            attention_mask.cpu() if attention_mask is not None else None,
             **kwargs,
         )
         if device is not None:
@@ -240,8 +246,10 @@ def _patch_qwen2_5_vl_for_tt():
                 inputs_embeds.device, inputs_embeds.dtype
             )
 
-            # Compute image token positions on CPU to avoid dynamic-shape boolean gather
+            # Compute image token positions on CPU to avoid dynamic-shape boolean gather.
+            # Also cache for get_rope_index which runs on CPU (argwhere not supported on TT).
             input_ids_cpu = input_ids.cpu()
+            self._tt_input_ids_cpu = input_ids_cpu
             img_positions = (input_ids_cpu[0] == self.config.image_token_id).nonzero(as_tuple=True)[0]
             n_img = img_positions.shape[0]
             hidden_dim = inputs_embeds.shape[-1]
