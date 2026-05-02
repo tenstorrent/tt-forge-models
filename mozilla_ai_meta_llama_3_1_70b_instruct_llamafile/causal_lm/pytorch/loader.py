@@ -5,6 +5,7 @@
 Mozilla-AI Meta-Llama-3.1-70B-Instruct-llamafile model loader implementation for causal language modeling.
 """
 import contextlib
+import inspect
 import os
 import zipfile
 import torch
@@ -73,6 +74,46 @@ def _gguf_from_llamafile_ctx(llamafile_path):
         yield
     finally:
         _gguf_reader_mod.np = _orig_np
+
+
+def _find_real_load_gguf_checkpoint():
+    """Traverse the load_gguf_checkpoint patch chain to find the real transformers function.
+
+    Many GGUF loaders patch load_gguf_checkpoint at import time with broken signatures
+    that omit **kwargs (missing model_to_load in transformers 5.x). Traverse closures
+    to find the function that actually accepts model_to_load.
+    """
+    import transformers.modeling_gguf_pytorch_utils as _mod
+
+    fn = _mod.load_gguf_checkpoint
+    visited: set[int] = set()
+    while id(fn) not in visited:
+        visited.add(id(fn))
+        try:
+            if "model_to_load" in inspect.signature(fn).parameters:
+                return fn
+        except (ValueError, TypeError):
+            pass
+        # Follow the first callable closure variable (the saved _orig_*)
+        if fn.__closure__:
+            for cell in fn.__closure__:
+                try:
+                    val = cell.cell_contents
+                    if callable(val) and id(val) not in visited:
+                        fn = val
+                        break
+                except ValueError:
+                    pass
+            else:
+                break
+        else:
+            break
+    return fn
+
+
+import transformers.modeling_gguf_pytorch_utils as _gguf_module
+
+_real_load_gguf_checkpoint = _find_real_load_gguf_checkpoint()
 
 
 class ModelVariant(StrEnum):
@@ -155,18 +196,23 @@ class ModelLoader(ForgeModel):
 
         llamafile_path = self._get_llamafile_path()
 
-        if self.num_layers is not None:
-            with _gguf_from_llamafile_ctx(llamafile_path):
-                config = AutoConfig.from_pretrained(
-                    pretrained_model_name, gguf_file=self.GGUF_FILE
-                )
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
+        _prev_fn = _gguf_module.load_gguf_checkpoint
+        _gguf_module.load_gguf_checkpoint = _real_load_gguf_checkpoint
+        try:
+            if self.num_layers is not None:
+                with _gguf_from_llamafile_ctx(llamafile_path):
+                    config = AutoConfig.from_pretrained(
+                        pretrained_model_name, gguf_file=self.GGUF_FILE
+                    )
+                config.num_hidden_layers = self.num_layers
+                model_kwargs["config"] = config
 
-        with _gguf_from_llamafile_ctx(llamafile_path):
-            model = AutoModelForCausalLM.from_pretrained(
-                pretrained_model_name, **model_kwargs
-            ).eval()
+            with _gguf_from_llamafile_ctx(llamafile_path):
+                model = AutoModelForCausalLM.from_pretrained(
+                    pretrained_model_name, **model_kwargs
+                ).eval()
+        finally:
+            _gguf_module.load_gguf_checkpoint = _prev_fn
 
         self.config = model.config
         self.model = model
@@ -213,8 +259,14 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        with _gguf_from_llamafile_ctx(self._get_llamafile_path()):
-            self.config = AutoConfig.from_pretrained(
-                self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
+        llamafile_path = self._get_llamafile_path()
+        _prev_fn = _gguf_module.load_gguf_checkpoint
+        _gguf_module.load_gguf_checkpoint = _real_load_gguf_checkpoint
+        try:
+            with _gguf_from_llamafile_ctx(llamafile_path):
+                self.config = AutoConfig.from_pretrained(
+                    self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+                )
+        finally:
+            _gguf_module.load_gguf_checkpoint = _prev_fn
         return self.config
