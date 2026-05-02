@@ -109,9 +109,9 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             kwargs["torch_dtype"] = dtype_override
 
-        # Load the processor
+        # use_fast=False: Qwen2VLImageProcessor defaults to fast in transformers 5.x
         self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name, **kwargs
+            self._variant_config.pretrained_model_name, use_fast=False, **kwargs
         )
 
         return self.processor
@@ -136,11 +136,29 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+
+        # For FP8 compressed-tensors models: set run_compressed=False so weights are
+        # dequantized to bfloat16 on load. TT does not support the FP8 matmul path.
+        config = AutoConfig.from_pretrained(pretrained_model_name)
+        qc = getattr(config, "quantization_config", None)
+        if isinstance(qc, dict):
+            qc["run_compressed"] = False
+        elif qc is not None:
+            qc.run_compressed = False
+        model_kwargs["config"] = config
+
         model_kwargs |= kwargs
 
         model = AutoModelForImageTextToText.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        # compressed-tensors leaves an instance-level forward on each quantized Linear
+        # after decompression; remove it so TT-XLA's __torch_function__ is not shadowed.
+        for m in model.modules():
+            if "forward" in m.__dict__:
+                del m.__dict__["forward"]
+
         self.config = model.config
         model.eval()
         return model
