@@ -39,9 +39,16 @@ def _dequantize_bnb4_to_bf16(model):
         if isinstance(module, bnb.nn.Linear4bit):
             replacements.append((name, module))
     for name, module in replacements:
-        dq_weight = bnb.functional.dequantize_4bit(
-            module.weight.data, module.weight.quant_state
-        ).to(torch.bfloat16)
+        quant_state = getattr(module.weight, "quant_state", None)
+        if quant_state is not None:
+            # Properly quantized 4-bit weight: dequantize using bnb.
+            dq_weight = bnb.functional.dequantize_4bit(
+                module.weight.data, quant_state
+            ).to(torch.bfloat16)
+        else:
+            # Unsloth models store weights pre-dequantized in BF16 inside
+            # Linear4bit modules — just cast to bfloat16.
+            dq_weight = module.weight.data.to(torch.bfloat16)
         new_linear = nn.Linear(
             dq_weight.shape[1],
             dq_weight.shape[0],
