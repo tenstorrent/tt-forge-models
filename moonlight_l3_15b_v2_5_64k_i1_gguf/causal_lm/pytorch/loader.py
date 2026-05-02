@@ -18,8 +18,9 @@ def _restore_load_gguf_checkpoint():
     """Re-install load_gguf_checkpoint with model_to_load support if a broken patch is active.
 
     Some loaders in the same pytest session patch load_gguf_checkpoint with a
-    version that drops the model_to_load kwarg added in transformers 5.x.  Walk
-    the patch closure chain to recover the real function and reinstall it.
+    function that drops the model_to_load kwarg added in transformers 5.x.  Those
+    patchers store the original as a module-level global (_orig_load_gguf_checkpoint),
+    so we scan the patcher's __globals__ to recover it.
     """
     current = _gguf_utils.load_gguf_checkpoint
     try:
@@ -28,28 +29,22 @@ def _restore_load_gguf_checkpoint():
     except (ValueError, TypeError):
         pass
 
-    visited: set = set()
-    queue = [current]
+    # Scan the patcher's module globals for a callable that accepts model_to_load.
+    # Prefer one explicitly from transformers.modeling_gguf_pytorch_utils.
     real_fn = None
-    while queue and real_fn is None:
-        fn = queue.pop(0)
-        fid = id(fn)
-        if fid in visited:
+    for val in (getattr(current, "__globals__", None) or {}).values():
+        if not callable(val) or val is current:
             continue
-        visited.add(fid)
         try:
-            if "model_to_load" in inspect.signature(fn).parameters:
-                real_fn = fn
-                break
+            if "model_to_load" not in inspect.signature(val).parameters:
+                continue
         except (ValueError, TypeError):
-            pass
-        for cell in getattr(fn, "__closure__", None) or []:
-            try:
-                v = cell.cell_contents
-                if callable(v):
-                    queue.append(v)
-            except ValueError:
-                pass
+            continue
+        if getattr(val, "__module__", "") == "transformers.modeling_gguf_pytorch_utils":
+            real_fn = val
+            break
+        if real_fn is None:
+            real_fn = val
 
     if real_fn is None:
         raise RuntimeError(
