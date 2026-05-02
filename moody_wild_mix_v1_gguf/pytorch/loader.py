@@ -157,6 +157,7 @@ def _patch_lumina2_for_gguf():
 
     def _patched_rms_init(self, embedding_dim, norm_eps, norm_elementwise_affine):
         nn.Module.__init__(self)
+        self.silu = nn.SiLU()
         # This GGUF variant feeds a 256-dim timestep embedding directly to each adaLN
         # (not the standard min(embedding_dim, 1024)).
         self.linear = nn.Linear(_TIMESTEP_EMBED_DIM, 4 * embedding_dim, bias=True)
