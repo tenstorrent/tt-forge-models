@@ -8,6 +8,7 @@ Unsloth Mistral-Nemo-Base-2407 BnB 4-bit model loader implementation for causal 
 from typing import Optional
 
 import torch
+import torch.nn as nn
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from ....base import ForgeModel
@@ -20,6 +21,39 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
+
+
+def _dequantize_bnb4_to_bf16(model):
+    import bitsandbytes as bnb
+
+    replacements = []
+    for name, module in model.named_modules():
+        if isinstance(module, bnb.nn.Linear4bit):
+            replacements.append((name, module))
+    for name, module in replacements:
+        quant_state = getattr(module.weight, "quant_state", None)
+        if quant_state is not None:
+            dq_weight = bnb.functional.dequantize_4bit(
+                module.weight.data, quant_state
+            ).to(torch.bfloat16)
+        else:
+            # Unsloth models store weights pre-dequantized as BF16 inside Linear4bit.
+            dq_weight = module.weight.data.to(torch.bfloat16)
+        new_linear = nn.Linear(
+            dq_weight.shape[1],
+            dq_weight.shape[0],
+            bias=module.bias is not None,
+            dtype=torch.bfloat16,
+        )
+        new_linear.weight = nn.Parameter(dq_weight)
+        if module.bias is not None:
+            new_linear.bias = nn.Parameter(module.bias.data.to(torch.bfloat16))
+        parts = name.split(".")
+        parent = model
+        for part in parts[:-1]:
+            parent = getattr(parent, part)
+        setattr(parent, parts[-1], new_linear)
+    return model
 
 
 class ModelVariant(StrEnum):
@@ -95,7 +129,9 @@ class ModelLoader(ForgeModel):
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
-        ).eval()
+        )
+        model = _dequantize_bnb4_to_bf16(model)
+        model.eval()
 
         self.config = model.config
         self.model = model
