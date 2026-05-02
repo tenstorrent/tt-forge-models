@@ -4,6 +4,9 @@
 """
 kaitchup Qwen3.5-9B AutoRound NVFP4 linearattn BF16 model loader implementation for causal language modeling.
 """
+import json
+import os
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -70,6 +73,68 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    @staticmethod
+    def _dequantize_nvfp4_weights(model, pretrained_model_name):
+        """Load NVFP4-packed weights from safetensors and dequantize to BF16 in-place.
+
+        The safetensors repo stores weight_packed (uint8 NVFP4) instead of weight
+        (BF16). Without compressed-tensors awareness, from_pretrained leaves these
+        Linear layers randomly initialized. We manually dequantize here.
+        """
+        from compressed_tensors import unpack_fp4_from_uint8
+        from compressed_tensors.quantization import dequantize
+        from huggingface_hub import snapshot_download
+        from safetensors.torch import safe_open
+
+        model_dir = snapshot_download(pretrained_model_name)
+
+        index_path = os.path.join(model_dir, "model.safetensors.index.json")
+        with open(index_path) as f:
+            index = json.load(f)
+        weight_map = index["weight_map"]
+
+        # Collect packed-weight prefixes per shard
+        shard_to_prefixes: dict[str, list[str]] = {}
+        for key, shard_file in weight_map.items():
+            if key.endswith(".weight_packed"):
+                prefix = key[: -len(".weight_packed")]
+                shard_to_prefixes.setdefault(shard_file, []).append(prefix)
+
+        text_model = model.model  # Qwen3_5TextModel inside ForCausalLM
+
+        for shard_file, prefixes in shard_to_prefixes.items():
+            shard_path = os.path.join(model_dir, shard_file)
+            with safe_open(shard_path, framework="pt") as f:
+                all_keys = set(f.keys())
+                for prefix in prefixes:
+                    packed = f.get_tensor(f"{prefix}.weight_packed")
+                    scale = f.get_tensor(f"{prefix}.weight_scale")
+                    gs_key = f"{prefix}.weight_global_scale"
+                    global_scale = f.get_tensor(gs_key) if gs_key in all_keys else None
+
+                    # Unpack two NVFP4 nibbles per uint8 byte, then dequantize
+                    m, n = packed.shape
+                    unpacked = unpack_fp4_from_uint8(packed, m, n * 2)
+                    scale_float = scale.to(unpacked.dtype)
+                    weight = dequantize(
+                        x_q=unpacked,
+                        scale=scale_float,
+                        global_scale=global_scale,
+                        dtype=unpacked.dtype,
+                    )
+
+                    # Safetensors prefix: model.language_model.layers.X.mlp.gate_proj
+                    # Model path: text_model.layers[X].mlp.gate_proj
+                    local_path = prefix.removeprefix("model.language_model.")
+                    parts = local_path.split(".")
+                    module = text_model
+                    for part in parts:
+                        module = module[int(part)] if part.isdigit() else getattr(module, part)
+
+                    module.weight.data.copy_(weight.to(module.weight.dtype))
+
+        return model
+
     def load_model(self, *, dtype_override=None, **kwargs):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -95,6 +160,11 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
+
+        # Dequantize NVFP4 weights: safetensors stores weight_packed (uint8) instead
+        # of weight (BF16), so from_pretrained leaves quantized layers with random
+        # weights. Load and dequantize them manually using compressed-tensors.
+        model = self._dequantize_nvfp4_weights(model, pretrained_model_name)
 
         self.config = model.config
         self.model = model
