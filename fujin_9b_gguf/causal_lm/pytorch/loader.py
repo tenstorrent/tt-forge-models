@@ -4,6 +4,8 @@
 """
 Fujin 9B i1 GGUF model loader implementation for causal language modeling.
 """
+import gc
+import contextlib
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -18,6 +20,42 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _find_real_load_gguf_checkpoint():
+    """Find the unpatched load_gguf_checkpoint via gc scan."""
+    import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+    _REAL_MODULE = "transformers.modeling_gguf_pytorch_utils"
+    _REAL_NAME = "load_gguf_checkpoint"
+    for obj in gc.get_objects():
+        try:
+            if (
+                callable(obj)
+                and getattr(obj, "__name__", None) == _REAL_NAME
+                and getattr(obj, "__module__", None) == _REAL_MODULE
+            ):
+                return obj
+        except Exception:
+            pass
+    return None
+
+
+@contextlib.contextmanager
+def _use_real_load_gguf_checkpoint():
+    """Temporarily restore the real load_gguf_checkpoint, bypassing global patches."""
+    import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+    real_fn = _find_real_load_gguf_checkpoint()
+    if real_fn is None:
+        yield
+        return
+    patched = _gguf_utils.load_gguf_checkpoint
+    try:
+        _gguf_utils.load_gguf_checkpoint = real_fn
+        yield
+    finally:
+        _gguf_utils.load_gguf_checkpoint = patched
 
 
 class ModelVariant(StrEnum):
@@ -101,9 +139,10 @@ class ModelLoader(ForgeModel):
                 config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        with _use_real_load_gguf_checkpoint():
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
@@ -121,11 +160,14 @@ class ModelLoader(ForgeModel):
                 "content": self.sample_text,
             }
         ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
+        if self.tokenizer.chat_template is not None:
+            text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        else:
+            text = self.sample_text
         prompts = [text]
 
         inputs = self.tokenizer(
