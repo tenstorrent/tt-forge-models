@@ -50,6 +50,31 @@ def _patch_qwen2vl_gguf():
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
+    # get_gguf_hf_weights_map looks up the arch via gguf-py MODEL_ARCH_NAMES which
+    # only knows "qwen2vl"; patch it to remap the transformers model_type back.
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(hf_model, processor, model_type=None, num_layers=None, qual_name=""):
+        if model_type is None and hasattr(hf_model, "config"):
+            model_type = hf_model.config.model_type
+        if model_type == "qwen2_5_vl":
+            model_type = "qwen2vl"
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
+    # XLA repeat_interleave tile-aligns values (e.g. 2204 → 2208 = ceil(2204/32)*32),
+    # breaking the cu_seqlens split in the vision encoder forward. Move grid_thw to CPU
+    # so cumsum is computed correctly.
+    from transformers.models.qwen2_5_vl import modeling_qwen2_5_vl as _qvl
+
+    _orig_vis_fwd = _qvl.Qwen2_5_VisionTransformerPretrainedModel.forward
+
+    def _patched_vis_fwd(self, hidden_states, grid_thw, **kwargs):
+        return _orig_vis_fwd(self, hidden_states, grid_thw.cpu(), **kwargs)
+
+    _qvl.Qwen2_5_VisionTransformerPretrainedModel.forward = _patched_vis_fwd
+
 
 _patch_qwen2vl_gguf()
 
@@ -149,7 +174,7 @@ class ModelLoader(ForgeModel):
         if not hasattr(config, "num_hidden_layers") and hasattr(config, "text_config"):
             config.num_hidden_layers = config.text_config.num_hidden_layers
 
-        model_kwargs = {"low_cpu_mem_usage": True, "use_cache": False, "config": config}
+        model_kwargs = {"low_cpu_mem_usage": True, "config": config}
 
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
