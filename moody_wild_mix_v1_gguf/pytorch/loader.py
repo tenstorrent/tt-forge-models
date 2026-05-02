@@ -266,6 +266,8 @@ class ModelLoader(ForgeModel):
                 multiple_of=256,
                 ffn_dim_multiplier=2 / 3,
                 cap_feat_dim=CAP_FEAT_DIM,
+                # head_dim=128 requires axes_dim_rope to sum to 128 (default 32+32+32=96 for head_dim=96)
+                axes_dim_rope=(32, 48, 48),
             )
         self._transformer.eval()
         return self._transformer
