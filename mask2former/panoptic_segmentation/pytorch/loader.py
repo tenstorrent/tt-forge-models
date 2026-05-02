@@ -62,7 +62,7 @@ class ModelLoader(ForgeModel):
 
     def _load_image_processor(self):
         self.image_processor = AutoImageProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, use_fast=False
         )
         return self.image_processor
 
