@@ -6,6 +6,7 @@ Mask2Former model loader implementation for panoptic segmentation tasks.
 """
 
 import torch
+from PIL import Image
 from typing import Optional
 from transformers import AutoImageProcessor, Mask2FormerForUniversalSegmentation
 
@@ -19,7 +20,6 @@ from ....config import (
     Framework,
     StrEnum,
 )
-from datasets import load_dataset
 
 
 class ModelVariant(StrEnum):
@@ -83,8 +83,7 @@ class ModelLoader(ForgeModel):
         if self.image_processor is None:
             self._load_image_processor()
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        image = Image.new("RGB", (480, 640), color=(128, 128, 128))
 
         inputs = self.image_processor(images=image, return_tensors="pt")
 
