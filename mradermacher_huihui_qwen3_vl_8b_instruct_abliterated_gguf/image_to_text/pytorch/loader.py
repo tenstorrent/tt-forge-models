@@ -7,7 +7,7 @@ implementation for image to text.
 """
 
 from transformers import (
-    Qwen3VLConfig,
+    AutoConfig,
     Qwen3VLForConditionalGeneration,
     AutoProcessor,
 )
@@ -132,9 +132,10 @@ class ModelLoader(ForgeModel):
             "Qwen/Qwen3-VL-8B-Instruct",
         )
 
-        # Pass explicit config to bypass qwen3vl architecture check in GGUF config loading.
-        # Tensor loading still calls get_gguf_hf_weights_map (patched above at import time).
-        config = Qwen3VLConfig()
+        # Use the unquantized base model config so model architecture dimensions are correct.
+        # Explicit config bypasses qwen3vl architecture check in GGUF config loading;
+        # tensor loading still calls get_gguf_hf_weights_map (patched at import time).
+        config = AutoConfig.from_pretrained("Qwen/Qwen3-VL-8B-Instruct")
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             pretrained_model_name,
             config=config,
