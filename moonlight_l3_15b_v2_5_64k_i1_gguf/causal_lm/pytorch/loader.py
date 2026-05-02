@@ -4,9 +4,69 @@
 """
 Moonlight-L3-15B-v2.5-64k i1 GGUF model loader implementation for causal language modeling.
 """
+import inspect
 import torch
+import transformers.configuration_utils as _config_utils
+import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.models.auto.tokenization_auto as _auto_tokenizer
+import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
+
+
+def _restore_load_gguf_checkpoint():
+    """Re-install load_gguf_checkpoint with model_to_load support if a broken patch is active.
+
+    Some loaders in the same pytest session patch load_gguf_checkpoint with a
+    version that drops the model_to_load kwarg added in transformers 5.x.  Walk
+    the patch closure chain to recover the real function and reinstall it.
+    """
+    current = _gguf_utils.load_gguf_checkpoint
+    try:
+        if "model_to_load" in inspect.signature(current).parameters:
+            return
+    except (ValueError, TypeError):
+        pass
+
+    visited: set = set()
+    queue = [current]
+    real_fn = None
+    while queue and real_fn is None:
+        fn = queue.pop(0)
+        fid = id(fn)
+        if fid in visited:
+            continue
+        visited.add(fid)
+        try:
+            if "model_to_load" in inspect.signature(fn).parameters:
+                real_fn = fn
+                break
+        except (ValueError, TypeError):
+            pass
+        for cell in getattr(fn, "__closure__", None) or []:
+            try:
+                v = cell.cell_contents
+                if callable(v):
+                    queue.append(v)
+            except ValueError:
+                pass
+
+    if real_fn is None:
+        raise RuntimeError(
+            "Cannot find load_gguf_checkpoint accepting model_to_load; "
+            "update broken GGUF loaders for transformers 5.x compatibility."
+        )
+
+    def _patched(gguf_path, return_tensors=False, model_to_load=None):
+        return real_fn(
+            gguf_path, return_tensors=return_tensors, model_to_load=model_to_load
+        )
+
+    _gguf_utils.load_gguf_checkpoint = _patched
+    _config_utils.load_gguf_checkpoint = _patched
+    _auto_tokenizer.load_gguf_checkpoint = _patched
+    _tok_utils.load_gguf_checkpoint = _patched
+
 
 from ....base import ForgeModel
 from ....config import (
@@ -78,6 +138,7 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        _restore_load_gguf_checkpoint()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -116,11 +177,14 @@ class ModelLoader(ForgeModel):
                 "content": self.sample_text,
             }
         ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
+        if self.tokenizer.chat_template is not None:
+            text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        else:
+            text = self.sample_text
         prompts = [text]
 
         inputs = self.tokenizer(
