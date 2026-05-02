@@ -8,6 +8,8 @@ mHuBERT model loader implementation for audio feature extraction.
 
 from typing import Optional
 
+import torch
+
 from ....base import ForgeModel
 from ....config import (
     ModelConfig,
@@ -103,5 +105,11 @@ class ModelLoader(ForgeModel):
             sampling_rate=sampling_rate,
             return_tensors="pt",
         )
+
+        if dtype_override is not None:
+            inputs = {
+                k: v.to(dtype_override) if torch.is_tensor(v) and v.dtype.is_floating_point else v
+                for k, v in inputs.items()
+            }
 
         return inputs
