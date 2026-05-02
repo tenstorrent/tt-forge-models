@@ -17,6 +17,42 @@ import torch
 from diffusers import GGUFQuantizationConfig, LTX2VideoTransformer3DModel
 from huggingface_hub import hf_hub_download
 
+# apply_split_rotary_emb uses two patterns incompatible with XLA/TT compilation:
+# 1. In-place addcmul_ on tensor views (XLA requires out-of-place ops)
+# 2. swapaxes(1,2).reshape(b,t,-1) on a non-contiguous tensor (requires .contiguous())
+# Replace with an equivalent out-of-place implementation.
+import diffusers.models.transformers.transformer_ltx2 as _ltx2_module
+
+
+def _apply_split_rotary_emb_xla(x, freqs):
+    cos, sin = freqs
+    x_dtype = x.dtype
+    needs_reshape = False
+    if x.ndim != 4 and cos.ndim == 4:
+        b, h, t, _ = cos.shape
+        x = x.reshape(b, t, h, -1).swapaxes(1, 2)
+        needs_reshape = True
+
+    last = x.shape[-1]
+    r = last // 2
+    split_x = x.reshape(*x.shape[:-1], 2, r).float()
+    first_x = split_x[..., :1, :]
+    second_x = split_x[..., 1:, :]
+    cos_u = cos.unsqueeze(-2)
+    sin_u = sin.unsqueeze(-2)
+
+    first_out = first_x * cos_u - sin_u * second_x
+    second_out = second_x * cos_u + sin_u * first_x
+
+    out = torch.cat([first_out, second_out], dim=-2).reshape(*split_x.shape[:-2], last)
+    if needs_reshape:
+        # .contiguous() is required before reshape on non-contiguous tensors in XLA
+        out = out.swapaxes(1, 2).contiguous().reshape(b, t, -1)
+    return out.to(dtype=x_dtype)
+
+
+_ltx2_module.apply_split_rotary_emb = _apply_split_rotary_emb_xla
+
 from ...base import ForgeModel
 from ...config import (
     Framework,
@@ -96,6 +132,17 @@ class ModelLoader(ForgeModel):
             quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
             torch_dtype=dtype,
         )
+
+        # GGUFParameter.__torch_function__ recurses infinitely under TorchDynamo
+        # tracing.  Eagerly dequantize all GGUF linear layers to plain nn.Linear
+        # before handing the model to the compiler.
+        from diffusers.quantizers.gguf.utils import _dequantize_gguf_and_restore_linear
+
+        _dequantize_gguf_and_restore_linear(self._transformer)
+        self._transformer._hf_quantizer = None
+        self._transformer.is_quantized = False
+        self._transformer.to(dtype)
+
         self._transformer.eval()
         return self._transformer
 
@@ -129,10 +176,12 @@ class ModelLoader(ForgeModel):
             batch_size, 8, caption_channels, dtype=dtype
         )
 
-        timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
-        audio_timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
-        sigma = torch.tensor([0.5], dtype=dtype).expand(batch_size)
-        audio_sigma = torch.tensor([0.5], dtype=dtype).expand(batch_size)
+        # forward() expects Long timestep scaled by timestep_scale_multiplier (=1000),
+        # shape (batch_size, num_video_tokens) which is then flattened internally.
+        timestep = torch.full(
+            (batch_size, video_seq_len), 500, dtype=torch.long
+        )
+        audio_timestep = torch.full((batch_size,), 500, dtype=torch.long)
 
         return {
             "hidden_states": hidden_states,
@@ -141,8 +190,6 @@ class ModelLoader(ForgeModel):
             "audio_encoder_hidden_states": audio_encoder_hidden_states,
             "timestep": timestep,
             "audio_timestep": audio_timestep,
-            "sigma": sigma,
-            "audio_sigma": audio_sigma,
             "num_frames": latent_num_frames,
             "height": latent_height,
             "width": latent_width,
