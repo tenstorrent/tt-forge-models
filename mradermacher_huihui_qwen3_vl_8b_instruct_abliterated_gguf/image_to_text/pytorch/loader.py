@@ -58,6 +58,67 @@ def _patch_qwen3vl_support():
 
 _patch_qwen3vl_support()
 
+
+def _patch_qwen3vl_for_tt_device():
+    """Patch Qwen3VL methods that call .tolist() on TT device tensors.
+
+    grid_thw and related tensors land on the XLA device; .tolist() triggers
+    a D2H transfer that raises INTERNAL error 13.  Move those tensors to CPU
+    before the calls that need Python ints, then move outputs back.
+    """
+    from transformers.models.qwen3_vl import modeling_qwen3_vl
+
+    if getattr(modeling_qwen3_vl, "_tt_tolist_patched", False):
+        return
+
+    orig_fast_pos = modeling_qwen3_vl.Qwen3VLVisionModel.fast_pos_embed_interpolate
+    orig_rot_pos = modeling_qwen3_vl.Qwen3VLVisionModel.rot_pos_emb
+    orig_get_rope = modeling_qwen3_vl.Qwen3VLModel.get_rope_index
+    orig_get_image = modeling_qwen3_vl.Qwen3VLModel.get_image_features
+
+    def _patched_fast_pos(self, grid_thw):
+        return orig_fast_pos(self, grid_thw.cpu())
+
+    def _patched_rot_pos(self, grid_thw):
+        return orig_rot_pos(self, grid_thw.cpu())
+
+    def _patched_get_rope(
+        self,
+        input_ids=None,
+        image_grid_thw=None,
+        video_grid_thw=None,
+        attention_mask=None,
+        **kwargs,
+    ):
+        orig_device = input_ids.device if input_ids is not None else None
+        position_ids, rope_deltas = orig_get_rope(
+            self,
+            input_ids=input_ids.cpu() if input_ids is not None else None,
+            image_grid_thw=image_grid_thw.cpu() if image_grid_thw is not None else None,
+            video_grid_thw=video_grid_thw.cpu() if video_grid_thw is not None else None,
+            attention_mask=attention_mask.cpu() if attention_mask is not None else None,
+            **kwargs,
+        )
+        if orig_device is not None:
+            position_ids = position_ids.to(orig_device)
+            rope_deltas = rope_deltas.to(orig_device)
+        return position_ids, rope_deltas
+
+    def _patched_get_image(self, pixel_values, image_grid_thw=None, **kwargs):
+        return orig_get_image(
+            self,
+            pixel_values,
+            image_grid_thw=image_grid_thw.cpu() if image_grid_thw is not None else None,
+            **kwargs,
+        )
+
+    modeling_qwen3_vl.Qwen3VLVisionModel.fast_pos_embed_interpolate = _patched_fast_pos
+    modeling_qwen3_vl.Qwen3VLVisionModel.rot_pos_emb = _patched_rot_pos
+    modeling_qwen3_vl.Qwen3VLModel.get_rope_index = _patched_get_rope
+    modeling_qwen3_vl.Qwen3VLModel.get_image_features = _patched_get_image
+    modeling_qwen3_vl._tt_tolist_patched = True
+
+
 from ....base import ForgeModel
 from ....config import (
     LLMModelConfig,
@@ -131,6 +192,9 @@ class ModelLoader(ForgeModel):
         self.processor = AutoProcessor.from_pretrained(
             "Qwen/Qwen3-VL-8B-Instruct",
         )
+        # Limit image patch count to prevent excessive sequence lengths.
+        self.processor.image_processor.min_pixels = 56 * 56
+        self.processor.image_processor.max_pixels = 13 * 28 * 1280
 
         # Use the unquantized base model config so model architecture dimensions are correct.
         # Explicit config bypasses qwen3vl architecture check in GGUF config loading;
@@ -143,6 +207,7 @@ class ModelLoader(ForgeModel):
             **model_kwargs,
         )
         model.eval()
+        _patch_qwen3vl_for_tt_device()
 
         return model
 
