@@ -69,23 +69,54 @@ class ModelLoader(ForgeModel):
 
         return self.processor
 
+    @staticmethod
+    def _dequantize_compressed_tensors_layers(model, dtype):
+        import torch.nn as nn
+        from compressed_tensors.compressors.pack_quantized import PackedQuantizationCompressor
+
+        for parent_module in list(model.modules()):
+            for child_name, child_module in list(parent_module.named_children()):
+                if not (isinstance(child_module, nn.Linear) and hasattr(child_module, "quantization_scheme")):
+                    continue
+                state_dict = {
+                    "weight_packed": child_module.weight_packed,
+                    "weight_scale": child_module.weight_scale,
+                    "weight_shape": child_module.weight_shape,
+                }
+                decompressed = PackedQuantizationCompressor.decompress(state_dict, child_module.quantization_scheme)
+                weight_fp = decompressed["weight"].to(dtype).contiguous()
+                bias = child_module.bias
+                new_linear = nn.Linear(
+                    child_module.in_features,
+                    child_module.out_features,
+                    bias=bias is not None,
+                    dtype=dtype,
+                )
+                new_linear.weight = nn.Parameter(weight_fp)
+                if bias is not None:
+                    new_linear.bias = nn.Parameter(bias.to(dtype))
+                setattr(parent_module, child_name, new_linear)
+
     def load_model(self, *, dtype_override=None, **kwargs):
+        import torch
         from transformers import Mistral3ForConditionalGeneration
 
         pretrained_model_name = self._variant_config.pretrained_model_name
         if self.processor is None:
             self._load_processor(dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
+        model_kwargs = {}
+        model_kwargs["torch_dtype"] = dtype
         model_kwargs["device_map"] = "cpu"
         model_kwargs |= kwargs
 
         model = Mistral3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        self._dequantize_compressed_tensors_layers(model, dtype)
 
         model.eval()
         self.model = model
