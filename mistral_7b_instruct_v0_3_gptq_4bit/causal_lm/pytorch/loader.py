@@ -5,7 +5,8 @@
 Mistral 7B Instruct v0.3 GPTQ 4-bit model loader implementation for causal language modeling (PyTorch).
 """
 
-from transformers import AutoTokenizer, AutoModelForCausalLM
+import torch.nn as nn
+from transformers import AutoTokenizer, AutoModelForCausalLM, GPTQConfig
 from typing import Optional
 
 from ....config import (
@@ -84,17 +85,44 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {"device_map": "cpu"}
+        model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+
+        # The default GPTQ backend (EXLLAMA/HF_KERNEL) attempts to load CUDA
+        # extensions that segfault on machines with TT hardware but no NVIDIA GPU.
+        # Force GPTQ_TORCH, a pure-PyTorch backend that requires no CUDA.
+        model_kwargs["quantization_config"] = GPTQConfig(bits=4, backend="gptq_torch")
+
         model_kwargs |= kwargs
 
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
-        )
-        if dtype_override is not None:
-            model = model.to(dtype_override)
-        model.eval()
+        ).eval()
+
+        # Dequantize GPTQ int4 weights to float tensors. GPTQ_TORCH QuantLinear
+        # uses boolean-mask indexing that produces dynamic shapes incompatible with
+        # XLA static-shape compilation. Replace each BaseQuantLinear with a plain
+        # nn.Linear.
+        from gptqmodel.nn_modules.qlinear import BaseQuantLinear
+
+        module_map = dict(model.named_modules())
+        for name, mod in list(module_map.items()):
+            if not isinstance(mod, BaseQuantLinear):
+                continue
+            dq = nn.Linear(mod.in_features, mod.out_features, bias=mod.bias is not None)
+            dq.weight = nn.Parameter(mod.dequantize_weight().T.detach())
+            if mod.bias is not None:
+                dq.bias = nn.Parameter(mod.bias.detach())
+            if dtype_override is not None:
+                dq = dq.to(dtype_override)
+            if "." in name:
+                parent_name, child_name = name.rsplit(".", 1)
+                setattr(module_map[parent_name], child_name, dq)
+            else:
+                setattr(model, name, dq)
+        if hasattr(model.config, "quantization_config"):
+            del model.config.quantization_config
 
         return model
 
