@@ -197,6 +197,17 @@ class ModelLoader(ForgeModel):
                 gguf_path,
                 quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
                 torch_dtype=dtype,
+                # This model uses a larger architecture than the reference Lumina-Image-2.0:
+                # hidden_size=3840, MHA (num_heads==num_kv_heads=30, head_dim=128),
+                # ffn_dim_multiplier=2/3 → inner_dim=10240, cap_feat_dim=2560.
+                hidden_size=3840,
+                num_layers=30,
+                num_refiner_layers=2,
+                num_attention_heads=30,
+                num_kv_heads=30,
+                multiple_of=256,
+                ffn_dim_multiplier=2 / 3,
+                cap_feat_dim=CAP_FEAT_DIM,
             )
         self._transformer.eval()
         return self._transformer
