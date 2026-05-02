@@ -151,11 +151,12 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, dtype_override=None):
         seq_len = 50
         num_symbols = len(self._hps.symbols) if self._hps else 219
+        float_dtype = dtype_override if dtype_override is not None else torch.float32
         x = torch.randint(0, num_symbols, (1, seq_len), dtype=torch.long)
         x_lengths = torch.tensor([seq_len], dtype=torch.long)
         sid = torch.tensor([0], dtype=torch.long)
         tones = torch.zeros(1, seq_len, dtype=torch.long)
         lang_ids = torch.zeros(1, seq_len, dtype=torch.long)
-        bert = torch.zeros(1, 1024, seq_len)
-        ja_bert = torch.zeros(1, 768, seq_len)
+        bert = torch.zeros(1, 1024, seq_len, dtype=float_dtype)
+        ja_bert = torch.zeros(1, 768, seq_len, dtype=float_dtype)
         return x, x_lengths, sid, tones, lang_ids, bert, ja_bert
