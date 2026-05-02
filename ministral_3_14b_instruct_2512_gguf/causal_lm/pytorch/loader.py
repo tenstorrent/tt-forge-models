@@ -9,13 +9,59 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
 import contextlib
+import inspect as _inspect
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+import transformers.configuration_utils as _config_utils
 from transformers.modeling_gguf_pytorch_utils import (
-    load_gguf_checkpoint as _true_orig_load_gguf_checkpoint,
-    get_gguf_hf_weights_map as _true_orig_get_gguf_hf_weights_map,
     GGUF_SUPPORTED_ARCHITECTURES,
 )
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
+
+
+def _unwrap_to_transformers(fn, src_fragment):
+    """Walk the monkey-patch chain to find the real transformers function.
+
+    Old-style loaders patch load_gguf_checkpoint at import time using module-level
+    globals like `_orig_load_gguf_checkpoint = _gguf_utils.load_gguf_checkpoint`.
+    These references appear in `fn.__globals__`, not in `fn.__closure__`.  We
+    walk both until we find a callable whose source file contains src_fragment.
+    """
+    visited = set()
+    queue = [fn]
+    while queue:
+        candidate = queue.pop(0)
+        cid = id(candidate)
+        if cid in visited:
+            continue
+        visited.add(cid)
+        try:
+            if src_fragment in _inspect.getfile(candidate):
+                return candidate
+        except (TypeError, OSError):
+            pass
+        # Check closures (for lambdas / inner functions)
+        if getattr(candidate, "__closure__", None):
+            for cell in candidate.__closure__:
+                try:
+                    val = cell.cell_contents
+                    if callable(val):
+                        queue.append(val)
+                except ValueError:
+                    pass
+        # Check module globals for `_orig*` names that look like wrapped functions
+        fn_globals = getattr(candidate, "__globals__", {})
+        for key, val in fn_globals.items():
+            if callable(val) and key.startswith("_orig") and "gguf" in key.lower():
+                queue.append(val)
+    return fn  # fallback
+
+
+_true_orig_load_gguf_checkpoint = _unwrap_to_transformers(
+    _gguf_utils.load_gguf_checkpoint, "modeling_gguf_pytorch_utils"
+)
+_true_orig_get_gguf_hf_weights_map = _unwrap_to_transformers(
+    _gguf_utils.get_gguf_hf_weights_map, "modeling_gguf_pytorch_utils"
+)
 
 
 def _patch_mistral3_support():
@@ -78,16 +124,21 @@ def _mistral3_gguf_patch():
 
     Uses a context manager rather than global module-level patching so that
     later-imported loaders cannot overwrite our patch before from_pretrained runs.
+    Patches both _gguf_utils and _config_utils because configuration_utils.py
+    imports load_gguf_checkpoint at module level (line 29) and calls it directly.
     """
     _patch_mistral3_support()
-    old_load = _gguf_utils.load_gguf_checkpoint
+    old_load_gguf = _gguf_utils.load_gguf_checkpoint
+    old_load_config = _config_utils.load_gguf_checkpoint
     old_map = _gguf_utils.get_gguf_hf_weights_map
     _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
     _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
     try:
         yield
     finally:
-        _gguf_utils.load_gguf_checkpoint = old_load
+        _gguf_utils.load_gguf_checkpoint = old_load_gguf
+        _config_utils.load_gguf_checkpoint = old_load_config
         _gguf_utils.get_gguf_hf_weights_map = old_map
 
 
@@ -201,11 +252,16 @@ class ModelLoader(ForgeModel):
                 "content": self.sample_text,
             }
         ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
+        try:
+            text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        except Exception:
+            # Fallback for GGUF tokenizers whose chat_template uses non-Jinja2
+            # syntax (e.g. Go template with $ variables).
+            text = f"[INST] {self.sample_text} [/INST]"
         prompts = [text]
 
         inputs = self.tokenizer(
