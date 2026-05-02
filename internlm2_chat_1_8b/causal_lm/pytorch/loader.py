@@ -5,6 +5,7 @@
 InternLM2-Chat-1.8B model loader implementation for causal language modeling (PyTorch).
 """
 
+import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from typing import Optional
 
@@ -97,6 +98,30 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
         model.eval()
+
+        # Fix transformers 5.x special token ID mismatch: InternLM2TokenizerFast
+        # assigns special tokens (e.g. <|im_start|>) IDs starting at vocab_size
+        # (92544+) instead of their intended in-vocab positions (92538-92543).
+        # Copy the trained embeddings from the original positions to the new ones.
+        if len(self.tokenizer) > model.config.vocab_size:
+            intended = {
+                str(v): int(k)
+                for k, v in self.tokenizer.init_kwargs.get("added_tokens_decoder", {}).items()
+                if int(k) < model.config.vocab_size
+            }
+            id_map = {
+                old_id: self.tokenizer.convert_tokens_to_ids(tok)
+                for tok, old_id in intended.items()
+                if self.tokenizer.convert_tokens_to_ids(tok) != old_id
+            }
+            if id_map:
+                model.resize_token_embeddings(len(self.tokenizer), mean_resizing=False)
+                with torch.no_grad():
+                    in_emb = model.get_input_embeddings().weight
+                    out_emb = model.get_output_embeddings().weight
+                    for old_id, new_id in id_map.items():
+                        in_emb[new_id] = in_emb[old_id]
+                        out_emb[new_id] = out_emb[old_id]
 
         return model
 
