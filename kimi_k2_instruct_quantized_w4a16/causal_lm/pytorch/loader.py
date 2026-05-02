@@ -98,6 +98,28 @@ def fixed_get_imports(filename: str | os.PathLike) -> list[str]:
     return imports
 
 
+def _static_deepseek_moe_infer(self, x, topk_ids, topk_weight):
+    """Static per-expert masked matmul; avoids tokens_per_expert.cpu().numpy() D2H."""
+    N, D = x.shape
+    num_experts = len(self.experts)
+    gate_matrix = x.new_zeros(N, num_experts)
+    gate_matrix.scatter_(1, topk_ids, topk_weight)
+    output = x.new_zeros(N, D)
+    for e in range(num_experts):
+        gate_e = gate_matrix[:, e : e + 1]
+        output = output + self.experts[e](x) * gate_e
+    return output
+
+
+def _patch_deepseek_moe(model_name):
+    moe_class = get_class_from_dynamic_module(
+        "modeling_deepseek.DeepseekV3MoE",
+        model_name,
+        trust_remote_code=True,
+    )
+    moe_class.moe_infer = _static_deepseek_moe_infer
+
+
 class ModelVariant(StrEnum):
     """Available Kimi K2 Instruct quantized W4A16 model variants."""
 
@@ -194,6 +216,7 @@ class ModelLoader(ForgeModel):
                 self.model_name,
                 trust_remote_code=True,
             )
+            _patch_deepseek_moe(self.model_name)
             model = model_class(config)
             model.eval()
 
