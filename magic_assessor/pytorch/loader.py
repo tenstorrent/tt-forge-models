@@ -18,9 +18,16 @@ def _patch_qwen2_5_vl_for_tt():
       CPU int64 result on self.visual._tt_grid_thw_cpu before calling self.visual
     - rot_pos_emb and get_window_index read the cache (no additional D2H)
     - VisionTransformer.forward is replaced to use the CPU int64 for
-      repeat_interleave and move CPU index tensors to device before indexing
+      repeat_interleave and move CPU index tensors to device before indexing;
+      cu_window_seqlens is built on CPU (TT unique_consecutive reads stale tiled
+      padding cells and returns off-by-spatial_merge_unit values)
     - get_rope_index receives image_grid_thw as CPU int64 (from the cache),
       input_ids stays as-is (int64 device, embedding/scatter ops work on TT)
+    - get_placeholder_mask: replaced to avoid boolean gather
+      (inputs_embeds[bool_mask] causes INTERNAL 13 on TT); uses count check instead
+    - Qwen2_5_VLModel.forward: image feature injection replaced with integer
+      scatter using CPU-precomputed image token positions; avoids masked_scatter
+      (stablehlo.scatter via CumSum overflow = Tier B ttmlir bug)
     Applied inside load_model() to avoid double-patching during test collection.
     """
     import torch.nn.functional as F
@@ -33,6 +40,7 @@ def _patch_qwen2_5_vl_for_tt():
 
     _orig_get_window_index = m.Qwen2_5_VisionTransformerPretrainedModel.get_window_index
     _orig_get_rope_index = m.Qwen2_5_VLModel.get_rope_index
+    _orig_model_forward = m.Qwen2_5_VLModel.forward
 
     def _patched_rot_pos_emb(self, grid_thw):
         pos_ids = []
@@ -175,11 +183,102 @@ def _patch_qwen2_5_vl_for_tt():
             rope_deltas = rope_deltas.to(device)
         return position_ids, rope_deltas
 
+    def _patched_get_placeholder_mask(
+        self, input_ids, inputs_embeds, image_features=None, video_features=None
+    ):
+        """Avoids boolean gather inputs_embeds[bool_mask] which causes INTERNAL 13 on TT.
+
+        Computes image/video token counts from CPU input_ids instead.
+        """
+        hidden_dim = inputs_embeds.shape[-1]
+        if input_ids is not None:
+            input_ids_cpu = input_ids.cpu()
+            img_mask_cpu = input_ids_cpu == self.config.image_token_id
+            vid_mask_cpu = input_ids_cpu == self.config.video_token_id
+            n_image = int(img_mask_cpu.sum().item())
+            n_video = int(vid_mask_cpu.sum().item())
+            special_image_mask = img_mask_cpu.to(inputs_embeds.device)
+            special_video_mask = vid_mask_cpu.to(inputs_embeds.device)
+        else:
+            embed_fn = self.get_input_embeddings()
+            img_tok = torch.tensor(self.config.image_token_id, dtype=torch.long, device=inputs_embeds.device)
+            vid_tok = torch.tensor(self.config.video_token_id, dtype=torch.long, device=inputs_embeds.device)
+            special_image_mask = (inputs_embeds == embed_fn(img_tok)).all(-1)
+            special_video_mask = (inputs_embeds == embed_fn(vid_tok)).all(-1)
+            n_image = int(special_image_mask.sum().item())
+            n_video = int(special_video_mask.sum().item())
+
+        special_image_mask = special_image_mask.unsqueeze(-1).expand_as(inputs_embeds).to(inputs_embeds.device)
+        if image_features is not None:
+            assert n_image * hidden_dim == image_features.numel(), (
+                f"Image features and image tokens do not match: {n_image} tokens, {image_features.shape}"
+            )
+        special_video_mask = special_video_mask.unsqueeze(-1).expand_as(inputs_embeds).to(inputs_embeds.device)
+        if video_features is not None:
+            assert n_video * hidden_dim == video_features.numel(), (
+                f"Video features and video tokens do not match: {n_video} tokens, {video_features.shape}"
+            )
+        return special_image_mask, special_video_mask
+
+    def _patched_model_forward(
+        self, input_ids=None, inputs_embeds=None, pixel_values=None, image_grid_thw=None, **kwargs
+    ):
+        """Replaces image feature injection in Qwen2_5_VLModel.forward.
+
+        masked_scatter(bool_mask, features) lowers via CumSum in tt-mlir causing
+        shape overflow to ~40 GiB.  Replace with integer scatter: precompute image
+        token positions from CPU input_ids, scatter image embeddings via torch.scatter.
+        """
+        if pixel_values is not None and input_ids is not None:
+            if inputs_embeds is None:
+                inputs_embeds = self.get_input_embeddings()(input_ids)
+
+            image_embeds_list = self.get_image_features(
+                pixel_values, image_grid_thw, return_dict=True
+            ).pooler_output
+            image_embeds = torch.cat(image_embeds_list, dim=0).to(
+                inputs_embeds.device, inputs_embeds.dtype
+            )
+
+            # Compute image token positions on CPU to avoid dynamic-shape boolean gather
+            input_ids_cpu = input_ids.cpu()
+            img_positions = (input_ids_cpu[0] == self.config.image_token_id).nonzero(as_tuple=True)[0]
+            n_img = img_positions.shape[0]
+            hidden_dim = inputs_embeds.shape[-1]
+            img_emb_2d = image_embeds.reshape(n_img, hidden_dim)
+
+            # int64 H2D for indices (supported); scatter replaces masked_scatter
+            img_idx_device = img_positions.to(inputs_embeds.device)
+            index = img_idx_device.unsqueeze(1).expand(n_img, hidden_dim)
+            inputs_embeds_2d = torch.scatter(inputs_embeds[0], 0, index, img_emb_2d)
+            inputs_embeds = inputs_embeds_2d.unsqueeze(0)
+
+            # pixel_values already consumed; keep image_grid_thw for compute_3d_position_ids
+            return _orig_model_forward(
+                self,
+                input_ids=input_ids,
+                inputs_embeds=inputs_embeds,
+                pixel_values=None,
+                image_grid_thw=image_grid_thw,
+                **kwargs,
+            )
+
+        return _orig_model_forward(
+            self,
+            input_ids=input_ids,
+            inputs_embeds=inputs_embeds,
+            pixel_values=pixel_values,
+            image_grid_thw=image_grid_thw,
+            **kwargs,
+        )
+
     m.Qwen2_5_VisionTransformerPretrainedModel.rot_pos_emb = _patched_rot_pos_emb
     m.Qwen2_5_VisionTransformerPretrainedModel.get_window_index = _patched_get_window_index
     m.Qwen2_5_VisionTransformerPretrainedModel.forward = _patched_vt_forward
     m.Qwen2_5_VLModel.get_image_features = _patched_get_image_features
     m.Qwen2_5_VLModel.get_rope_index = _patched_get_rope_index
+    m.Qwen2_5_VLModel.get_placeholder_mask = _patched_get_placeholder_mask
+    m.Qwen2_5_VLModel.forward = _patched_model_forward
 
 
 from ...base import ForgeModel
