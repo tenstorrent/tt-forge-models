@@ -136,7 +136,10 @@ class ModelLoader(ForgeModel):
         # Tensor loading still calls get_gguf_hf_weights_map (patched above at import time).
         config = Qwen3VLConfig()
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, config=config, **model_kwargs
+            pretrained_model_name,
+            config=config,
+            ignore_mismatched_sizes=True,
+            **model_kwargs,
         )
         model.eval()
 
