@@ -24,8 +24,8 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available LayoutLM document QA model variants."""
 
-    IMPIRA_LAYOUTLM_DOCUMENT_QA = "Impira LayoutLM Document QA"
-    IMPIRA_LAYOUTLM_INVOICES = "Impira LayoutLM Invoices"
+    IMPIRA_LAYOUTLM_DOCUMENT_QA = "Impira_LayoutLM_Document_QA"
+    IMPIRA_LAYOUTLM_INVOICES = "Impira_LayoutLM_Invoices"
 
 
 class ModelLoader(ForgeModel):
