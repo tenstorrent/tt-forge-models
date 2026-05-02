@@ -102,14 +102,10 @@ class ModelLoader(ForgeModel):
 
         test_input = "Explain the feature represented by this SAE activation."
 
-        self.tokenizer.padding_side = "right"
         inputs = self.tokenizer(
             test_input,
             return_tensors="pt",
-            max_length=32,
-            padding="max_length",
             add_special_tokens=True,
-            truncation=True,
         )
 
         for key in inputs:
