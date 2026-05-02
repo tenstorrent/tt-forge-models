@@ -232,22 +232,19 @@ class ModelLoader(ForgeModel):
         model.eval()
 
         # The remote RotaryEmbedding._set_cos_sin_cache() calls emb.cos().to(dtype)
-        # where dtype=bfloat16.  For some model configurations the cache computation
-        # path leaves NaN values in cos_cached.  Re-compute every RotaryEmbedding
-        # cache in float32 arithmetic (safe, cos(x) in [-1,1] never produces NaN),
-        # then cast back to the original bfloat16 dtype so that CPU and TT both apply
-        # RoPE in the same dtype and the PCC comparison stays tight.
+        # where dtype=bfloat16.  For large position indices the intermediate float32
+        # cos values are fine, but the direct cast cos_f32→bfloat16 can introduce NaN
+        # in some entries (bfloat16 has limited exponent range for certain frequency
+        # products).  Re-compute every RotaryEmbedding cache using float32 arithmetic
+        # and store as float32 so RoPE stays numerically valid on both CPU and TT.
         for mod in model.modules():
             if hasattr(mod, "_set_cos_sin_cache") and hasattr(mod, "cos_cached"):
                 if mod.cos_cached is not None and mod.cos_cached.isnan().any():
-                    orig_dtype = mod.cos_cached.dtype
                     mod._set_cos_sin_cache(
                         seq_len=mod.max_seq_len_cached,
                         device=mod.cos_cached.device,
                         dtype=torch.float32,
                     )
-                    mod.cos_cached = mod.cos_cached.to(orig_dtype)
-                    mod.sin_cached = mod.sin_cached.to(orig_dtype)
 
         self._model = model
         return model
