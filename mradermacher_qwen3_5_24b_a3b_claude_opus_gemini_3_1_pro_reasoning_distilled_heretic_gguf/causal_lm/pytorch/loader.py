@@ -130,7 +130,13 @@ def _patch_transformers_qwen35moe_gguf():
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
-    # 3. Patch get_gguf_hf_weights_map to handle qwen3_5_moe_text -> qwen35moe
+    # 3. Patch get_gguf_hf_weights_map to handle qwen3_5_moe_text -> qwen35moe and
+    #    fix expert tensor key format mismatch.
+    #
+    #    gguf-py maps gate_up_proj → blk.X.ffn_gate_up_exps (merged form), but GGUF
+    #    files have separate blk.X.ffn_gate_exps + blk.X.ffn_up_exps tensors.
+    #    Qwen2MoeTensorProcessor.process handles these separate tensors and expects them
+    #    in tensor_key_mapping, so we replace the merged key with the two separate keys.
     if not getattr(gguf_utils.get_gguf_hf_weights_map, "_qwen35moe_patched", False):
         orig_get_map = gguf_utils.get_gguf_hf_weights_map
 
@@ -141,7 +147,14 @@ def _patch_transformers_qwen35moe_gguf():
                 model_type = hf_model.config.model_type
             if model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
                 model_type = "qwen35moe"
-            return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+            result = orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+            if model_type == "qwen35moe":
+                for key in list(result.keys()):
+                    if "ffn_gate_up_exps" in key:
+                        hf_name = result.pop(key)
+                        result[key.replace("ffn_gate_up_exps", "ffn_gate_exps")] = hf_name
+                        result[key.replace("ffn_gate_up_exps", "ffn_up_exps")] = hf_name
+            return result
 
         patched_get_gguf_hf_weights_map._qwen35moe_patched = True
         gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
