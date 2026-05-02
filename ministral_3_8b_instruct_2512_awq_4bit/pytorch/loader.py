@@ -101,13 +101,9 @@ class ModelLoader(ForgeModel):
     def _patch_get_image_features(model):
         import types
         import torch
-        from transformers.utils.generic import auto_docstring
 
         inner = model.model
 
-        @auto_docstring(
-            custom_intro="Obtains image last hidden states from the vision tower and apply multimodal projection."
-        )
         def patched_get_image_features(
             self,
             pixel_values,
