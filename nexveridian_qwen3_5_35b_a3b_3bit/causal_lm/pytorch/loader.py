@@ -214,6 +214,9 @@ class ModelLoader(ForgeModel):
                 biases = all_raw[base + BIASES_SUFFIX]
                 bits, gs = _get_quant_params(key)
                 tensor = _dequantize_mlx_affine(tensor, scales, biases, bits, gs)
+            # MLX stores Conv1d weights as (C, K, 1); PyTorch expects (C, 1, K).
+            if model_key.endswith("linear_attn.conv1d.weight") and tensor.ndim == 3:
+                tensor = tensor.permute(0, 2, 1).contiguous()
             state_dict[model_key] = tensor
 
         # Construct on meta device to avoid double-allocating the model weights
