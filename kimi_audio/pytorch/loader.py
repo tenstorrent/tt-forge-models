@@ -221,14 +221,31 @@ class ModelLoader(ForgeModel):
                 pretrained_model_name,
                 config=config,
                 trust_remote_code=True,
-                # Load in float32 for numerical stability across 38 decoder layers
-                # (bfloat16 produces NaN on CPU for this model).  The attention
-                # module casts q/k/v to float16 before flash_attn; our stub
-                # upgrades float16 → bfloat16 for TT hardware compatibility.
-                torch_dtype=dtype_override if dtype_override is not None else torch.float32,
+                # Load in bfloat16 so the attention module's float32→float16 cast
+                # (lines 338-348 of modeling_moonshot_kimia.py) is never triggered
+                # (the cast only fires when input_dtype == torch.float32).  TT
+                # hardware produces NaN for float16 operations, so avoiding the
+                # cast is required for a valid TT run.
+                torch_dtype=dtype_override if dtype_override is not None else torch.bfloat16,
                 **kwargs,
             )
         model.eval()
+
+        # The remote RotaryEmbedding._set_cos_sin_cache() calls emb.cos().to(dtype)
+        # where dtype=bfloat16.  For large position indices the intermediate float32
+        # cos values are fine, but the direct cast cos_f32→bfloat16 can introduce NaN
+        # in some entries (bfloat16 has limited exponent range for certain frequency
+        # products).  Re-compute every RotaryEmbedding cache using float32 arithmetic
+        # and store as float32 so RoPE stays numerically valid on both CPU and TT.
+        for mod in model.modules():
+            if hasattr(mod, "_set_cos_sin_cache") and hasattr(mod, "cos_cached"):
+                if mod.cos_cached is not None and mod.cos_cached.isnan().any():
+                    mod._set_cos_sin_cache(
+                        seq_len=mod.max_seq_len_cached,
+                        device=mod.cos_cached.device,
+                        dtype=torch.float32,
+                    )
+
         self._model = model
         return model
 
