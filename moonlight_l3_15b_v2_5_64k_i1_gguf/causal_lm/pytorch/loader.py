@@ -17,10 +17,11 @@ from typing import Optional
 def _restore_load_gguf_checkpoint():
     """Re-install load_gguf_checkpoint with model_to_load support if a broken patch is active.
 
-    Some loaders in the same pytest session patch load_gguf_checkpoint with a
-    function that drops the model_to_load kwarg added in transformers 5.x.  Those
-    patchers store the original as a module-level global (_orig_load_gguf_checkpoint),
-    so we scan the patcher's __globals__ to recover it.
+    Multiple loaders patch load_gguf_checkpoint in a chain, each storing the
+    previous function as _orig_load_gguf_checkpoint in their module globals.
+    Walk the chain via a BFS over __globals__ entries whose names suggest they
+    are GGUF-related, until we find the transformers original that accepts
+    model_to_load.
     """
     current = _gguf_utils.load_gguf_checkpoint
     try:
@@ -29,22 +30,33 @@ def _restore_load_gguf_checkpoint():
     except (ValueError, TypeError):
         pass
 
-    # Scan the patcher's module globals for a callable that accepts model_to_load.
-    # Prefer one explicitly from transformers.modeling_gguf_pytorch_utils.
+    # BFS: for each function, look in its __globals__ for gguf/orig-related callables.
+    visited: set = set()
+    queue = [current]
     real_fn = None
-    for val in (getattr(current, "__globals__", None) or {}).values():
-        if not callable(val) or val is current:
+    while queue and real_fn is None:
+        fn = queue.pop(0)
+        fid = id(fn)
+        if fid in visited:
             continue
+        visited.add(fid)
+        # Check if this function is the real original
         try:
-            if "model_to_load" not in inspect.signature(val).parameters:
-                continue
+            if "model_to_load" in inspect.signature(fn).parameters:
+                if getattr(fn, "__module__", "") == "transformers.modeling_gguf_pytorch_utils":
+                    real_fn = fn
+                    break
+                elif real_fn is None:
+                    real_fn = fn
         except (ValueError, TypeError):
-            continue
-        if getattr(val, "__module__", "") == "transformers.modeling_gguf_pytorch_utils":
-            real_fn = val
-            break
-        if real_fn is None:
-            real_fn = val
+            pass
+        # Enqueue candidates from this function's globals (names suggesting gguf/orig chain)
+        for name, val in list((getattr(fn, "__globals__", None) or {}).items()):
+            if not callable(val) or id(val) in visited:
+                continue
+            low = name.lower()
+            if "load_gguf" in low or "gguf_check" in low or low.startswith("_orig"):
+                queue.append(val)
 
     if real_fn is None:
         raise RuntimeError(
