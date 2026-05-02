@@ -211,7 +211,7 @@ class SplitResidualVectorQuantizer(nn.Module):
 
     def decode(self, codes):
         semantic = self.layers[0].decode(codes[:, 0, :])
-        acoustic = torch.zeros([1, 1], device=codes.device)
+        acoustic = torch.zeros([1, 1], device=codes.device, dtype=semantic.dtype)
         for i, cb in enumerate(self._acoustic_books):
             acoustic = acoustic + self.layers[cb].decode(codes[:, i + 1, :])
         return self.out_proj_s(semantic) + self.out_proj_a(acoustic)
