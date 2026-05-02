@@ -13,7 +13,8 @@ import transformers.modeling_gguf_pytorch_utils as _gguf_utils
 import transformers.models.auto.tokenization_auto as _auto_tokenizer
 import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers.modeling_gguf_pytorch_utils import (
-    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
+    load_gguf_checkpoint as _import_time_gguf_loader,
+    get_gguf_hf_weights_map as _import_time_weights_map,
     GGUF_SUPPORTED_ARCHITECTURES,
 )
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFGPTConverter
@@ -54,19 +55,89 @@ def _patch_phi2_support():
     GGUF_TO_FAST_CONVERTERS.setdefault("phi2", GGUFGPTConverter)
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
+def _find_true_gguf_loader(fn):
+    """Traverse the loader patch chain to find transformers' load_gguf_checkpoint.
+
+    Many loaders monkey-patch load_gguf_checkpoint with narrow signatures that
+    don't forward model_to_load.  The true transformers original explicitly
+    declares model_to_load as a parameter.  We search through both __globals__
+    (for module-level orig captures) and __closure__ (for inner-function orig
+    captures), until we find the function with model_to_load in its params.
+    """
+    seen = set()
+
+    def _search(f):
+        fn_id = id(f)
+        if fn_id in seen:
+            return None
+        seen.add(fn_id)
+        code = getattr(f, "__code__", None)
+        if code is None:
+            return None
+        # Found: this is the true transformers load_gguf_checkpoint
+        if "model_to_load" in code.co_varnames[: code.co_argcount]:
+            return f
+        # Search closure cells (captures from enclosing function scope)
+        for cell in f.__closure__ or []:
+            try:
+                val = cell.cell_contents
+            except ValueError:
+                continue
+            if callable(val) and hasattr(val, "__code__"):
+                result = _search(val)
+                if result is not None:
+                    return result
+        # Search globals referenced by name in this function's bytecode
+        g = getattr(f, "__globals__", {})
+        for name in code.co_names:
+            val = g.get(name)
+            if val is not None and callable(val) and hasattr(val, "__code__"):
+                result = _search(val)
+                if result is not None:
+                    return result
+        return None
+
+    return _search(fn)
+
+
+def _patched_load_gguf_checkpoint(*args, **kwargs):
     _patch_phi2_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors, **kwargs)
+    # _gguf_utils.load_gguf_checkpoint may have been clobbered by later loaders
+    # with narrow signatures that don't forward model_to_load.  Bypass the patch
+    # chain by starting the traversal from _import_time_gguf_loader — the value
+    # of load_gguf_checkpoint when phi1_5 was first imported.  That may itself
+    # be a narrow-sig patched function, but the closure chain from it eventually
+    # leads to the true transformers original that accepts model_to_load.
+    true_orig = _find_true_gguf_loader(_import_time_gguf_loader)
+    if true_orig is None:
+        # _import_time_gguf_loader is already the true original (no chain yet)
+        true_orig = _import_time_gguf_loader
+    result = true_orig(*args, **kwargs)
     if result.get("config", {}).get("model_type") == "phi2":
         result["config"]["model_type"] = "phi"
     return result
 
 
-_patch_phi2_support()
-_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+def _patched_get_gguf_hf_weights_map(hf_model, processor, model_type=None, num_layers=None, qual_name=""):
+    # gguf-py MODEL_ARCH_NAMES maps PHI2->"phi2", not "phi"; remap so the arch
+    # lookup succeeds.
+    if model_type is None:
+        model_type = getattr(getattr(hf_model, "config", None), "model_type", None)
+    if model_type == "phi":
+        model_type = "phi2"
+    return _import_time_weights_map(hf_model, processor, model_type, num_layers, qual_name)
+
+
+def _apply_patches():
+    _patch_phi2_support()
+    _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+
+
+_apply_patches()
 
 
 class ModelVariant(StrEnum):
@@ -111,6 +182,9 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
+        # Re-apply at call time: other loaders imported after us may have
+        # clobbered _gguf_utils.load_gguf_checkpoint.
+        _apply_patches()
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
@@ -120,11 +194,17 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
         if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
+            # GGUFGPTConverter doesn't propagate special tokens; fall back to
+            # the phi-1.5 / GPT-2 end-of-text token which is always in vocab.
+            self.tokenizer.pad_token = self.tokenizer.eos_token or "<|endoftext|>"
 
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
+        # Re-apply at call time: other loaders imported after us may have
+        # clobbered _gguf_utils.load_gguf_checkpoint.
+        _apply_patches()
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -172,6 +252,7 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
+        _apply_patches()
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
         )
