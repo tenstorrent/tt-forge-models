@@ -7,6 +7,9 @@ cyankiwi Ministral 3 8B Instruct 2512 AWQ 4-bit model loader implementation for 
 
 from typing import Optional
 
+import torch
+import torch.nn as nn
+
 from ...config import (
     LLMModelConfig,
     ModelInfo,
@@ -23,6 +26,36 @@ class ModelVariant(StrEnum):
     """Available Ministral 3 8B Instruct 2512 AWQ 4-bit model variants."""
 
     MINISTRAL_3_8B_INSTRUCT_2512_AWQ_4BIT = "3_8B_Instruct_2512_AWQ_4bit"
+
+
+def _dequantize_compressed_tensors_layers(model, dtype):
+    """Dequantize compressed-tensors pack-quantized INT4 layers to nn.Linear."""
+    from compressed_tensors.compressors.pack_quantized import PackedQuantizationCompressor
+
+    for parent_name, parent_module in list(model.named_modules()):
+        for child_name, child_module in list(parent_module.named_children()):
+            if not (
+                isinstance(child_module, nn.Linear)
+                and hasattr(child_module, "quantization_scheme")
+            ):
+                continue
+            state_dict = {
+                "weight_packed": child_module.weight_packed,
+                "weight_scale": child_module.weight_scale,
+                "weight_shape": child_module.weight_shape,
+            }
+            decompressed = PackedQuantizationCompressor.decompress(
+                state_dict, child_module.quantization_scheme
+            )
+            weight_fp = decompressed["weight"].to(dtype).contiguous()
+            has_bias = child_module.bias is not None
+            new_linear = nn.Linear(
+                child_module.in_features, child_module.out_features, bias=has_bias
+            )
+            new_linear.weight = nn.Parameter(weight_fp)
+            if has_bias:
+                new_linear.bias = nn.Parameter(child_module.bias.to(dtype))
+            setattr(parent_module, child_name, new_linear)
 
 
 class ModelLoader(ForgeModel):
@@ -76,16 +109,18 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor(dtype_override)
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
+        model_kwargs = {}
+        model_kwargs["torch_dtype"] = dtype
         model_kwargs["device_map"] = "cpu"
         model_kwargs |= kwargs
 
         model = Mistral3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        _dequantize_compressed_tensors_layers(model, dtype)
 
         model.eval()
         self.model = model
@@ -141,7 +176,7 @@ class ModelLoader(ForgeModel):
     def load_shard_spec(self, model):
         shard_specs = {}
 
-        for layer in model.language_model.layers:
+        for layer in model.model.language_model.layers:
             shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
@@ -151,13 +186,14 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
 
-        for layer in model.vision_tower.vision_model.encoder.layers:
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.out_proj.weight] = ("batch", "model")
+        for layer in model.model.vision_tower.transformer.layers:
+            shard_specs[layer.attention.q_proj.weight] = ("model", "batch")
+            shard_specs[layer.attention.k_proj.weight] = ("model", "batch")
+            shard_specs[layer.attention.v_proj.weight] = ("model", "batch")
+            shard_specs[layer.attention.o_proj.weight] = ("batch", "model")
 
-            shard_specs[layer.mlp.fc1.weight] = ("model", "batch")
-            shard_specs[layer.mlp.fc2.weight] = ("batch", "model")
+            shard_specs[layer.feed_forward.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.feed_forward.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.feed_forward.down_proj.weight] = ("batch", "model")
 
         return shard_specs
