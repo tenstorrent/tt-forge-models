@@ -45,8 +45,10 @@ def _mlx_affine_dequantize(weight_u32, scales, biases, group_size=64):
     shifts = np.arange(8, dtype=np.int32) * 4  # [0, 4, 8, ..., 28]
     int4_vals = ((w_np[:, :, None] >> shifts) & 0xF).reshape(out_dim, in_dim).astype(np.float32)
 
-    scales_f32 = scales.numpy().astype(np.float32)  # [out, num_groups]
-    biases_f32 = biases.numpy().astype(np.float32)
+    # .numpy() on BF16 tensors fails ("Got unsupported ScalarType BFloat16");
+    # cast to float32 first — .to() passes through TorchFunctionMode unchanged.
+    scales_f32 = scales.to(torch.float32).numpy()  # [out, num_groups]
+    biases_f32 = biases.to(torch.float32).numpy()
     scales_exp = np.repeat(scales_f32, group_size, axis=1)  # [out, in_dim]
     biases_exp = np.repeat(biases_f32, group_size, axis=1)
 
