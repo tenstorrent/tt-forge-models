@@ -5,6 +5,7 @@
 MetaCLIP 2 model loader implementation for zero-shot image classification.
 """
 import torch
+from PIL import Image
 from transformers import AutoProcessor, AutoModelForZeroShotImageClassification
 from typing import Optional
 
@@ -18,7 +19,6 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from datasets import load_dataset
 
 
 class ModelVariant(StrEnum):
@@ -60,7 +60,8 @@ class ModelLoader(ForgeModel):
 
     def _load_processor(self):
         self.processor = AutoProcessor.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name,
+            use_fast=False,
         )
         return self.processor
 
@@ -84,8 +85,7 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        image = Image.new("RGB", (384, 384), color=(128, 128, 128))
 
         self.text_prompts = ["a photo of a cat", "a photo of a dog"]
 
