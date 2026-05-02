@@ -1,1 +1,6 @@
-gptqmodel
+gptqmodel==7.0.0
+pypcre
+logbar
+device-smi
+defuser
+tokenicer
