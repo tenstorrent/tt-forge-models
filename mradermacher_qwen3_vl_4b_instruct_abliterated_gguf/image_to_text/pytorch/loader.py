@@ -56,6 +56,37 @@ def _refresh_gguf_detection():
         import_utils.is_gguf_available.cache_clear()
 
 
+def _find_real_load_gguf_checkpoint():
+    """BFS-walk the monkey-patch chain to find the original transformers function."""
+    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+
+    fn = gguf_utils.load_gguf_checkpoint
+    seen = set()
+    queue = [fn]
+    while queue:
+        candidate = queue.pop(0)
+        fid = id(candidate)
+        if fid in seen:
+            continue
+        seen.add(fid)
+        if (
+            getattr(candidate, "__module__", None)
+            == "transformers.modeling_gguf_pytorch_utils"
+            and getattr(candidate, "__qualname__", None) == "load_gguf_checkpoint"
+        ):
+            return candidate
+        # Walk closure cells for wrapped functions
+        closure = getattr(candidate, "__closure__", None) or []
+        for cell in closure:
+            try:
+                val = cell.cell_contents
+                if callable(val):
+                    queue.append(val)
+            except ValueError:
+                pass
+    return fn
+
+
 def _patch_qwen3vl_gguf():
     """Patch transformers to add qwen3vl GGUF architecture support.
 
@@ -77,9 +108,6 @@ def _patch_qwen3vl_gguf():
         GGUF_TO_TRANSFORMERS_MAPPING,
     )
 
-    if getattr(gguf_utils, "_qwen3vl_patched", False):
-        return
-
     if "qwen3vl" not in GGUF_SUPPORTED_ARCHITECTURES:
         GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vl")
 
@@ -88,9 +116,11 @@ def _patch_qwen3vl_gguf():
             GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen3"]
         )
 
-    _orig = gguf_utils.load_gguf_checkpoint
+    # BFS-walk the chain to find the real transformers function, bypassing any
+    # narrow-signature wrappers installed by other loaders in the session.
+    _real = _find_real_load_gguf_checkpoint()
 
-    def _patched_load_gguf_checkpoint(*args, **kwargs):
+    def _qwen3vl_load_gguf_checkpoint(*args, **kwargs):
         hf_model = kwargs.get("model_to_load")
         if hf_model is not None:
             cfg = hf_model.config
@@ -103,26 +133,33 @@ def _patch_qwen3vl_gguf():
                 type(cfg).model_type = "qwen3"
                 cfg.num_hidden_layers = num_hidden_layers
                 try:
-                    return _orig(*args, **kwargs)
+                    return _real(*args, **kwargs)
                 finally:
                     type(cfg).model_type = orig_cls_model_type
                     del cfg.num_hidden_layers
-        result = _orig(*args, **kwargs)
+        result = _real(*args, **kwargs)
         # Config-loading phase: convert model_type "qwen3vl" → "qwen3" so
         # AutoConfig builds a Qwen3Config with the correct text-backbone fields.
         if result.get("config", {}).get("model_type") == "qwen3vl":
             result["config"]["model_type"] = "qwen3"
         return result
 
-    gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-    gguf_utils._qwen3vl_patched = True
-
     import transformers.modeling_utils as modeling_utils
     import transformers.configuration_utils as config_utils
+    import transformers.tokenization_utils_fast as tokenization_utils_fast
+    import transformers.models.auto.tokenization_auto as tokenization_auto
 
-    for mod in (modeling_utils, config_utils):
+    for mod in (
+        gguf_utils,
+        modeling_utils,
+        config_utils,
+        tokenization_utils_fast,
+        tokenization_auto,
+    ):
         if hasattr(mod, "load_gguf_checkpoint"):
-            mod.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+            mod.load_gguf_checkpoint = _qwen3vl_load_gguf_checkpoint
+
+    return _qwen3vl_load_gguf_checkpoint
 
 
 _patch_qwen3vl_gguf()
@@ -176,6 +213,7 @@ class ModelLoader(ForgeModel):
     def _build_full_config(self):
         """Build a Qwen3VLConfig by combining GGUF text config with base vision config."""
         _refresh_gguf_detection()
+        _patch_qwen3vl_gguf()
         pretrained_model_name = self._variant_config.pretrained_model_name
         # After our patch, model_type "qwen3vl" → "qwen3", so AutoConfig returns Qwen3Config
         text_config = AutoConfig.from_pretrained(
@@ -189,6 +227,9 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         _refresh_gguf_detection()
+        # Re-install patch fresh: other loaders imported later may have
+        # overwritten our wide-signature wrapper with a narrow one.
+        _patch_qwen3vl_gguf()
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {}
