@@ -17,6 +17,7 @@ from contextlib import contextmanager
 from typing import Any, Optional
 
 import torch
+import torch.nn as nn
 from huggingface_hub import hf_hub_download
 
 from ...base import ForgeModel
@@ -32,11 +33,14 @@ from ...config import (
 
 REPO_ID = "Gthalmie1/moody-wild-mix-v1-gguf"
 
-# Lumina-Image-2.0 architecture constants for this model variant.
-# This variant uses hidden_size=3840 (not 2048) and cap_feat_dim=2560
-# (text encoder output), not the standard Gemma-2-2b 2304.
+# Architecture constants for this GGUF variant (differs from reference Lumina-Image-2.0):
+# - hidden_size=3840, MHA 30 heads (head_dim=128), cap_feat_dim=2560
+# - Timestep bottleneck MLP: 256->1024->256 (output 256, not 1024)
+# - AdaLN conditioning dim: 256 (matches bottleneck output), not min(dim, 1024)
+# - AdaLN sequential index: .0 (not .1 as in standard Lumina2)
 IN_CHANNELS = 16
 CAP_FEAT_DIM = 2560  # text encoder output dim (cap_embedder input size)
+_TIMESTEP_EMBED_DIM = 256  # timestep bottleneck output dim
 
 
 class ModelVariant(StrEnum):
@@ -53,32 +57,38 @@ _GGUF_FILES = {
 
 
 @contextmanager
-def _patch_lumina2_converter():
-    """Patch the diffusers Lumina2 converter to handle MHA models.
+def _patch_lumina2_for_gguf():
+    """Patch diffusers Lumina2 classes to load this GGUF variant.
 
-    The standard diffusers converter hardcodes QKV split dims for the reference
-    Lumina-Image-2.0 GQA model (q_dim=2304, k/v_dim=768). This model uses full
-    MHA with equal Q/K/V dimensions (hidden_size=3840, head_dim=128), so the
-    split must be computed dynamically from the actual tensor shape.
+    This GGUF uses a Lumina2 architectural variant that differs from the
+    reference model supported by diffusers in three ways:
 
-    The function reference is stored in SINGLE_FILE_LOADABLE_CLASSES so we must
-    patch that dict entry, not just the module-level symbol.
+    1. QKV split: MHA equal-thirds (11520 → 3×3840) vs GQA (3840 → 2304+768+768)
+    2. Timestep embedding: 256→1024→256 bottleneck (output 256) vs 256→1024 (output 1024)
+    3. AdaLN conditioning dim: 256 (from bottleneck) vs min(hidden_size, 1024)=1024
+    4. AdaLN sequential key: .0 (linear at index 0) vs .1 (SiLU at 0, linear at 1)
+
+    All patches are applied via the context manager and restored afterward.
     """
     import diffusers.loaders.single_file_model as _sfm
+    import diffusers.models.normalization as _norm
+    import diffusers.models.transformers.transformer_lumina2 as _tl2
+    from diffusers.models.embeddings import TimestepEmbedding, Timesteps
+    from diffusers.models.normalization import RMSNorm
 
+    # --- Patch 1: checkpoint converter ---
     _CLASS_ENTRY = _sfm.SINGLE_FILE_LOADABLE_CLASSES["Lumina2Transformer2DModel"]
-    original = _CLASS_ENTRY["checkpoint_mapping_fn"]
+    _orig_converter = _CLASS_ENTRY["checkpoint_mapping_fn"]
 
-    def _patched(checkpoint, **kwargs):
+    def _patched_converter(checkpoint, **kwargs):
         converted_state_dict = {}
-
         checkpoint.pop("norm_final.weight", None)
-
         keys = list(checkpoint.keys())
         for k in keys:
             if "model.diffusion_model." in k:
                 checkpoint[k.replace("model.diffusion_model.", "")] = checkpoint.pop(k)
 
+        # Standard key renames — NOTE: adaLN uses .0 (not .1) in this GGUF variant
         LUMINA_KEY_MAP = {
             "cap_embedder": "time_caption_embed.caption_embedder",
             "t_embedder.mlp.0": "time_caption_embed.timestep_embedder.linear_1",
@@ -90,7 +100,7 @@ def _patch_lumina2_converter():
             "w1": "linear_1",
             "w2": "linear_2",
             "w3": "linear_3",
-            "adaLN_modulation.1": "norm1.linear",
+            "adaLN_modulation.0": "norm1.linear",
         }
         ATTENTION_NORM_MAP = {
             "attention_norm1": "norm1.norm",
@@ -102,6 +112,7 @@ def _patch_lumina2_converter():
             "context_refiner.1.attention_norm1": "context_refiner.1.norm1",
             "context_refiner.1.attention_norm2": "context_refiner.1.norm2",
         }
+        # final_layer uses .1 (not .0) for its adaLN
         FINAL_LAYER_MAP = {
             "final_layer.adaLN_modulation.1": "norm_out.linear_1",
             "final_layer.linear": "norm_out.linear_2",
@@ -109,11 +120,10 @@ def _patch_lumina2_converter():
 
         def _split_qkv(tensor, diffusers_key):
             total_dim = tensor.shape[0]
-            # Standard GQA model: q_dim=2304, k/v_dim=768 (sum=3840)
+            # Standard GQA: q=2304, k=v=768 (sum=3840); MHA variant: equal thirds
             if total_dim == 2304 + 768 + 768:
                 q_dim, k_dim, v_dim = 2304, 768, 768
             else:
-                # MHA variant: equal Q/K/V splits
                 q_dim = k_dim = v_dim = total_dim // 3
             to_q, to_k, to_v = torch.split(tensor, [q_dim, k_dim, v_dim], dim=0)
             return {
@@ -132,21 +142,71 @@ def _patch_lumina2_converter():
                 diffusers_key = diffusers_key.replace(k, v)
             for k, v in LUMINA_KEY_MAP.items():
                 diffusers_key = diffusers_key.replace(k, v)
-
             if "qkv" in diffusers_key:
                 converted_state_dict.update(
                     _split_qkv(checkpoint.pop(key), diffusers_key)
                 )
             else:
                 converted_state_dict[diffusers_key] = checkpoint.pop(key)
-
         return converted_state_dict
 
-    _CLASS_ENTRY["checkpoint_mapping_fn"] = _patched
+    _CLASS_ENTRY["checkpoint_mapping_fn"] = _patched_converter
+
+    # --- Patch 2: LuminaRMSNormZero — use 256-dim conditioning input ---
+    _orig_rms_init = _norm.LuminaRMSNormZero.__init__
+
+    def _patched_rms_init(self, embedding_dim, norm_eps, norm_elementwise_affine):
+        nn.Module.__init__(self)
+        # This GGUF variant feeds a 256-dim timestep embedding directly to each adaLN
+        # (not the standard min(embedding_dim, 1024)).
+        self.linear = nn.Linear(_TIMESTEP_EMBED_DIM, 4 * embedding_dim, bias=True)
+        self.norm = RMSNorm(
+            embedding_dim, eps=norm_eps, elementwise_affine=norm_elementwise_affine
+        )
+
+    _norm.LuminaRMSNormZero.__init__ = _patched_rms_init
+
+    # --- Patch 3: Lumina2CombinedTimestepCaptionEmbedding — bottleneck timestep MLP ---
+    _orig_tsembed_init = _tl2.Lumina2CombinedTimestepCaptionEmbedding.__init__
+
+    def _patched_tsembed_init(self, hidden_size=4096, cap_feat_dim=2048, norm_eps=1e-6):
+        nn.Module.__init__(self)
+        freq_dim = 256
+        # This GGUF variant uses a bottleneck MLP: freq_dim → 4*freq_dim → freq_dim
+        self.time_proj = Timesteps(
+            num_channels=freq_dim, flip_sin_to_cos=True, downscale_freq_shift=0.0
+        )
+        self.timestep_embedder = TimestepEmbedding(
+            in_channels=freq_dim,
+            time_embed_dim=4 * freq_dim,
+            out_dim=freq_dim,
+        )
+        self.caption_embedder = nn.Sequential(
+            RMSNorm(cap_feat_dim, eps=norm_eps),
+            nn.Linear(cap_feat_dim, hidden_size, bias=True),
+        )
+
+    _tl2.Lumina2CombinedTimestepCaptionEmbedding.__init__ = _patched_tsembed_init
+
+    # --- Patch 4: LuminaLayerNormContinuous — use 256-dim conditioning for norm_out ---
+    _orig_llnc_init = _norm.LuminaLayerNormContinuous.__init__
+
+    def _patched_llnc_init(self, embedding_dim, conditioning_embedding_dim, **kwargs):
+        # When this model's norm_out is initialized with conditioning_embedding_dim=1024
+        # (from min(hidden_size, 1024)), override it to 256.
+        if conditioning_embedding_dim > _TIMESTEP_EMBED_DIM:
+            conditioning_embedding_dim = _TIMESTEP_EMBED_DIM
+        _orig_llnc_init(self, embedding_dim, conditioning_embedding_dim, **kwargs)
+
+    _norm.LuminaLayerNormContinuous.__init__ = _patched_llnc_init
+
     try:
         yield
     finally:
-        _CLASS_ENTRY["checkpoint_mapping_fn"] = original
+        _CLASS_ENTRY["checkpoint_mapping_fn"] = _orig_converter
+        _norm.LuminaRMSNormZero.__init__ = _orig_rms_init
+        _tl2.Lumina2CombinedTimestepCaptionEmbedding.__init__ = _orig_tsembed_init
+        _norm.LuminaLayerNormContinuous.__init__ = _orig_llnc_init
 
 
 class ModelLoader(ForgeModel):
@@ -192,14 +252,12 @@ class ModelLoader(ForgeModel):
             filename=gguf_filename,
         )
 
-        with _patch_lumina2_converter():
+        with _patch_lumina2_for_gguf():
             self._transformer = Lumina2Transformer2DModel.from_single_file(
                 gguf_path,
                 quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
                 torch_dtype=dtype,
-                # This model uses a larger architecture than the reference Lumina-Image-2.0:
-                # hidden_size=3840, MHA (num_heads==num_kv_heads=30, head_dim=128),
-                # ffn_dim_multiplier=2/3 → inner_dim=10240, cap_feat_dim=2560.
+                # Architecture overrides for this GGUF variant
                 hidden_size=3840,
                 num_layers=30,
                 num_refiner_layers=2,
