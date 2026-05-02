@@ -87,7 +87,42 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
+    @staticmethod
+    def _find_original_load_gguf_checkpoint():
+        """Walk the monkey-patch chain to find the original transformers function.
+
+        Other loaders in the session patch load_gguf_checkpoint at import time
+        with functions that drop the model_to_load kwarg added in transformers
+        5.x.  Walk the chain via __globals__ until we find a version that
+        explicitly accepts model_to_load.
+        """
+        import inspect
+        import transformers.modeling_gguf_pytorch_utils as _m
+
+        fn = _m.load_gguf_checkpoint
+        seen: set = set()
+        while id(fn) not in seen:
+            try:
+                if "model_to_load" in inspect.signature(fn).parameters:
+                    return fn
+            except (ValueError, TypeError):
+                pass
+            seen.add(id(fn))
+            for key in ("_orig_load_gguf_checkpoint", "orig_load"):
+                candidate = fn.__globals__.get(key)
+                if candidate is not None and callable(candidate):
+                    fn = candidate
+                    break
+            else:
+                break
+        return fn
+
     def load_model(self, *, dtype_override=None, **kwargs):
+        import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+        import transformers.configuration_utils as _config_utils
+        import transformers.models.auto.tokenization_auto as _auto_tokenizer
+        import transformers.tokenization_utils_tokenizers as _tok_utils
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -106,9 +141,26 @@ class ModelLoader(ForgeModel):
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        # Restore the original transformers load_gguf_checkpoint for the
+        # duration of from_pretrained.  Other loaders that patch at import time
+        # drop the model_to_load kwarg added in transformers 5.x; bypassing
+        # them ensures the weight-map lookup receives the dummy model.
+        _modules = [_gguf_utils, _config_utils, _auto_tokenizer, _tok_utils]
+        _saved = {
+            m: m.load_gguf_checkpoint
+            for m in _modules
+            if hasattr(m, "load_gguf_checkpoint")
+        }
+        _orig = self._find_original_load_gguf_checkpoint()
+        for m in _saved:
+            m.load_gguf_checkpoint = _orig
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
+        finally:
+            for m, fn in _saved.items():
+                m.load_gguf_checkpoint = fn
 
         self.config = model.config
         self.model = model
@@ -126,11 +178,14 @@ class ModelLoader(ForgeModel):
                 "content": self.sample_text,
             }
         ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
+        if self.tokenizer.chat_template is not None:
+            text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        else:
+            text = self.sample_text
         prompts = [text]
 
         inputs = self.tokenizer(
