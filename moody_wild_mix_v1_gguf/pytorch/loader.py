@@ -20,6 +20,19 @@ import torch
 import torch.nn as nn
 from huggingface_hub import hf_hub_download
 
+# GGUFParameter.as_tensor() calls _make_subclass which re-dispatches through
+# __torch_function__ on the subclass, causing infinite recursion under Dynamo.
+# DisableTorchFunctionSubclass breaks the cycle.
+from diffusers.quantizers.gguf.utils import GGUFParameter as _GGUFParameter
+
+
+def _patched_as_tensor(self):
+    with torch.DisableTorchFunctionSubclass():
+        return torch.Tensor._make_subclass(torch.Tensor, self, self.requires_grad)
+
+
+_GGUFParameter.as_tensor = _patched_as_tensor
+
 from ...base import ForgeModel
 from ...config import (
     ModelConfig,
