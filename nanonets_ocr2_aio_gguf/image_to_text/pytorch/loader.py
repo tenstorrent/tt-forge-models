@@ -13,6 +13,10 @@ from transformers import modeling_gguf_pytorch_utils as _gguf_utils
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 from typing import Optional
 import transformers.models.qwen2_5_vl.modeling_qwen2_5_vl as _qwen2_5_vl_module
+from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
+    Qwen2_5_VisionTransformerPretrainedModel as _Qwen2_5_VLVisionTransformer,
+    Qwen2_5_VLModel as _Qwen2_5_VLModel,
+)
 
 from ....base import ForgeModel
 from ....config import (
@@ -69,10 +73,10 @@ _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 # and get_image_features calls image_grid_thw.prod(-1).tolist().
 # Fix: move metadata tensors to CPU before .tolist() calls; main tensor computations
 # (pixel_values, hidden_states, etc.) remain on TT device.
-_orig_rot_pos_emb = _qwen2_5_vl_module.Qwen2_5_VLVisionTransformer.rot_pos_emb
-_orig_get_window_index = _qwen2_5_vl_module.Qwen2_5_VLVisionTransformer.get_window_index
-_orig_get_rope_index = _qwen2_5_vl_module.Qwen2_5_VLForConditionalGeneration.get_rope_index
-_orig_get_image_features = _qwen2_5_vl_module.Qwen2_5_VLForConditionalGeneration.get_image_features
+_orig_rot_pos_emb = _Qwen2_5_VLVisionTransformer.rot_pos_emb
+_orig_get_window_index = _Qwen2_5_VLVisionTransformer.get_window_index
+_orig_get_rope_index = _Qwen2_5_VLModel.get_rope_index
+_orig_get_image_features = _Qwen2_5_VLModel.get_image_features
 
 
 def _patched_rot_pos_emb(self, grid_thw):
@@ -112,10 +116,10 @@ def _patched_get_image_features(self, pixel_values, image_grid_thw=None, **kwarg
     )
 
 
-_qwen2_5_vl_module.Qwen2_5_VLVisionTransformer.rot_pos_emb = _patched_rot_pos_emb
-_qwen2_5_vl_module.Qwen2_5_VLVisionTransformer.get_window_index = _patched_get_window_index
-_qwen2_5_vl_module.Qwen2_5_VLForConditionalGeneration.get_rope_index = _patched_get_rope_index
-_qwen2_5_vl_module.Qwen2_5_VLForConditionalGeneration.get_image_features = _patched_get_image_features
+_Qwen2_5_VLVisionTransformer.rot_pos_emb = _patched_rot_pos_emb
+_Qwen2_5_VLVisionTransformer.get_window_index = _patched_get_window_index
+_Qwen2_5_VLModel.get_rope_index = _patched_get_rope_index
+_Qwen2_5_VLModel.get_image_features = _patched_get_image_features
 
 
 class ModelVariant(StrEnum):
