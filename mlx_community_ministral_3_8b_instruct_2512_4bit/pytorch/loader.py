@@ -124,6 +124,53 @@ class ModelLoader(ForgeModel):
         )
 
         model.eval()
+
+        # Patch get_image_features on model.model (Mistral3Model) to compute
+        # split_sizes on CPU in int64.  On TT, int64 arithmetic uses bfloat16
+        # internally: bfloat16(2310) == 2320, which makes split_with_sizes fail
+        # with "expects sum 2310, got split_sizes=[2320]".
+        def _patched_get_image_features(
+            self,
+            pixel_values,
+            image_sizes,
+            vision_feature_layer=None,
+            output_hidden_states=None,
+            return_dict=None,
+            **kwargs,
+        ):
+            if vision_feature_layer is None:
+                vision_feature_layer = self.config.vision_feature_layer
+            kwargs = {k: v for k, v in kwargs.items() if v is not None}
+            image_outputs = self.vision_tower(
+                pixel_values,
+                image_sizes=image_sizes,
+                output_hidden_states=True,
+                return_dict=True,
+                **kwargs,
+            )
+            if isinstance(vision_feature_layer, int):
+                selected_image_feature = image_outputs.hidden_states[vision_feature_layer]
+            else:
+                hs_pool = [
+                    image_outputs.hidden_states[layer_idx]
+                    for layer_idx in vision_feature_layer
+                ]
+                selected_image_feature = torch.cat(hs_pool, dim=-1)
+            image_features = self.multi_modal_projector(
+                selected_image_feature.squeeze(0), image_sizes
+            )
+            downsample_ratio = self.vision_tower.patch_size * self.config.spatial_merge_size
+            split_sizes = (
+                torch.as_tensor(image_sizes, dtype=torch.int64).cpu() // downsample_ratio
+            ).prod(dim=-1).tolist()
+            image_features = torch.split(image_features.squeeze(0), split_sizes)
+            image_outputs.pooler_output = image_features
+            return image_outputs
+
+        model.model.get_image_features = types.MethodType(
+            _patched_get_image_features, model.model
+        )
+
         self.model = model
         self.config = model.config
         return model
