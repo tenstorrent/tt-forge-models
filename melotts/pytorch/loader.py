@@ -68,11 +68,6 @@ class MeloTTSWrapper(nn.Module):
         self.model = model
 
     def forward(self, x, x_lengths, sid, tones, lang_ids, bert, ja_bert):
-        # max_len caps decoder output to 200 frames (200 * hop_length = 51200 samples).
-        # bfloat16 duration rounding (torch.ceil on near-integer logw values) can shift
-        # total output length by 1-2 frames between TT and CPU, causing a shape mismatch
-        # in the evaluator. Capping to max_len keeps shapes identical for PCC comparison
-        # while still exercising the full text encoder and duration predictor.
         audio = self.model.infer(
             x,
             x_lengths,
@@ -81,7 +76,6 @@ class MeloTTSWrapper(nn.Module):
             lang_ids,
             bert,
             ja_bert,
-            max_len=200,
         )[0]
         return audio
 
