@@ -5,7 +5,7 @@
 InternLM model loader implementation for causal language modeling.
 """
 
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
 from ....config import (
@@ -126,6 +126,18 @@ class ModelLoader(ForgeModel):
                 inputs[key] = cast_input_to_type(inputs[key], dtype_override)
 
         target_len = self._variant_config.max_length
+        # Clamp target_len so that total padded length (seq_len + target_len)
+        # does not exceed max_position_embeddings.  The katuni4ka tiny-random
+        # variant has max_position_embeddings=128 which is the same value as
+        # max_length; without clamping pad_inputs would produce 136 tokens and
+        # position_ids[128] would index out-of-bounds in cos_cached[0:128].
+        model_config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name, trust_remote_code=True
+        )
+        max_pos = getattr(model_config, "max_position_embeddings", None)
+        if max_pos is not None:
+            input_seq_len = inputs["input_ids"].shape[1]
+            target_len = min(target_len, max_pos - input_seq_len)
         padded_input_ids, seq_len = pad_inputs(inputs["input_ids"], target_len)
         padded_attention_mask, _ = pad_inputs(inputs["attention_mask"], target_len)
         self.seq_len = seq_len
