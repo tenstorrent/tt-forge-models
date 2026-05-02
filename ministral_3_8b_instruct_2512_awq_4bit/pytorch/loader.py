@@ -110,6 +110,7 @@ class ModelLoader(ForgeModel):
             image_sizes,
             vision_feature_layer=None,
             output_hidden_states=None,
+            return_dict=None,
             **kwargs,
         ):
             kwargs = {k: v for k, v in kwargs.items() if v is not None}
