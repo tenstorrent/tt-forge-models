@@ -124,6 +124,11 @@ class ModelLoader(ForgeModel):
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
+        # Qwen3_5DynamicCache is not a transformers.Cache subclass; the comparison
+        # evaluator calls torch.equal() on it which raises TypeError. Disable caching
+        # so outputs contain only logits (no cache object to compare).
+        inputs["use_cache"] = False
+
         return inputs
 
     def load_config(self):
