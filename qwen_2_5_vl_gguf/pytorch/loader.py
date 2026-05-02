@@ -63,10 +63,11 @@ def _patch_qwen2vl_gguf():
 
     gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
 
-    # XLA repeat_interleave tile-aligns integer values (e.g. 2204 → 2208) which breaks
-    # both the cu_seqlens split inside the vision encoder and the split_sizes computation
-    # in get_image_features. Move image_grid_thw to CPU at get_image_features entry so
-    # both self.visual() and the prod(-1).tolist() use correct host-side values.
+    # XLA repeat_interleave tile-aligns integer values (e.g. 2204 → 2208) which breaks:
+    #   (a) split_sizes in get_image_features: prod(-1).tolist() returns 552 instead of 551
+    #   (b) cu_seqlens in the vision transformer: lengths.tolist() returns [2208] instead of [2204]
+    # Fix (a): move image_grid_thw to CPU at get_image_features entry.
+    # Fix (b): move grid_thw to CPU at the vision forward entry so cu_seqlens is host-side.
     from transformers.models.qwen2_5_vl import modeling_qwen2_5_vl as _qvl
 
     _orig_get_image_features = _qvl.Qwen2_5_VLForConditionalGeneration.get_image_features
@@ -77,6 +78,13 @@ def _patch_qwen2vl_gguf():
         return _orig_get_image_features(self, pixel_values, image_grid_thw=image_grid_thw, **kwargs)
 
     _qvl.Qwen2_5_VLForConditionalGeneration.get_image_features = _patched_get_image_features
+
+    _orig_vis_fwd = _qvl.Qwen2_5_VisionTransformerPretrainedModel.forward
+
+    def _patched_vis_fwd(self, hidden_states, grid_thw, **kwargs):
+        return _orig_vis_fwd(self, hidden_states, grid_thw.cpu(), **kwargs)
+
+    _qvl.Qwen2_5_VisionTransformerPretrainedModel.forward = _patched_vis_fwd
 
 
 _patch_qwen2vl_gguf()
