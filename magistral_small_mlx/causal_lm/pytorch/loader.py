@@ -155,7 +155,14 @@ class ModelLoader(ForgeModel):
                 out[key] = w.to(target_dtype)
             else:
                 if tensor.is_floating_point():
-                    out[key] = tensor.to(target_dtype)
+                    t = tensor.to(target_dtype)
+                    # MLX stores Conv2d as [out, H, W, in]; PyTorch wants [out, in, H, W].
+                    # MLX stores Conv3d as [out, D, H, W, in]; PyTorch wants [out, in, D, H, W].
+                    if key.endswith(".weight") and t.ndim == 4:
+                        t = t.permute(0, 3, 1, 2).contiguous()
+                    elif key.endswith(".weight") and t.ndim == 5:
+                        t = t.permute(0, 4, 1, 2, 3).contiguous()
+                    out[key] = t
                 else:
                     out[key] = tensor
         return out
