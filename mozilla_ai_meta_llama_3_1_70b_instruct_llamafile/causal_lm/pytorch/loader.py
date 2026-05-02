@@ -4,6 +4,9 @@
 """
 Mozilla-AI Meta-Llama-3.1-70B-Instruct-llamafile model loader implementation for causal language modeling.
 """
+import contextlib
+import os
+import zipfile
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
@@ -18,6 +21,58 @@ from ....config import (
     Framework,
     StrEnum,
 )
+
+
+def _find_gguf_offset_in_llamafile(llamafile_path):
+    """Return the byte offset of the uncompressed GGUF entry inside a llamafile ZIP.
+
+    A llamafile is an APE polyglot (ZIP + binary). The GGUF weights are stored as
+    an uncompressed ZIP entry. GGUFReader uses np.memmap starting at offset 0, so
+    we intercept the memmap call and add the correct byte offset.
+    Returns None if the path is not a llamafile or contains no uncompressed GGUF.
+    """
+    try:
+        with zipfile.ZipFile(llamafile_path) as z:
+            for info in z.infolist():
+                if info.filename.endswith(".gguf") and info.compress_type == 0:
+                    # Read fname_len and extra_len from the local file header
+                    with open(llamafile_path, "rb") as f:
+                        f.seek(info.header_offset + 26)
+                        fname_len = int.from_bytes(f.read(2), "little")
+                        extra_len = int.from_bytes(f.read(2), "little")
+                    return info.header_offset + 30 + fname_len + extra_len
+    except (zipfile.BadZipFile, OSError):
+        pass
+    return None
+
+
+@contextlib.contextmanager
+def _gguf_from_llamafile_ctx(llamafile_path):
+    """Temporarily patch gguf.gguf_reader.np.memmap to read GGUF from within a llamafile."""
+    data_offset = _find_gguf_offset_in_llamafile(llamafile_path)
+    if data_offset is None:
+        yield
+        return
+
+    import gguf.gguf_reader as _gguf_reader_mod
+
+    _orig_np = _gguf_reader_mod.np
+    abs_path = os.path.abspath(str(llamafile_path))
+
+    class _NpWithOffset:
+        def memmap(self, path, **kwargs):
+            if os.path.abspath(str(path)) == abs_path and "offset" not in kwargs:
+                kwargs["offset"] = data_offset
+            return _orig_np.memmap(path, **kwargs)
+
+        def __getattr__(self, name):
+            return getattr(_orig_np, name)
+
+    _gguf_reader_mod.np = _NpWithOffset()
+    try:
+        yield
+    finally:
+        _gguf_reader_mod.np = _orig_np
 
 
 class ModelVariant(StrEnum):
@@ -63,15 +118,24 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _get_llamafile_path(self):
+        from huggingface_hub import hf_hub_download
+
+        return hf_hub_download(
+            repo_id=self._variant_config.pretrained_model_name,
+            filename=self.GGUF_FILE,
+        )
+
     def _load_tokenizer(self, dtype_override=None):
         tokenizer_kwargs = {}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
         tokenizer_kwargs["gguf_file"] = self.GGUF_FILE
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
-        )
+        with _gguf_from_llamafile_ctx(self._get_llamafile_path()):
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -89,16 +153,20 @@ class ModelLoader(ForgeModel):
         model_kwargs |= kwargs
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
+        llamafile_path = self._get_llamafile_path()
+
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
+            with _gguf_from_llamafile_ctx(llamafile_path):
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name, gguf_file=self.GGUF_FILE
+                )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        with _gguf_from_llamafile_ctx(llamafile_path):
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
@@ -145,7 +213,8 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        with _gguf_from_llamafile_ctx(self._get_llamafile_path()):
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
         return self.config
