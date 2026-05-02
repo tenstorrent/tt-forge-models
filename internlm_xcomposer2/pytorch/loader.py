@@ -5,6 +5,8 @@
 InternLM-XComposer2 model loader implementation for multimodal visual question answering.
 """
 
+import sys
+
 import torch
 from PIL import Image
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
@@ -21,6 +23,39 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+
+def _patch_clip_vision_tower_for_meta_ctx():
+    """
+    Patch CLIPVisionTower.__init__ to run outside the meta device context.
+
+    transformers 5.x raises when from_pretrained is called inside the
+    init_empty_weights() meta device context. CLIPVisionTower.__init__ calls
+    load_model() (which calls CLIPVisionModel.from_pretrained) and resize_pos()
+    (which creates new tensors/embeddings). Both must run outside meta context
+    to load real CPU weights.
+
+    This patch must be applied before AutoModelForCausalLM.from_pretrained;
+    the caller must pre-load the remote model module so CLIPVisionTower is
+    already in sys.modules before this is called.
+    """
+    for mod in sys.modules.values():
+        if hasattr(mod, "CLIPVisionTower"):
+            original_init = mod.CLIPVisionTower.__init__
+
+            def _patched_init(self, *args, _orig=original_init, **kwargs):
+                dev = torch.get_default_device()
+                is_meta = dev is not None and dev.type == "meta"
+                if is_meta:
+                    torch.set_default_device(None)
+                try:
+                    _orig(self, *args, **kwargs)
+                finally:
+                    if is_meta:
+                        torch.set_default_device("meta")
+
+            mod.CLIPVisionTower.__init__ = _patched_init
+            break
 
 
 class ModelVariant(StrEnum):
@@ -80,6 +115,27 @@ class ModelLoader(ForgeModel):
         )
         if not hasattr(config, "max_length"):
             config.max_length = 8192
+
+        # Pre-load the remote model module so CLIPVisionTower is in sys.modules
+        # before we patch it.  AutoModelForCausalLM.from_pretrained imports the
+        # module INSIDE from_pretrained, which is too late to patch before
+        # init_empty_weights() is entered.
+        if hasattr(config, "auto_map") and "AutoModelForCausalLM" in config.auto_map:
+            try:
+                from transformers.dynamic_module_utils import (
+                    get_class_from_dynamic_module,
+                )
+
+                get_class_from_dynamic_module(
+                    config.auto_map["AutoModelForCausalLM"], pretrained_model_name
+                )
+            except Exception:
+                pass
+
+        # Patch CLIPVisionTower.__init__ to temporarily escape the meta device
+        # context.  transformers 5.x raises when from_pretrained is called
+        # inside init_empty_weights().
+        _patch_clip_vision_tower_for_meta_ctx()
 
         model_kwargs = {
             "config": config,
