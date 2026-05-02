@@ -24,9 +24,8 @@ from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 
 class _Qwen35TensorProcessor(TensorProcessor):
     def process(self, weights, name, **kwargs):
-        # GGUF stores linear_attn.conv1d.weight as [out, kernel]; PyTorch Conv1d
-        # expects [out_channels, in_channels, kernel_size] = [out, 1, kernel].
-        if "linear_attn.conv1d.weight" in name and weights.ndim == 2:
+        # GGUF tensor name is "blk.N.ssm_conv1d"; PyTorch Conv1d expects [out, 1, kernel].
+        if "ssm_conv1d" in name and weights.ndim == 2:
             weights = np.expand_dims(weights, axis=1)
         return GGUFTensor(weights, name, {})
 
