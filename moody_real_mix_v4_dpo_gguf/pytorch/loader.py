@@ -9,7 +9,7 @@ Gthalmie1/moody-real-mix-v4-dpo-gguf, a DPO-tuned Lumina-Image-2.0 checkpoint.
 """
 
 from contextlib import contextmanager
-from typing import Optional
+from typing import Any, Optional
 
 import torch
 import torch.nn as nn
@@ -46,72 +46,6 @@ def _patched_precompute_freqs_cis(self, axes_dim, axes_lens, theta):
     return freqs_cis
 
 
-def _patched_rope_forward(self, hidden_states: torch.Tensor, attention_mask: torch.Tensor):
-    """Replacement forward for Lumina2RotaryPosEmbed that handles real (cos, sin) freqs."""
-    batch_size, channels, height, width = hidden_states.shape
-    p = self.patch_size
-    post_patch_height, post_patch_width = height // p, width // p
-    image_seq_len = post_patch_height * post_patch_width
-    device = hidden_states.device
-
-    encoder_seq_len = attention_mask.shape[1]
-    # Use CPU for the tolist() call to avoid TT device-to-host Error 13.
-    l_effective_cap_len = attention_mask.cpu().sum(dim=1).tolist()
-    seq_lengths = [cap_seq_len + image_seq_len for cap_seq_len in l_effective_cap_len]
-    max_seq_len = max(seq_lengths)
-
-    position_ids = torch.zeros(batch_size, max_seq_len, 3, dtype=torch.int32, device=device)
-    for i, (cap_seq_len, seq_len) in enumerate(zip(l_effective_cap_len, seq_lengths)):
-        position_ids[i, :cap_seq_len, 0] = torch.arange(cap_seq_len, dtype=torch.int32, device=device)
-        position_ids[i, cap_seq_len:seq_len, 0] = cap_seq_len
-        row_ids = (
-            torch.arange(post_patch_height, dtype=torch.int32, device=device)
-            .view(-1, 1).repeat(1, post_patch_width).flatten()
-        )
-        col_ids = (
-            torch.arange(post_patch_width, dtype=torch.int32, device=device)
-            .view(1, -1).repeat(post_patch_height, 1).flatten()
-        )
-        position_ids[i, cap_seq_len:seq_len, 1] = row_ids
-        position_ids[i, cap_seq_len:seq_len, 2] = col_ids
-
-    freqs_cis = self._get_freqs_cis(position_ids)
-
-    if isinstance(freqs_cis, tuple):
-        # Real (cos, sin) path: build (cos, sin) zero tensors and fill with slices.
-        cos_all, sin_all = freqs_cis
-        d = cos_all.shape[-1]
-        cap_cos = torch.zeros(batch_size, encoder_seq_len, d, device=device, dtype=cos_all.dtype)
-        cap_sin = torch.zeros(batch_size, encoder_seq_len, d, device=device, dtype=sin_all.dtype)
-        img_cos = torch.zeros(batch_size, image_seq_len, d, device=device, dtype=cos_all.dtype)
-        img_sin = torch.zeros(batch_size, image_seq_len, d, device=device, dtype=sin_all.dtype)
-        for i, (cap_seq_len, seq_len) in enumerate(zip(l_effective_cap_len, seq_lengths)):
-            cap_cos[i, :cap_seq_len] = cos_all[i, :cap_seq_len]
-            cap_sin[i, :cap_seq_len] = sin_all[i, :cap_seq_len]
-            img_cos[i, :image_seq_len] = cos_all[i, cap_seq_len:seq_len]
-            img_sin[i, :image_seq_len] = sin_all[i, cap_seq_len:seq_len]
-        context_rotary_emb = (cap_cos, cap_sin)
-        noise_rotary_emb = (img_cos, img_sin)
-    else:
-        cap_freqs_cis = torch.zeros(
-            batch_size, encoder_seq_len, freqs_cis.shape[-1], device=device, dtype=freqs_cis.dtype
-        )
-        img_freqs_cis = torch.zeros(
-            batch_size, image_seq_len, freqs_cis.shape[-1], device=device, dtype=freqs_cis.dtype
-        )
-        for i, (cap_seq_len, seq_len) in enumerate(zip(l_effective_cap_len, seq_lengths)):
-            cap_freqs_cis[i, :cap_seq_len] = freqs_cis[i, :cap_seq_len]
-            img_freqs_cis[i, :image_seq_len] = freqs_cis[i, cap_seq_len:seq_len]
-        context_rotary_emb = cap_freqs_cis
-        noise_rotary_emb = img_freqs_cis
-
-    hidden_states = (
-        hidden_states.view(batch_size, channels, post_patch_height, p, post_patch_width, p)
-        .permute(0, 2, 4, 3, 5, 1).flatten(3).flatten(1, 2)
-    )
-    return hidden_states, context_rotary_emb, noise_rotary_emb, freqs_cis, l_effective_cap_len, seq_lengths
-
-
 def _patched_get_freqs_cis(self, ids: torch.Tensor):
     # When freqs_cis entries are (cos, sin) float32 tuples (from _patched_precompute_freqs_cis),
     # gather each component separately and return a (cos, sin) tuple to avoid complex<f64> ops.
@@ -134,6 +68,65 @@ def _patched_get_freqs_cis(self, ids: torch.Tensor):
     return torch.cat(result, dim=-1).to(device)
 
 
+def _patched_rope_forward(self, hidden_states: torch.Tensor, attention_mask: torch.Tensor):
+    """Replacement for Lumina2RotaryPosEmbed.forward using fixed shapes, no .tolist().
+
+    The original uses attention_mask.sum(dim=1).tolist() to get per-sample caption
+    lengths, which requires a device-to-host transfer. Under the TT compiler this
+    triggers partition_fx_graph_for_cpu_fallback which segfaults on the resulting
+    graph structure. Replace with pure tensor ops using fixed encoder_seq_len from
+    attention_mask.shape[1].
+    """
+    batch_size, channels, height, width = hidden_states.shape
+    p = self.patch_size
+    post_patch_height, post_patch_width = height // p, width // p
+    image_seq_len = post_patch_height * post_patch_width
+    device = hidden_states.device
+    encoder_seq_len = attention_mask.shape[1]
+
+    # Build position IDs using tensor ops only (no .cpu()/.tolist()).
+    # Text tokens: axis0 = [0..encoder_seq_len-1], axes1,2 = 0
+    text_axis0 = torch.arange(encoder_seq_len, dtype=torch.int32, device=device)
+    zeros_enc = torch.zeros(encoder_seq_len, dtype=torch.int32, device=device)
+    text_ids = torch.stack([text_axis0, zeros_enc, zeros_enc], dim=-1)  # [S_cap, 3]
+
+    # Image tokens: axis0 = encoder_seq_len (fixed cap offset), axes1,2 = row,col
+    row_ids = (
+        torch.arange(post_patch_height, dtype=torch.int32, device=device)
+        .view(-1, 1).expand(-1, post_patch_width).flatten()
+    )
+    col_ids = (
+        torch.arange(post_patch_width, dtype=torch.int32, device=device)
+        .view(1, -1).expand(post_patch_height, -1).flatten()
+    )
+    cap_offset = torch.full((image_seq_len,), encoder_seq_len, dtype=torch.int32, device=device)
+    image_ids = torch.stack([cap_offset, row_ids, col_ids], dim=-1)  # [S_img, 3]
+
+    ids = torch.cat([text_ids, image_ids], dim=0)  # [total_seq_len, 3]
+    position_ids = ids.unsqueeze(0).expand(batch_size, -1, -1)  # [B, total_seq_len, 3]
+
+    freqs_cis = self._get_freqs_cis(position_ids)
+
+    if isinstance(freqs_cis, tuple):
+        cos_all, sin_all = freqs_cis  # [B, total_seq_len, D_rope]
+        context_rotary_emb = (cos_all[:, :encoder_seq_len], sin_all[:, :encoder_seq_len])
+        noise_rotary_emb = (cos_all[:, encoder_seq_len:], sin_all[:, encoder_seq_len:])
+    else:
+        context_rotary_emb = freqs_cis[:, :encoder_seq_len]
+        noise_rotary_emb = freqs_cis[:, encoder_seq_len:]
+
+    hidden_states = (
+        hidden_states.view(batch_size, channels, post_patch_height, p, post_patch_width, p)
+        .permute(0, 2, 4, 3, 5, 1).flatten(3).flatten(1, 2)
+    )
+
+    # Return encoder_seq_lengths and seq_lengths as Python lists (used by patched transformer
+    # forward only as passthrough; not used for dynamic graph operations).
+    l_effective_cap_len = [encoder_seq_len] * batch_size
+    seq_lengths = [encoder_seq_len + image_seq_len] * batch_size
+    return hidden_states, context_rotary_emb, noise_rotary_emb, freqs_cis, l_effective_cap_len, seq_lengths
+
+
 import diffusers.models.embeddings as _emb
 _orig_apply_rotary_emb = _emb.apply_rotary_emb
 
@@ -149,9 +142,10 @@ def _patched_apply_rotary_emb(x, freqs_cis, use_real=True, **kwargs):
         and not freqs_cis[0].is_complex()
     )
     if is_real_cos_sin:
-        cos, sin = freqs_cis  # (B, S, D/2) float32
-        cos = cos.unsqueeze(2)  # (B, S, 1, D/2)
+        cos, sin = freqs_cis  # (B, S, D_rope) float32
+        cos = cos.unsqueeze(2)  # (B, S, 1, D_rope)
         sin = sin.unsqueeze(2)
+        # x: [B, S, H, head_dim] — sequence dim=1, head dim=2
         x_r, x_i = x.float().reshape(*x.shape[:-1], -1, 2).unbind(-1)
         out = torch.stack([x_r * cos - x_i * sin, x_r * sin + x_i * cos], dim=-1).flatten(3)
         return out.to(x.dtype)
@@ -163,11 +157,89 @@ import diffusers.models.transformers.transformer_lumina2 as _tl2_module
 _tl2_module.apply_rotary_emb = _patched_apply_rotary_emb
 
 # Apply RoPE method patches globally so they persist after model loading.
-# _patched_precompute_freqs_cis produces (cos, sin) float32 tuples stored in
-# self.freqs_cis; _patched_get_freqs_cis/_patched_rope_forward handle them.
 _tl2_module.Lumina2RotaryPosEmbed._precompute_freqs_cis = _patched_precompute_freqs_cis
 _tl2_module.Lumina2RotaryPosEmbed._get_freqs_cis = _patched_get_freqs_cis
 _tl2_module.Lumina2RotaryPosEmbed.forward = _patched_rope_forward
+
+
+def _patched_transformer_forward(
+    self,
+    hidden_states: torch.Tensor,
+    timestep: torch.Tensor,
+    encoder_hidden_states: torch.Tensor,
+    encoder_attention_mask: torch.Tensor,
+    attention_kwargs: Optional[dict] = None,
+    return_dict: bool = True,
+):
+    """Replace for-loop-over-seq-lengths with tensor ops to avoid partition segfault.
+
+    The original forward iterates per-batch over seq_lengths (Python ints derived
+    from attention_mask.tolist()) to build joint_hidden_states and to unpatchify.
+    Under the TT compiler these patterns trigger partition_fx_graph_for_cpu_fallback
+    which segfaults. Replace with torch.cat (joint concat) and tensor slices.
+    """
+    from diffusers.models.modeling_outputs import Transformer2DModelOutput
+
+    batch_size, _, height, width = hidden_states.shape
+
+    temb, encoder_hidden_states = self.time_caption_embed(
+        hidden_states, timestep, encoder_hidden_states
+    )
+
+    (
+        hidden_states,
+        context_rotary_emb,
+        noise_rotary_emb,
+        rotary_emb,
+        _,  # encoder_seq_lengths — not used here
+        _,  # seq_lengths — not used here
+    ) = self.rope_embedder(hidden_states, encoder_attention_mask)
+
+    hidden_states = self.x_embedder(hidden_states)
+
+    for layer in self.context_refiner:
+        encoder_hidden_states = layer(
+            encoder_hidden_states, encoder_attention_mask, context_rotary_emb
+        )
+
+    for layer in self.noise_refiner:
+        hidden_states = layer(hidden_states, None, noise_rotary_emb, temb)
+
+    # Concatenate text and image token sequences without dynamic per-batch loops.
+    # encoder_hidden_states: [B, encoder_seq_len, D]
+    # hidden_states:         [B, image_seq_len, D]
+    encoder_seq_len = encoder_attention_mask.shape[1]
+    hidden_states = torch.cat([encoder_hidden_states, hidden_states], dim=1)
+
+    for layer in self.layers:
+        if torch.is_grad_enabled() and self.gradient_checkpointing:
+            hidden_states = self._gradient_checkpointing_func(
+                layer, hidden_states, None, rotary_emb, temb
+            )
+        else:
+            hidden_states = layer(hidden_states, None, rotary_emb, temb)
+
+    hidden_states = self.norm_out(hidden_states, temb)
+
+    # Unpatchify without for-loop: extract image tokens and reshape.
+    p = self.config.patch_size
+    image_seq_len = (height // p) * (width // p)
+
+    # hidden_states: [B, encoder_seq_len + image_seq_len, D] → image tokens start at encoder_seq_len
+    output = (
+        hidden_states[:, encoder_seq_len : encoder_seq_len + image_seq_len]
+        .view(batch_size, height // p, width // p, p, p, self.out_channels)
+        .permute(0, 5, 1, 3, 2, 4)
+        .flatten(4, 5)
+        .flatten(2, 3)
+    )
+
+    if not return_dict:
+        return (output,)
+    return Transformer2DModelOutput(sample=output)
+
+
+_tl2_module.Lumina2Transformer2DModel.forward = _patched_transformer_forward
 
 from ...base import ForgeModel
 from ...config import (
