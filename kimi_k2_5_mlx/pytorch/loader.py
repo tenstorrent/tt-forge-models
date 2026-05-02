@@ -65,8 +65,8 @@ if not hasattr(DynamicCache, "to_legacy_cache"):
 
     DynamicCache.to_legacy_cache = _to_legacy_cache
 
-from transformers import AutoConfig, AutoTokenizer
-from transformers.dynamic_module_utils import get_class_from_dynamic_module, get_imports
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers.dynamic_module_utils import get_imports
 
 from ...base import ForgeModel
 from ...config import (
@@ -106,7 +106,6 @@ class ModelLoader(ForgeModel):
     def __init__(
         self,
         variant: Optional[ModelVariant] = None,
-        num_layers: Optional[int] = None,
     ):
         super().__init__(variant)
         if self._variant == ModelVariant.KIMI_K2_5_MLX_4_2BIT:
@@ -115,7 +114,6 @@ class ModelLoader(ForgeModel):
             self.model_name = "inferencerlabs/Kimi-K2.5-MLX-3.6bit"
         self.tokenizer = None
         self.text = "What is machine learning?"
-        self.num_layers = num_layers
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -129,30 +127,8 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load the Kimi K2.5 text backbone with reduced config.
-
-        The full model is a 1T-parameter MoE model. We load only the
-        DeepSeek V3 text backbone with a reduced configuration for testing.
-        """
-        model = None
+        """Load the Kimi K2.5 MLX quantized model (DeepSeek V3 architecture)."""
         with patch("transformers.dynamic_module_utils.get_imports", fixed_get_imports):
-            config = AutoConfig.from_pretrained(self.model_name, trust_remote_code=True)
-
-            # Use the text backbone config (DeepSeek V3 architecture)
-            text_config = config.text_config
-            if self.num_layers is not None:
-                text_config.num_hidden_layers = self.num_layers
-            else:
-                text_config.num_hidden_layers = 2
-            text_config.num_attention_heads = 16
-            text_config.hidden_size = 1024
-            text_config.num_key_value_heads = 16
-            text_config.intermediate_size = 1024 * 4
-            text_config.num_experts_per_tok = 2
-            text_config.q_lora_rank = 256
-            text_config.use_flash_attention = False
-            text_config._attn_implementation = "eager"
-
             model_kwargs = {
                 "attn_implementation": "eager",
                 "trust_remote_code": True,
@@ -161,13 +137,10 @@ class ModelLoader(ForgeModel):
                 model_kwargs["torch_dtype"] = dtype_override
             model_kwargs |= kwargs
 
-            # Load the DeepSeek V3 text backbone directly
-            model_class = get_class_from_dynamic_module(
-                "modeling_deepseek.DeepseekV3ForCausalLM",
+            model = AutoModelForCausalLM.from_pretrained(
                 self.model_name,
-                trust_remote_code=True,
+                **model_kwargs,
             )
-            model = model_class(text_config)
             model.eval()
 
         self.tokenizer = AutoTokenizer.from_pretrained(
