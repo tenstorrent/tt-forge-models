@@ -66,7 +66,7 @@ def _aggregate_by_sentence(ids, seq_out, max_sents):
 
     # One-hot membership: sent_mask[b, s, j] = 1 iff token s → sentence j
     j = torch.arange(max_sents, device=ids.device)  # [max_sents]
-    sent_mask = (local_ids.unsqueeze(-1) == j).float()  # [B, S, max_sents]
+    sent_mask = (local_ids.unsqueeze(-1) == j).to(dtype=seq_out.dtype)  # [B, S, max_sents]
 
     sent_sum = torch.einsum("bsd,bsj->bjd", seq_out, sent_mask)  # [B, max_sents, D]
     sent_count = sent_mask.sum(dim=1)  # [B, max_sents]
