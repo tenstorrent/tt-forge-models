@@ -81,12 +81,56 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load
     return result
 
 
+def _find_true_get_gguf_weights_map():
+    """Traverse patcher chain to find true transformers get_gguf_hf_weights_map."""
+    func = _gguf_utils.get_gguf_hf_weights_map
+    seen: set = set()
+    while True:
+        fid = id(func)
+        if fid in seen:
+            break
+        seen.add(fid)
+        if getattr(func, "__module__", "") == "transformers.modeling_gguf_pytorch_utils":
+            return func
+        globs = getattr(func, "__globals__", {})
+        candidate = globs.get("get_gguf_hf_weights_map") or globs.get("orig_get_map")
+        if candidate is None:
+            closure = getattr(func, "__closure__", None) or ()
+            freevars = getattr(func.__code__, "co_freevars", ()) if hasattr(func, "__code__") else ()
+            for cell, name in zip(closure, freevars):
+                if name in ("orig_get_map", "get_gguf_hf_weights_map", "original"):
+                    try:
+                        candidate = cell.cell_contents
+                    except ValueError:
+                        pass
+                    break
+        if candidate is None or id(candidate) in seen:
+            break
+        func = candidate
+    return func
+
+
 def _install_gguf_patch():
     _patch_qwen35_support()
     _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
     _config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
     _auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
     _tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+
+    true_weights_map = _find_true_get_gguf_weights_map()
+
+    def _patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = hf_model.config.model_type
+        if model_type == "qwen3_5_text":
+            model_type = "qwen35"
+        elif model_type in ("qwen3_5_moe_text", "qwen3_5_moe"):
+            model_type = "qwen35moe"
+        return true_weights_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 
 from ....base import ForgeModel
