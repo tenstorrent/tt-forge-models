@@ -12,6 +12,8 @@ Repository:
 """
 import torch
 from diffusers import GGUFQuantizationConfig, Lumina2Transformer2DModel
+from diffusers.quantizers.gguf.utils import _dequantize_gguf_and_restore_linear
+from huggingface_hub import hf_hub_download
 from typing import Optional
 
 from ...base import ForgeModel
@@ -83,11 +85,14 @@ class ModelLoader(ForgeModel):
         repo_id = self._variant_config.pretrained_model_name
         gguf_file = self._GGUF_FILES[self._variant]
 
+        local_path = hf_hub_download(repo_id=repo_id, filename=gguf_file)
         self.transformer = Lumina2Transformer2DModel.from_single_file(
-            f"https://huggingface.co/{repo_id}/resolve/main/{gguf_file}",
+            local_path,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
         )
+        _dequantize_gguf_and_restore_linear(self.transformer)
+        self.transformer = self.transformer.to(compute_dtype)
         self.transformer.eval()
 
         return self.transformer
