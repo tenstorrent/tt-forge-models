@@ -45,7 +45,7 @@ def _patch_qwen35_support():
         GGUF_TO_FAST_CONVERTERS.setdefault(
             "qwen3_5_text", GGUF_TO_FAST_CONVERTERS["qwen3"]
         )
-    _gguf_utils.TENSOR_PROCESSORS.setdefault("qwen35", _Qwen35TensorProcessor())
+    _gguf_utils.TENSOR_PROCESSORS.setdefault("qwen35", _Qwen35TensorProcessor)
 
 
 def _find_true_original():
