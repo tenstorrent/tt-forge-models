@@ -77,7 +77,7 @@ def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load
     true_orig = _find_true_original()
     result = true_orig(gguf_path, return_tensors=return_tensors, model_to_load=model_to_load)
     if result.get("config", {}).get("model_type") == "qwen35":
-        result["config"]["model_type"] = "qwen3"
+        result["config"]["model_type"] = "qwen3_5_text"
     return result
 
 
