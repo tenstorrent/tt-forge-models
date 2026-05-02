@@ -10,14 +10,22 @@ from typing import Optional
 
 
 def _patch_qwen2_5_vl_for_tt():
-    """Patch Qwen2.5-VL int64 D2H ops that fail on TT silicon (INTERNAL error 13).
+    """Patch Qwen2.5-VL for TT silicon: route int64 metadata through CPU.
 
-    On TT silicon, int64/int32 device-to-host transfers fail; float32 D2H works.
-    Use float32 bridge (tensor.float().cpu().long()) for all int metadata tensors
-    that require Python-level value access (tolist(), indexing, control flow).
+    Strategy:
+    - load_inputs casts image_grid_thw to float32 so the device tensor is float32
+    - get_image_features does one float32 D2H (.cpu().long()) and caches the
+      CPU int64 result on self.visual._tt_grid_thw_cpu before calling self.visual
+    - rot_pos_emb and get_window_index read the cache (no additional D2H)
+    - VisionTransformer.forward is replaced to use the CPU int64 for
+      repeat_interleave and move CPU index tensors to device before indexing
+    - get_rope_index receives image_grid_thw as CPU int64 (from the cache),
+      input_ids stays as-is (int64 device, embedding/scatter ops work on TT)
     Applied inside load_model() to avoid double-patching during test collection.
     """
+    import torch.nn.functional as F
     from transformers.models.qwen2_5_vl import modeling_qwen2_5_vl as m
+    from transformers.modeling_outputs import BaseModelOutputWithPooling
 
     if getattr(m.Qwen2_5_VisionTransformerPretrainedModel, "_tt_int_patch", False):
         return
@@ -28,8 +36,10 @@ def _patch_qwen2_5_vl_for_tt():
 
     def _patched_rot_pos_emb(self, grid_thw):
         pos_ids = []
-        # grid_thw is float32 (cast in load_inputs); float32 D2H works on TT silicon
-        grid_thw_cpu = grid_thw.cpu().long()
+        # Use CPU int64 cached by _patched_get_image_features (no D2H needed here)
+        grid_thw_cpu = getattr(self, "_tt_grid_thw_cpu", None)
+        if grid_thw_cpu is None:
+            grid_thw_cpu = grid_thw.cpu().long()
         for t, h, w in grid_thw_cpu.tolist():
             hpos_ids = torch.arange(h).unsqueeze(1).expand(-1, w)
             hpos_ids = hpos_ids.reshape(
@@ -53,18 +63,86 @@ def _patch_qwen2_5_vl_for_tt():
         pos_ids = torch.cat(pos_ids, dim=0)
         max_grid_size = grid_thw_cpu[:, 1:].max()
         rotary_pos_emb_full = self.rotary_pos_emb(max_grid_size)
-        rotary_pos_emb = rotary_pos_emb_full[pos_ids.to(grid_thw.device)].flatten(1)
+        # pos_ids.to(device): int64 H2D works; gather with int64 indices works like embedding
+        rotary_pos_emb = rotary_pos_emb_full[pos_ids.to(rotary_pos_emb_full.device)].flatten(1)
         return rotary_pos_emb
 
     def _patched_get_window_index(self, grid_thw):
-        return _orig_get_window_index(self, grid_thw.cpu().long())
+        # Use cached CPU int64 (no D2H needed)
+        grid_thw_cpu = getattr(self, "_tt_grid_thw_cpu", None)
+        if grid_thw_cpu is None:
+            grid_thw_cpu = grid_thw.cpu().long()
+        return _orig_get_window_index(self, grid_thw_cpu)
+
+    def _patched_vt_forward(self, hidden_states, grid_thw, **kwargs):
+        """Replaces VisionTransformerPretrainedModel.forward with TT-safe indexing.
+
+        All int64 metadata stays on CPU; only int64 H2D transfers and gather ops
+        (both supported on TT silicon like embedding lookup) are on device.
+        """
+        # Cached CPU int64 set by _patched_get_image_features before this call
+        grid_thw_cpu = getattr(self, "_tt_grid_thw_cpu", None)
+        if grid_thw_cpu is None:
+            grid_thw_cpu = grid_thw.cpu().long()
+
+        hidden_states = self.patch_embed(hidden_states)
+        rotary_pos_emb = self.rot_pos_emb(grid_thw)
+        window_index, cu_window_seqlens = self.get_window_index(grid_thw)
+
+        device = hidden_states.device
+        cu_window_seqlens = torch.tensor(
+            cu_window_seqlens, device=device, dtype=torch.int32,
+        )
+        cu_window_seqlens = torch.unique_consecutive(cu_window_seqlens)
+
+        seq_len, _ = hidden_states.size()
+        # window_index is CPU int64; move to device for TT gather (int64 H2D + gather)
+        window_index_d = window_index.to(device)
+        hidden_states = hidden_states.reshape(
+            seq_len // self.spatial_merge_unit, self.spatial_merge_unit, -1
+        )
+        hidden_states = hidden_states[window_index_d, :, :]
+        hidden_states = hidden_states.reshape(seq_len, -1)
+        rotary_pos_emb = rotary_pos_emb.reshape(
+            seq_len // self.spatial_merge_unit, self.spatial_merge_unit, -1
+        )
+        rotary_pos_emb = rotary_pos_emb[window_index_d, :, :]
+        rotary_pos_emb = rotary_pos_emb.reshape(seq_len, -1)
+        emb = torch.cat((rotary_pos_emb, rotary_pos_emb), dim=-1)
+        position_embeddings = (emb.cos(), emb.sin())
+
+        # CPU int64 for repeat_interleave avoids float32-repeats dispatch failure
+        cu_seqlens = torch.repeat_interleave(
+            grid_thw_cpu[:, 1] * grid_thw_cpu[:, 2], grid_thw_cpu[:, 0]
+        ).cumsum(dim=0, dtype=torch.int32)
+        cu_seqlens = F.pad(cu_seqlens, (1, 0), value=0).to(device)
+
+        for layer_num, blk in enumerate(self.blocks):
+            cu_seqlens_now = cu_seqlens if layer_num in self.fullatt_block_indexes else cu_window_seqlens
+            hidden_states = blk(
+                hidden_states,
+                cu_seqlens=cu_seqlens_now,
+                position_embeddings=position_embeddings,
+                **kwargs,
+            )
+
+        merged_hidden_states = self.merger(hidden_states)
+        # argsort on CPU; gather on device via int64 H2D
+        reverse_indices = torch.argsort(window_index).to(device)
+        merged_hidden_states = merged_hidden_states[reverse_indices, :]
+
+        return BaseModelOutputWithPooling(
+            last_hidden_state=hidden_states,
+            pooler_output=merged_hidden_states,
+        )
 
     def _patched_get_image_features(self, pixel_values, image_grid_thw=None, **kwargs):
         kwargs.pop("return_dict", None)
         pixel_values = pixel_values.type(self.visual.dtype)
+        # One float32 D2H to get CPU int64; cache on visual for rot_pos_emb / get_window_index
+        self.visual._tt_grid_thw_cpu = image_grid_thw.cpu().long()
         vision_outputs = self.visual(pixel_values, grid_thw=image_grid_thw, return_dict=True, **kwargs)
-        image_grid_thw_cpu = image_grid_thw.cpu().long()
-        split_sizes = (image_grid_thw_cpu.prod(-1) // self.visual.spatial_merge_size**2).tolist()
+        split_sizes = (self.visual._tt_grid_thw_cpu.prod(-1) // self.visual.spatial_merge_size**2).tolist()
         image_embeds = torch.split(vision_outputs.pooler_output, split_sizes)
         vision_outputs.pooler_output = image_embeds
         return vision_outputs
@@ -79,8 +157,8 @@ def _patch_qwen2_5_vl_for_tt():
         **kwargs,
     ):
         device = input_ids.device if input_ids is not None else None
-        # image_grid_thw is float32 (cast in load_inputs); use float32 D2H to get CPU ints
-        # input_ids and attention_mask stay as-is: int64 embedding/mask ops work on TT
+        # image_grid_thw is float32 (cast in load_inputs); float32 D2H to CPU int64
+        # input_ids stays as-is: embedding/comparison ops work on TT with int64
         position_ids, rope_deltas = _orig_get_rope_index(
             self,
             input_ids,
@@ -97,6 +175,7 @@ def _patch_qwen2_5_vl_for_tt():
 
     m.Qwen2_5_VisionTransformerPretrainedModel.rot_pos_emb = _patched_rot_pos_emb
     m.Qwen2_5_VisionTransformerPretrainedModel.get_window_index = _patched_get_window_index
+    m.Qwen2_5_VisionTransformerPretrainedModel.forward = _patched_vt_forward
     m.Qwen2_5_VLModel.get_image_features = _patched_get_image_features
     m.Qwen2_5_VLModel.get_rope_index = _patched_get_rope_index
 
