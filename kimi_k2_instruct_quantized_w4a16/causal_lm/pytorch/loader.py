@@ -14,8 +14,16 @@ import torch
 # Patch missing functions before importing model code that depends on them.
 # The model's remote code was written for an older transformers that included
 # these helpers; newer versions removed them.
+import transformers.models.gpt2.tokenization_gpt2 as _gpt2_tok
 import transformers.utils
 import transformers.utils.import_utils
+
+if not hasattr(_gpt2_tok, "bytes_to_unicode"):
+    from transformers.models.clvp.tokenization_clvp import (
+        bytes_to_unicode as _bytes_to_unicode,
+    )
+
+    _gpt2_tok.bytes_to_unicode = _bytes_to_unicode
 
 if not hasattr(transformers.utils, "is_flash_attn_greater_or_equal_2_10"):
 
