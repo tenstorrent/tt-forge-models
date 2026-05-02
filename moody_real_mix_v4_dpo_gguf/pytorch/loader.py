@@ -249,6 +249,16 @@ class ModelLoader(ForgeModel):
                 model_path,
                 quantization_config=quantization_config,
                 torch_dtype=compute_dtype,
+                # Architecture overrides for this GGUF variant (hidden_size=3840, MHA)
+                hidden_size=3840,
+                num_layers=30,
+                num_refiner_layers=2,
+                num_attention_heads=30,
+                num_kv_heads=30,
+                multiple_of=256,
+                ffn_dim_multiplier=2 / 3,
+                cap_feat_dim=CAP_FEAT_DIM,
+                axes_dim_rope=(32, 48, 48),
             )
         self.transformer.eval()
         return self.transformer
