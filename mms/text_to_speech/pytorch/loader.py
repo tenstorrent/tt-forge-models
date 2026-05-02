@@ -368,6 +368,11 @@ class ModelLoader(ForgeModel):
 
         model = VitsModel.from_pretrained(pretrained_model_name, **model_kwargs)
         model.eval()
+        # Set noise_scale=0 for deterministic inference so TT and CPU produce
+        # comparable outputs (XLA and CPU use different RNG implementations
+        # and would otherwise produce uncorrelated stochastic results).
+        model.noise_scale = 0.0
+        model.noise_scale_duration = 0.0
 
         return model
 
