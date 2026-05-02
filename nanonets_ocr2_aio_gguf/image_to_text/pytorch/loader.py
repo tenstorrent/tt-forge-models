@@ -12,11 +12,6 @@ from transformers import (
 from transformers import modeling_gguf_pytorch_utils as _gguf_utils
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
 from typing import Optional
-import transformers.models.qwen2_5_vl.modeling_qwen2_5_vl as _qwen2_5_vl_module
-from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
-    Qwen2_5_VisionTransformerPretrainedModel as _Qwen2_5_VLVisionTransformer,
-    Qwen2_5_VLModel as _Qwen2_5_VLModel,
-)
 
 from ....base import ForgeModel
 from ....config import (
@@ -63,63 +58,6 @@ def _patched_get_gguf_hf_weights_map(
 
 
 _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
-
-
-# ── Bug 3: .tolist() on TT device tensors ─────────────────────────────────────
-# The test runner moves all inputs including image_grid_thw to TT device.
-# VisionEncoder methods (rot_pos_emb, get_window_index) call .tolist() on grid_thw
-# for Python control flow. TT device does not support eager tensor reads and
-# .tolist() fails with Error code: 13. Also get_rope_index calls input_ids.tolist()
-# and get_image_features calls image_grid_thw.prod(-1).tolist().
-# Fix: move metadata tensors to CPU before .tolist() calls; main tensor computations
-# (pixel_values, hidden_states, etc.) remain on TT device.
-_orig_rot_pos_emb = _Qwen2_5_VLVisionTransformer.rot_pos_emb
-_orig_get_window_index = _Qwen2_5_VLVisionTransformer.get_window_index
-_orig_get_rope_index = _Qwen2_5_VLModel.get_rope_index
-_orig_get_image_features = _Qwen2_5_VLModel.get_image_features
-
-
-def _patched_rot_pos_emb(self, grid_thw):
-    return _orig_rot_pos_emb(self, grid_thw.cpu())
-
-
-def _patched_get_window_index(self, grid_thw):
-    return _orig_get_window_index(self, grid_thw.cpu())
-
-
-def _patched_get_rope_index(
-    self,
-    input_ids=None,
-    image_grid_thw=None,
-    video_grid_thw=None,
-    second_per_grid_ts=None,
-    attention_mask=None,
-    **kwargs,
-):
-    return _orig_get_rope_index(
-        self,
-        input_ids=input_ids.cpu() if input_ids is not None else None,
-        image_grid_thw=image_grid_thw.cpu() if image_grid_thw is not None else None,
-        video_grid_thw=video_grid_thw.cpu() if video_grid_thw is not None else None,
-        second_per_grid_ts=second_per_grid_ts.cpu() if second_per_grid_ts is not None else None,
-        attention_mask=attention_mask.cpu() if attention_mask is not None else None,
-        **kwargs,
-    )
-
-
-def _patched_get_image_features(self, pixel_values, image_grid_thw=None, **kwargs):
-    return _orig_get_image_features(
-        self,
-        pixel_values,
-        image_grid_thw=image_grid_thw.cpu() if image_grid_thw is not None else None,
-        **kwargs,
-    )
-
-
-_Qwen2_5_VLVisionTransformer.rot_pos_emb = _patched_rot_pos_emb
-_Qwen2_5_VLVisionTransformer.get_window_index = _patched_get_window_index
-_Qwen2_5_VLModel.get_rope_index = _patched_get_rope_index
-_Qwen2_5_VLModel.get_image_features = _patched_get_image_features
 
 
 class ModelVariant(StrEnum):
