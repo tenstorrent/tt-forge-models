@@ -9,6 +9,7 @@ from functools import partial as _partial
 
 import torch
 import torch.nn as nn
+from PIL import Image
 from torch.utils.checkpoint import checkpoint as _checkpoint
 from transformers import AutoModel, AutoProcessor
 from typing import Optional
@@ -23,7 +24,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from datasets import load_dataset
+from ...tools.utils import get_file
 
 
 def _recompute_rope_buffers(model):
@@ -230,9 +231,11 @@ class ModelLoader(ForgeModel):
                 trust_remote_code=True,
             )
 
-        # Load image from HuggingFace dataset
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
+        # Load sample image via get_file to avoid load_dataset/spacy collision
+        image_file = get_file(
+            "https://cdn.britannica.com/61/93061-050-99147DCE/Statue-of-Liberty-Island-New-York-Bay.jpg"
+        )
+        image = Image.open(image_file).convert("RGB")
 
         self.text_prompts = ["a photo of a cat", "a photo of a dog"]
 
