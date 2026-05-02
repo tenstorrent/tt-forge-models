@@ -14,6 +14,7 @@ from typing import Optional
 import torch
 import torch.nn as nn
 from diffusers import GGUFQuantizationConfig, Lumina2Transformer2DModel
+from diffusers.quantizers.gguf.utils import _dequantize_gguf_and_restore_linear
 from huggingface_hub import hf_hub_download
 
 # GGUFParameter.as_tensor() calls _make_subclass which re-dispatches through
@@ -28,6 +29,145 @@ def _patched_as_tensor(self):
 
 
 _GGUFParameter.as_tensor = _patched_as_tensor
+
+
+# TT hardware does not support complex types or float64. The Lumina2 RoPE embedder
+# (_precompute_freqs_cis) defaults to complex<f64> on non-MPS systems. Patch it to
+# use real-arithmetic (cos, sin) in float32 instead, and patch apply_rotary_emb to
+# do real-domain rotation when given a (cos, sin) tuple with use_real=False.
+
+def _patched_precompute_freqs_cis(self, axes_dim, axes_lens, theta):
+    from diffusers.models.embeddings import get_1d_rotary_pos_embed
+    freqs_cis = []
+    for d, e in zip(axes_dim, axes_lens):
+        emb = get_1d_rotary_pos_embed(d, e, theta=theta, freqs_dtype=torch.float32)
+        # emb is complex64; extract (cos, sin) as float32 real tensors
+        freqs_cis.append((emb.real.clone(), emb.imag.clone()))
+    return freqs_cis
+
+
+def _patched_rope_forward(self, hidden_states: torch.Tensor, attention_mask: torch.Tensor):
+    """Replacement forward for Lumina2RotaryPosEmbed that handles real (cos, sin) freqs."""
+    batch_size, channels, height, width = hidden_states.shape
+    p = self.patch_size
+    post_patch_height, post_patch_width = height // p, width // p
+    image_seq_len = post_patch_height * post_patch_width
+    device = hidden_states.device
+
+    encoder_seq_len = attention_mask.shape[1]
+    # Use CPU for the tolist() call to avoid TT device-to-host Error 13.
+    l_effective_cap_len = attention_mask.cpu().sum(dim=1).tolist()
+    seq_lengths = [cap_seq_len + image_seq_len for cap_seq_len in l_effective_cap_len]
+    max_seq_len = max(seq_lengths)
+
+    position_ids = torch.zeros(batch_size, max_seq_len, 3, dtype=torch.int32, device=device)
+    for i, (cap_seq_len, seq_len) in enumerate(zip(l_effective_cap_len, seq_lengths)):
+        position_ids[i, :cap_seq_len, 0] = torch.arange(cap_seq_len, dtype=torch.int32, device=device)
+        position_ids[i, cap_seq_len:seq_len, 0] = cap_seq_len
+        row_ids = (
+            torch.arange(post_patch_height, dtype=torch.int32, device=device)
+            .view(-1, 1).repeat(1, post_patch_width).flatten()
+        )
+        col_ids = (
+            torch.arange(post_patch_width, dtype=torch.int32, device=device)
+            .view(1, -1).repeat(post_patch_height, 1).flatten()
+        )
+        position_ids[i, cap_seq_len:seq_len, 1] = row_ids
+        position_ids[i, cap_seq_len:seq_len, 2] = col_ids
+
+    freqs_cis = self._get_freqs_cis(position_ids)
+
+    if isinstance(freqs_cis, tuple):
+        # Real (cos, sin) path: build (cos, sin) zero tensors and fill with slices.
+        cos_all, sin_all = freqs_cis
+        d = cos_all.shape[-1]
+        cap_cos = torch.zeros(batch_size, encoder_seq_len, d, device=device, dtype=cos_all.dtype)
+        cap_sin = torch.zeros(batch_size, encoder_seq_len, d, device=device, dtype=sin_all.dtype)
+        img_cos = torch.zeros(batch_size, image_seq_len, d, device=device, dtype=cos_all.dtype)
+        img_sin = torch.zeros(batch_size, image_seq_len, d, device=device, dtype=sin_all.dtype)
+        for i, (cap_seq_len, seq_len) in enumerate(zip(l_effective_cap_len, seq_lengths)):
+            cap_cos[i, :cap_seq_len] = cos_all[i, :cap_seq_len]
+            cap_sin[i, :cap_seq_len] = sin_all[i, :cap_seq_len]
+            img_cos[i, :image_seq_len] = cos_all[i, cap_seq_len:seq_len]
+            img_sin[i, :image_seq_len] = sin_all[i, cap_seq_len:seq_len]
+        context_rotary_emb = (cap_cos, cap_sin)
+        noise_rotary_emb = (img_cos, img_sin)
+    else:
+        cap_freqs_cis = torch.zeros(
+            batch_size, encoder_seq_len, freqs_cis.shape[-1], device=device, dtype=freqs_cis.dtype
+        )
+        img_freqs_cis = torch.zeros(
+            batch_size, image_seq_len, freqs_cis.shape[-1], device=device, dtype=freqs_cis.dtype
+        )
+        for i, (cap_seq_len, seq_len) in enumerate(zip(l_effective_cap_len, seq_lengths)):
+            cap_freqs_cis[i, :cap_seq_len] = freqs_cis[i, :cap_seq_len]
+            img_freqs_cis[i, :image_seq_len] = freqs_cis[i, cap_seq_len:seq_len]
+        context_rotary_emb = cap_freqs_cis
+        noise_rotary_emb = img_freqs_cis
+
+    hidden_states = (
+        hidden_states.view(batch_size, channels, post_patch_height, p, post_patch_width, p)
+        .permute(0, 2, 4, 3, 5, 1).flatten(3).flatten(1, 2)
+    )
+    return hidden_states, context_rotary_emb, noise_rotary_emb, freqs_cis, l_effective_cap_len, seq_lengths
+
+
+def _patched_get_freqs_cis(self, ids: torch.Tensor):
+    # When freqs_cis entries are (cos, sin) float32 tuples (from _patched_precompute_freqs_cis),
+    # gather each component separately and return a (cos, sin) tuple to avoid complex<f64> ops.
+    if isinstance(self.freqs_cis[0], tuple):
+        result_cos, result_sin = [], []
+        for i, (cos, sin) in enumerate(self.freqs_cis):
+            cos = cos.to(ids.device)
+            sin = sin.to(ids.device)
+            index = ids[:, :, i : i + 1].repeat(1, 1, cos.shape[-1]).to(torch.int64)
+            result_cos.append(torch.gather(cos.unsqueeze(0).expand(index.shape[0], -1, -1), 1, index))
+            result_sin.append(torch.gather(sin.unsqueeze(0).expand(index.shape[0], -1, -1), 1, index))
+        return torch.cat(result_cos, dim=-1), torch.cat(result_sin, dim=-1)
+    # Fallback: original complex path
+    device = ids.device
+    result = []
+    for i in range(len(self.axes_dim)):
+        freqs = self.freqs_cis[i].to(device)
+        index = ids[:, :, i : i + 1].repeat(1, 1, freqs.shape[-1]).to(torch.int64)
+        result.append(torch.gather(freqs.unsqueeze(0).repeat(index.shape[0], 1, 1), dim=1, index=index))
+    return torch.cat(result, dim=-1).to(device)
+
+
+import diffusers.models.embeddings as _emb
+_orig_apply_rotary_emb = _emb.apply_rotary_emb
+
+
+def _patched_apply_rotary_emb(x, freqs_cis, use_real=True, **kwargs):
+    # When use_real=False but freqs_cis is a (cos, sin) float32 tuple (not complex),
+    # use real-domain rotation to avoid complex<f64> tensors unsupported on TT.
+    is_real_cos_sin = (
+        not use_real
+        and isinstance(freqs_cis, tuple)
+        and len(freqs_cis) == 2
+        and isinstance(freqs_cis[0], torch.Tensor)
+        and not freqs_cis[0].is_complex()
+    )
+    if is_real_cos_sin:
+        cos, sin = freqs_cis  # (B, S, D/2) float32
+        cos = cos.unsqueeze(2)  # (B, S, 1, D/2)
+        sin = sin.unsqueeze(2)
+        x_r, x_i = x.float().reshape(*x.shape[:-1], -1, 2).unbind(-1)
+        out = torch.stack([x_r * cos - x_i * sin, x_r * sin + x_i * cos], dim=-1).flatten(3)
+        return out.to(x.dtype)
+    return _orig_apply_rotary_emb(x, freqs_cis, use_real=use_real, **kwargs)
+
+
+_emb.apply_rotary_emb = _patched_apply_rotary_emb
+import diffusers.models.transformers.transformer_lumina2 as _tl2_module
+_tl2_module.apply_rotary_emb = _patched_apply_rotary_emb
+
+# Apply RoPE method patches globally so they persist after model loading.
+# _patched_precompute_freqs_cis produces (cos, sin) float32 tuples stored in
+# self.freqs_cis; _patched_get_freqs_cis/_patched_rope_forward handle them.
+_tl2_module.Lumina2RotaryPosEmbed._precompute_freqs_cis = _patched_precompute_freqs_cis
+_tl2_module.Lumina2RotaryPosEmbed._get_freqs_cis = _patched_get_freqs_cis
+_tl2_module.Lumina2RotaryPosEmbed.forward = _patched_rope_forward
 
 from ...base import ForgeModel
 from ...config import (
@@ -260,6 +400,8 @@ class ModelLoader(ForgeModel):
                 cap_feat_dim=CAP_FEAT_DIM,
                 axes_dim_rope=(32, 48, 48),
             )
+        _dequantize_gguf_and_restore_linear(self.transformer)
+        torch.nn.Module.to(self.transformer, compute_dtype)
         self.transformer.eval()
         return self.transformer
 
