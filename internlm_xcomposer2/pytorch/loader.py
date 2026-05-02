@@ -25,37 +25,80 @@ from ...config import (
 )
 
 
-def _patch_clip_vision_tower_for_meta_ctx():
+_CLIP_TOWER_NAME = "openai/clip-vit-large-patch14-336"
+
+
+def _patch_clip_vision_tower_for_meta_init():
     """
-    Patch CLIPVisionTower.__init__ to run outside the meta device context.
+    Patch CLIPVisionTower to work inside transformers 5.x meta device context.
 
-    transformers 5.x raises when from_pretrained is called inside the
-    init_empty_weights() meta device context. CLIPVisionTower.__init__ calls
-    load_model() (which calls CLIPVisionModel.from_pretrained) and resize_pos()
-    (which creates new tensors/embeddings). Both must run outside meta context
-    to load real CPU weights.
+    transformers 5.x initializes all models inside `torch.device("meta")`
+    context, which patches nn.Module.register_parameter to move params to
+    meta.  CLIPVisionTower.__init__ calls:
+      1. load_model() → CLIPVisionModel.from_pretrained(...) which raises
+         "You are using from_pretrained with a meta device context".
+      2. resize_pos() → creates tensors that need real weights.
 
-    This patch must be applied before AutoModelForCausalLM.from_pretrained;
-    the caller must pre-load the remote model module so CLIPVisionTower is
-    already in sys.modules before this is called.
+    Fix:
+      - Patch load_model() to create the CLIP model structure from config
+        only (no from_pretrained), letting the main VL checkpoint supply
+        the actual weights when the outer from_pretrained materialises them.
+      - Patch resize_pos() to be a no-op during meta init; the caller must
+        invoke model.vit.resize_pos() AFTER the outer from_pretrained
+        completes and the model has real weights.
+
+    The caller must pre-load the remote module (so CLIPVisionTower is in
+    sys.modules) before calling this function.  Returns the CLIPVisionTower
+    class so the caller can find model.vit and call resize_pos() post-load.
     """
-    for mod in sys.modules.values():
-        if hasattr(mod, "CLIPVisionTower"):
-            original_init = mod.CLIPVisionTower.__init__
+    from transformers import CLIPVisionModel
 
-            def _patched_init(self, *args, _orig=original_init, **kwargs):
-                dev = torch.get_default_device()
-                is_meta = dev is not None and dev.type == "meta"
-                if is_meta:
-                    torch.set_default_device(None)
-                try:
-                    _orig(self, *args, **kwargs)
-                finally:
-                    if is_meta:
-                        torch.set_default_device("meta")
+    import inspect
 
-            mod.CLIPVisionTower.__init__ = _patched_init
-            break
+    for mod in list(sys.modules.values()):
+        if not hasattr(mod, "CLIPVisionTower"):
+            continue
+        CLIPVisionTower = mod.CLIPVisionTower
+        if not (inspect.isclass(CLIPVisionTower) and hasattr(CLIPVisionTower, "load_model")):
+            continue
+
+        original_load_model = CLIPVisionTower.load_model
+        original_resize_pos = CLIPVisionTower.resize_pos
+
+        def _struct_only_load_model(self):
+            # Load only the config (no weights) so that the outer
+            # from_pretrained can materialise the structure from the VL
+            # checkpoint without ever calling from_pretrained inside the
+            # meta context.
+            clip_config = CLIPVisionModel.config_class.from_pretrained(
+                _CLIP_TOWER_NAME
+            )
+            # resize_pos() resizes position embeddings from 24x24+1=577 to
+            # 35x35+1=1226.  The VL checkpoint stores the already-resized
+            # embeddings, so we must create the model with the right size
+            # (image_size = 35 * patch_size = 490) to avoid a mismatch when
+            # the checkpoint is loaded.  resize_pos() will see the embedding
+            # is already the right size and skip the interpolation.
+            clip_config.image_size = 35 * clip_config.patch_size
+            self.vision_tower = CLIPVisionModel(clip_config)
+            self.vision_tower.requires_grad_(False)
+            self.is_loaded = True
+
+        def _noop_resize_pos(self):
+            # Skip position-embedding resize during meta init; called
+            # manually by the loader after real weights are loaded.
+            pass
+
+        CLIPVisionTower.load_model = _struct_only_load_model
+        CLIPVisionTower.resize_pos = _noop_resize_pos
+
+        def _restore():
+            CLIPVisionTower.load_model = original_load_model
+            CLIPVisionTower.resize_pos = original_resize_pos
+
+        return CLIPVisionTower, _restore
+
+    return None, lambda: None
 
 
 class ModelVariant(StrEnum):
@@ -117,8 +160,8 @@ class ModelLoader(ForgeModel):
             config.max_length = 8192
 
         # Pre-load the remote model module so CLIPVisionTower is in sys.modules
-        # before we patch it.  AutoModelForCausalLM.from_pretrained imports the
-        # module INSIDE from_pretrained, which is too late to patch before
+        # before we patch it.  AutoModelForCausalLM.from_pretrained imports
+        # the module inside from_pretrained, which is too late to patch before
         # init_empty_weights() is entered.
         if hasattr(config, "auto_map") and "AutoModelForCausalLM" in config.auto_map:
             try:
@@ -132,10 +175,11 @@ class ModelLoader(ForgeModel):
             except Exception:
                 pass
 
-        # Patch CLIPVisionTower.__init__ to temporarily escape the meta device
-        # context.  transformers 5.x raises when from_pretrained is called
-        # inside init_empty_weights().
-        _patch_clip_vision_tower_for_meta_ctx()
+        # Patch CLIPVisionTower to work inside the meta device context.
+        # load_model() will create the CLIP structure from config only; the
+        # outer from_pretrained supplies the real weights.  resize_pos() is
+        # deferred until after loading.
+        clip_tower_cls, restore_patches = _patch_clip_vision_tower_for_meta_init()
 
         model_kwargs = {
             "config": config,
@@ -146,9 +190,17 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+        finally:
+            restore_patches()
+
+        # Apply position-embedding resize now that the VL checkpoint has
+        # supplied real weights into the CLIP vision tower.
+        if clip_tower_cls is not None and hasattr(model, "vit"):
+            clip_tower_cls.resize_pos(model.vit)
         model.eval()
         self.model = model
 
