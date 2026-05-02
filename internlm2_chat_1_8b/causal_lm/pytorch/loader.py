@@ -98,6 +98,21 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
         model.eval()
+        # modeling_internlm2.py calls DynamicCache.from_legacy_cache (removed in
+        # transformers 5.x) when use_cache=True and past_key_values is not a Cache.
+        # Disable KV caching for single-forward inference to avoid this code path.
+        model.config.use_cache = False
+
+        # Transformers 5.x loads with init_empty_weights, leaving persistent=False
+        # inv_freq buffers uninitialized (garbage values up to ~5e36).  cos(5e36)
+        # produces NaN on some platforms.  Recompute from the stored base/dim.
+        for layer in model.model.layers:
+            rotary = layer.attention.rotary_emb
+            inv_freq = 1.0 / (
+                rotary.base
+                ** (torch.arange(0, rotary.dim, 2, dtype=torch.int64).float() / rotary.dim)
+            )
+            rotary.register_buffer("inv_freq", inv_freq, persistent=False)
 
         # Fix transformers 5.x special token ID mismatch: InternLM2TokenizerFast
         # assigns special tokens (e.g. <|im_start|>) IDs starting at vocab_size
