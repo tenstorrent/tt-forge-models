@@ -136,7 +136,7 @@ def _qwen3vl_weights_map_patch():
 
     prev = gguf_utils.get_gguf_hf_weights_map
 
-    def patched(hf_model, model_type=None, num_layers=None, qual_name=""):
+    def patched(hf_model, processor=None, model_type=None, num_layers=None, qual_name=""):
         if model_type is None:
             model_type = getattr(getattr(hf_model, "config", None), "model_type", None)
         if model_type == "qwen3_vl":
@@ -148,6 +148,7 @@ def _qwen3vl_weights_map_patch():
                     pass
         return prev(
             hf_model,
+            processor,
             model_type=model_type,
             num_layers=num_layers,
             qual_name=qual_name,
