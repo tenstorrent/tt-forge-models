@@ -2047,72 +2047,34 @@ def formalize_language(language: str) -> str:
 def build_eagle_processor() -> ProcessorMixin:
     """
     Build Eagle processor directly without AutoProcessor.
-    Loads tokenizer and image processor from configs manually - only necessary files.
+    Downloads tokenizer from Qwen/Qwen2.5-0.5B (public) and uses class defaults for the
+    image processor, since the Eagle2.5-VL processor files are not on public HuggingFace.
     """
+    from huggingface_hub import hf_hub_download
     from transformers import Qwen2TokenizerFast
 
-    # Compute base path for eagle model files
-    # Path to local eagle model files (relative to this file)
-
-    # Load tokenizer with specific file paths (not directory)
-    vocab_file = get_file("test_files/pytorch/Issac_groot/vocab.json")
-    merges_file = get_file("test_files/pytorch/Issac_groot/merges.txt")
-    tokenizer_config_file = get_file(
-        "test_files/pytorch/Issac_groot/tokenizer_config.json"
-    )
+    # Download Qwen2 tokenizer files from public HuggingFace model.
+    # The Eagle2.5-VL backbone uses the same Qwen2 BPE tokenizer vocabulary.
+    _QWEN2_TOKENIZER_REPO = "Qwen/Qwen2.5-0.5B"
+    vocab_file = hf_hub_download(_QWEN2_TOKENIZER_REPO, "vocab.json")
+    merges_file = hf_hub_download(_QWEN2_TOKENIZER_REPO, "merges.txt")
 
     tokenizer = Qwen2TokenizerFast(vocab_file=vocab_file, merges_file=merges_file)
     tokenizer.padding_side = "left"
-
-    # Load and apply tokenizer config
-    with open(tokenizer_config_file, "r") as f:
-        tokenizer_config = json.load(f)
-        if "model_max_length" in tokenizer_config:
-            tokenizer.model_max_length = tokenizer_config["model_max_length"]
+    tokenizer.model_max_length = 4096
 
     # Add custom attributes needed by Eagle processor
     tokenizer.image_token = "<IMG_CONTEXT>"
     tokenizer.video_token = "<IMG_CONTEXT>"
 
-    # Load chat template if exists
-    chat_template = None
-    chat_template_file = get_file("test_files/pytorch/Issac_groot/chat_template.json")
-    if os.path.exists(chat_template_file):
-        with open(chat_template_file, "r") as f:
-            chat_data = json.load(f)
-            chat_template = chat_data.get("chat_template")
-            if chat_template:
-                tokenizer.chat_template = chat_template
+    # Eagle2_5_VLImageProcessorFast has all image-processing defaults built-in
+    # (size 448x448, IMAGENET_STANDARD_MEAN/STD, BICUBIC resample).
+    image_processor = Eagle2_5_VLImageProcessorFast()
 
-    # Load processor config
-    processor_config_file = get_file(
-        "test_files/pytorch/Issac_groot/processor_config.json"
-    )
-    with open(processor_config_file, "r") as f:
-        processor_config = json.load(f)
-
-    # Load image processor config
-    image_processor_config_file = get_file(
-        "test_files/pytorch/Issac_groot/preprocessor_config.json"
-    )
-    with open(image_processor_config_file, "r") as f:
-        image_processor_config = json.load(f)
-
-    # Create image processor directly
-    image_processor = Eagle2_5_VLImageProcessorFast(**image_processor_config)
-
-    # Create Eagle processor directly
+    # Eagle2_5_VLProcessor constructor defaults cover all token config fields.
     eagle_processor = Eagle2_5_VLProcessor(
         image_processor=image_processor,
         tokenizer=tokenizer,
-        chat_template=chat_template,
-        image_token=processor_config.get("image_token", "<IMG_CONTEXT>"),
-        video_token=processor_config.get("video_token", "<IMG_CONTEXT>"),
-        tokens_per_tile=processor_config.get("tokens_per_tile", 256),
-        image_placeholder=processor_config.get("image_placeholder", "image"),
-        video_placeholder=processor_config.get("video_placeholder", "video"),
-        image_start_token=processor_config.get("image_start_token", "<img>"),
-        image_end_token=processor_config.get("image_end_token", "</img>"),
     )
 
     return eagle_processor
