@@ -11,6 +11,16 @@ from diffusers.models import ZImageTransformer2DModel
 from huggingface_hub import hf_hub_download
 
 
+def _patch_gguf_parameter_as_tensor():
+    from diffusers.quantizers.gguf.utils import GGUFParameter
+
+    def _as_tensor(self):
+        with torch._C.DisableTorchFunctionSubclass():
+            return torch.Tensor._make_subclass(torch.Tensor, self, self.requires_grad)
+
+    GGUFParameter.as_tensor = _as_tensor
+
+
 def load_zimage_gguf_transformer(repo_id: str, gguf_filename: str, compute_dtype=None):
     """Load a ZImageTransformer2DModel from a GGUF checkpoint.
 
@@ -22,6 +32,8 @@ def load_zimage_gguf_transformer(repo_id: str, gguf_filename: str, compute_dtype
     Returns:
         ZImageTransformer2DModel: Loaded transformer in eval mode.
     """
+    _patch_gguf_parameter_as_tensor()
+
     if compute_dtype is None:
         compute_dtype = torch.float32
 
