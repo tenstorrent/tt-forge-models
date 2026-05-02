@@ -107,6 +107,47 @@ def _install_mamba_ssm_stub():
 _install_mamba_ssm_stub()
 
 
+def _patch_decoder_layer_for_cpu(model):
+    """Patch NemotronHDecoderLayer.forward to avoid torch.cuda.stream on CPU/TT devices.
+
+    The remote model unconditionally calls torch.cuda.default_stream(device) even when
+    running on CPU, which raises 'Torch not compiled with CUDA enabled'.  The context
+    manager is only needed for multi-GPU NaN avoidance, so skip it on non-CUDA devices.
+    """
+    import contextlib
+
+    if not (hasattr(model, "backbone") and hasattr(model.backbone, "layers") and model.backbone.layers):
+        return
+
+    decoder_layer_cls = type(model.backbone.layers[0])
+
+    def _forward(self, hidden_states, cache_params=None, cache_position=None, attention_mask=None):
+        if hidden_states.device.type == "cuda":
+            stream_ctx = torch.cuda.stream(torch.cuda.default_stream(hidden_states.device))
+        else:
+            stream_ctx = contextlib.nullcontext()
+        with stream_ctx:
+            residual = hidden_states
+            hidden_states = self.norm(hidden_states.to(dtype=self.norm.weight.dtype))
+            if self.residual_in_fp32:
+                residual = residual.to(torch.float32)
+            if self.block_type == "mamba":
+                hidden_states = self.mixer(
+                    hidden_states, cache_params=cache_params, cache_position=cache_position
+                )
+            elif self.block_type == "attention":
+                hidden_states = self.mixer(hidden_states, cache_position=cache_position)
+                hidden_states = hidden_states[0]
+            elif self.block_type in ["mlp", "moe"]:
+                hidden_states = self.mixer(hidden_states)
+            else:
+                raise ValueError(f"Invalid block_type: {self.block_type}")
+            hidden_states = residual + hidden_states
+            return hidden_states
+
+    decoder_layer_cls.forward = _forward
+
+
 class ModelVariant(StrEnum):
     """Available mradermacher/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16-heretic-i1-GGUF model variants."""
 
@@ -181,6 +222,8 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_config(
             config, trust_remote_code=True, **model_kwargs
         ).eval()
+
+        _patch_decoder_layer_for_cpu(model)
 
         self.config = model.config
         self.model = model
