@@ -3,8 +3,15 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Mozilla-AI gemma-2-2b-it-llamafile model loader implementation for causal language modeling.
+
+The mozilla-ai/gemma-2-2b-it-llamafile HuggingFace repo contains only llamafile
+executables (GGUF models wrapped in a shell script), not standard HuggingFace model
+files. This loader uses the equivalent GGUF model from bartowski/gemma-2-2b-it-GGUF
+which provides the same Gemma 2 2B IT weights in GGUF Q4_K_M quantization.
 """
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+import contextlib
+import gc
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
@@ -19,6 +26,55 @@ from ....config import (
 )
 
 
+def _find_real_load_gguf_checkpoint():
+    """Find the original load_gguf_checkpoint from transformers.
+
+    Other loaders patch load_gguf_checkpoint at module import time with versions
+    that don't accept the model_to_load kwarg added in transformers 5.x. Use gc to
+    find the original function still referenced by those patchers' _orig_* variables.
+    """
+    import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+
+    _REAL_MODULE = "transformers.modeling_gguf_pytorch_utils"
+    _REAL_NAME = "load_gguf_checkpoint"
+    for obj in gc.get_objects():
+        try:
+            if (
+                callable(obj)
+                and getattr(obj, "__name__", None) == _REAL_NAME
+                and getattr(obj, "__module__", None) == _REAL_MODULE
+            ):
+                return obj
+        except Exception:
+            pass
+    return None
+
+
+@contextlib.contextmanager
+def _use_real_load_gguf_checkpoint():
+    """Temporarily restore the original load_gguf_checkpoint for the duration of this context."""
+    import transformers.modeling_gguf_pytorch_utils as _gguf_utils
+    import transformers.models.auto.tokenization_auto as _tok_auto
+    import transformers.configuration_utils as _config_utils
+    import transformers.modeling_utils as _modeling_utils
+
+    real_fn = _find_real_load_gguf_checkpoint()
+    if real_fn is None:
+        yield
+        return
+
+    saved = {}
+    for mod in (_gguf_utils, _tok_auto, _config_utils, _modeling_utils):
+        if hasattr(mod, "load_gguf_checkpoint"):
+            saved[mod] = mod.load_gguf_checkpoint
+            mod.load_gguf_checkpoint = real_fn
+    try:
+        yield
+    finally:
+        for mod, fn in saved.items():
+            mod.load_gguf_checkpoint = fn
+
+
 class ModelVariant(StrEnum):
     """Available Mozilla-AI gemma-2-2b-it-llamafile model variants for causal language modeling."""
 
@@ -30,40 +86,26 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.GEMMA_2_2B_IT_LLAMAFILE: LLMModelConfig(
-            pretrained_model_name="mozilla-ai/gemma-2-2b-it-llamafile",
+            pretrained_model_name="bartowski/gemma-2-2b-it-GGUF",
             max_length=256,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.GEMMA_2_2B_IT_LLAMAFILE
 
+    _GGUF_FILE = "gemma-2-2b-it-Q4_K_M.gguf"
+
     sample_text = "What is the capital of France?"
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
     ):
-        """Initialize ModelLoader with specified variant.
-
-        Args:
-            variant: Optional ModelVariant specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-            num_layers: Optional number of hidden layers to use. If None, uses the model's default.
-        """
         super().__init__(variant)
         self.tokenizer = None
         self.num_layers = num_layers
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
-        """Implementation method for getting model info with validated variant.
-
-        Args:
-            variant: Optional ModelVariant specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-
-        Returns:
-            ModelInfo: Information about the model and variant
-        """
         return ModelInfo(
             model="gemma-2-2b-it-llamafile",
             variant=variant,
@@ -74,22 +116,15 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_tokenizer(self, dtype_override=None):
-        """Load tokenizer for the current variant.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the tokenizer's default dtype.
-
-        Returns:
-            The loaded tokenizer instance
-        """
-        tokenizer_kwargs = {}
+        tokenizer_kwargs = {"gguf_file": self._GGUF_FILE}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            **tokenizer_kwargs,
-        )
+        with _use_real_load_gguf_checkpoint():
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                **tokenizer_kwargs,
+            )
 
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -98,48 +133,34 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the gemma-2-2b-it-llamafile model instance.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-
-        Returns:
-            torch.nn.Module: The model instance for causal language modeling.
-        """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
+        model_kwargs = {"gguf_file": self._GGUF_FILE}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
+            with _use_real_load_gguf_checkpoint():
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name, gguf_file=self._GGUF_FILE
+                )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name,
-            **model_kwargs,
-        )
+        with _use_real_load_gguf_checkpoint():
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name,
+                **model_kwargs,
+            )
 
         model.eval()
-
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the model.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
-            batch_size: Batch size for the inputs.
-
-        Returns:
-            dict: Input tensors that can be fed to the model.
-        """
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
