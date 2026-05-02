@@ -80,12 +80,8 @@ class ModelLoader(ForgeModel):
         )
         return self.tokenizer
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, **kwargs):
         """Load and return the I-BERT For Masked LM model instance for this instance's variant.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-                           If not provided, the model will use bfloat16.
 
         Returns:
             torch.nn.Module: The I-BERT For Masked LM model instance for masked language modeling.
@@ -95,13 +91,8 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
-
         model = AutoModelForMaskedLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            pretrained_model_name, **kwargs
         )
 
         return model
