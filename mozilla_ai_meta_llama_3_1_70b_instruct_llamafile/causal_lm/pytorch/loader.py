@@ -80,35 +80,52 @@ def _find_real_load_gguf_checkpoint():
     """Traverse the load_gguf_checkpoint patch chain to find the real transformers function.
 
     Many GGUF loaders patch load_gguf_checkpoint at import time with broken signatures
-    that omit **kwargs (missing model_to_load in transformers 5.x). Traverse closures
-    to find the function that actually accepts model_to_load.
+    that omit **kwargs (missing model_to_load in transformers 5.x). The real function
+    is defined in transformers.modeling_gguf_pytorch_utils. Broken patches from other
+    loaders have a different __module__ and store their predecessor in module-level
+    variables (not closures). We BFS through both closures and globals to find it.
     """
     import transformers.modeling_gguf_pytorch_utils as _mod
 
-    fn = _mod.load_gguf_checkpoint
+    target_module = _mod.__name__
     visited: set[int] = set()
-    while id(fn) not in visited:
+    queue = [_mod.load_gguf_checkpoint]
+    # Common naming patterns for predecessor variables in broken loaders
+    _pred_prefixes = ("_orig", "orig_", "_chain", "_real", "_prev", "_saved", "_base_")
+
+    while queue:
+        fn = queue.pop(0)
+        if id(fn) in visited:
+            continue
         visited.add(id(fn))
+
+        # Primary criterion: defined in the real transformers module
+        if getattr(fn, "__module__", None) == target_module:
+            return fn
+        # Fallback: has the right signature
         try:
             if "model_to_load" in inspect.signature(fn).parameters:
                 return fn
         except (ValueError, TypeError):
             pass
-        # Follow the first callable closure variable (the saved _orig_*)
-        if fn.__closure__:
-            for cell in fn.__closure__:
-                try:
-                    val = cell.cell_contents
-                    if callable(val) and id(val) not in visited:
-                        fn = val
-                        break
-                except ValueError:
-                    pass
-            else:
-                break
-        else:
-            break
-    return fn
+
+        # Search closures for the predecessor
+        for cell in fn.__closure__ or []:
+            try:
+                val = cell.cell_contents
+                if callable(val) and id(val) not in visited:
+                    queue.append(val)
+            except ValueError:
+                pass
+
+        # Search module-level globals for predecessor variables by name prefix
+        if hasattr(fn, "__globals__"):
+            for name, val in fn.__globals__.items():
+                if callable(val) and id(val) not in visited:
+                    if any(name.startswith(p) for p in _pred_prefixes):
+                        queue.append(val)
+
+    return _mod.load_gguf_checkpoint
 
 
 import transformers.modeling_gguf_pytorch_utils as _gguf_module
