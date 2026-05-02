@@ -6,7 +6,12 @@ LFM2.5 1.2B Thinking Kimi V2 DISTILL GGUF model loader implementation for causal
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS, GGUFGPTConverter
 from typing import Optional
+
+# lfm2 GGUF uses a GPT2-style BPE tokenizer (tokenizer.ggml.model = "gpt2")
+# but is not registered in transformers' GGUF_TO_FAST_CONVERTERS.
+GGUF_TO_FAST_CONVERTERS.setdefault("lfm2", GGUFGPTConverter)
 
 from ....base import ForgeModel
 from ....config import (
