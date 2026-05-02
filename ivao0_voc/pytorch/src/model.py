@@ -273,6 +273,7 @@ class Voc(Wav2Vec2PreTrainedModel):
         )
         self.frame_rate = 12.5
         self.encode_buffer = None
+        self.post_init()
 
     def encode(self, x):
         """24 kHz audio (bs, 1, samples) -> codes (bs, 22, time)."""
