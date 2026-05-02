@@ -127,7 +127,6 @@ class ModelLoader(ForgeModel):
                 f"Warning: GR00T uses mixed precision (BFloat16/Float32). dtype_override may cause issues."
             )
 
-        # Store model reference for preprocessing in load_inputs
         self._model = policy
 
         return policy
@@ -176,22 +175,31 @@ class ModelLoader(ForgeModel):
         observations = self._model.preprocess(observations)
         observations["preprocessed"] = True
 
+        # Pre-generate diffusion noise with a fixed seed for deterministic output.
+        # Without this, the FlowmatchingActionHead samples fresh torch.randn noise
+        # on every call, making CPU-vs-TT PCC comparison non-deterministic.
+        action_horizon = self._model.model.action_horizon
+        action_dim = self._model.model.action_dim
+        generator = torch.Generator().manual_seed(42)
+        observations["noise"] = torch.randn(
+            (1, action_horizon, action_dim), generator=generator
+        )
+
         return observations
 
-    def postprocess(self, raw_action_tensor: torch.Tensor) -> Dict[str, np.ndarray]:
+    def postprocess(self, raw_action_tensor: torch.Tensor) -> Dict[str, Any]:
         """
-        Postprocess raw action tensor to action dictionary.
+        Postprocess raw normalized-action tensor back to unnormalized actions.
 
         Args:
-            raw_action_tensor: Raw action tensor from model forward (with return_raw=True)
+            raw_action_tensor: Raw normalized action tensor from model forward
 
         Returns:
-            Dictionary containing unnormalized actions (e.g., 'action.left_arm', 'action.right_arm', etc.)
+            Dictionary containing unnormalized actions
         """
         if self._model is None:
             raise RuntimeError(
                 "Model must be loaded before postprocessing. Call load_model() first."
             )
 
-        # Always use is_batch=True since we always work with batched inputs
-        return self._model.postprocess(raw_action_tensor, is_batch=True)
+        return self._model.postprocess(raw_action_tensor, was_batched=True)
