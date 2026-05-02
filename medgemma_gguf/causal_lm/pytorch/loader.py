@@ -93,8 +93,8 @@ class ModelLoader(ForgeModel):
 
         Other loaders in the session patch load_gguf_checkpoint at import time
         with functions that drop the model_to_load kwarg added in transformers
-        5.x.  Walk the chain via __globals__ until we find a version that
-        explicitly accepts model_to_load.
+        5.x.  Walk the chain via __globals__ and closure cells until we find a
+        version that explicitly accepts model_to_load.
         """
         import inspect
         import transformers.modeling_gguf_pytorch_utils as _m
@@ -103,16 +103,30 @@ class ModelLoader(ForgeModel):
         seen: set = set()
         while id(fn) not in seen:
             try:
-                if "model_to_load" in inspect.signature(fn).parameters:
+                params = inspect.signature(fn).parameters
+                if "model_to_load" in params:
                     return fn
             except (ValueError, TypeError):
                 pass
             seen.add(id(fn))
+            candidates = []
+            # Check module-level globals
             for key in ("_orig_load_gguf_checkpoint", "orig_load"):
                 candidate = fn.__globals__.get(key)
                 if candidate is not None and callable(candidate):
-                    fn = candidate
-                    break
+                    candidates.append(candidate)
+            # Check closure cells (for functions defined inside helper functions)
+            if hasattr(fn, "__code__") and fn.__closure__:
+                for varname, cell in zip(fn.__code__.co_freevars, fn.__closure__):
+                    if varname in ("orig_load", "_orig_load_gguf_checkpoint", "_orig_load"):
+                        try:
+                            cell_val = cell.cell_contents
+                            if callable(cell_val):
+                                candidates.append(cell_val)
+                        except ValueError:
+                            pass
+            if candidates:
+                fn = candidates[0]
             else:
                 break
         return fn
