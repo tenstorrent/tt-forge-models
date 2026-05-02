@@ -20,7 +20,7 @@ Available subfolders:
 from typing import Any, Optional
 
 import torch
-from diffusers import HunyuanVideo15ImageToVideoPipeline, HunyuanVideoPipeline
+from diffusers import HunyuanVideo15ImageToVideoPipeline, HunyuanVideo15Pipeline
 
 from ...base import ForgeModel
 from ...config import (
@@ -97,7 +97,7 @@ class ModelLoader(ForgeModel):
         pipeline_cls = (
             HunyuanVideo15ImageToVideoPipeline
             if self._is_i2v_variant()
-            else HunyuanVideoPipeline
+            else HunyuanVideo15Pipeline
         )
         self.pipeline = pipeline_cls.from_pretrained(
             self._variant_config.pretrained_model_name,
@@ -184,7 +184,7 @@ class ModelLoader(ForgeModel):
         }
 
     def _load_transformer_inputs(self, dtype: torch.dtype) -> dict:
-        """Prepare synthetic inputs for the HunyuanVideo transformer forward pass."""
+        """Prepare synthetic inputs for the HunyuanVideo 1.5 t2v transformer forward pass."""
         batch_size = 1
         config = self.pipeline.transformer.config
 
@@ -194,7 +194,7 @@ class ModelLoader(ForgeModel):
         num_frames = 9
 
         # Compute latent dimensions using VAE compression ratios
-        vae_spatial = self.pipeline.vae_scale_factor_spatial  # 8
+        vae_spatial = self.pipeline.vae_scale_factor_spatial  # 16 for HunyuanVideo 1.5
         vae_temporal = self.pipeline.vae_scale_factor_temporal  # 4
 
         latent_height = height // vae_spatial
@@ -202,31 +202,48 @@ class ModelLoader(ForgeModel):
         latent_num_frames = (num_frames - 1) // vae_temporal + 1
 
         in_channels = config.in_channels
+        # HunyuanVideo15 expects (batch, channels, frames, height, width)
         hidden_states = torch.randn(
             batch_size,
-            latent_num_frames,
             in_channels,
+            latent_num_frames,
             latent_height,
             latent_width,
             dtype=dtype,
         )
 
-        # Text encoder hidden states
+        # Qwen2.5 text encoder hidden states
         text_seq_len = 64
         text_embed_dim = config.text_embed_dim
         encoder_hidden_states = torch.randn(
             batch_size, text_seq_len, text_embed_dim, dtype=dtype
         )
+        encoder_attention_mask = torch.ones(batch_size, text_seq_len, dtype=dtype)
+
+        # ByT5 text encoder hidden states (always consumed in forward)
+        byt5_seq_len = 16
+        text_embed_2_dim = config.text_embed_2_dim
+        encoder_hidden_states_2 = torch.randn(
+            batch_size, byt5_seq_len, text_embed_2_dim, dtype=dtype
+        )
+        encoder_attention_mask_2 = torch.ones(batch_size, byt5_seq_len, dtype=dtype)
+
+        # Image embeds: zeros for t2v (model checks torch.all(image_embeds == 0))
+        image_seq_len = getattr(self.pipeline, "vision_num_semantic_tokens", 64)
+        image_embeds = torch.zeros(
+            batch_size, image_seq_len, config.image_embed_dim, dtype=dtype
+        )
 
         timestep = torch.tensor([0.5], dtype=dtype).expand(batch_size)
-
-        guidance = torch.tensor([6.0], dtype=dtype).expand(batch_size)
 
         return {
             "hidden_states": hidden_states,
             "encoder_hidden_states": encoder_hidden_states,
+            "encoder_attention_mask": encoder_attention_mask,
+            "encoder_hidden_states_2": encoder_hidden_states_2,
+            "encoder_attention_mask_2": encoder_attention_mask_2,
+            "image_embeds": image_embeds,
             "timestep": timestep,
-            "guidance": guidance,
             "return_dict": False,
         }
 
