@@ -103,6 +103,12 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         ).eval()
 
+        # Use static batched matmul for MoE experts to avoid nonzero() dynamic shapes in XLA
+        if hasattr(model.config, "text_config"):
+            model.config.text_config._experts_implementation = "batched_mm"
+        elif hasattr(model.config, "_experts_implementation"):
+            model.config._experts_implementation = "batched_mm"
+
         self.config = model.config
         self.model = model
         return model
