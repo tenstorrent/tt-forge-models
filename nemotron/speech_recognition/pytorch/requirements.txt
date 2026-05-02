@@ -1,0 +1,38 @@
+# NeMo ASR dependencies – all safe to install without upgrading torch.
+# nemo_toolkit itself is in requirements.nodeps.txt (to avoid the torch>=2.6.0
+# transitive dep replacing the tt-xla custom torch build).
+hydra-core<=1.3.2,>1.3
+omegaconf<=2.3
+antlr4-python3-runtime==4.9.3
+lightning-utilities
+nv-one-logger-core>=2.3.1
+nv-one-logger-training-telemetry>=2.3.1
+nv-one-logger-pytorch-lightning-integration>=2.3.1
+strenum
+overrides
+toml
+wrapt
+wget
+onnx>=1.7.0
+fiddle
+libcst
+cloudpickle
+lhotse>=1.32.2
+intervaltree
+sortedcontainers
+cytoolz
+toolz
+kaldialign<=0.9.1
+pyannote.core
+pyannote.metrics
+braceexpand
+webdataset>=0.2.86
+jiwer<4.0.0,>=3.1.0
+rapidfuzz
+editdistance
+inflect
+sacremoses>=0.0.43
+pydub
+marshmallow
+text-unidecode
+ruamel.yaml
