@@ -10,27 +10,59 @@ from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
 from typing import Optional
 
 
-def _patch_mm_grounding_dino_text_pos_embed_dtype():
-    """Patch get_text_position_embeddings to cast position embeddings to text_features.dtype.
+def _patch_mm_grounding_dino_dtype():
+    """Patch MM Grounding DINO model to fix dtype mismatches when running with bfloat16.
 
-    get_sine_pos_embed always produces float32 tensors. When the model runs with
-    torch_dtype=bfloat16, the float32 position embedding is added to bfloat16 text
-    features in with_pos_embed(), promoting queries to float32. The subsequent
-    F.linear call then fails because queries (float32) and weight (bfloat16) mismatch.
+    Two locations always produce float32 tensors regardless of model dtype:
+    1. get_text_position_embeddings / get_sine_pos_embed: text position embeddings are
+       always float32. Added to bfloat16 text_features in with_pos_embed(), promoting
+       queries to float32. The subsequent F.linear fails (float32 vs bfloat16 weight).
+    2. get_reference_points: reference points are always float32. Adding float32
+       reference_points to bfloat16 sampling_offsets promotes sampling_locations to
+       float32. grid_sample then fails (bfloat16 value vs float32 grid).
     """
     from transformers.models.mm_grounding_dino.modeling_mm_grounding_dino import (
         MMGroundingDinoEncoderLayer,
+        MultiScaleDeformableAttention,
     )
 
-    _orig = MMGroundingDinoEncoderLayer.get_text_position_embeddings
+    _orig_get_text_pos = MMGroundingDinoEncoderLayer.get_text_position_embeddings
 
-    def _patched(self, text_features, text_position_embedding, text_position_ids):
-        result = _orig(self, text_features, text_position_embedding, text_position_ids)
+    def _patched_get_text_pos(self, text_features, text_position_embedding, text_position_ids):
+        result = _orig_get_text_pos(self, text_features, text_position_embedding, text_position_ids)
         if result is not None:
             result = result.to(text_features.dtype)
         return result
 
-    MMGroundingDinoEncoderLayer.get_text_position_embeddings = _patched
+    MMGroundingDinoEncoderLayer.get_text_position_embeddings = _patched_get_text_pos
+
+    import torch.nn as nn
+
+    _orig_msda_forward = MultiScaleDeformableAttention.forward
+
+    def _patched_msda_forward(
+        self,
+        value,
+        value_spatial_shapes,
+        value_spatial_shapes_list,
+        level_start_index,
+        sampling_locations,
+        attention_weights,
+        im2col_step,
+    ):
+        sampling_locations = sampling_locations.to(value.dtype)
+        return _orig_msda_forward(
+            self,
+            value,
+            value_spatial_shapes,
+            value_spatial_shapes_list,
+            level_start_index,
+            sampling_locations,
+            attention_weights,
+            im2col_step,
+        )
+
+    MultiScaleDeformableAttention.forward = _patched_msda_forward
 
 
 from ...base import ForgeModel
@@ -129,7 +161,7 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if dtype_override is not None:
-            _patch_mm_grounding_dino_text_pos_embed_dtype()
+            _patch_mm_grounding_dino_dtype()
 
         model_kwargs = {"return_dict": False}
 
