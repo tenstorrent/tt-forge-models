@@ -126,6 +126,50 @@ class ModelLoader(ForgeModel):
         model.eval()
         self.config = model.config
 
+        # Pre-transform attention_mask in LLaDAModelLM.forward to avoid the
+        # `0.0 in attention_mask` Tensor.__contains__ → .item() Dynamo graph break
+        # in LLaDAModel.forward (line 1251 of the remote modeling_llada.py).
+        # Equivalent semantics: no-padding positions → (1-1)*finfo.min = 0.0 (neutral).
+        _cls = type(model)
+        _orig_fwd = _cls.forward
+
+        def _patched_lm_forward(
+            self,
+            input_ids=None,
+            inputs_embeds=None,
+            attention_mask=None,
+            attention_bias=None,
+            past_key_values=None,
+            labels=None,
+            use_cache=None,
+            output_attentions=None,
+            output_hidden_states=None,
+            return_dict=None,
+            cache_position=None,
+        ):
+            if attention_mask is not None:
+                _bs = input_ids.size(0) if inputs_embeds is None else inputs_embeds.size(0)
+                _am = attention_mask.to(dtype=torch.float32).view(_bs, -1)[:, None, None, :]
+                _am = (1.0 - _am) * torch.finfo(torch.float32).min
+                attention_bias = _am if attention_bias is None else attention_bias + _am
+                attention_mask = None
+            return _orig_fwd(
+                self,
+                input_ids=input_ids,
+                inputs_embeds=inputs_embeds,
+                attention_mask=attention_mask,
+                attention_bias=attention_bias,
+                past_key_values=past_key_values,
+                labels=labels,
+                use_cache=use_cache,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                return_dict=return_dict,
+                cache_position=cache_position,
+            )
+
+        _cls.forward = _patched_lm_forward
+
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
