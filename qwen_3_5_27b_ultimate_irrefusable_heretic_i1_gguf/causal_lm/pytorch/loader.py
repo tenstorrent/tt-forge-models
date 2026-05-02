@@ -99,18 +99,28 @@ def _patch_transformers_qwen35_gguf():
 
     def patched_load_gguf_checkpoint(*args, **kwargs):
         result = orig_load(*args, **kwargs)
-        if result.get("config", {}).get("model_type") == "qwen35":
-            result["config"]["model_type"] = "qwen3_5_text"
-            config = result["config"]
-            num_layers = config.get("num_hidden_layers", 32)
-            interval = config.pop("full_attention_interval", 4)
-            layer_types = []
-            for i in range(num_layers):
-                if (i + 1) % interval == 0:
-                    layer_types.append("full_attention")
-                else:
-                    layer_types.append("linear_attention")
-            config["layer_types"] = layer_types
+        cfg = result.get("config", {})
+        # Intercept both "qwen35" (uncontaminated) and "qwen3" (already remapped
+        # by another loader's patch that uses qwen35→qwen3). We identify the
+        # qwen35 GGUF by SSM-specific keys set only when the qwen35 arch config
+        # mapping fires (e.g. ssm.time_step_rank→linear_num_value_heads).
+        model_type = cfg.get("model_type", "")
+        is_qwen35_gguf = model_type == "qwen35" or (
+            model_type == "qwen3"
+            and ("linear_num_value_heads" in cfg or "full_attention_interval" in cfg)
+        )
+        if is_qwen35_gguf:
+            cfg["model_type"] = "qwen3_5_text"
+            num_layers = cfg.get("num_hidden_layers", 32)
+            interval = cfg.pop("full_attention_interval", 4)
+            if cfg.get("layer_types") is None:
+                layer_types = []
+                for i in range(num_layers):
+                    if (i + 1) % interval == 0:
+                        layer_types.append("full_attention")
+                    else:
+                        layer_types.append("linear_attention")
+                cfg["layer_types"] = layer_types
         return result
 
     gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
