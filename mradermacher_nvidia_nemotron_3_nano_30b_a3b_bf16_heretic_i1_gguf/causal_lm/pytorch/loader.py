@@ -107,6 +107,81 @@ def _install_mamba_ssm_stub():
 _install_mamba_ssm_stub()
 
 
+def _patch_moe_for_device(model):
+    """Replace NemotronHMOE.moe() per-expert loop with device-friendly dense bmm.
+
+    The original implementation uses torch.where() to select tokens per expert,
+    returning variable-length index tensors.  Under torch.compile on TT these
+    dynamic-shape tensors trigger partition_fx_graph_for_cpu_fallback which
+    tries to sync the TT device and fails with INTERNAL Error code 13.
+
+    Device path: dense bmm over all experts, then weight-sum via scatter.
+    CPU path: preserves the original per-expert loop as the golden reference.
+    """
+    if not (hasattr(model, "backbone") and hasattr(model.backbone, "layers") and model.backbone.layers):
+        return
+
+    moe_cls = None
+    for layer in model.backbone.layers:
+        if hasattr(layer, "mixer") and type(layer.mixer).__name__ == "NemotronHMOE":
+            moe_cls = type(layer.mixer)
+            break
+
+    if moe_cls is None:
+        return
+
+    def _moe(self, hidden_states, topk_indices, topk_weights):
+        T = hidden_states.shape[0]
+        num_experts = len(self.experts)
+
+        if hidden_states.device.type == "cpu":
+            final = torch.zeros_like(hidden_states, dtype=topk_weights.dtype)
+            expert_mask = torch.nn.functional.one_hot(topk_indices, num_classes=num_experts)
+            expert_mask = expert_mask.permute(2, 0, 1)
+            for idx in range(num_experts):
+                expert = self.experts[idx]
+                mask = expert_mask[idx]
+                tok_idx, w_idx = torch.where(mask)
+                if tok_idx.numel() > 0:
+                    w = topk_weights[tok_idx, w_idx]
+                    out = expert(hidden_states[tok_idx])
+                    final.index_add_(0, tok_idx, (out * w.unsqueeze(-1)))
+                else:
+                    dtype = expert.down_proj.weight.dtype
+                    dummy = expert(torch.zeros_like(hidden_states[0]).unsqueeze(0).to(dtype))
+                    final = final + dummy
+            return final.type(hidden_states.dtype)
+        else:
+            up_w = torch.stack([e.up_proj.weight for e in self.experts])    # [E, I, H]
+            down_w = torch.stack([e.down_proj.weight for e in self.experts])  # [E, H, I]
+            has_bias = self.experts[0].up_proj.bias is not None
+            if has_bias:
+                up_b = torch.stack([e.up_proj.bias for e in self.experts])   # [E, I]
+                down_b = torch.stack([e.down_proj.bias for e in self.experts])  # [E, H]
+            expanded = hidden_states.unsqueeze(0).expand(num_experts, -1, -1)  # [E, T, H]
+            up = torch.bmm(expanded, up_w.transpose(1, 2))  # [E, T, I]
+            if has_bias:
+                up = up + up_b.unsqueeze(1)
+            up = self.experts[0].act_fn(up)
+            out = torch.bmm(up, down_w.transpose(1, 2))  # [E, T, H]
+            if has_bias:
+                out = out + down_b.unsqueeze(1)
+            routing = torch.zeros(T, num_experts, dtype=topk_weights.dtype, device=hidden_states.device)
+            routing.scatter_(1, topk_indices, topk_weights)
+            final = (out * routing.t().unsqueeze(-1)).sum(0)
+            return final.type(hidden_states.dtype)
+
+    def _forward(self, hidden_states):
+        residuals = hidden_states
+        orig_shape = hidden_states.shape
+        topk_indices, topk_weights = self.gate(hidden_states)
+        flat = hidden_states.view(-1, hidden_states.shape[-1])
+        out = _moe(self, flat, topk_indices, topk_weights).view(*orig_shape)
+        return out + self.shared_experts(residuals)
+
+    moe_cls.forward = _forward
+
+
 def _patch_decoder_layer_for_cpu(model):
     """Patch NemotronHDecoderLayer.forward to avoid torch.cuda.stream on CPU/TT devices.
 
@@ -223,6 +298,7 @@ class ModelLoader(ForgeModel):
             config, trust_remote_code=True, **model_kwargs
         ).eval()
 
+        _patch_moe_for_device(model)
         _patch_decoder_layer_for_cpu(model)
 
         self.config = model.config
