@@ -134,6 +134,8 @@ class ModelLoader(ForgeModel):
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
+        inputs["use_cache"] = False
+
         return inputs
 
     def _get_text_config(self):
@@ -162,10 +164,15 @@ class ModelLoader(ForgeModel):
                 shard_specs[mlp.shared_expert.gate_proj.weight] = ("model", "batch")
                 shard_specs[mlp.shared_expert.down_proj.weight] = ("batch", "model")
 
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+            if hasattr(layer, "self_attn"):
+                shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+                shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+            if hasattr(layer, "linear_attn"):
+                shard_specs[layer.linear_attn.in_proj_qkv.weight] = ("model", "batch")
+                shard_specs[layer.linear_attn.in_proj_z.weight] = ("model", "batch")
+                shard_specs[layer.linear_attn.out_proj.weight] = ("batch", "model")
         shard_specs[model.lm_head.weight] = ("model", "batch")
 
         return shard_specs
