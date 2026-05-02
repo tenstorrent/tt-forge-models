@@ -28,8 +28,8 @@ def _patch_qwen2_5_vl_for_tt():
 
     def _patched_rot_pos_emb(self, grid_thw):
         pos_ids = []
-        # Float32 bridge: int64 D2H fails on TT silicon (INTERNAL error 13)
-        grid_thw_cpu = grid_thw.float().cpu().long()
+        # grid_thw is float32 (cast in load_inputs); float32 D2H works on TT silicon
+        grid_thw_cpu = grid_thw.cpu().long()
         for t, h, w in grid_thw_cpu.tolist():
             hpos_ids = torch.arange(h).unsqueeze(1).expand(-1, w)
             hpos_ids = hpos_ids.reshape(
@@ -57,13 +57,13 @@ def _patch_qwen2_5_vl_for_tt():
         return rotary_pos_emb
 
     def _patched_get_window_index(self, grid_thw):
-        return _orig_get_window_index(self, grid_thw.float().cpu().long())
+        return _orig_get_window_index(self, grid_thw.cpu().long())
 
     def _patched_get_image_features(self, pixel_values, image_grid_thw=None, **kwargs):
         kwargs.pop("return_dict", None)
         pixel_values = pixel_values.type(self.visual.dtype)
         vision_outputs = self.visual(pixel_values, grid_thw=image_grid_thw, return_dict=True, **kwargs)
-        image_grid_thw_cpu = image_grid_thw.float().cpu().long()
+        image_grid_thw_cpu = image_grid_thw.cpu().long()
         split_sizes = (image_grid_thw_cpu.prod(-1) // self.visual.spatial_merge_size**2).tolist()
         image_embeds = torch.split(vision_outputs.pooler_output, split_sizes)
         vision_outputs.pooler_output = image_embeds
@@ -79,13 +79,15 @@ def _patch_qwen2_5_vl_for_tt():
         **kwargs,
     ):
         device = input_ids.device if input_ids is not None else None
+        # image_grid_thw is float32 (cast in load_inputs); use float32 D2H to get CPU ints
+        # input_ids and attention_mask stay as-is: int64 embedding/mask ops work on TT
         position_ids, rope_deltas = _orig_get_rope_index(
             self,
-            input_ids.float().cpu().long() if input_ids is not None else None,
-            image_grid_thw.float().cpu().long() if image_grid_thw is not None else None,
-            video_grid_thw.float().cpu().long() if video_grid_thw is not None else None,
+            input_ids,
+            image_grid_thw.cpu().long() if image_grid_thw is not None else None,
+            video_grid_thw.cpu().long() if video_grid_thw is not None else None,
             second_per_grid_ts,
-            attention_mask.float().cpu().to(attention_mask.dtype) if attention_mask is not None else None,
+            attention_mask,
             **kwargs,
         )
         if device is not None:
@@ -219,5 +221,9 @@ class ModelLoader(ForgeModel):
 
         if dtype_override is not None:
             inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
+
+        # TT silicon cannot compile int64 ops; cast grid_thw to float32 so the
+        # patched VL methods can use float32 D2H (.cpu()) to get CPU values.
+        inputs["image_grid_thw"] = inputs["image_grid_thw"].float()
 
         return inputs
