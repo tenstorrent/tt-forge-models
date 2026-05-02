@@ -91,12 +91,27 @@ class ModelLoader(ForgeModel):
         Returns images, image masks, language tokens, language masks, state,
         and a pre-generated noise tensor for deterministic diffusion sampling.
         """
+        import json
+        import torch
         from lerobot.policies.factory import make_pre_post_processors
         from lerobot.datasets.lerobot_dataset import LeRobotDataset
+        from huggingface_hub import hf_hub_download
+
+        # This checkpoint pre-dates the policy_preprocessor.json format; load
+        # norm_stats.json directly and pass as dataset_stats to avoid a
+        # FileNotFoundError when make_pre_post_processors tries to fetch the
+        # missing file from HuggingFace Hub.
+        norm_stats_path = hf_hub_download(self.pretrained_model_name, "norm_stats.json")
+        with open(norm_stats_path) as f:
+            raw_stats = json.load(f)
+        dataset_stats = {
+            key: {k: torch.tensor(v) for k, v in vals.items()}
+            for key, vals in raw_stats.items()
+        }
 
         self.preprocess, self.postprocess_fn = make_pre_post_processors(
             self.pi_05.config,
-            self.pretrained_model_name,
+            dataset_stats=dataset_stats,
             preprocessor_overrides={"device_processor": {"device": "cpu"}},
         )
         dataset = LeRobotDataset("lerobot/libero")
