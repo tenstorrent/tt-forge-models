@@ -76,6 +76,21 @@ def _patch_transformers_mistral3_gguf():
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
+    # Patch get_gguf_hf_weights_map to remap "mistral" -> "mistral3" so gguf-py
+    # can find MODEL_ARCH.MISTRAL3.  gguf 0.18 no longer has MODEL_ARCH.MISTRAL.
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor=None, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            model_type = getattr(getattr(hf_model, "config", None), "model_type", None)
+        if model_type == "mistral":
+            model_type = "mistral3"
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
 
 # Apply the monkey-patch at import time
 _patch_transformers_mistral3_gguf()
