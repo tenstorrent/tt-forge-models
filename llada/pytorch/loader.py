@@ -5,7 +5,7 @@
 LLaDA (Large Language Diffusion with mAsking) model loader implementation.
 """
 import torch
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModel, AutoTokenizer, PreTrainedModel
 from typing import Optional
 
 from ...base import ForgeModel
@@ -82,9 +82,47 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModel.from_pretrained(
-            pretrained_model_name, trust_remote_code=True, **model_kwargs
-        )
+        # LLaDAModelLM.__init__ predates transformers 5.x:
+        # (a) post_init() is never called, so all_tied_weights_keys is never set;
+        # (b) tie_weights() doesn't accept the missing_keys/recompute_mapping kwargs
+        #     that _finalize_model_loading now passes.
+        # Patch _finalize_model_loading to fix both before delegating to the original.
+        import inspect
+
+        _orig_finalize = PreTrainedModel.__dict__["_finalize_model_loading"].__func__
+
+        @staticmethod
+        def _patched_finalize(model, load_config, loading_info):
+            if not hasattr(model, "all_tied_weights_keys"):
+                model.all_tied_weights_keys = model.get_expanded_tied_weights_keys(
+                    all_submodels=False
+                )
+            _model_class = type(model)
+            _orig_tie = _model_class.__dict__.get("tie_weights")
+            if _orig_tie is not None:
+                params = inspect.signature(_orig_tie).parameters
+                if "recompute_mapping" not in params and "kwargs" not in params:
+
+                    def _compat_tie(self, **kwargs):
+                        return _orig_tie(self)
+
+                    _model_class.tie_weights = _compat_tie
+            try:
+                return _orig_finalize(model, load_config, loading_info)
+            finally:
+                if _orig_tie is not None and _model_class.__dict__.get("tie_weights") is not _orig_tie:
+                    _model_class.tie_weights = _orig_tie
+
+        PreTrainedModel._finalize_model_loading = _patched_finalize
+        try:
+            model = AutoModel.from_pretrained(
+                pretrained_model_name, trust_remote_code=True, **model_kwargs
+            )
+        finally:
+            PreTrainedModel._finalize_model_loading = staticmethod(_orig_finalize)
+        # transformers 5.x pops use_cache from config kwargs (it's a generation
+        # parameter); the remote LLaDAModelLM.forward still reads config.use_cache.
+        model.config.use_cache = False
         model.eval()
         self.config = model.config
 
