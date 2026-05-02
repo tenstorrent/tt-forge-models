@@ -57,7 +57,12 @@ def _refresh_gguf_detection():
 
 
 def _find_real_load_gguf_checkpoint():
-    """BFS-walk the monkey-patch chain to find the original transformers function."""
+    """BFS-walk the monkey-patch chain to find the original transformers function.
+
+    Other loaders install narrow-signature wrappers as module-level functions.
+    These store the previous function in __globals__ (not __closure__), so we
+    scan both closure cells and targeted global keys to walk the chain.
+    """
     import transformers.modeling_gguf_pytorch_utils as gguf_utils
 
     fn = gguf_utils.load_gguf_checkpoint
@@ -75,15 +80,31 @@ def _find_real_load_gguf_checkpoint():
             and getattr(candidate, "__qualname__", None) == "load_gguf_checkpoint"
         ):
             return candidate
-        # Walk closure cells for wrapped functions
-        closure = getattr(candidate, "__closure__", None) or []
-        for cell in closure:
+        # Walk closure cells (nested functions store captured vars here)
+        for cell in (getattr(candidate, "__closure__", None) or []):
             try:
                 val = cell.cell_contents
-                if callable(val):
+                if callable(val) and id(val) not in seen:
                     queue.append(val)
             except ValueError:
                 pass
+        # Walk globals: module-level wrappers store the previous function in
+        # __globals__ under a name like _orig_load_gguf_checkpoint or orig_load.
+        glb = getattr(candidate, "__globals__", {}) or {}
+        for key, val in glb.items():
+            if not callable(val) or id(val) in seen:
+                continue
+            if "load_gguf" in key or key in (
+                "orig_load",
+                "_orig",
+                "_real",
+                "_prev",
+                "_base",
+                "_fn",
+                "_original",
+                "_previous",
+            ):
+                queue.append(val)
     return fn
 
 
