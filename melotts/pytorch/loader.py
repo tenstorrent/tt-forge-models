@@ -4,8 +4,13 @@
 """
 MeloTTS-French model loader implementation for text-to-speech tasks.
 """
+import json
+import os
+import sys
+
 import torch
 import torch.nn as nn
+from huggingface_hub import hf_hub_download
 from typing import Optional
 
 from ...base import ForgeModel
@@ -18,6 +23,40 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+
+class HParams:
+    """Lightweight hyperparameter container that supports attribute access."""
+
+    def __init__(self, **kwargs):
+        for k, v in kwargs.items():
+            if isinstance(v, dict):
+                v = HParams(**v)
+            self[k] = v
+
+    def keys(self):
+        return self.__dict__.keys()
+
+    def items(self):
+        return self.__dict__.items()
+
+    def values(self):
+        return self.__dict__.values()
+
+    def __len__(self):
+        return len(self.__dict__)
+
+    def __getitem__(self, key):
+        return getattr(self, key)
+
+    def __setitem__(self, key, value):
+        setattr(self, key, value)
+
+    def __contains__(self, key):
+        return key in self.__dict__
+
+    def __repr__(self):
+        return self.__dict__.__repr__()
 
 
 class MeloTTSWrapper(nn.Module):
@@ -59,7 +98,7 @@ class ModelLoader(ForgeModel):
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
-        self._tts = None
+        self._hps = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -73,30 +112,50 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from melo.api import TTS
+        import melo
 
-        self._tts = TTS(language="FR", device="cpu")
-        model = MeloTTSWrapper(self._tts.model)
-        model.eval()
-        return model
+        melo_dir = os.path.dirname(melo.__file__)
+        if melo_dir not in sys.path:
+            sys.path.insert(0, melo_dir)
 
-    def load_inputs(self, dtype_override=None):
-        from melo import utils
+        from melo.models import SynthesizerTrn
 
-        text = "Bonjour, ceci est un test."
-        device = "cpu"
-        language = self._tts.language
+        repo_id = self._variant_config.pretrained_model_name
+        config_path = hf_hub_download(repo_id=repo_id, filename="config.json")
+        checkpoint_path = hf_hub_download(repo_id=repo_id, filename="checkpoint.pth")
 
-        bert, ja_bert, phones, tones, lang_ids = utils.get_text_for_tts_infer(
-            text, language, self._tts.hps, device, self._tts.symbol_to_id
+        with open(config_path) as f:
+            data = json.load(f)
+        hps = HParams(**data)
+        self._hps = hps
+
+        model = SynthesizerTrn(
+            len(hps.symbols),
+            hps.data.filter_length // 2 + 1,
+            hps.train.segment_size // hps.data.hop_length,
+            n_speakers=hps.data.n_speakers,
+            num_tones=hps.num_tones,
+            num_languages=hps.num_languages,
+            **dict(hps.model.items()),
         )
 
-        x = phones.unsqueeze(0)
-        x_lengths = torch.LongTensor([phones.size(0)])
-        sid = torch.LongTensor([list(self._tts.hps.data.spk2id.values())[0]])
-        tones = tones.unsqueeze(0)
-        lang_ids = lang_ids.unsqueeze(0)
-        bert = bert.unsqueeze(0)
-        ja_bert = ja_bert.unsqueeze(0)
+        checkpoint = torch.load(checkpoint_path, map_location="cpu")
+        model.load_state_dict(checkpoint["model"], strict=True)
+        model.eval()
 
+        if dtype_override is not None:
+            model = model.to(dtype=dtype_override)
+
+        return MeloTTSWrapper(model)
+
+    def load_inputs(self, dtype_override=None):
+        seq_len = 50
+        num_symbols = len(self._hps.symbols) if self._hps else 219
+        x = torch.randint(0, num_symbols, (1, seq_len), dtype=torch.long)
+        x_lengths = torch.tensor([seq_len], dtype=torch.long)
+        sid = torch.tensor([0], dtype=torch.long)
+        tones = torch.zeros(1, seq_len, dtype=torch.long)
+        lang_ids = torch.zeros(1, seq_len, dtype=torch.long)
+        bert = torch.zeros(1, 1024, seq_len)
+        ja_bert = torch.zeros(1, 768, seq_len)
         return x, x_lengths, sid, tones, lang_ids, bert, ja_bert

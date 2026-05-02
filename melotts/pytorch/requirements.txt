@@ -1,0 +1,1 @@
+# MeloTTS is installed via requirements.nodeps.txt to avoid transformers version conflict
