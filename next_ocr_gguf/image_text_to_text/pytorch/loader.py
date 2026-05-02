@@ -5,8 +5,11 @@
 Next-OCR GGUF model loader implementation for image-text-to-text tasks.
 """
 import torch
-from transformers import AutoProcessor, Qwen3VLForConditionalGeneration, AutoConfig
-from transformers.image_utils import load_image
+from transformers import (
+    Qwen3VLForConditionalGeneration,
+    AutoProcessor,
+    AutoConfig,
+)
 from typing import Optional
 
 from ....base import ForgeModel
@@ -21,75 +24,65 @@ from ....config import (
 )
 
 
-def _patch_transformers_qwen3vl_gguf():
-    """Monkey-patch transformers to add qwen3vl GGUF architecture support."""
-    from transformers.modeling_gguf_pytorch_utils import (
-        GGUF_SUPPORTED_ARCHITECTURES,
-        GGUF_TO_TRANSFORMERS_MAPPING,
-    )
-    import transformers.modeling_gguf_pytorch_utils as gguf_utils
+def _patch_qwen3vl_for_tt_device():
+    """Patch Qwen3 VL methods that call .tolist() on device tensors.
 
-    if "qwen3vl" in GGUF_SUPPORTED_ARCHITECTURES:
+    TT device does not support eager tensor reads — any .tolist() on a TT
+    tensor triggers a device sync that fails with Error code: 13. Move the
+    small metadata tensors (grid_thw, input_ids) to CPU before calling the
+    original methods so Python control flow stays on CPU while computation
+    stays on TT device.
+    """
+    try:
+        from transformers.models.qwen3_vl import modeling_qwen3_vl
+    except ImportError:
         return
 
-    GGUF_SUPPORTED_ARCHITECTURES.append("qwen3vl")
+    orig_fast_pos = modeling_qwen3_vl.Qwen3VLVisionModel.fast_pos_embed_interpolate
+    orig_rot_pos = modeling_qwen3_vl.Qwen3VLVisionModel.rot_pos_emb
+    orig_get_rope = modeling_qwen3_vl.Qwen3VLModel.get_rope_index
+    orig_get_image = modeling_qwen3_vl.Qwen3VLModel.get_image_features
 
-    GGUF_TO_TRANSFORMERS_MAPPING["config"]["qwen3vl"] = {
-        "context_length": "max_position_embeddings",
-        "block_count": "num_hidden_layers",
-        "feed_forward_length": "intermediate_size",
-        "embedding_length": "hidden_size",
-        "rope.dimension_count": None,
-        "rope.freq_base": "rope_theta",
-        "attention.head_count": "num_attention_heads",
-        "attention.head_count_kv": "num_key_value_heads",
-        "attention.layer_norm_rms_epsilon": "rms_norm_eps",
-        "vocab_size": "vocab_size",
-    }
+    def _patched_fast_pos(self, grid_thw):
+        return orig_fast_pos(self, grid_thw.cpu())
 
-    orig_load = gguf_utils.load_gguf_checkpoint
+    def _patched_rot_pos(self, grid_thw):
+        return orig_rot_pos(self, grid_thw.cpu())
 
-    def patched_load_gguf_checkpoint(*args, **kwargs):
-        result = orig_load(*args, **kwargs)
-        config = result.get("config", {})
-        if config.get("model_type") == "qwen3vl":
-            config["model_type"] = "qwen3_vl"
-        return result
-
-    gguf_utils.load_gguf_checkpoint = patched_load_gguf_checkpoint
-
-    import transformers.models.auto.tokenization_auto as tok_auto
-    import transformers.configuration_utils as config_utils
-    import transformers.modeling_utils as modeling_utils
-
-    for mod in (tok_auto, config_utils, modeling_utils):
-        if hasattr(mod, "load_gguf_checkpoint"):
-            mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
-
-    orig_get_weights_map = gguf_utils.get_gguf_hf_weights_map
-
-    def patched_get_gguf_hf_weights_map(
-        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    def _patched_get_rope(
+        self,
+        input_ids=None,
+        image_grid_thw=None,
+        video_grid_thw=None,
+        attention_mask=None,
+        **kwargs,
     ):
-        if model_type is None and hasattr(hf_model, "config"):
-            mt = getattr(hf_model.config, "model_type", None)
-            if mt == "qwen3_vl":
-                model_type = "qwen3vl"
-        elif model_type == "qwen3_vl":
-            model_type = "qwen3vl"
-        return orig_get_weights_map(
-            hf_model,
-            processor,
-            model_type=model_type,
-            num_layers=num_layers,
-            qual_name=qual_name,
+        orig_device = input_ids.device if input_ids is not None else None
+        position_ids, rope_deltas = orig_get_rope(
+            self,
+            input_ids=input_ids.cpu() if input_ids is not None else None,
+            image_grid_thw=image_grid_thw.cpu() if image_grid_thw is not None else None,
+            video_grid_thw=video_grid_thw.cpu() if video_grid_thw is not None else None,
+            attention_mask=attention_mask.cpu() if attention_mask is not None else None,
+            **kwargs,
+        )
+        if orig_device is not None:
+            position_ids = position_ids.to(orig_device)
+            rope_deltas = rope_deltas.to(orig_device)
+        return position_ids, rope_deltas
+
+    def _patched_get_image(self, pixel_values, image_grid_thw=None, **kwargs):
+        return orig_get_image(
+            self,
+            pixel_values,
+            image_grid_thw=image_grid_thw.cpu() if image_grid_thw is not None else None,
+            **kwargs,
         )
 
-    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
-    modeling_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
-
-
-_patch_transformers_qwen3vl_gguf()
+    modeling_qwen3_vl.Qwen3VLVisionModel.fast_pos_embed_interpolate = _patched_fast_pos
+    modeling_qwen3_vl.Qwen3VLVisionModel.rot_pos_emb = _patched_rot_pos
+    modeling_qwen3_vl.Qwen3VLModel.get_rope_index = _patched_get_rope
+    modeling_qwen3_vl.Qwen3VLModel.get_image_features = _patched_get_image
 
 
 class ModelVariant(StrEnum):
@@ -101,16 +94,25 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """Next-OCR GGUF model loader implementation for image-text-to-text tasks."""
 
+    # The mradermacher i1-GGUF for Next-OCR ships only LM weights
+    # (blk.*, output_norm.*, token_embd.*); the vision encoder tensors are absent.
+    # Additionally, transformers does not register the 'qwen3vl' GGUF architecture
+    # in GGUF_SUPPORTED_ARCHITECTURES, so from_pretrained with gguf_file= raises
+    # ValueError. Load the base model so the vision encoder has trained weights.
+    _BASE_MODEL = "thelamapi/next-ocr"
+
     _VARIANTS = {
         ModelVariant.NEXT_OCR_I1_Q4_K_M: LLMModelConfig(
-            pretrained_model_name="mradermacher/next-ocr-i1-GGUF",
+            pretrained_model_name=_BASE_MODEL,
             max_length=128,
         ),
     }
 
     DEFAULT_VARIANT = ModelVariant.NEXT_OCR_I1_Q4_K_M
 
-    GGUF_FILE = "next-ocr.i1-Q4_K_M.gguf"
+    # Standard pixel limits for Qwen VL models to stay within hardware L1 budget
+    min_pixels = 56 * 56
+    max_pixels = 13 * 28 * 1280
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -129,34 +131,25 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    BASE_MODEL = "thelamapi/next-ocr"
-
-    def _load_processor(self, dtype_override=None):
-        kwargs = {}
-        if dtype_override is not None:
-            kwargs["torch_dtype"] = dtype_override
-
-        self.processor = AutoProcessor.from_pretrained(self.BASE_MODEL, **kwargs)
-
+    def _load_processor(self):
+        self.processor = AutoProcessor.from_pretrained(self._BASE_MODEL)
+        self.processor.image_processor.min_pixels = self.min_pixels
+        self.processor.image_processor.max_pixels = self.max_pixels
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        pretrained_model_name = self._variant_config.pretrained_model_name
-
-        if self.processor is None:
-            self._load_processor(dtype_override=dtype_override)
-
-        config = AutoConfig.from_pretrained(self.BASE_MODEL)
-
-        model_kwargs = {}
+        model_kwargs = {"torch_dtype": torch.bfloat16}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
-        model_kwargs["gguf_file"] = self.GGUF_FILE
-        model_kwargs["config"] = config
+
+        if self.processor is None:
+            self._load_processor()
+
+        _patch_qwen3vl_for_tt_device()
 
         model = Qwen3VLForConditionalGeneration.from_pretrained(
-            pretrained_model_name, **model_kwargs
+            self._BASE_MODEL, **model_kwargs
         ).eval()
 
         self.config = model.config
@@ -165,17 +158,16 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         if self.processor is None:
-            self._load_processor(dtype_override=dtype_override)
-
-        image = load_image(
-            "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/pipeline-cat-chonk.jpeg"
-        )
+            self._load_processor()
 
         messages = [
             {
                 "role": "user",
                 "content": [
-                    {"type": "image", "image": image},
+                    {
+                        "type": "image",
+                        "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
+                    },
                     {"type": "text", "text": "Read the text in this image."},
                 ],
             }
@@ -196,5 +188,5 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(self.BASE_MODEL)
+        self.config = AutoConfig.from_pretrained(self._BASE_MODEL)
         return self.config
