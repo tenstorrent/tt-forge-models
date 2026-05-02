@@ -164,7 +164,7 @@ modeling_vits._unconstrained_rational_quadratic_spline = (
 # where predicted_lengths is an XLA tensor.  Getting .max() requires a
 # device-to-host transfer which fails on TT.  Replace with a static upper bound
 # derived from the input sequence length, so the arange argument is a Python int.
-_MAX_FRAMES_PER_INPUT_TOKEN = 100  # generous upper bound for TTS duration
+_MAX_FRAMES_PER_INPUT_TOKEN = 10  # upper bound for TTS frames per input token
 
 
 def _patched_vits_forward(
