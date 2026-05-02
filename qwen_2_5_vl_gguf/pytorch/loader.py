@@ -50,6 +50,25 @@ def _patch_qwen2vl_gguf():
         if hasattr(mod, "load_gguf_checkpoint"):
             mod.load_gguf_checkpoint = patched_load_gguf_checkpoint
 
+    # Qwen2_5_VLConfig nests num_hidden_layers inside text_config, but
+    # get_gguf_hf_weights_map reads it from the top-level config. Provide
+    # num_layers explicitly and remap model_type to the gguf-py arch name.
+    orig_get_map = gguf_utils.get_gguf_hf_weights_map
+
+    def patched_get_gguf_hf_weights_map(
+        hf_model, processor, model_type=None, num_layers=None, qual_name=""
+    ):
+        if model_type is None:
+            cfg = getattr(hf_model, "config", None)
+            model_type = getattr(cfg, "model_type", None) if cfg is not None else None
+        if model_type == "qwen2_5_vl":
+            if num_layers is None:
+                num_layers = hf_model.config.text_config.num_hidden_layers
+            model_type = "qwen2vl"
+        return orig_get_map(hf_model, processor, model_type, num_layers, qual_name)
+
+    gguf_utils.get_gguf_hf_weights_map = patched_get_gguf_hf_weights_map
+
 
 _patch_qwen2vl_gguf()
 
@@ -132,7 +151,7 @@ class ModelLoader(ForgeModel):
             "max_pixels": self.max_pixels,
         }
         self.processor = AutoProcessor.from_pretrained(
-            self._PROCESSOR_SOURCE, **processor_kwargs
+            self._PROCESSOR_SOURCE, use_fast=False, **processor_kwargs
         )
         return self.processor
 
@@ -143,9 +162,9 @@ class ModelLoader(ForgeModel):
         gguf_file = _GGUF_FILES[self._variant]
 
         config = AutoConfig.from_pretrained(self._PROCESSOR_SOURCE)
-        config.use_cache = False
+        config.text_config.use_cache = False
 
-        model_kwargs = {"low_cpu_mem_usage": True, "use_cache": False, "config": config}
+        model_kwargs = {"low_cpu_mem_usage": True, "config": config}
 
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
