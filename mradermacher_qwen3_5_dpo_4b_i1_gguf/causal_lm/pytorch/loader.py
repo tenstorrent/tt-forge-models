@@ -35,11 +35,47 @@ def _patch_qwen35_support():
         )
 
 
+def _find_true_original():
+    """Traverse the patcher chain to find the true transformers load_gguf_checkpoint.
+
+    Many loaders patch load_gguf_checkpoint at module import time, forming a
+    chain.  We walk the chain until we reach a function whose __module__ is
+    transformers.modeling_gguf_pytorch_utils (the true original), so we can
+    call it with all kwargs including model_to_load (transformers 5.x).
+    """
+    func = _orig_load_gguf_checkpoint
+    seen: set = set()
+    while True:
+        fid = id(func)
+        if fid in seen:
+            break
+        seen.add(fid)
+        if getattr(func, "__module__", "") == "transformers.modeling_gguf_pytorch_utils":
+            return func
+        # Module-level loaders store orig as _orig_load_gguf_checkpoint in globals
+        globs = getattr(func, "__globals__", {})
+        candidate = globs.get("_orig_load_gguf_checkpoint")
+        if candidate is None:
+            # Context-manager-style loaders capture orig_load as a closure cell
+            closure = getattr(func, "__closure__", None) or ()
+            freevars = getattr(func.__code__, "co_freevars", ()) if hasattr(func, "__code__") else ()
+            for cell, name in zip(closure, freevars):
+                if name in ("orig_load", "_orig_load_gguf_checkpoint", "original"):
+                    try:
+                        candidate = cell.cell_contents
+                    except ValueError:
+                        pass
+                    break
+        if candidate is None or id(candidate) in seen:
+            break
+        func = candidate
+    return func
+
+
 def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None, **kwargs):
-    # model_to_load is a transformers 5.x addition; accepted but not forwarded
-    # since the chain of patched originals doesn't accept it either.
     _patch_qwen35_support()
-    result = _orig_load_gguf_checkpoint(gguf_path, return_tensors=return_tensors)
+    true_orig = _find_true_original()
+    result = true_orig(gguf_path, return_tensors=return_tensors, model_to_load=model_to_load)
     if result.get("config", {}).get("model_type") == "qwen35":
         result["config"]["model_type"] = "qwen3"
     return result
