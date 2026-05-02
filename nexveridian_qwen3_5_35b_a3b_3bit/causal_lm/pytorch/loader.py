@@ -35,21 +35,29 @@ def _dequantize_mlx_affine(
 ) -> torch.Tensor:
     """Dequantize MLX affine group quantization for any bit width.
 
-    weight_uint32: (rows, cols_packed) uint32 — bits-per-value, packed LSB-first.
-    scales:  (rows, num_groups) bfloat16 — scale per group.
-    biases:  (rows, num_groups) bfloat16 — bias (zero-point) per group.
+    weight_uint32: (..., cols_packed) uint32 — bits-per-value, packed LSB-first.
+                   May be 2D (rows, cols_packed) or 3D (experts, rows, cols_packed).
+    scales:  (..., num_groups) bfloat16 — scale per group.
+    biases:  (..., num_groups) bfloat16 — bias (zero-point) per group.
     bits:    number of bits per weight value (3 or 8).
-    Returns bfloat16 tensor of shape (rows, in_features) where in_features is
+    Returns bfloat16 tensor of shape (..., in_features) where in_features is
     determined from cols_packed and bits.
     """
-    rows, cols_packed = weight_uint32.shape
+    original_shape = weight_uint32.shape
+    cols_packed = original_shape[-1]
+
+    # Flatten all leading dims so the dequant logic only sees 2D arrays.
+    w_2d = weight_uint32.reshape(-1, cols_packed)
+    s_2d = scales.reshape(-1, scales.shape[-1])
+    b_2d = biases.reshape(-1, biases.shape[-1])
+    rows = w_2d.shape[0]
+
     mask = (1 << bits) - 1
 
     if 32 % bits == 0:
         # Exact packing: bits divides 32, so no cross-boundary values.
-        # View as the smallest integer type that holds `bits` bits.
         in_features = cols_packed * (32 // bits)
-        w_bytes = weight_uint32.cpu().numpy().view(np.uint8)  # (rows, cols_packed*4)
+        w_bytes = w_2d.cpu().numpy().view(np.uint8)  # (rows, cols_packed*4)
         if bits == 8:
             # Each byte is one 8-bit weight.
             main = w_bytes.astype(np.uint32)  # (rows, in_features)
@@ -61,7 +69,7 @@ def _dequantize_mlx_affine(
     else:
         # Non-exact packing (e.g. bits==3): values span uint32 boundaries.
         in_features = (cols_packed * 32) // bits
-        w_np = weight_uint32.cpu().numpy().view(np.uint32)
+        w_np = w_2d.cpu().numpy().view(np.uint32)
         bit_positions = np.arange(in_features, dtype=np.int64) * bits
         w32_idx = (bit_positions // 32).astype(np.int32)
         bit_off = (bit_positions % 32).astype(np.int32)
@@ -76,13 +84,15 @@ def _dequantize_mlx_affine(
             main[:, i] = low | (high << bits_first)
 
     # Group-expand scales and biases then apply: w = q * scale + bias
-    scales_f = scales.float().cpu().numpy()  # (rows, num_groups)
-    biases_f = biases.float().cpu().numpy()
+    scales_f = s_2d.float().cpu().numpy()  # (rows, num_groups)
+    biases_f = b_2d.float().cpu().numpy()
     scale_exp = np.repeat(scales_f, group_size, axis=1)  # (rows, in_features)
     bias_exp = np.repeat(biases_f, group_size, axis=1)
 
     dequant = main.astype(np.float32) * scale_exp + bias_exp
-    return torch.from_numpy(dequant).to(torch.bfloat16)
+    result = torch.from_numpy(dequant).to(torch.bfloat16)
+    # Restore original leading dims with the unpacked in_features as last dim.
+    return result.reshape(*original_shape[:-1], in_features)
 
 
 class ModelVariant(StrEnum):
