@@ -235,9 +235,12 @@ def _patched_vits_forward(
 
     # Use a static upper bound derived from the input length to avoid
     # predicted_lengths.max() (device-to-host transfer).
+    # Use duration.dtype (float) instead of predicted_lengths.dtype (int64):
+    # TT maps int64 to bfloat16 internally, and int64 arange/comparison on TT
+    # hardware produces a broken all-False mask.  A float arange avoids this.
     static_max_output_length = input_ids.shape[1] * _MAX_FRAMES_PER_INPUT_TOKEN
-    indices = torch.arange(static_max_output_length, dtype=predicted_lengths.dtype, device=predicted_lengths.device)
-    output_padding_mask = indices.unsqueeze(0) < predicted_lengths.unsqueeze(1)
+    indices = torch.arange(static_max_output_length, dtype=duration.dtype, device=predicted_lengths.device)
+    output_padding_mask = indices.unsqueeze(0) < predicted_lengths.to(duration.dtype).unsqueeze(1)
     output_padding_mask = output_padding_mask.unsqueeze(1).to(input_padding_mask.dtype)
 
     attn_mask = torch.unsqueeze(input_padding_mask, 2) * torch.unsqueeze(output_padding_mask, -1)
