@@ -8,13 +8,11 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
-import transformers.configuration_utils as _config_utils
+import contextlib
 import transformers.modeling_gguf_pytorch_utils as _gguf_utils
-import transformers.models.auto.tokenization_auto as _auto_tokenizer
-import transformers.tokenization_utils_tokenizers as _tok_utils
 from transformers.modeling_gguf_pytorch_utils import (
-    load_gguf_checkpoint as _orig_load_gguf_checkpoint,
-    get_gguf_hf_weights_map as _orig_get_gguf_hf_weights_map,
+    load_gguf_checkpoint as _true_orig_load_gguf_checkpoint,
+    get_gguf_hf_weights_map as _true_orig_get_gguf_hf_weights_map,
     GGUF_SUPPORTED_ARCHITECTURES,
 )
 from transformers.integrations.ggml import GGUF_TO_FAST_CONVERTERS
@@ -42,11 +40,10 @@ def _patch_mistral3_support():
         GGUF_TO_FAST_CONVERTERS.setdefault("mistral3", GGUF_TO_FAST_CONVERTERS["llama"])
 
 
-def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, **kwargs):
-    """Wrap load_gguf_checkpoint to add mistral3 support and fix model_type."""
-    _patch_mistral3_support()
-    result = _orig_load_gguf_checkpoint(
-        gguf_path, return_tensors=return_tensors, **kwargs
+def _patched_load_gguf_checkpoint(gguf_path, return_tensors=False, model_to_load=None, **kwargs):
+    """Wrap load_gguf_checkpoint to add mistral3 support and remap model_type."""
+    result = _true_orig_load_gguf_checkpoint(
+        gguf_path, return_tensors=return_tensors, model_to_load=model_to_load, **kwargs
     )
     if result.get("config", {}).get("model_type") == "mistral3":
         result["config"]["model_type"] = "mistral"
@@ -66,7 +63,7 @@ def _patched_get_gguf_hf_weights_map(
         model_type = getattr(hf_model.config, "model_type", None)
     if model_type == "mistral":
         model_type = "mistral3"
-    return _orig_get_gguf_hf_weights_map(
+    return _true_orig_get_gguf_hf_weights_map(
         hf_model,
         processor,
         model_type=model_type,
@@ -75,12 +72,26 @@ def _patched_get_gguf_hf_weights_map(
     )
 
 
+@contextlib.contextmanager
+def _mistral3_gguf_patch():
+    """Context manager that installs our mistral3 GGUF patches for the duration of from_pretrained.
+
+    Uses a context manager rather than global module-level patching so that
+    later-imported loaders cannot overwrite our patch before from_pretrained runs.
+    """
+    _patch_mistral3_support()
+    old_load = _gguf_utils.load_gguf_checkpoint
+    old_map = _gguf_utils.get_gguf_hf_weights_map
+    _gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
+    _gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
+    try:
+        yield
+    finally:
+        _gguf_utils.load_gguf_checkpoint = old_load
+        _gguf_utils.get_gguf_hf_weights_map = old_map
+
+
 _patch_mistral3_support()
-_gguf_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_config_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_auto_tokenizer.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_tok_utils.load_gguf_checkpoint = _patched_load_gguf_checkpoint
-_gguf_utils.get_gguf_hf_weights_map = _patched_get_gguf_hf_weights_map
 
 from ....base import ForgeModel
 from ....config import (
@@ -162,15 +173,17 @@ class ModelLoader(ForgeModel):
         model_kwargs["gguf_file"] = self.GGUF_FILE
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(
-                pretrained_model_name, gguf_file=self.GGUF_FILE
-            )
+            with _mistral3_gguf_patch():
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name, gguf_file=self.GGUF_FILE
+                )
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        ).eval()
+        with _mistral3_gguf_patch():
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            ).eval()
 
         self.config = model.config
         self.model = model
@@ -227,7 +240,8 @@ class ModelLoader(ForgeModel):
         return shard_specs
 
     def load_config(self):
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
-        )
+        with _mistral3_gguf_patch():
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name, gguf_file=self.GGUF_FILE
+            )
         return self.config
