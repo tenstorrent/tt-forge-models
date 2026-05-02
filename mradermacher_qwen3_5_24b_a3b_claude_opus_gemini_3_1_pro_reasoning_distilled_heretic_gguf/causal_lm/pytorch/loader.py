@@ -71,15 +71,15 @@ def _patch_transformers_qwen35moe_gguf():
     # 2. Find the real load_gguf_checkpoint by traversing narrow-sig wrapper chains.
     # Narrow-sig loaders (def fn(gguf_path, return_tensors=False)) capture the previous
     # function as _orig_load_gguf_checkpoint in their globals. We traverse this chain
-    # until we reach a function that accepts model_to_load or uses **kwargs.
+    # until we reach the real transformers function that has model_to_load explicitly.
+    # Some wrappers use (*args, **kwargs) but still wrap a narrow-sig _orig — we must
+    # traverse through those too; only stop when model_to_load is in the signature.
     fn = gguf_utils.load_gguf_checkpoint
     seen = set()
     while fn is not None and id(fn) not in seen:
         seen.add(id(fn))
         params = inspect.signature(fn).parameters
-        if "model_to_load" in params or any(
-            p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
-        ):
+        if "model_to_load" in params:
             break
         orig = fn.__globals__.get("_orig_load_gguf_checkpoint")
         if orig is not None and orig is not fn:
