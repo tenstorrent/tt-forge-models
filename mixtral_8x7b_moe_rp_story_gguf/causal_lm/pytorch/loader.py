@@ -88,11 +88,6 @@ class ModelLoader(ForgeModel):
         gguf_path = hf_hub_download(repo_id=pretrained_model_name, filename=self.GGUF_FILE)
         model = _load_mixtral_from_gguf(gguf_path, dtype=dtype_override or torch.bfloat16)
 
-        # MixtralExperts.forward uses a Python for-loop with a runtime-determined
-        # trip count (nonzero(expert_hit)), which XLA cannot trace. Switch to
-        # batched_mm which uses only static tensor operations.
-        model.config._experts_implementation = "batched_mm"
-
         self.config = model.config
         self.model = model
         return model
@@ -217,23 +212,32 @@ def _gguf_to_mixtral_name(gguf_name: str) -> Optional[str]:
         "attn_output.weight": "self_attn.o_proj.weight",
         "attn_norm.weight": "input_layernorm.weight",
         "ffn_norm.weight": "post_attention_layernorm.weight",
-        "ffn_gate_inp.weight": "block_sparse_moe.gate.weight",
+        "ffn_gate_inp.weight": "mlp.gate.weight",
     }
     if key in _simple:
         return prefix + _simple[key]
 
+    # Individual per-expert tensors (ffn_gate.N, ffn_down.N, ffn_up.N) are
+    # collected and batched separately in _load_mixtral_from_gguf — skip here.
+
+    return None
+
+
+def _gguf_to_expert_info(gguf_name: str):
+    """Return (layer_idx, expert_idx, weight_type) for per-expert GGUF tensors, else None."""
+    m = re.fullmatch(r"blk\.(\d+)\.(.+)", gguf_name)
+    if not m:
+        return None
+    layer_idx, key = int(m.group(1)), m.group(2)
     m2 = re.fullmatch(r"ffn_gate\.(\d+)\.weight", key)
     if m2:
-        return prefix + f"block_sparse_moe.experts.{m2.group(1)}.w1.weight"
-
+        return layer_idx, int(m2.group(1)), "w1"
     m2 = re.fullmatch(r"ffn_down\.(\d+)\.weight", key)
     if m2:
-        return prefix + f"block_sparse_moe.experts.{m2.group(1)}.w2.weight"
-
+        return layer_idx, int(m2.group(1)), "w2"
     m2 = re.fullmatch(r"ffn_up\.(\d+)\.weight", key)
     if m2:
-        return prefix + f"block_sparse_moe.experts.{m2.group(1)}.w3.weight"
-
+        return layer_idx, int(m2.group(1)), "w3"
     return None
 
 
@@ -247,8 +251,21 @@ def _load_mixtral_from_gguf(gguf_path: str, dtype: torch.dtype = torch.bfloat16)
     num_kv_heads = config.num_key_value_heads
 
     state_dict = {}
+    # expert_weights[layer_idx][expert_idx] = {"w1": ..., "w2": ..., "w3": ...}
+    expert_weights: dict = {}
+
     for tensor in tqdm(reader.tensors, desc="Loading GGUF tensors"):
         gguf_name = tensor.name
+
+        # Separate per-expert tensors from the rest
+        expert_info = _gguf_to_expert_info(gguf_name)
+        if expert_info is not None:
+            layer_idx, expert_idx, wtype = expert_info
+            expert_weights.setdefault(layer_idx, {}).setdefault(expert_idx, {})[wtype] = (
+                torch.from_numpy(np.copy(dequantize(tensor.data, tensor.tensor_type))).to(dtype)
+            )
+            continue
+
         hf_name = _gguf_to_mixtral_name(gguf_name)
         if hf_name is None:
             continue
@@ -261,6 +278,21 @@ def _load_mixtral_from_gguf(gguf_path: str, dtype: torch.dtype = torch.bfloat16)
             weights = _reverse_permute(weights, num_heads, num_kv_heads)
 
         state_dict[hf_name] = weights.to(dtype)
+
+    # Build batched expert tensors:
+    #   gate_up_proj [E, 2*I, H] = cat([w1_e, w3_e], dim=0) stacked over E
+    #   down_proj    [E, H, I]   = w2_e stacked over E
+    for layer_idx, experts in expert_weights.items():
+        n_experts = len(experts)
+        prefix = f"model.layers.{layer_idx}.mlp.experts."
+        gate_up_list = [
+            torch.cat([experts[e]["w1"], experts[e]["w3"]], dim=0)
+            for e in range(n_experts)
+        ]
+        state_dict[prefix + "gate_up_proj"] = torch.stack(gate_up_list, dim=0)
+        state_dict[prefix + "down_proj"] = torch.stack(
+            [experts[e]["w2"] for e in range(n_experts)], dim=0
+        )
 
     model = MixtralForCausalLM(config).eval()
     missing, unexpected = model.load_state_dict(state_dict, strict=False)
