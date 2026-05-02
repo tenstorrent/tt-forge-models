@@ -60,10 +60,14 @@ def _patch_lumina2_converter():
     Lumina-Image-2.0 GQA model (q_dim=2304, k/v_dim=768). This model uses full
     MHA with equal Q/K/V dimensions (hidden_size=3840, head_dim=128), so the
     split must be computed dynamically from the actual tensor shape.
-    """
-    import diffusers.loaders.single_file_utils as _sfu
 
-    original = _sfu.convert_lumina2_to_diffusers
+    The function reference is stored in SINGLE_FILE_LOADABLE_CLASSES so we must
+    patch that dict entry, not just the module-level symbol.
+    """
+    import diffusers.loaders.single_file_model as _sfm
+
+    _CLASS_ENTRY = _sfm.SINGLE_FILE_LOADABLE_CLASSES["Lumina2Transformer2DModel"]
+    original = _CLASS_ENTRY["checkpoint_mapping_fn"]
 
     def _patched(checkpoint, **kwargs):
         converted_state_dict = {}
@@ -138,11 +142,11 @@ def _patch_lumina2_converter():
 
         return converted_state_dict
 
-    _sfu.convert_lumina2_to_diffusers = _patched
+    _CLASS_ENTRY["checkpoint_mapping_fn"] = _patched
     try:
         yield
     finally:
-        _sfu.convert_lumina2_to_diffusers = original
+        _CLASS_ENTRY["checkpoint_mapping_fn"] = original
 
 
 class ModelLoader(ForgeModel):
