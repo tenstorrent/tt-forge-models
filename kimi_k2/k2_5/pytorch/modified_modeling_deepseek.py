@@ -43,7 +43,7 @@ from transformers.modeling_outputs import (
 from transformers.modeling_utils import PreTrainedModel
 from transformers.pytorch_utils import (
     ALL_LAYERNORM_LAYERS,
-    is_torch_greater_or_equal_than_1_13,
+    # is_torch_greater_or_equal_than_1_13, # Modified: not used in kimi-k2.5 and not present in kimi-k2
 )
 from transformers.utils import (
     add_start_docstrings,
@@ -54,7 +54,7 @@ from transformers.utils import (
     replace_return_docstrings,
 )
 
-# from transformers.utils.import_utils import is_torch_fx_available
+# from transformers.utils.import_utils import is_torch_fx_available # Modified: not used in kimi-k2.5 and not present in kimi-k2
 
 from .configuration_deepseek import DeepseekV3Config
 
@@ -63,6 +63,7 @@ if is_flash_attn_2_available():
     from flash_attn.bert_padding import pad_input  # noqa
     from flash_attn.bert_padding import index_first_axis, unpad_input
 
+# Modified: not used in kimi-k2.5 and not present in kimi-k2
 # This makes `_prepare_4d_causal_attention_mask` a leaf function in the FX graph.
 # It means that the function will not be traced through and simply appear as a node in the graph.
 # if is_torch_fx_available():
@@ -89,6 +90,10 @@ def _get_unpad_data(attention_mask):
         max_seqlen_in_batch,
     )
 
+
+# Modified: kimi-k2.5 uses this instead of get_seq_len in kimi-k2. Since we use MLACache, neither
+# get called. This is the only notable differnce between kimi-k2 and kimi-k2.5. Chosing to use
+# the newer version of the function.
 
 # code modified from transformers 4.48.3 to amend breaks in newer transformers versions
 def get_usable_length(
@@ -812,80 +817,44 @@ class DeepseekV3Attention(nn.Module):
         )
         k_pe = k_pe.view(bsz, q_len, 1, self.qk_rope_head_dim).transpose(1, 2)
 
-        # Modified: branch on MLACache (static, compressed KV) vs DynamicCache (expanded KV).
-        # MLAStaticLayer.get_max_cache_shape() returns max_cache_len > 0;
-        # DynamicLayer.get_max_cache_shape() returns -1.
-        _is_mla_cache = (
-            past_key_value is not None and past_key_value.get_max_cache_shape() > 0
-        )
+        # Modified: use MLACache to get cached key and value states
+        kv_seq_len = past_key_value.get_max_cache_shape() if past_key_value else q_len
+        cos, sin = self.rotary_emb(k_pe, seq_len=kv_seq_len)
+        q_pe, k_pe = apply_rotary_pos_emb(q_pe, k_pe, cos, sin, position_ids)
 
-        if _is_mla_cache:
-            # Modified: MLACache path — RoPE over full max_cache_len, cache compressed_kv + k_pe
-            kv_seq_len = past_key_value.get_max_cache_shape()
-            cos, sin = self.rotary_emb(k_pe, seq_len=kv_seq_len)
-            q_pe, k_pe = apply_rotary_pos_emb(q_pe, k_pe, cos, sin, position_ids)
-
-            cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
+        if past_key_value is not None:
+            if self.layer_idx is None:
+                raise ValueError(
+                    f"The cache structure has changed since version v4.36. If you are using {self.__class__.__name__} "
+                    "for auto-regressive decoding with k/v caching, please make sure to initialize the attention class "
+                    "with a layer index."
+                )
+            cache_kwargs = {
+                "sin": sin,
+                "cos": cos,
+                "cache_position": cache_position,
+            }  # Specific to RoPE models
             compressed_kv, k_pe = past_key_value.update(
                 compressed_kv.unsqueeze(1), k_pe, self.layer_idx, cache_kwargs
             )
             compressed_kv = compressed_kv.squeeze(1)
 
-            kv = (
-                self.kv_b_proj(self.kv_a_layernorm(compressed_kv))
-                .view(
-                    bsz,
-                    kv_seq_len,
-                    self.num_heads,
-                    self.qk_nope_head_dim + self.v_head_dim,
-                )
-                .transpose(1, 2)
+        kv = (
+            self.kv_b_proj(self.kv_a_layernorm(compressed_kv))
+            .view(
+                bsz, kv_seq_len, self.num_heads, self.qk_nope_head_dim + self.v_head_dim
             )
-            k_nope, value_states = torch.split(
-                kv, [self.qk_nope_head_dim, self.v_head_dim], dim=-1
-            )
-            query_states = torch.cat([q_nope, q_pe], dim=-1)
-            key_states = torch.cat(
-                [k_nope, k_pe.expand(-1, self.num_heads, -1, -1)], dim=-1
-            )
-        else:
-            # Standard DynamicCache path — expand KV now, cache full key/value states
-            kv = (
-                self.kv_b_proj(self.kv_a_layernorm(compressed_kv))
-                .view(
-                    bsz, q_len, self.num_heads, self.qk_nope_head_dim + self.v_head_dim
-                )
-                .transpose(1, 2)
-            )
-            k_nope, value_states = torch.split(
-                kv, [self.qk_nope_head_dim, self.v_head_dim], dim=-1
-            )
-            kv_seq_len = value_states.shape[-2]
-            if past_key_value is not None:
-                if self.layer_idx is None:
-                    raise ValueError(
-                        f"The cache structure has changed since version v4.36. If you are using {self.__class__.__name__} "
-                        "for auto-regressive decoding with k/v caching, please make sure to initialize the attention class "
-                        "with a layer index."
-                    )
-                kv_seq_len += get_usable_length(
-                    past_key_value, kv_seq_len, self.layer_idx
-                )
-            cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
-            q_pe, k_pe = apply_rotary_pos_emb(q_pe, k_pe, cos, sin, position_ids)
+            .transpose(1, 2)
+        )
 
-            query_states = k_pe.new_empty(bsz, self.num_heads, q_len, self.q_head_dim)
-            query_states[:, :, :, : self.qk_nope_head_dim] = q_nope
-            query_states[:, :, :, self.qk_nope_head_dim :] = q_pe
-            key_states = k_pe.new_empty(bsz, self.num_heads, q_len, self.q_head_dim)
-            key_states[:, :, :, : self.qk_nope_head_dim] = k_nope
-            key_states[:, :, :, self.qk_nope_head_dim :] = k_pe
+        k_nope, value_states = torch.split(
+            kv, [self.qk_nope_head_dim, self.v_head_dim], dim=-1
+        )
 
-            if past_key_value is not None:
-                cache_kwargs = {"sin": sin, "cos": cos}  # Specific to RoPE models
-                key_states, value_states = past_key_value.update(
-                    key_states, value_states, self.layer_idx, cache_kwargs
-                )
+        query_states = torch.cat([q_nope, q_pe], dim=-1)
+        key_states = torch.cat(
+            [k_nope, k_pe.expand(-1, self.num_heads, -1, -1)], dim=-1
+        )
 
         attn_weights = (
             torch.matmul(query_states, key_states.transpose(2, 3)) * self.softmax_scale
@@ -1505,7 +1474,11 @@ class DeepseekV3Model(DeepseekV3PreTrainedModel):
         if use_cache:
             use_legacy_cache = not isinstance(past_key_values, Cache)
             if use_legacy_cache:
-                past_key_values = DynamicCache.from_legacy_cache(past_key_values)
+                new_cache = DynamicCache()
+                if past_key_values is not None:
+                    for layer_idx, (k, v) in enumerate(past_key_values):
+                        new_cache.update(k, v, layer_idx)
+                past_key_values = new_cache
             # Modified: Only call get_usable_length() when cache_position is absent; when
             # cache_position is provided we derive position_ids and the mask
             # directly from it, avoiding "failed to legalize operation
@@ -1515,7 +1488,7 @@ class DeepseekV3Model(DeepseekV3PreTrainedModel):
 
         if position_ids is None:
             if cache_position is not None:
-                # Modified: use cache_position to get position_ids
+                # Modified: use MLACache to get position_ids
                 position_ids = cache_position.unsqueeze(0)
             else:
                 device = (
@@ -1613,11 +1586,12 @@ class DeepseekV3Model(DeepseekV3PreTrainedModel):
 
         next_cache = None
         if use_cache:
-            next_cache = (
-                next_decoder_cache.to_legacy_cache()
-                if use_legacy_cache
-                else next_decoder_cache
-            )
+            if use_legacy_cache:
+                next_cache = tuple(
+                    (layer.keys, layer.values) for layer in next_decoder_cache.layers
+                )
+            else:
+                next_cache = next_decoder_cache
         if not return_dict:
             return tuple(
                 v
