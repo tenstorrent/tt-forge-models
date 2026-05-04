@@ -102,22 +102,13 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
+    def _load_tokenizer(self):
         """Load tokenizer for the current variant.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the tokenizer's default dtype.
-
         Returns:
             The loaded tokenizer instance
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name, **tokenizer_kwargs
-        )
+        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         return self.tokenizer
@@ -126,7 +117,6 @@ class ModelLoader(ForgeModel):
         """Load and return the Gemma model instance for this instance's variant.
 
         Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
@@ -134,7 +124,7 @@ class ModelLoader(ForgeModel):
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
@@ -168,7 +158,7 @@ class ModelLoader(ForgeModel):
         """
         max_length = self._variant_config.max_length
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
         self.tokenizer.padding_side = "right"
         if self._variant == ModelVariant.GEMMA_2B:
             input_prompt = prompt or self.sample_text
@@ -253,7 +243,7 @@ class ModelLoader(ForgeModel):
         Attention mask is intentionally omitted for single-batch decode. Defaults to steady-state decode.
         """
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
         if self.config is None:
             self.load_config()
 
