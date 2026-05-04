@@ -3095,19 +3095,7 @@ def paste_masks_in_image(
 
     img_h, img_w = image_shape
 
-    if device.type == "cpu" or torch.jit.is_scripting():
-        # CPU is most efficient when they are pasted one by one with skip_empty=True
-        # so that it performs minimal number of operations.
-        num_chunks = N
-    else:
-        # GPU benefits from parallelism for larger chunks, but may have memory issue
-        # int(img_h) because shape may be tensors in tracing
-        num_chunks = int(
-            np.ceil(N * int(img_h) * int(img_w) * BYTES_PER_FLOAT / GPU_MEM_LIMIT)
-        )
-        assert (
-            num_chunks <= N
-        ), "Default GPU_MEM_LIMIT in mask_ops.py is too small; try increasing it"
+    num_chunks = N
     chunks = torch.chunk(torch.arange(N, device=device), num_chunks)
 
     img_masks = torch.zeros(
