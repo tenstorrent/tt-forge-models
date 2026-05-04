@@ -94,16 +94,25 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
-        model_kwargs |= kwargs
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
+        model_kwargs |= kwargs
+
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         ).eval()
+
+        # Force use_cache=False on the live model config so the forward
+        # output does not include a Qwen3_5DynamicCache, which the runner's
+        # pytree comparator can't diff leaf-wise against the CPU golden.
+        # Same pattern as qwen_2_5_vl loader — passing use_cache via
+        # from_pretrained kwargs / config is overwritten when the model
+        # rebuilds its config from the checkpoint.
+        model.config.use_cache = False
 
         self.config = model.config
         self.model = model
