@@ -77,16 +77,10 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
+    def _load_tokenizer(self):
         """Load tokenizer for the current variant."""
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            trust_remote_code=True,
-            **tokenizer_kwargs,
+            self._variant_config.pretrained_model_name, trust_remote_code=True
         )
         self.tokenizer.pad_token = self.tokenizer.eos_token
         return self.tokenizer
@@ -106,14 +100,14 @@ class ModelLoader(ForgeModel):
         )
 
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
         return model
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the DeepSeek Coder model."""
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
         messages = [{"role": "user", "content": self.sample_text}]
         inputs = self.tokenizer.apply_chat_template(

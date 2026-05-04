@@ -2070,9 +2070,13 @@ class BEVFormerEncoder(TransformerLayerSequence):
         for img_meta in img_metas:
             lidar2img.append(img_meta["lidar2img"])
         lidar2img = np.asarray(lidar2img)
-        lidar2img = torch.from_numpy(lidar2img).to(
-            device=reference_points.device, dtype=reference_points.dtype
-        )  # (B, N, 4, 4)
+        lidar2img = torch.as_tensor(
+            lidar2img, device=reference_points.device, dtype=reference_points.dtype
+        )
+        if lidar2img.dim() == 2:
+            lidar2img = lidar2img.unsqueeze(0).unsqueeze(0)
+        elif lidar2img.dim() == 3:
+            lidar2img = lidar2img.unsqueeze(1)
         reference_points = reference_points.clone()
 
         reference_points[..., 0:1] = (
@@ -2091,6 +2095,14 @@ class BEVFormerEncoder(TransformerLayerSequence):
 
         reference_points = reference_points.permute(1, 0, 2, 3)
         D, B, num_query = reference_points.size()[:3]
+        if lidar2img.size(0) != B:
+            if lidar2img.size(0) == 1:
+                lidar2img = lidar2img.expand(B, -1, -1, -1)
+            else:
+                raise RuntimeError(
+                    f"point_sampling batch mismatch: lidar2img batch={lidar2img.size(0)}, "
+                    f"reference_points batch={B}"
+                )
         num_cam = lidar2img.size(1)
 
         reference_points = (
@@ -2179,6 +2191,14 @@ class BEVFormerEncoder(TransformerLayerSequence):
         bs, len_bev, num_bev_level, _ = ref_2d.shape
         if prev_bev is not None:
             prev_bev = prev_bev.permute(1, 0, 2)
+            if prev_bev.size(0) != bev_query.size(0):
+                if prev_bev.size(0) == 1:
+                    prev_bev = prev_bev.expand(bev_query.size(0), -1, -1)
+                else:
+                    raise RuntimeError(
+                        f"forward temporal batch mismatch: prev_bev batch={prev_bev.size(0)}, "
+                        f"bev_query batch={bev_query.size(0)}"
+                    )
             prev_bev = torch.stack([prev_bev, bev_query], 1).reshape(
                 bs * 2, len_bev, -1
             )
@@ -3196,18 +3216,27 @@ class SSR(MVXTwoStageDetector):
         if not self.video_test_mode:
             self.prev_frame_info["prev_bev"] = None
 
-        tmp_pos = copy.deepcopy(img_metas[0][0]["can_bus"][:3])
-        tmp_angle = copy.deepcopy(img_metas[0][0]["can_bus"][-1])
-        img_metas[0][0]["can_bus"][-1] = 0
-        img_metas[0][0]["can_bus"][:3] = 0
+        can_bus = img_metas[0][0]["can_bus"]
+        tmp_pos = copy.deepcopy(can_bus[:3])
+        tmp_angle = copy.deepcopy(can_bus[-1])
 
-        # Convert can_bus from numpy to a tensor on the model's device so that
-        # the compiled graph fragment for simple_test receives a properly placed
-        # tensor instead of a CPU tensor (which breaks XLA graph partitioning).
-        _dev = next(self.parameters()).device
-        img_metas[0][0]["can_bus"] = torch.as_tensor(
-            img_metas[0][0]["can_bus"], dtype=torch.float64
-        ).to(_dev)
+        # Keep can_bus updates on one device to avoid FakeTensor mixed-device
+        # propagation issues from in-place setitem lowering.
+        _dev = (
+            can_bus.device
+            if torch.is_tensor(can_bus)
+            else next(self.parameters()).device
+        )
+        can_bus = torch.as_tensor(can_bus, device=_dev)
+        can_bus = torch.cat(
+            [
+                torch.zeros_like(can_bus[:3]),
+                can_bus[3:-1],
+                torch.zeros_like(can_bus[-1:]),
+            ],
+            dim=0,
+        )
+        img_metas[0][0]["can_bus"] = can_bus
 
         new_prev_bev, bbox_results = self.simple_test(
             img_metas=img_metas[0],

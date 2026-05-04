@@ -967,6 +967,29 @@ class LiDARInstance3DBoxes(BaseInstance3DBoxes):
         return self.tensor[:, [0, 1, 3, 4, 6]]
 
 
+def _preprocess_can_bus(prev_frame_info, img_metas, device):
+    """Extract and update CAN bus metadata. Disabled from torch.compile to avoid
+    graph breaks from float() calls on CPU data being traced into XLA-compiled graphs."""
+    can_bus_raw = img_metas[0][0]["can_bus"]
+    tmp_pos = [float(can_bus_raw[0]), float(can_bus_raw[1]), float(can_bus_raw[2])]
+    tmp_angle = float(can_bus_raw[-1])
+
+    can_bus = torch.as_tensor(can_bus_raw, dtype=torch.float64).to(device)
+    can_bus = can_bus.clone()
+
+    if prev_frame_info["prev_bev"] is not None:
+        prev_pos = can_bus.new_tensor(prev_frame_info["prev_pos"])
+        prev_angle = can_bus.new_tensor(prev_frame_info["prev_angle"])
+        can_bus[:3] = can_bus[:3] - prev_pos
+        can_bus[-1] = can_bus[-1] - prev_angle
+    else:
+        can_bus[:3] = 0.0
+        can_bus[-1] = 0.0
+
+    img_metas[0][0]["can_bus"] = can_bus
+    return tmp_pos, tmp_angle
+
+
 class BEVFormer(MVXTwoStageDetector):
     def __init__(
         self,
@@ -1063,31 +1086,8 @@ class BEVFormer(MVXTwoStageDetector):
         if not self.video_test_mode:
             self.prev_frame_info["prev_bev"] = None
 
-        tmp_pos = [
-            float(img_metas[0][0]["can_bus"][0]),
-            float(img_metas[0][0]["can_bus"][1]),
-            float(img_metas[0][0]["can_bus"][2]),
-        ]
-        tmp_angle = float(img_metas[0][0]["can_bus"][-1])
-        # Keep can_bus as a tensor on the model device before any in-place edits.
-        # Using Python-list slice assignment on an XLA tensor can introduce CPU
-        # values into the graph and trigger device propagation failures.
         _dev = next(self.parameters()).device
-        can_bus = torch.as_tensor(img_metas[0][0]["can_bus"], dtype=torch.float64).to(
-            _dev
-        )
-        can_bus = can_bus.clone()
-
-        if self.prev_frame_info["prev_bev"] is not None:
-            prev_pos = can_bus.new_tensor(self.prev_frame_info["prev_pos"])
-            prev_angle = can_bus.new_tensor(self.prev_frame_info["prev_angle"])
-            can_bus[:3] = can_bus[:3] - prev_pos
-            can_bus[-1] = can_bus[-1] - prev_angle
-        else:
-            can_bus[:3] = 0.0
-            can_bus[-1] = 0.0
-
-        img_metas[0][0]["can_bus"] = can_bus
+        tmp_pos, tmp_angle = _preprocess_can_bus(self.prev_frame_info, img_metas, _dev)
 
         new_prev_bev, bbox_results = self.simple_test(
             img_metas[0], img[0], prev_bev=self.prev_frame_info["prev_bev"], **kwargs
