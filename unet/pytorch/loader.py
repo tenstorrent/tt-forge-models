@@ -323,6 +323,8 @@ class ModelLoader(ForgeModel):
         dtype_override=None,
         threshold=0.5,
         apply_lcc=True,
+        top_k=None,
+        min_confidence=None,
     ):
         """Post-process model outputs for segmentation tasks.
 
@@ -354,6 +356,33 @@ class ModelLoader(ForgeModel):
         """
         cfg = self._variant_config
         source = cfg.source
+
+        # Classification-shaped result requested by ForgeRunner CNN flow:
+        # adapt segmentation output to {labels, probabilities, indices} via
+        # per-class pixel share, since UNet has no classification head but
+        # is wired through the /v1/cnn/search-image endpoint.
+        if top_k is not None and output is not None:
+            output_tensor = self._extract_output_tensor(output)
+            if output_tensor is None:
+                return None
+            t = output_tensor.detach().float().cpu()
+            if t.dim() == 4 and t.shape[1] > 1:
+                preds = t.argmax(dim=1).flatten()
+                counts = torch.bincount(preds, minlength=t.shape[1]).float()
+            else:
+                flat = t.reshape(-1)
+                fg = (flat > threshold).float().sum()
+                bg = flat.numel() - fg
+                counts = torch.stack([bg, fg]).float()
+            total = counts.sum().clamp(min=1)
+            probs = counts / total
+            k = min(int(top_k), probs.numel())
+            top = torch.topk(probs, k=k)
+            return {
+                "labels": [f"class_{int(i.item())}" for i in top.indices],
+                "probabilities": [f"{p.item() * 100:.4f}%" for p in top.values],
+                "indices": [int(i.item()) for i in top.indices],
+            }
 
         if (
             output is not None
