@@ -162,3 +162,20 @@ class ModelLoader(ForgeModel):
             dtype_override=dtype_override,
             batch_size=batch_size,
         )
+
+    def unpack_forward_output(self, fwd_output):
+        """Forward output structure: ``[y0, y1, y2]`` -- a list of three raw
+        per-scale detection tensors of shape
+        ``(B, anchors_per_region * (5 + num_classes), H_i, W_i)`` corresponding
+        to strides 32, 16, and 8.
+
+        What is selected and why: flatten and concatenate all three per-scale
+        outputs. These are exactly the tensors the YOLOv3 detection loss
+        consumes (objectness + class + box per anchor per cell), so backward
+        through the concatenated result trains the full backbone and the three
+        detection heads.
+
+        Why a registry entry was not sufficient: the forward returns a bare
+        ``list`` with no class name the registry can key on.
+        """
+        return torch.cat([t.flatten() for t in fwd_output])
