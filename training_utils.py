@@ -68,11 +68,27 @@ _register_attr("ImageClassifierOutputWithNoAttention", "logits")
 _register_attr("LlavaCausalLMOutputWithPast", "logits")
 _register_attr("MambaCausalLMOutput", "logits")
 _register_attr("MaskedLMOutput", "logits")
-# MgpstrModelOutput.logits is a 3-tuple (char/bpe/wp predictions); concat along
-# last dim to expose all three classification heads to backward.
-_register_handler(
-    "MgpstrModelOutput", lambda x: torch.cat(x.logits, dim=-1)
-)
+
+
+def _unpack_mgpstr_model_output(output: Any) -> torch.Tensor:
+    """Forward output structure: ``MgpstrModelOutput`` whose ``logits`` is a
+    3-tuple of per-head classification tensors (char/bpe/wp predictions) of
+    shape ``(B, max_token_len, vocab_size_i)``.
+
+    What is selected and why: concatenate all three heads along the last
+    (vocab) dim. All three are valid gradient sinks for the MGP-STR loss; a
+    single ``logits[i]`` would only train one of the three classification
+    heads.
+
+    Why ``_register_attr`` was not sufficient: the loss-relevant tensor is not
+    a single attribute lookup -- it requires a structural transform across the
+    3-tuple.
+    """
+    return torch.cat(output.logits, dim=-1)
+
+
+_register_handler("MgpstrModelOutput", _unpack_mgpstr_model_output)
+
 _register_attr("PerceiverClassifierOutput", "logits")
 _register_attr("PerceiverMaskedLMOutput", "logits")
 _register_attr("QuestionAnsweringModelOutput", "start_logits")
