@@ -366,16 +366,19 @@ class ModelLoader(ForgeModel):
             if output_tensor is None:
                 return None
             t = output_tensor.detach().float().cpu()
+            # Average per-class probability across spatial pixels, rather than
+            # counting per-pixel argmax winners. argmax+bincount is a step
+            # function over logits — small FP noise near a tie flips a pixel's
+            # class and noticeably changes counts, breaking determinism between
+            # identical requests. softmax+mean is smooth, so small input noise
+            # produces small output noise that averages out across pixels.
             if t.dim() == 4 and t.shape[1] > 1:
-                preds = t.argmax(dim=1).flatten()
-                counts = torch.bincount(preds, minlength=t.shape[1]).float()
+                probs = torch.softmax(t, dim=1).mean(dim=(0, 2, 3))
             else:
-                flat = t.reshape(-1)
-                fg = (flat > threshold).float().sum()
-                bg = flat.numel() - fg
-                counts = torch.stack([bg, fg]).float()
-            total = counts.sum().clamp(min=1)
-            probs = counts / total
+                flat = torch.sigmoid(t).reshape(-1)
+                fg = flat.mean()
+                bg = 1.0 - fg
+                probs = torch.stack([bg, fg])
             k = min(int(top_k), probs.numel())
             top = torch.topk(probs, k=k)
             return {
