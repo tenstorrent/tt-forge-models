@@ -68,14 +68,8 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The Bloom model instance.
         """
-        # Initialize tokenizer first with default or overridden dtype
-        tokenizer_kwargs = {"padding_side": "left"}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self.model_name, **tokenizer_kwargs
-        )
+        # Initialize tokenizer
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
 
         # Load pre-trained model from HuggingFace
         model_kwargs = {}
