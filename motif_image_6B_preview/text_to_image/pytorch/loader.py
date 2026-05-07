@@ -17,6 +17,7 @@ Tenstorrent target). The full `MotifImage` wrapper additionally wires in
 T5-XXL, CLIP-L, CLIP-G, and a VAE — those are CPU-side preprocessing and out
 of scope for the bringup test, mirroring how upstream `inference.py` filters
 checkpoint keys to `dit.*` for actual generation.
+
 """
 
 import os
@@ -90,12 +91,15 @@ class ModelLoader(ForgeModel):
         )
 
     def _stage_root(self) -> Path:
-        return Path(
-            os.environ.get(
-                "TT_XLA_CACHE_DIR",
-                Path.home() / ".cache" / "tt-xla",
+        return (
+            Path(
+                os.environ.get(
+                    "TT_XLA_CACHE_DIR",
+                    Path.home() / ".cache" / "tt-xla",
+                )
             )
-        ) / self._STAGE_DIR_NAME
+            / self._STAGE_DIR_NAME
+        )
 
     def _materialize_sources(self) -> Path:
         """Download upstream modeling code to a writable staging dir, patch
@@ -147,9 +151,7 @@ class ModelLoader(ForgeModel):
         stage = self._materialize_sources()
         from configs.configuration_mmdit import MMDiTConfig  # noqa: E402
 
-        self._dit_config = MMDiTConfig.from_json_file(
-            str(stage / self._CONFIG_FILE)
-        )
+        self._dit_config = MMDiTConfig.from_json_file(str(stage / self._CONFIG_FILE))
         return self._dit_config
 
     def load_model(
@@ -180,12 +182,10 @@ class ModelLoader(ForgeModel):
             # Upstream `inference.py` filters checkpoint keys to those
             # containing "dit". The full state dict additionally holds
             # text-encoder + VAE weights we don't load.
-            state_dict = torch.load(
-                ckpt_path, weights_only=False, map_location="cpu"
-            )
+            state_dict = torch.load(ckpt_path, weights_only=False, map_location="cpu")
             dit_prefix = "dit."
             dit_state_dict = {
-                k[len(dit_prefix):]: v
+                k[len(dit_prefix) :]: v
                 for k, v in state_dict.items()
                 if k.startswith(dit_prefix)
             }
@@ -223,9 +223,9 @@ class ModelLoader(ForgeModel):
         # clip_a + clip_b channels are concat-then-padded to 4096.
         t5_seq, clip_seq = 256, 77
         text_embs: List[torch.Tensor] = [
-            torch.randn(batch, t5_seq, 4096, dtype=dtype),    # T5-XXL
-            torch.randn(batch, clip_seq, 768, dtype=dtype),    # CLIP-L
-            torch.randn(batch, clip_seq, 1280, dtype=dtype),   # CLIP-G (OpenCLIP-G)
+            torch.randn(batch, t5_seq, 4096, dtype=dtype),  # T5-XXL
+            torch.randn(batch, clip_seq, 768, dtype=dtype),  # CLIP-L
+            torch.randn(batch, clip_seq, 1280, dtype=dtype),  # CLIP-G (OpenCLIP-G)
         ]
         pooled_text_embs = torch.randn(batch, config.pooled_text_dim, dtype=dtype)
         return latent, t, text_embs, pooled_text_embs
