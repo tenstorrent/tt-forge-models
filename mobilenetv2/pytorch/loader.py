@@ -284,7 +284,7 @@ class ModelLoader(ForgeModel):
             model_for_config=model_for_config,
         )
 
-    def load_inputs(self, dtype_override=None, batch_size=1, image=None):
+    def load_inputs(self, dtype_override=None, batch_size=2, image=None):
         """Load and return sample inputs (backward compatibility wrapper for input_preprocess).
 
         Args:
