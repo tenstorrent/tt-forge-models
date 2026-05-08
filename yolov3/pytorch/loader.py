@@ -174,8 +174,5 @@ class ModelLoader(ForgeModel):
         consumes (objectness + class + box per anchor per cell), so backward
         through the concatenated result trains the full backbone and the three
         detection heads.
-
-        Why a registry entry was not sufficient: the forward returns a bare
-        ``list`` with no class name the registry can key on.
         """
         return torch.cat([t.flatten() for t in fwd_output])

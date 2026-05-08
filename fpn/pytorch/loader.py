@@ -139,8 +139,5 @@ class ModelLoader(ForgeModel):
         are the entirety of the FPN's output and the gradient sink for any
         downstream detector; backward through the concatenation trains the
         FPN's lateral 1x1 + smooth 3x3 conv stack.
-
-        Why a registry entry was not sufficient: the forward returns a bare
-        ``tuple`` with no class name the registry can key on.
         """
         return torch.cat([t.flatten() for t in fwd_output])

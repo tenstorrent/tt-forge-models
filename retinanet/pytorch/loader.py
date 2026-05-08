@@ -357,9 +357,6 @@ class ModelLoader(ForgeModel):
         smooth L1 box loss consume; both heads share the FPN backbone so
         backward through the concatenated result trains the full backbone +
         FPN + cls/reg heads.
-
-        Why a registry entry was not sufficient: the forward returns a bare
-        ``list`` with no class name the registry can key on.
         """
         return torch.cat([t.flatten() for t in fwd_output])
 

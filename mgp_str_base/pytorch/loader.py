@@ -99,10 +99,6 @@ class ModelLoader(ForgeModel):
         (vocab) dim. All three are valid gradient sinks for the MGP-STR loss; a
         single ``logits[i]`` would only train one of the three classification
         heads.
-
-        Why a registry entry was not sufficient: the loss-relevant tensor is
-        not a single attribute lookup -- it requires a structural transform
-        across the 3-tuple.
         """
         return torch.cat(fwd_output.logits, dim=-1)
 

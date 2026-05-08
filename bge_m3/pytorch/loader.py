@@ -114,8 +114,5 @@ class ModelLoader(ForgeModel):
         ColBERT heads are dropped: each is a single linear projection on top
         of the same encoder, so omitting them only skips two small head layers
         while still exercising the bulk of the parameters.
-
-        Why a registry entry was not sufficient: the forward returns a bare
-        ``dict``, which has no class name the registry can key on.
         """
         return forward_output["dense_vecs"]
