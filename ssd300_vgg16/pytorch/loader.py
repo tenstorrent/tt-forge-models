@@ -22,6 +22,7 @@ from ...config import (
     StrEnum,
 )
 from datasets import load_dataset
+from ...tools.utils import extract_tensors_recursive
 from .src.utils import patched_grid_default_boxes, patched_forward, patched_SSD_forward
 
 
@@ -144,7 +145,39 @@ class ModelLoader(ForgeModel):
             # TODO (@ppadjinTT): remove this when torchvision starts supporting torchvision.ops.nms for bfloat16
             print("NOTE: dtype_override ignored - batched_nms lacks BFloat16 support")
 
-        return batch_t
+        targets = [
+            {
+                "boxes": torch.tensor([[10.0, 10.0, 100.0, 100.0]], dtype=torch.float32),
+                "labels": torch.tensor([1], dtype=torch.int64),
+            }
+            for _ in range(batch_size)
+        ]
+
+        return {"images": batch_t, "targets": targets}
+
+    def unpack_forward_output(self, fwd_output):
+        """Unpack forward pass output to a single differentiable tensor.
+
+        Forward output structure: tuple(head_outputs, anchors) where
+        head_outputs is dict{"bbox_regression": Tensor(B, 8732, 4),
+        "cls_logits": Tensor(B, 8732, 91)} and anchors is list[Tensor(8732, 4)]
+        of length B.
+
+        What is selected and why: only the head_outputs values
+        (bbox_regression and cls_logits) are returned, flattened and
+        concatenated. These are the gradient sources consumed by SSD's
+        classification + localization loss. Anchors are reference geometry
+        produced by the (monkey-patched) DefaultBoxGenerator and carry no
+        gradients.
+
+        Why a registry entry was not sufficient: the model's forward output
+        is a bare tuple, which has no stable class name to key the global
+        unpack registry on.
+        """
+        head_outputs = fwd_output[0]
+        tensors = []
+        extract_tensors_recursive(head_outputs, tensors)
+        return torch.cat(tensors, dim=0)
 
     def postprocess_detections(self, fw_out, co_out):
         """Run post-processing on raw model outputs (head_outputs, anchors) on CPU.

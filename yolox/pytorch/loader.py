@@ -151,7 +151,9 @@ class ModelLoader(ForgeModel):
             batch_size: Optional batch size to override the default batch size of 1.
 
         Returns:
-            torch.Tensor: Sample input tensor that can be fed to the model.
+            dict: ``{"x": image_tensor, "targets": targets_tensor}`` where ``targets`` has
+            shape ``[B, max_labels, 5]`` with each row encoding ``[class_id, cx, cy, w, h]``.
+            ``targets`` is ignored by the model in eval mode and required in train mode.
         """
         # Deter imports so not required at model discovery time
         from datasets import load_dataset
@@ -181,7 +183,38 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             batch_tensor = batch_tensor.to(dtype_override)
 
-        return batch_tensor
+        # Train mode requires targets so the model can compute losses; we don't
+        # actually train, we just need a forward+backward to run, so a single
+        # fake label is enough. Shape [B, max_labels, 5] with [class_id, cx, cy,
+        # w, h] per row; all-zero rows are treated as padding. Eval mode ignores
+        # targets entirely, so the dict return is safe for inference too.
+        cx = input_shape[1] / 2.0
+        cy = input_shape[0] / 2.0
+        single_label = torch.tensor([[1.0, cx, cy, 50.0, 50.0]])
+        targets = single_label.unsqueeze(0).repeat(batch_size, 1, 1)
+        if dtype_override is not None:
+            targets = targets.to(dtype_override)
+
+        return {"x": batch_tensor, "targets": targets}
+
+    def unpack_forward_output(self, forward_output):
+        """Extract the loss-relevant tensor from YOLOX's training-mode output.
+
+        Forward output structure: bare ``dict`` with keys ``total_loss``,
+        ``iou_loss``, ``l1_loss``, ``conf_loss``, ``cls_loss``, ``num_fg``.
+        ``total_loss`` is a scalar tensor with ``requires_grad=True``; the four
+        ``*_loss`` components are summed into it; ``num_fg`` is a Python float
+        count (not a tensor).
+
+        Selection: ``total_loss``. It is the single scalar that drives the
+        backward pass — gradients flow through all four loss components and back
+        to every model parameter. The component losses are redundant with it,
+        and ``num_fg`` is non-differentiable.
+
+        Why not the registry: the forward output is a bare ``dict`` (no class
+        name to key on), so ``_register_attr`` cannot dispatch on it.
+        """
+        return forward_output["total_loss"]
 
     def post_processing(self, co_out):
         """Post-process the model outputs.
