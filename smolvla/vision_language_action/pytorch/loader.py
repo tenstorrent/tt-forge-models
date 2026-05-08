@@ -17,6 +17,27 @@ import numpy as np
 import torch
 
 from ....base import ForgeModel
+
+
+def _patch_torch_cumsum_bool_to_int64() -> None:
+    """torch.compile/XLA can keep bool dtype through cumsum; subtracting 1 then fails.
+
+    Eager PyTorch promotes bool cumsum to int64. Casting bool inputs here matches that
+    behavior and fixes SmolVLA's ``torch.cumsum(pad_masks, dim=1) - 1`` (lerobot).
+    """
+    if getattr(torch, "_tt_xla_cumsum_bool_patch_applied", False):
+        return
+    _orig_cumsum = torch.cumsum
+
+    def cumsum(input, *args, **kwargs):  # noqa: A002
+        if isinstance(input, torch.Tensor) and input.dtype == torch.bool:
+            input = input.to(dtype=torch.int64)
+        return _orig_cumsum(input, *args, **kwargs)
+
+    torch.cumsum = cumsum  # type: ignore[method-assign]
+    torch._tt_xla_cumsum_bool_patch_applied = True  # type: ignore[attr-defined]
+
+
 from ....config import (
     Framework,
     ModelConfig,
@@ -99,6 +120,7 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processors(self, device: torch.device):
+        _patch_torch_cumsum_bool_to_int64()
         _setup_policies_namespace()
         import lerobot.policies.smolvla.processor_smolvla  # noqa: F401
         from lerobot.processor import PolicyProcessorPipeline
@@ -110,6 +132,7 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, device: str = "cpu", **kwargs):
+        _patch_torch_cumsum_bool_to_int64()
         _setup_policies_namespace()
         from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
 
