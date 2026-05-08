@@ -173,6 +173,10 @@ class ModelLoader(ForgeModel):
         outputs. These are exactly the tensors the YOLOv3 detection loss
         consumes (objectness + class + box per anchor per cell), so backward
         through the concatenated result trains the full backbone and the three
-        detection heads.
+        detection heads. The flattened concatenation is a 1D tensor, not the
+        per-anchor / per-cell layout the upstream loss consumes -- it drives
+        backward through the full graph correctly, but downstream numeric
+        comparison against the torch loss output should account for this
+        layout difference.
         """
         return torch.cat([t.flatten() for t in fwd_output])

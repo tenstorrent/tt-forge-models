@@ -138,6 +138,10 @@ class ModelLoader(ForgeModel):
         What is selected and why: flatten and concatenate all four maps. They
         are the entirety of the FPN's output and the gradient sink for any
         downstream detector; backward through the concatenation trains the
-        FPN's lateral 1x1 + smooth 3x3 conv stack.
+        FPN's lateral 1x1 + smooth 3x3 conv stack. The flattened concatenation
+        is a 1D tensor, not the per-anchor / per-cell layout the upstream loss
+        consumes -- it drives backward through the full graph correctly, but
+        downstream numeric comparison against the torch loss output should
+        account for this layout difference.
         """
         return torch.cat([t.flatten() for t in fwd_output])
