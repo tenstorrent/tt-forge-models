@@ -22,16 +22,24 @@ def _compute_sampling_locations_eager(
     offset_normalizer = torch.stack(
         [spatial_shapes_dev[..., 1], spatial_shapes_dev[..., 0]], -1
     )
+    # TTNN element-wise binary ops only support broadcasting up to rank 5.
+    # sampling_offsets is (bs, nq, nh, nl, np, 2) — rank 6. Merge (bs, nq)
+    # into a single dim for all binary ops, then restore the original shape.
+    bs, nq, nh, nl, np, two = sampling_offsets.shape
+    so = sampling_offsets.reshape(bs * nq, nh, nl, np, two)  # (bs*nq, nh, nl, np, 2)
+
     if ref_pts.shape[-1] == 2:
-        return (
-            ref_pts[:, :, None, :, None, :]
-            + sampling_offsets / offset_normalizer[None, None, None, :, None, :]
-        )
+        # ref_pts: (bs, nq, nl, 2) → (bs*nq, 1, nl, 1, 2)
+        rp = ref_pts.reshape(bs * nq, 1, nl, 1, 2)
+        on = offset_normalizer[None, None, :, None, :]  # (1, 1, nl, 1, 2)
+        return (rp + so / on).reshape(bs, nq, nh, nl, np, two)
     else:
+        # ref_pts: (bs, nq, nl, d) where d >= 3 → (bs*nq, 1, nl, 1, d)
+        d = ref_pts.shape[-1]
+        rp = ref_pts.reshape(bs * nq, 1, nl, 1, d)
         return (
-            ref_pts[:, :, None, :, None, :2]
-            + sampling_offsets / num_points * ref_pts[:, :, None, :, None, 2:] * 0.5
-        )
+            rp[..., :2] + so / num_points * rp[..., 2:] * 0.5
+        ).reshape(bs, nq, nh, nl, np, two)
 
 
 def inverse_sigmoid(x, eps=1e-5):

@@ -65,7 +65,6 @@ def multi_scale_deformable_attn_pytorch(
             (_to_int(val[0]), _to_int(val[1])) for val in value_spatial_shapes
         ]
 
-    sampling_grids = 2 * sampling_locations - 1
     sampling_value_list = []
     for level, (H_, W_) in enumerate(spatial_shapes_ints):
         # bs, H_*W_, num_heads, embed_dims ->
@@ -78,18 +77,63 @@ def multi_scale_deformable_attn_pytorch(
             .transpose(1, 2)
             .reshape(bs * num_heads, embed_dims, H_, W_)
         )
+        # Index the level dimension first → (bs, nq, nh, np, 2), rank 5.
+        # Then apply the [-1, 1] normalisation on the rank-5 tensor to avoid
+        # TTNN's rank-6 broadcasting limit on element-wise binary ops.
         # bs, num_queries, num_heads, num_points, 2 ->
         # bs, num_heads, num_queries, num_points, 2 ->
         # bs*num_heads, num_queries, num_points, 2
-        sampling_grid_l_ = sampling_grids[:, :, :, level].transpose(1, 2).flatten(0, 1)
+        sampling_grid_l_ = (2 * sampling_locations[:, :, :, level] - 1).transpose(1, 2).flatten(0, 1)
         # bs*num_heads, embed_dims, num_queries, num_points
-        sampling_value_l_ = F.grid_sample(
-            value_l_,
-            sampling_grid_l_,
-            mode="bilinear",
-            padding_mode="zeros",
-            align_corners=False,
-        )
+        # Manual bilinear sampling replacing F.grid_sample.
+        #
+        # Root cause of OOM: any gather on a (N, C, H*W) tensor forces XLA to
+        # build a GatherND with explicit arange(N) and arange(C) index tensors
+        # broadcast to (N, C, Q*P, 1).  With N=96, C=32, Q*P=40000 and the
+        # last dim=1 tile-padded to 32, each tensor is ~14.68 GB → device OOM.
+        #
+        # Fix: reshape to (N*H*W, C) and gather with a flat 1D row-index.
+        # XLA lowers row-indexing as: start_indices=(N*Q*P, 1) [dynamic],
+        # offset_dims=[1] for C — no arange(N) or arange(C) tensors at all.
+        # The flat index  n*H*W + spatial  is dynamic (spatial depends on
+        # sampling_grid_l_), so it cannot be const-folded either.
+        _N = value_l_.shape[0]
+        QP = num_queries * num_points
+
+        # Pixel coords, align_corners=False
+        gx = (sampling_grid_l_[..., 0] + 1.0) * (W_ * 0.5) - 0.5  # (_N, Q, P)
+        gy = (sampling_grid_l_[..., 1] + 1.0) * (H_ * 0.5) - 0.5
+
+        x0 = gx.floor().long()
+        y0 = gy.floor().long()
+        x1, y1 = x0 + 1, y0 + 1
+
+        # Bilinear weights: (_N, Q, P); unsqueeze(-1) to broadcast over C
+        wx1 = gx - x0.float()
+        wx0 = 1.0 - wx1
+        wy1 = gy - y0.float()
+        wy0 = 1.0 - wy1
+
+        # (N, C, H, W) → (N*H*W, C): rows are spatial positions, cols are channels.
+        # Indexing with a 1D integer tensor selects rows → no N/C index tensors.
+        value_flat2d = value_l_.permute(0, 2, 3, 1).reshape(_N * H_ * W_, embed_dims)
+
+        # n_off[n] = n * H*W — static (arange × constant), trivially small (~384 B).
+        # Adding dynamic spatial makes the combined index fully dynamic.
+        n_off = torch.arange(_N, device=value_l_.device, dtype=torch.long) * (H_ * W_)
+
+        def _row_gather(y, x):
+            mask = ((x >= 0) & (x < W_) & (y >= 0) & (y < H_)).float()  # (_N, Q, P)
+            flat = n_off.unsqueeze(1) + (y.clamp(0, H_ - 1) * W_ + x.clamp(0, W_ - 1)).reshape(_N, QP)
+            rows = value_flat2d[flat.reshape(-1)]  # (N*QP, C) — 1D row-gather
+            return rows.reshape(_N, num_queries, num_points, embed_dims) * mask.unsqueeze(-1)
+
+        sampling_value_l_ = (
+            (wx0 * wy0).unsqueeze(-1) * _row_gather(y0, x0)
+            + (wx0 * wy1).unsqueeze(-1) * _row_gather(y1, x0)
+            + (wx1 * wy0).unsqueeze(-1) * _row_gather(y0, x1)
+            + (wx1 * wy1).unsqueeze(-1) * _row_gather(y1, x1)
+        ).permute(0, 3, 1, 2)  # (_N, C, Q, P)
         sampling_value_list.append(sampling_value_l_)
     # (bs, num_queries, num_heads, num_levels, num_points) ->
     # (bs, num_heads, num_queries, num_levels, num_points) ->
