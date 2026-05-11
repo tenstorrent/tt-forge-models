@@ -18,13 +18,12 @@ from ....config import (
     Framework,
     StrEnum,
 )
-from ....base import ForgeModel
+from ....base import ForgeModel, ForgePrefillModel
 from ....tools.utils import (
     pad_inputs,
     cast_input_to_type,
     get_static_cache_decode_inputs,
 )
-from ....tools.prefill_inputs import PrefillInputsMixin
 
 
 class ModelVariant(StrEnum):
@@ -58,7 +57,7 @@ class ModelVariant(StrEnum):
     TINYLLAMA_V1_1 = "Tinyllama_v1.1"
 
 
-class ModelLoader(ForgeModel, PrefillInputsMixin):
+class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
 
     # Dictionary of available model variants using structured configs
@@ -381,20 +380,11 @@ class ModelLoader(ForgeModel, PrefillInputsMixin):
         return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model, strategy="fsdp", batch_axis="batch"):
-        """Load weight shard specifications for tensor parallelism.
+        """Default shard spec on a ("batch", "model") mesh.
 
-        Args:
-            model: The model whose weights are to be sharded.
-            strategy: Sharding strategy — "fsdp" shards across both axes,
-                      "megatron" shards on "model" axis only (other axis is None).
-            batch_axis: Name of the non-model mesh axis for "fsdp" specs (ignored
-                        by "megatron"). Defaults to "batch" for a ("batch", "model")
-                        mesh; pass "data" when input sharding is enabled, because
-                        load_shard_spec_data_parallel hardcodes "data" as the input
-                        sharding axis, forcing the mesh to ("data", "model").
-
-        Returns:
-            dict mapping weight tensors to shard spec tuples, or None for small models.
+        Used by non-prefill TP paths; see :class:`ModelLoaderPrefill` for the
+        strategy-parameterized version. ``strategy`` and ``batch_axis`` are
+        accepted to match the prefill subclass signature but are ignored here.
         """
         if self._variant in [
             ModelVariant.LLAMA_3_2_1B,
@@ -407,9 +397,59 @@ class ModelLoader(ForgeModel, PrefillInputsMixin):
             return None
 
         shard_specs = {}
+        shard_specs[model.model.embed_tokens.weight] = (None, "batch")
+        shard_specs[model.lm_head.weight] = ("model", "batch")
+        shard_specs[model.model.norm.weight] = ("batch",)
+        for layer in model.model.layers:
+            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+
+            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+            shard_specs[layer.input_layernorm.weight] = ("batch",)
+            shard_specs[layer.post_attention_layernorm.weight] = ("batch",)
+
+        return shard_specs
+
+    def load_config(self):
+        """Load and return the configuration for the Llama model variant.
+
+        Returns:
+            The configuration object for the Llama model.
+        """
+        self.config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name
+        )
+
+        return self.config
+
+
+class ModelLoaderPrefill(ModelLoader, ForgePrefillModel):
+    """Prefill-focused loader for Llama variants on which we test prefill
+    extensively with various meshes, strategies, batches and sequence lengths.
+    """
+
+    _VARIANTS = {
+        ModelVariant.LLAMA_3_2_1B: ModelLoader._VARIANTS[ModelVariant.LLAMA_3_2_1B],
+        ModelVariant.LLAMA_3_1_8B_INSTRUCT: ModelLoader._VARIANTS[
+            ModelVariant.LLAMA_3_1_8B_INSTRUCT
+        ],
+    }
+    DEFAULT_VARIANT = ModelVariant.LLAMA_3_2_1B
+
+    def load_shard_spec(self, model, strategy="fsdp", batch_axis="batch"):
+        """Weight shard spec parameterized by ``strategy`` and ``batch_axis``
+        (use "data" when inputs are also sharded).
+        """
+        if self._variant == ModelVariant.LLAMA_3_2_1B:
+            return None
+
+        shard_specs = {}
 
         if strategy == "fsdp":
-            # FSDP: weights sharded across both batch_axis and "model" mesh axes.
             shard_specs[model.model.embed_tokens.weight] = (None, batch_axis)
             shard_specs[model.lm_head.weight] = ("model", batch_axis)
             shard_specs[model.model.norm.weight] = (batch_axis,)
@@ -426,7 +466,6 @@ class ModelLoader(ForgeModel, PrefillInputsMixin):
                 shard_specs[layer.post_attention_layernorm.weight] = (batch_axis,)
 
         elif strategy == "megatron":
-            # Megatron: weights sharded on "model" axis, replicated (None) on the other.
             shard_specs[model.model.embed_tokens.weight] = (None, None)
             shard_specs[model.lm_head.weight] = ("model", None)
             shard_specs[model.model.norm.weight] = (None,)
@@ -446,15 +485,3 @@ class ModelLoader(ForgeModel, PrefillInputsMixin):
             raise ValueError(f"Unknown sharding strategy: {strategy!r}")
 
         return shard_specs
-
-    def load_config(self):
-        """Load and return the configuration for the Llama model variant.
-
-        Returns:
-            The configuration object for the Llama model.
-        """
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
-
-        return self.config

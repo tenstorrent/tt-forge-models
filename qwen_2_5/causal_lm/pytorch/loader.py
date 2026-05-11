@@ -10,7 +10,7 @@ import torch
 from transformers import AutoTokenizer, Qwen2ForCausalLM, AutoConfig
 from typing import Optional
 
-from ....base import ForgeModel
+from ....base import ForgeModel, ForgePrefillModel
 from ....config import (
     LLMModelConfig,
     ModelInfo,
@@ -21,7 +21,6 @@ from ....config import (
     StrEnum,
 )
 from ....tools.utils import get_static_cache_decode_inputs
-from ....tools.prefill_inputs import PrefillInputsMixin
 
 
 class ModelVariant(StrEnum):
@@ -45,7 +44,7 @@ class ModelVariant(StrEnum):
     QWEN_2_5_MATH_7B = "Math_7B"
 
 
-class ModelLoader(ForgeModel, PrefillInputsMixin):
+class ModelLoader(ForgeModel):
     """Qwen 2.5 model loader implementation for causal language modeling tasks."""
 
     # Dictionary of available model variants using structured configs
@@ -284,7 +283,12 @@ class ModelLoader(ForgeModel, PrefillInputsMixin):
             )
         return mesh_shape, ("batch", "model")
 
-    def load_shard_spec(self, model):
+    def load_shard_spec(self, model, strategy="fsdp", batch_axis="batch"):
+        """Default shard spec on a ("batch", "model") mesh.
+
+        ``strategy`` and ``batch_axis`` are accepted to match
+        :class:`ModelLoaderPrefill`'s signature but are ignored here.
+        """
         shard_specs = {}
         for layer in model.model.layers:
             shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
@@ -334,3 +338,55 @@ class ModelLoader(ForgeModel, PrefillInputsMixin):
             max_cache_len=max_cache_len,
             dtype=dtype_override,
         )
+
+
+class ModelLoaderPrefill(ModelLoader, ForgePrefillModel):
+    """Prefill-focused loader for Qwen 2.5 variants on which we test prefill
+    extensively with various meshes, strategies, batches and sequence lengths.
+    """
+
+    _VARIANTS = {
+        ModelVariant.QWEN_2_5_1_5B: ModelLoader._VARIANTS[ModelVariant.QWEN_2_5_1_5B],
+    }
+    DEFAULT_VARIANT = ModelVariant.QWEN_2_5_1_5B
+
+    def load_shard_spec(self, model, strategy="fsdp", batch_axis="batch"):
+        """Weight shard spec parameterized by ``strategy`` and ``batch_axis``
+        (use "data" when inputs are also sharded).
+        """
+        shard_specs = {}
+
+        if strategy == "fsdp":
+            shard_specs[model.lm_head.weight] = ("model", batch_axis)
+            for layer in model.model.layers:
+                shard_specs[layer.mlp.up_proj.weight] = ("model", batch_axis)
+                shard_specs[layer.mlp.gate_proj.weight] = ("model", batch_axis)
+                shard_specs[layer.mlp.down_proj.weight] = (batch_axis, "model")
+
+                shard_specs[layer.self_attn.q_proj.weight] = ("model", batch_axis)
+                shard_specs[layer.self_attn.q_proj.bias] = ("model",)
+                shard_specs[layer.self_attn.k_proj.weight] = ("model", batch_axis)
+                shard_specs[layer.self_attn.k_proj.bias] = ("model",)
+                shard_specs[layer.self_attn.v_proj.weight] = ("model", batch_axis)
+                shard_specs[layer.self_attn.v_proj.bias] = ("model",)
+                shard_specs[layer.self_attn.o_proj.weight] = (batch_axis, "model")
+
+        elif strategy == "megatron":
+            shard_specs[model.lm_head.weight] = ("model", None)
+            for layer in model.model.layers:
+                shard_specs[layer.mlp.up_proj.weight] = ("model", None)
+                shard_specs[layer.mlp.gate_proj.weight] = ("model", None)
+                shard_specs[layer.mlp.down_proj.weight] = (None, "model")
+
+                shard_specs[layer.self_attn.q_proj.weight] = ("model", None)
+                shard_specs[layer.self_attn.q_proj.bias] = ("model",)
+                shard_specs[layer.self_attn.k_proj.weight] = ("model", None)
+                shard_specs[layer.self_attn.k_proj.bias] = ("model",)
+                shard_specs[layer.self_attn.v_proj.weight] = ("model", None)
+                shard_specs[layer.self_attn.v_proj.bias] = ("model",)
+                shard_specs[layer.self_attn.o_proj.weight] = (None, "model")
+
+        else:
+            raise ValueError(f"Unknown sharding strategy: {strategy!r}")
+
+        return shard_specs

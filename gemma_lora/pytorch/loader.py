@@ -4,15 +4,23 @@
 from peft import LoraConfig
 
 from ...gemma.pytorch.loader import ModelLoader as _GemmaModelLoader
+from ...gemma.pytorch.loader import ModelLoaderPrefill as _GemmaModelLoaderPrefill
 from ...gemma.pytorch.loader import ModelVariant
 from ...tools.lora import LoRAModelMixin
 
 
+_LORA_CONFIGS = {
+    ModelVariant.GEMMA_1_1_2B_IT: LoraConfig(
+        r=4,
+        lora_alpha=8.0,
+        target_modules=["q_proj", "v_proj"],
+    ),
+}
+
+
 class ModelLoader(LoRAModelMixin, _GemmaModelLoader):
-    _LORA_CONFIGS = {
-        ModelVariant.GEMMA_1_1_2B_IT: LoraConfig(
-            r=4,
-            lora_alpha=8.0,
-            target_modules=["q_proj", "v_proj"],
-        ),
-    }
+    _LORA_CONFIGS = _LORA_CONFIGS
+
+
+class ModelLoaderPrefill(LoRAModelMixin, _GemmaModelLoaderPrefill):
+    _LORA_CONFIGS = _LORA_CONFIGS

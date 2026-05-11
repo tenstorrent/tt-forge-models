@@ -18,10 +18,9 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from ...base import ForgeModel
+from ...base import ForgeModel, ForgePrefillModel
 from .src.model_utils import pad_inputs
 from ...tools.utils import cast_input_to_type, get_static_cache_decode_inputs
-from ...tools.prefill_inputs import PrefillInputsMixin
 
 
 class ModelVariant(StrEnum):
@@ -38,7 +37,7 @@ class ModelVariant(StrEnum):
     GEMMA_2_27B_IT = "2_27B_IT"
 
 
-class ModelLoader(ForgeModel, PrefillInputsMixin):
+class ModelLoader(ForgeModel):
     """Gemma model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
@@ -217,7 +216,12 @@ class ModelLoader(ForgeModel, PrefillInputsMixin):
             ), "Attention heads must be divisible by the model axis size"
         return mesh_shape, ("batch", "model")
 
-    def load_shard_spec(self, model):
+    def load_shard_spec(self, model, strategy="fsdp", batch_axis="batch"):
+        """Default shard spec on a ("batch", "model") mesh.
+
+        ``strategy`` and ``batch_axis`` are accepted to match
+        :class:`ModelLoaderPrefill`'s signature but are ignored here.
+        """
         if self._variant in [
             ModelVariant.GEMMA_1_1_2B_IT,
             ModelVariant.GEMMA_2B,
@@ -269,3 +273,57 @@ class ModelLoader(ForgeModel, PrefillInputsMixin):
             max_cache_len=max_cache_len,
             dtype=dtype_override,
         )
+
+
+class ModelLoaderPrefill(ModelLoader, ForgePrefillModel):
+    """Prefill-focused loader for Gemma variants on which we test prefill
+    extensively with various meshes, strategies, batches and sequence lengths.
+    """
+
+    _VARIANTS = {
+        ModelVariant.GEMMA_1_1_2B_IT: ModelLoader._VARIANTS[ModelVariant.GEMMA_1_1_2B_IT],
+    }
+    DEFAULT_VARIANT = ModelVariant.GEMMA_1_1_2B_IT
+
+    def load_shard_spec(self, model, strategy="fsdp", batch_axis="batch"):
+        """Weight shard spec parameterized by ``strategy`` and ``batch_axis``
+        (use "data" when inputs are also sharded).
+        """
+        shard_specs = {}
+
+        if strategy == "fsdp":
+            shard_specs[model.model.embed_tokens.weight] = (None, batch_axis)
+            shard_specs[model.lm_head.weight] = ("model", batch_axis)
+            shard_specs[model.model.norm.weight] = (batch_axis,)
+            for layer in model.model.layers:
+                shard_specs[layer.mlp.up_proj.weight] = ("model", batch_axis)
+                shard_specs[layer.mlp.gate_proj.weight] = ("model", batch_axis)
+                shard_specs[layer.mlp.down_proj.weight] = (batch_axis, "model")
+
+                shard_specs[layer.self_attn.q_proj.weight] = ("model", batch_axis)
+                shard_specs[layer.self_attn.k_proj.weight] = ("model", batch_axis)
+                shard_specs[layer.self_attn.v_proj.weight] = ("model", batch_axis)
+                shard_specs[layer.self_attn.o_proj.weight] = (batch_axis, "model")
+                shard_specs[layer.input_layernorm.weight] = (batch_axis,)
+                shard_specs[layer.post_attention_layernorm.weight] = (batch_axis,)
+
+        elif strategy == "megatron":
+            shard_specs[model.model.embed_tokens.weight] = (None, None)
+            shard_specs[model.lm_head.weight] = ("model", None)
+            shard_specs[model.model.norm.weight] = (None,)
+            for layer in model.model.layers:
+                shard_specs[layer.mlp.up_proj.weight] = ("model", None)
+                shard_specs[layer.mlp.gate_proj.weight] = ("model", None)
+                shard_specs[layer.mlp.down_proj.weight] = (None, "model")
+
+                shard_specs[layer.self_attn.q_proj.weight] = ("model", None)
+                shard_specs[layer.self_attn.k_proj.weight] = ("model", None)
+                shard_specs[layer.self_attn.v_proj.weight] = ("model", None)
+                shard_specs[layer.self_attn.o_proj.weight] = (None, "model")
+                shard_specs[layer.input_layernorm.weight] = (None,)
+                shard_specs[layer.post_attention_layernorm.weight] = (None,)
+
+        else:
+            raise ValueError(f"Unknown sharding strategy: {strategy!r}")
+
+        return shard_specs

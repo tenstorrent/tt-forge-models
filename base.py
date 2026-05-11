@@ -15,6 +15,9 @@ from typing import Dict, Optional, Union, Type, Any
 
 from .config import ModelConfig, ModelInfo, StrEnum
 from .training_utils import unpack_forward_output
+from .tools.prefill_inputs import get_prefill_texts_for_batch, PREFILL_TEXTS
+from .tools.utils import cast_input_to_type
+
 import torch
 
 
@@ -262,3 +265,69 @@ class ForgeModel(ABC):
                 f"Available configs: {os.listdir(config_dir)}"
             )
         return None
+
+
+class ForgePrefillModel(ForgeModel):
+    """Loader for models on which we test prefill extensively with various
+    meshes, strategies, batches and sequence lengths.
+
+    Subclasses must implement:
+        * ``load_inputs_prefill`` — produces prefill-phase inputs sized for
+          the requested ``batch_size`` / ``seq_len``.
+          A default implementation is provided that uses the tokenizer to
+          produce inputs.
+        * ``load_shard_spec`` — produces weight shard specs parameterized by
+          ``strategy`` and ``batch_axis`` so the model can be swept across
+          different mesh / sharding combinations.
+    """
+
+    def load_inputs_prefill(self, dtype_override=None, batch_size=1, seq_len=128):
+        """Load prefill-step inputs with texts sized appropriately for the target sequence length.
+
+        Args:
+            dtype_override: Optional torch.dtype to override the model's default dtype.
+            batch_size: Batch size for the inputs.
+            seq_len: Target sequence length. Texts are chosen to minimize padding.
+
+        Returns:
+            dict: Input tensors (input_ids, attention_mask) padded to seq_len.
+        """
+        assert hasattr(
+            self, "tokenizer"
+        ), f"{type(self).__name__} must define self.tokenizer to use ForgePrefillModel"
+        assert hasattr(
+            self, "_load_tokenizer"
+        ), f"{type(self).__name__} must define self._load_tokenizer to use ForgePrefillModel"
+        assert hasattr(
+            self, "seq_len"
+        ), f"{type(self).__name__} must define self.seq_len to use ForgePrefillModel"
+
+        if self.tokenizer is None:
+            self._load_tokenizer(dtype_override=dtype_override)
+
+        if seq_len not in PREFILL_TEXTS:
+            available = sorted(PREFILL_TEXTS.keys())
+            raise ValueError(
+                f"seq_len={seq_len} is not supported. Available sequence lengths: {available}"
+            )
+        texts = get_prefill_texts_for_batch(seq_len, batch_size)
+
+        inputs = self.tokenizer(
+            texts,
+            return_tensors="pt",
+            padding="max_length",
+            truncation=True,
+            max_length=seq_len,
+        )
+
+        if dtype_override is not None:
+            for key in inputs:
+                inputs[key] = cast_input_to_type(inputs[key], dtype_override)
+
+        self.seq_len = seq_len
+        return inputs
+
+    def load_shard_spec(self, model, strategy, batch_axis):
+        raise NotImplementedError(
+            f"{type(self).__name__} must implement load_shard_spec(model, strategy, batch_axis)"
+        )
