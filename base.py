@@ -264,9 +264,9 @@ class ForgeModel(ABC):
         return None
 
 
-class ForgeFocusModel(ForgeModel):
-    """Focus model loader for models on which we test prefill extensively
-    with various meshes, strategies, batches and sequence lengths.
+class ForgePrefillModel(ForgeModel):
+    """Loader for models on which we test prefill extensively with various
+    meshes, strategies, batches and sequence lengths.
 
     Subclasses must implement:
         * ``load_inputs_prefill`` — produces prefill-phase inputs sized for

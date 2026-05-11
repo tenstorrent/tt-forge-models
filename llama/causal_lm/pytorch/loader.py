@@ -18,7 +18,7 @@ from ....config import (
     Framework,
     StrEnum,
 )
-from ....base import ForgeModel, ForgeFocusModel
+from ....base import ForgeModel, ForgePrefillModel
 from ....tools.utils import (
     pad_inputs,
     cast_input_to_type,
@@ -368,7 +368,7 @@ class ModelLoader(ForgeModel):
     def load_shard_spec(self, model):
         """Default shard spec on a ("batch", "model") mesh.
 
-        Used by non-prefill TP paths; see :class:`ModelLoaderFocus` for the
+        Used by non-prefill TP paths; see :class:`ModelLoaderPrefill` for the
         strategy-parameterized version.
         """
         if self._variant in [
@@ -412,8 +412,8 @@ class ModelLoader(ForgeModel):
         return self.config
 
 
-class ModelLoaderFocus(ModelLoader, ForgeFocusModel):
-    """Focus model loader for Llama variants on which we test prefill
+class ModelLoaderPrefill(ModelLoader, ForgePrefillModel):
+    """Prefill-focused loader for Llama variants on which we test prefill
     extensively with various meshes, strategies, batches and sequence lengths.
     """
 
