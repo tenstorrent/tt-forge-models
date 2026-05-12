@@ -134,10 +134,7 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
-        if getattr(model.config, "use_cache", True):
-            model.config.layer_types = [
-                "full_attention"
-            ] * model.config.num_hidden_layers
+
         model.eval()
 
         self.config = model.config

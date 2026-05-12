@@ -224,10 +224,6 @@ class ModelLoader(ForgeModel):
                 pretrained_model_name, **model_kwargs
             ).eval()
 
-        if self._variant == ModelVariant.MINISTRAL_8B:
-            model.config.layer_types = ["full_attention"] * len(
-                model.config.layer_types
-            )
         self.config = model.config
 
         self.model = model
@@ -322,14 +318,6 @@ class ModelLoader(ForgeModel):
 
         else:
             inputs = self.tokenizer(test_input, return_tensors="pt")
-
-        if (
-            hasattr(self.model.config, "sliding_window")
-            and self.model.config.sliding_window is not None
-        ):
-            # if the model uses sliding window attention, match sliding window value to input size so it
-            # does not go out of bounds when updating the cache
-            self.model.config.sliding_window = inputs["input_ids"].shape[1]
 
         # Add batch dimension
         for key in inputs:
