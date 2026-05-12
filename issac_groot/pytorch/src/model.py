@@ -2605,32 +2605,29 @@ class Gr00tPolicyModule(nn.Module):
 
     def forward_from_normalized(
         self, normalized_input: Dict[str, torch.Tensor], return_raw: bool = False
-    ) -> Union[Dict[str, Any], torch.Tensor]:
+    ) -> torch.Tensor:
         """
         Forward pass from already normalized/preprocessed inputs.
 
+        Postprocessing (unnormalization) is intentionally excluded from the
+        forward graph to avoid device-mismatch errors when the model is
+        compiled for TT device.  Use ``loader.postprocess()`` on the raw
+        output tensor if unnormalized actions are needed.
+
         Args:
             normalized_input: Pre-processed input tensors
-            return_raw: If True, return raw action tensor. If False, return dict.
+            return_raw: Ignored; kept for API compatibility.
 
         Returns:
-            Action dictionary or raw action tensor
+            Raw normalized action tensor
         """
-        # Extract batching info if available
-        was_batched = normalized_input.pop("_was_batched", True)
+        normalized_input.pop("_was_batched", None)
 
-        # Get normalized action from model
         normalized_action = self.policy._get_action_from_normalized_input(
             normalized_input
         )
 
-        if return_raw:
-            return normalized_action
-
-        # Postprocess to unnormalized action
-        unnormalized_action = self.postprocess(normalized_action, was_batched)
-
-        return unnormalized_action
+        return normalized_action
 
     def forward(
         self,
@@ -2638,51 +2635,42 @@ class Gr00tPolicyModule(nn.Module):
         preprocessed: bool = False,
         return_raw: bool = False,
         **kwargs,
-    ) -> Union[Dict[str, Any], torch.Tensor]:
+    ) -> torch.Tensor:
         """
         Forward pass through the policy.
+
+        Always returns the raw normalized action tensor.  Postprocessing
+        (unnormalization) lives in ``loader.postprocess()`` and runs on
+        CPU after device execution to avoid xla/cpu device mismatches
+        inside the compiled graph.
 
         Args:
             observations: Either raw observations or preprocessed normalized inputs.
                          If None, will be constructed from kwargs.
             preprocessed: If True, observations are already normalized
-            return_raw: If True, return raw action tensor. If False, return dict.
+            return_raw: Ignored; kept for API compatibility.
             **kwargs: Additional keyword arguments that will be merged into observations
                      if observations is None.
 
         Returns:
-            Action dictionary or raw action tensor
-
-        Example:
-            >>> # Raw observations
-            >>> action = policy_module(observations)
-            >>>
-            >>> # Preprocessed observations
-            >>> normalized = policy_module.preprocess(observations)
-            >>> action = policy_module(normalized, preprocessed=True)
-            >>>
-            >>> # Get raw action tensor (no postprocessing)
-            >>> raw_action = policy_module(observations, return_raw=True)
+            Raw normalized action tensor
         """
         device = kwargs["state"].device
         if observations is None:
             observations = kwargs
         elif kwargs:
-            # Merge kwargs into observations if both are provided
             observations = {**observations, **kwargs}
 
         if preprocessed:
-            return self.forward_from_normalized(observations, return_raw=return_raw)
+            return self.forward_from_normalized(observations)
         else:
-            # Preprocess
             normalized_input = self.preprocess(observations)
-            # Forward
 
             for k, v in normalized_input.items():
                 if isinstance(v, np.ndarray):
                     normalized_input[k] = torch.from_numpy(v).to(device)
 
-            return self.forward_from_normalized(normalized_input, return_raw=return_raw)
+            return self.forward_from_normalized(normalized_input)
 
     def get_action(self, observations: Dict[str, Any]) -> Dict[str, Any]:
         """
