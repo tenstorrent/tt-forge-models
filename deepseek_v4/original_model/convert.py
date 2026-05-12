@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import os
 import shutil
 from argparse import ArgumentParser
@@ -8,13 +11,32 @@ import torch
 from safetensors.torch import safe_open, save_file
 
 
-FP4_TABLE = torch.tensor([
-    0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0,
-    0.0, -0.5, -1.0, -1.5, -2.0, -3.0, -4.0, -6.0
-], dtype=torch.float32)
+FP4_TABLE = torch.tensor(
+    [
+        0.0,
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        3.0,
+        4.0,
+        6.0,
+        0.0,
+        -0.5,
+        -1.0,
+        -1.5,
+        -2.0,
+        -3.0,
+        -4.0,
+        -6.0,
+    ],
+    dtype=torch.float32,
+)
 
 
-def cast_e2m1fn_to_e4m3fn(x: torch.Tensor, scale: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+def cast_e2m1fn_to_e4m3fn(
+    x: torch.Tensor, scale: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Casts a tensor from e2m1fn to e4m3fn losslessly.
     """
@@ -28,7 +50,7 @@ def cast_e2m1fn_to_e4m3fn(x: torch.Tensor, scale: torch.Tensor) -> tuple[torch.T
     assert scale.size(0) == out_dim and scale.size(1) == in_dim // fp4_block_size
 
     x = x.view(torch.uint8)
-    low  = x & 0x0F
+    low = x & 0x0F
     high = (x >> 4) & 0x0F
     x = torch.stack([FP4_TABLE[low.long()], FP4_TABLE[high.long()]], dim=-1).flatten(2)
 
@@ -47,9 +69,13 @@ def cast_e2m1fn_to_e4m3fn(x: torch.Tensor, scale: torch.Tensor) -> tuple[torch.T
     # bOut, bIn, 128*4
     offset = scale / scale_max_offset_bits
     # bOut, bIn, 128, 128
-    offset = offset.unflatten(-1, (fp8_block_size, -1)).repeat_interleave(fp4_block_size, dim=-1)
+    offset = offset.unflatten(-1, (fp8_block_size, -1)).repeat_interleave(
+        fp4_block_size, dim=-1
+    )
     x = (x * offset).transpose(1, 2).reshape(out_dim, in_dim)
-    return x.to(torch.float8_e4m3fn), scale_max_offset_bits.squeeze(-1).to(torch.float8_e8m0fnu)
+    return x.to(torch.float8_e4m3fn), scale_max_offset_bits.squeeze(-1).to(
+        torch.float8_e8m0fnu
+    )
 
 
 mapping = {
@@ -68,7 +94,6 @@ mapping = {
     "down_proj": ("w2", 1),
     "up_proj": ("w3", 0),
     "lm_head": ("head", 0),
-
     "embed": ("embed", 0),
     "wq_b": ("wq_b", 0),
     "wo_a": ("wo_a", 0),
@@ -88,7 +113,7 @@ def main(hf_ckpt_path, save_path, n_experts, mp, expert_dtype):
         save_path (str): Path to the directory where the converted checkpoint files will be saved.
         n_experts (int): Total number of experts in the model.
         mp (int): Model parallelism factor.
-        
+
     Returns:
         None
     """
@@ -101,14 +126,18 @@ def main(hf_ckpt_path, save_path, n_experts, mp, expert_dtype):
             for name in f.keys():
                 param: torch.Tensor = f.get_tensor(name)
                 if name.startswith("model."):
-                    name = name[len("model."):]
-                if name.startswith("mtp.") and ("emb" in name or name.endswith("head.weight")):
+                    name = name[len("model.") :]
+                if name.startswith("mtp.") and (
+                    "emb" in name or name.endswith("head.weight")
+                ):
                     continue
                 name = name.replace("self_attn", "attn")
                 name = name.replace("mlp", "ffn")
                 name = name.replace("weight_scale_inv", "scale")
                 name = name.replace("e_score_correction_bias", "bias")
-                if any(x in name for x in ["hc", "attn_sink", "tie2eid", "ape"]):    # without .weight
+                if any(
+                    x in name for x in ["hc", "attn_sink", "tie2eid", "ape"]
+                ):  # without .weight
                     key = name.split(".")[-1]
                 else:
                     key = name.split(".")[-2]
@@ -121,12 +150,19 @@ def main(hf_ckpt_path, save_path, n_experts, mp, expert_dtype):
                     new_param = param
                     if "experts" in name and "shared_experts" not in name:
                         idx = int(name.split(".")[-3])
-                        if idx < i * n_local_experts or idx >= (i + 1) * n_local_experts:
+                        if (
+                            idx < i * n_local_experts
+                            or idx >= (i + 1) * n_local_experts
+                        ):
                             continue
                     elif dim is not None:
-                        assert param.size(dim) % mp == 0, f"Dimension {dim} must be divisible by {mp}"
+                        assert (
+                            param.size(dim) % mp == 0
+                        ), f"Dimension {dim} must be divisible by {mp}"
                         shard_size = param.size(dim) // mp
-                        new_param = param.narrow(dim, i * shard_size, shard_size).contiguous()
+                        new_param = param.narrow(
+                            dim, i * shard_size, shard_size
+                        ).contiguous()
                     state_dicts[i][name] = new_param
 
     os.makedirs(save_path, exist_ok=True)
@@ -137,17 +173,27 @@ def main(hf_ckpt_path, save_path, n_experts, mp, expert_dtype):
             if name.endswith("wo_a.weight"):
                 weight = state_dicts[i][name]
                 scale = state_dicts[i].pop(name.replace("weight", "scale"))
-                weight = weight.unflatten(0, (-1, 128)).unflatten(-1, (-1, 128)).float() * scale[:, None, :, None].float()
+                weight = (
+                    weight.unflatten(0, (-1, 128)).unflatten(-1, (-1, 128)).float()
+                    * scale[:, None, :, None].float()
+                )
                 state_dicts[i][name] = weight.flatten(2, 3).flatten(0, 1).bfloat16()
             elif "experts" in name and state_dicts[i][name].dtype == torch.int8:
                 if expert_dtype == "fp8":
                     scale_name = name.replace("weight", "scale")
                     weight = state_dicts[i].pop(name)
                     scale = state_dicts[i].pop(scale_name)
-                    state_dicts[i][name], state_dicts[i][scale_name] = cast_e2m1fn_to_e4m3fn(weight, scale)
+                    (
+                        state_dicts[i][name],
+                        state_dicts[i][scale_name],
+                    ) = cast_e2m1fn_to_e4m3fn(weight, scale)
                 else:
-                    state_dicts[i][name] = state_dicts[i][name].view(torch.float4_e2m1fn_x2)
-        save_file(state_dicts[i], os.path.join(save_path, f"model{i}-mp{mp}.safetensors"))
+                    state_dicts[i][name] = state_dicts[i][name].view(
+                        torch.float4_e2m1fn_x2
+                    )
+        save_file(
+            state_dicts[i], os.path.join(save_path, f"model{i}-mp{mp}.safetensors")
+        )
 
     for file in ["tokenizer.json", "tokenizer_config.json"]:
         old_file_path = os.path.join(hf_ckpt_path, file)
@@ -162,7 +208,17 @@ if __name__ == "__main__":
     parser.add_argument("--save-path", type=str, required=True)
     parser.add_argument("--n-experts", type=int, required=True)
     parser.add_argument("--model-parallel", type=int, required=True)
-    parser.add_argument("--expert-dtype", type=str, choices=["fp8", "fp4"], required=False, default=None)
+    parser.add_argument(
+        "--expert-dtype", type=str, choices=["fp8", "fp4"], required=False, default=None
+    )
     args = parser.parse_args()
-    assert args.n_experts % args.model_parallel == 0, "Number of experts must be divisible by model parallelism"
-    main(args.hf_ckpt_path, args.save_path, args.n_experts, args.model_parallel, args.expert_dtype)
+    assert (
+        args.n_experts % args.model_parallel == 0
+    ), "Number of experts must be divisible by model parallelism"
+    main(
+        args.hf_ckpt_path,
+        args.save_path,
+        args.n_experts,
+        args.model_parallel,
+        args.expert_dtype,
+    )

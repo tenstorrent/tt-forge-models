@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import torch
 
 
@@ -12,13 +15,13 @@ def hc_split_sinkhorn(
     b, s, _ = mixes.shape
     hc = hc_mult
 
-    pre_raw  = mixes[..., :hc]
-    post_raw = mixes[..., hc:2 * hc]
-    comb_raw = mixes[..., 2 * hc:]
+    pre_raw = mixes[..., :hc]
+    post_raw = mixes[..., hc : 2 * hc]
+    comb_raw = mixes[..., 2 * hc :]
 
-    pre  = torch.sigmoid(pre_raw  * hc_scale[0] + hc_base[:hc]) + eps
-    post = 2 * torch.sigmoid(post_raw * hc_scale[1] + hc_base[hc:2 * hc])
-    comb = (comb_raw * hc_scale[2] + hc_base[2 * hc:]).view(b, s, hc, hc)
+    pre = torch.sigmoid(pre_raw * hc_scale[0] + hc_base[:hc]) + eps
+    post = 2 * torch.sigmoid(post_raw * hc_scale[1] + hc_base[hc : 2 * hc])
+    comb = (comb_raw * hc_scale[2] + hc_base[2 * hc :]).view(b, s, hc, hc)
 
     # Initial: row softmax + eps, then column normalize
     comb = torch.softmax(comb, dim=-1) + eps
@@ -67,8 +70,8 @@ def sparse_attn(
     # then permute to `(b, s, d, t, 1)` for the matmul contracting layout,
     # leaving a trailing 1 dim. Doing the bmm in flat 3D form lets the
     # compiler lower without the broadcast-and-permute dance.
-    kv_g_f = kv_gathered.float()                            # (b, s, t, d)
-    q_3d = q.float().reshape(b * s, h, d)                   # (b*s, h, d)
+    kv_g_f = kv_gathered.float()  # (b, s, t, d)
+    q_3d = q.float().reshape(b * s, h, d)  # (b*s, h, d)
     kv_3d_t = kv_g_f.reshape(b * s, topk, d_kv).transpose(-1, -2)  # (b*s, d, t)
     scores = torch.bmm(q_3d, kv_3d_t).reshape(b, s, h, topk) * softmax_scale
     scores = scores.masked_fill(~valid.unsqueeze(2), float("-inf"))
@@ -84,7 +87,7 @@ def sparse_attn(
     # Same conversion for the second einsum `("bsht,bstd->bshd")`: weights
     # has h, kv_gathered does not, so explicit bmm avoids the same trailing
     # 1 padding pattern.
-    weights_3d = weights.reshape(b * s, h, topk)            # (b*s, h, t)
-    kv_3d = kv_g_f.reshape(b * s, topk, d_kv)               # (b*s, t, d)
-    o = torch.bmm(weights_3d, kv_3d).reshape(b, s, h, d_kv) # (b, s, h, d)
+    weights_3d = weights.reshape(b * s, h, topk)  # (b*s, h, t)
+    kv_3d = kv_g_f.reshape(b * s, topk, d_kv)  # (b*s, t, d)
+    o = torch.bmm(weights_3d, kv_3d).reshape(b, s, h, d_kv)  # (b, s, h, d)
     return o.to(q.dtype)
