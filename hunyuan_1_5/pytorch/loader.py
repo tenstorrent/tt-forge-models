@@ -64,6 +64,7 @@ class ModelVariant(StrEnum):
     TEXT_ENCODER_2 = "TextEncoder2"
     TRANSFORMER = "Transformer"
     VAE = "Vae"
+    VAE_TILED = "VaeTiled"
 
 
 class ModelLoader(ForgeModel):
@@ -74,8 +75,12 @@ class ModelLoader(ForgeModel):
         ModelVariant.TEXT_ENCODER_2: ModelConfig(pretrained_model_name=_REPO_ID),
         ModelVariant.TRANSFORMER: ModelConfig(pretrained_model_name=_REPO_ID),
         ModelVariant.VAE: ModelConfig(pretrained_model_name=_REPO_ID),
+        ModelVariant.VAE_TILED: ModelConfig(pretrained_model_name=_REPO_ID),
     }
     DEFAULT_VARIANT = ModelVariant.TRANSFORMER
+
+    _TEXT_VARIANTS = (ModelVariant.TEXT_ENCODER, ModelVariant.TEXT_ENCODER_2)
+    _VAE_VARIANTS = (ModelVariant.VAE, ModelVariant.VAE_TILED)
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -83,7 +88,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
         task = (
             ModelTask.NLP_EMBED_GEN
-            if variant in (ModelVariant.TEXT_ENCODER, ModelVariant.TEXT_ENCODER_2)
+            if variant in cls._TEXT_VARIANTS
             else ModelTask.MM_VIDEO_TTT
         )
         return ModelInfo(
@@ -103,6 +108,7 @@ class ModelLoader(ForgeModel):
             TEXT_ENCODER_2 → ByT5 encoder model
             TRANSFORMER    → HunyuanVideo15TransformerWrapper
             VAE            → VAEDecoderWrapper (decoder-only, returns plain tensor)
+            VAE_TILED      → VAEDecoderWrapper with enable_tiling() (memory-efficient)
         """
         dtype = dtype_override if dtype_override is not None else DTYPE
 
@@ -114,6 +120,8 @@ class ModelLoader(ForgeModel):
             return HunyuanVideo15TransformerWrapper(load_transformer(dtype)).eval()
         if self._variant == ModelVariant.VAE:
             return VAEDecoderWrapper(load_vae(dtype)).eval()
+        if self._variant == ModelVariant.VAE_TILED:
+            return VAEDecoderWrapper(load_vae(dtype, enable_tiling=True)).eval()
 
         raise ValueError(f"Unknown variant: {self._variant}")
 
@@ -121,9 +129,9 @@ class ModelLoader(ForgeModel):
         """Return (mesh_shape, mesh_names) for a ("batch", "model") 2D mesh.
 
         Supported device counts: 1, 2, 4, 8, 32.
-        TEXT_ENCODER_2 and VAE fit on a single chip so any count maps to (1, 1).
+        TEXT_ENCODER_2 and VAE/VAE_TILED fit on a single chip so any count maps to (1, 1).
         """
-        if self._variant in (ModelVariant.TEXT_ENCODER_2, ModelVariant.VAE):
+        if self._variant in (ModelVariant.TEXT_ENCODER_2, *self._VAE_VARIANTS):
             return (1, 1), MESH_NAMES
 
         if num_devices not in MESH_SHAPES:
@@ -137,10 +145,10 @@ class ModelLoader(ForgeModel):
         """Return tensor → partition_spec dict for the active component.
 
         Expects the same model object returned by load_model():
-          TEXT_ENCODER   → Qwen2.5-VL encoder
-          TEXT_ENCODER_2 → None (single-chip, no sharding)
-          TRANSFORMER    → HunyuanVideo15TransformerWrapper (specs from .transformer)
-          VAE            → None (single-chip, no sharding)
+          TEXT_ENCODER         → Qwen2.5-VL encoder
+          TEXT_ENCODER_2       → None (single-chip, no sharding)
+          TRANSFORMER          → HunyuanVideo15TransformerWrapper (specs from .transformer)
+          VAE / VAE_TILED      → None (single-chip, no sharding)
         """
         if self._variant == ModelVariant.TEXT_ENCODER:
             return shard_text_encoder_specs(model)
@@ -153,10 +161,10 @@ class ModelLoader(ForgeModel):
 
         TEXT_ENCODER   → [input_ids (1,1108) int64, attention_mask (1,1108) int64]
         TEXT_ENCODER_2 → [input_ids (1,256) int64, attention_mask (1,256) float32]
-        TRANSFORMER    → [hidden_states, timestep, encoder_hidden_states,
-                          encoder_attention_mask, encoder_hidden_states_2,
-                          encoder_attention_mask_2, image_embeds]
-        VAE            → [z (1,32,5,30,53) bfloat16]
+        TRANSFORMER         → [hidden_states, timestep, encoder_hidden_states,
+                               encoder_attention_mask, encoder_hidden_states_2,
+                               encoder_attention_mask_2, image_embeds]
+        VAE / VAE_TILED     → [z (1,32,5,30,53) bfloat16]
         """
         dtype = dtype_override if dtype_override is not None else DTYPE
 
@@ -206,7 +214,7 @@ class ModelLoader(ForgeModel):
                 image_embeds,
             ]
 
-        if self._variant == ModelVariant.VAE:
+        if self._variant in self._VAE_VARIANTS:
             z = torch.randn(
                 1,
                 NUM_CHANNELS_LATENTS,
