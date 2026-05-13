@@ -4,7 +4,9 @@
 from peft import LoraConfig
 
 from ....phi1.causal_lm.pytorch.loader import ModelLoader as _Phi1ModelLoader
-from ....phi1.causal_lm.pytorch.loader import ModelLoaderPrefill as _Phi1ModelLoaderPrefill
+from ....phi1.causal_lm.pytorch.loader import (
+    ModelLoaderPrefill as _Phi1ModelLoaderPrefill,
+)
 from ....phi1.causal_lm.pytorch.loader import ModelVariant
 from ....tools.lora import LoRAModelMixin
 

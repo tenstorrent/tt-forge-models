@@ -271,7 +271,9 @@ class ModelLoaderPrefill(ModelLoader, ForgePrefillModel):
     """
 
     _VARIANTS = {
-        ModelVariant.GEMMA_1_1_2B_IT: ModelLoader._VARIANTS[ModelVariant.GEMMA_1_1_2B_IT],
+        ModelVariant.GEMMA_1_1_2B_IT: ModelLoader._VARIANTS[
+            ModelVariant.GEMMA_1_1_2B_IT
+        ],
     }
     DEFAULT_VARIANT = ModelVariant.GEMMA_1_1_2B_IT
 

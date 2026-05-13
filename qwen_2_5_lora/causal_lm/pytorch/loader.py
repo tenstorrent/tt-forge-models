@@ -4,7 +4,9 @@
 from peft import LoraConfig
 
 from ....qwen_2_5.causal_lm.pytorch.loader import ModelLoader as _Qwen25ModelLoader
-from ....qwen_2_5.causal_lm.pytorch.loader import ModelLoaderPrefill as _Qwen25ModelLoaderPrefill
+from ....qwen_2_5.causal_lm.pytorch.loader import (
+    ModelLoaderPrefill as _Qwen25ModelLoaderPrefill,
+)
 from ....qwen_2_5.causal_lm.pytorch.loader import ModelVariant
 from ....tools.lora import LoRAModelMixin
 
