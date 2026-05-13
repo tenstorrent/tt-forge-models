@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 """
 PointPillars fork from SECOND.
 Code written by Alex Lang and Oscar Beijbom, 2018.
@@ -65,7 +68,7 @@ class PillarFeatureNet(nn.Module):
         voxel_size=(0.2, 0.2, 4),
         pc_range=(0, -40, -3, 70.4, 40, 1),
         norm_cfg=None,
-        virtual=False
+        virtual=False,
     ):
         """
         Pillar Feature Net.
@@ -105,7 +108,7 @@ class PillarFeatureNet(nn.Module):
             )
         self.pfn_layers = nn.ModuleList(pfn_layers)
 
-        self.virtual = virtual 
+        self.virtual = virtual
 
         # Need pillar (voxel) size and x/y offset in order to calculate pillar offset
         self.vx = voxel_size[0]
@@ -120,7 +123,7 @@ class PillarFeatureNet(nn.Module):
             virtual_point_mask = features[..., -2] == -1
             virtual_points = features[virtual_point_mask]
             virtual_points[..., -2] = 1
-            features[..., -2] = 0 
+            features[..., -2] = 0
             features[virtual_point_mask] = virtual_points
 
         dtype = features.dtype

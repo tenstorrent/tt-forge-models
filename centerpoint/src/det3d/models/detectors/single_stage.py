@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import torch.nn as nn
 
 from .. import builder
@@ -32,13 +35,13 @@ class SingleStageDetector(BaseDetector):
 
     def init_weights(self, pretrained=None):
         if pretrained is None:
-            return 
+            return
         try:
             load_checkpoint(self, pretrained, strict=False)
             print("init weight from {}".format(pretrained))
         except:
             print("no pretrained model at {}".format(pretrained))
-            
+
     def extract_feat(self, data):
         input_features = self.reader(data)
         x = self.backbone(input_features)

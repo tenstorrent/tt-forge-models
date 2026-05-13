@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 from __future__ import division
 
 from math import cos, pi
@@ -116,7 +119,7 @@ class StepLrUpdaterHook(LrUpdaterHook):
                 exp = i
                 break
 
-        return base_lr * self.gamma ** exp
+        return base_lr * self.gamma**exp
 
 
 class ExpLrUpdaterHook(LrUpdaterHook):
@@ -126,7 +129,7 @@ class ExpLrUpdaterHook(LrUpdaterHook):
 
     def get_lr(self, runner, base_lr):
         progress = trainer.epoch if self.by_epoch else trainer.iter
-        return base_lr * self.gamma ** progress
+        return base_lr * self.gamma**progress
 
 
 class PolyLrUpdaterHook(LrUpdaterHook):

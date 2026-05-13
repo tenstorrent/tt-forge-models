@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 from .collate import collate, collate_kitti
 from .data_container import DataContainer
 from .data_parallel import MegDataParallel

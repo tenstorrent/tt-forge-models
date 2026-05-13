@@ -18,8 +18,7 @@ def _flat_nested_json_dict(json_dict, flatted, sep=".", start=""):
 
 
 def flat_nested_json_dict(json_dict, sep=".") -> dict:
-    """flat a nested json-like dict. this function make shadow copy.
-    """
+    """flat a nested json-like dict. this function make shadow copy."""
     flatted = {}
     for k, v in json_dict.items():
         if isinstance(v, dict):
@@ -297,8 +296,7 @@ class Writer:
         self.summary_writter = None
 
     def log_text(self, text, step, tag="regular log"):
-        """This function only add text to log.txt and tensorboard texts
-        """
+        """This function only add text to log.txt and tensorboard texts"""
         if step > self._text_current_gstep and self._text_current_gstep != -1:
             total_text = "\n".join(self._tb_texts)
             self.summary_writter.add_text(tag, total_text, global_step=step)

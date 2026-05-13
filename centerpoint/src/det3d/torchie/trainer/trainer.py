@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import logging
 import os.path as osp
 import queue
@@ -35,8 +38,19 @@ def example_to_device(example, device, non_blocking=False) -> dict:
     example_torch = {}
     float_names = ["voxels", "bev_map"]
     for k, v in example.items():
-        if k in ["anchors", "anchors_mask", "reg_targets", "reg_weights", "labels", "hm",
-                "anno_box", "ind", "mask", 'cat', 'points']:
+        if k in [
+            "anchors",
+            "anchors_mask",
+            "reg_targets",
+            "reg_weights",
+            "labels",
+            "hm",
+            "anno_box",
+            "ind",
+            "mask",
+            "cat",
+            "points",
+        ]:
             example_torch[k] = [res.to(device, non_blocking=non_blocking) for res in v]
         elif k in [
             "voxels",
@@ -48,7 +62,7 @@ def example_to_device(example, device, non_blocking=False) -> dict:
             "cyv_num_voxels",
             "cyv_coordinates",
             "cyv_num_points",
-            "gt_boxes_and_cls"
+            "gt_boxes_and_cls",
         ]:
             example_torch[k] = v.to(device, non_blocking=non_blocking)
         elif k == "calib":
@@ -127,7 +141,7 @@ class Prefetcher(object):
 
 
 class Trainer(object):
-    """ A training helper for PyTorch
+    """A training helper for PyTorch
 
     Args:
         model:
@@ -394,7 +408,7 @@ class Trainer(object):
         for i, data_batch in enumerate(data_loader):
             global_step = base_step + i
             if self.lr_scheduler is not None:
-                #print(global_step)
+                # print(global_step)
                 self.lr_scheduler.step(global_step)
 
             self._inner_iter = i
@@ -449,7 +463,9 @@ class Trainer(object):
                     ]:
                         output[k] = v.to(cpu_device)
                 detections.update(
-                    {token: output,}
+                    {
+                        token: output,
+                    }
                 )
                 if self.rank == 0:
                     for _ in range(self.world_size):
@@ -481,7 +497,10 @@ class Trainer(object):
     def resume(self, checkpoint, resume_optimizer=True, map_location="default"):
         if map_location == "default":
             checkpoint = self.load_checkpoint(
-                checkpoint , map_location='cuda:{}'.format(torch.cuda.current_device()) # TODO: FIX THIS!!
+                checkpoint,
+                map_location="cuda:{}".format(
+                    torch.cuda.current_device()
+                ),  # TODO: FIX THIS!!
             )
         else:
             checkpoint = self.load_checkpoint(checkpoint, map_location=map_location)
@@ -494,7 +513,7 @@ class Trainer(object):
         self.logger.info("resumed epoch %d, iter %d", self.epoch, self.iter)
 
     def run(self, data_loaders, workflow, max_epochs, **kwargs):
-        """ Start running.
+        """Start running.
 
         Args:
             data_loaders (list[:obj:`DataLoader`])

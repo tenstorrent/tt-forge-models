@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 from .base import BaseDetector
 from .point_pillars import PointPillars
 from .single_stage import SingleStageDetector

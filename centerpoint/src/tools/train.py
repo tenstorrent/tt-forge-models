@@ -1,12 +1,20 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import argparse
 import json
 import os
 import sys
 
-from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWarning, NumbaWarning
+from numba.core.errors import (
+    NumbaDeprecationWarning,
+    NumbaPendingDeprecationWarning,
+    NumbaWarning,
+)
 import warnings
-warnings.simplefilter('ignore', category=NumbaDeprecationWarning)
-warnings.simplefilter('ignore', category=NumbaWarning)
+
+warnings.simplefilter("ignore", category=NumbaDeprecationWarning)
+warnings.simplefilter("ignore", category=NumbaWarning)
 
 import numpy as np
 import torch
@@ -23,6 +31,7 @@ from det3d.torchie.apis import (
 )
 import torch.distributed as dist
 import subprocess
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train a detector")
@@ -94,7 +103,8 @@ def main():
             cfg.gpus = num_gpus
             torch.cuda.set_device(proc_id % num_gpus)
             addr = subprocess.getoutput(
-                f"scontrol show hostname {node_list} | head -n1")
+                f"scontrol show hostname {node_list} | head -n1"
+            )
             # specify master port
             port = None
             if port is not None:
@@ -116,7 +126,7 @@ def main():
 
         cfg.gpus = dist.get_world_size()
     else:
-        cfg.local_rank = args.local_rank 
+        cfg.local_rank = args.local_rank
 
     if args.autoscale_lr:
         cfg.lr_config.lr_max = cfg.lr_config.lr_max * cfg.gpus
@@ -148,9 +158,7 @@ def main():
     if cfg.checkpoint_config is not None:
         # save det3d version, config file content and class names in
         # checkpoints as meta data
-        cfg.checkpoint_config.meta = dict(
-            config=cfg.text, CLASSES=datasets[0].CLASSES
-        )
+        cfg.checkpoint_config.meta = dict(config=cfg.text, CLASSES=datasets[0].CLASSES)
 
     # add an attribute for visualization convenience
     model.CLASSES = datasets[0].CLASSES

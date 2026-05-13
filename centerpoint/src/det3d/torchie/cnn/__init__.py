@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 from .alexnet import AlexNet
 from .resnet import ResNet, make_res_layer
 from .vgg import VGG, make_vgg_layer

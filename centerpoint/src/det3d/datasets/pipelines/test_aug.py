@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 from det3d import torchie
 
 from ..registry import PIPELINES
@@ -14,22 +17,19 @@ class DoubleFlip(object):
         points = res["lidar"]["points"].copy()
         points[:, 1] = -points[:, 1]
 
-        res["lidar"]['yflip_points'] = points
+        res["lidar"]["yflip_points"] = points
 
         # x flip
         points = res["lidar"]["points"].copy()
         points[:, 0] = -points[:, 0]
 
-        res["lidar"]['xflip_points'] = points
+        res["lidar"]["xflip_points"] = points
 
         # x y flip
         points = res["lidar"]["points"].copy()
         points[:, 0] = -points[:, 0]
         points[:, 1] = -points[:, 1]
 
-        res["lidar"]["double_flip_points"] = points  
+        res["lidar"]["double_flip_points"] = points
 
-        return res, info 
-
-
-
+        return res, info

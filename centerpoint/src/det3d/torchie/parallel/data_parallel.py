@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 from torch.nn.parallel import DataParallel
 
 from .scatter_gather import scatter_kwargs

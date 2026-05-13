@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 from __future__ import division
 
 import re
@@ -31,7 +34,14 @@ def example_to_device(example, device=None, non_blocking=False) -> dict:
     example_torch = {}
     float_names = ["voxels", "bev_map"]
     for k, v in example.items():
-        if k in ["anchors", "anchors_mask", "reg_targets", "reg_weights", "labels", 'points']:
+        if k in [
+            "anchors",
+            "anchors_mask",
+            "reg_targets",
+            "reg_weights",
+            "labels",
+            "points",
+        ]:
             example_torch[k] = [res.to(device, non_blocking=non_blocking) for res in v]
         elif k in [
             "voxels",
@@ -42,7 +52,7 @@ def example_to_device(example, device=None, non_blocking=False) -> dict:
             "cyv_voxels",
             "cyv_num_voxels",
             "cyv_coordinates",
-            "cyv_num_points"
+            "cyv_num_points",
         ]:
             example_torch[k] = v.to(device, non_blocking=non_blocking)
         elif k == "calib":
@@ -112,21 +122,22 @@ def batch_processor(model, data, train_mode, **kwargs):
     else:
         return model(example, return_loss=False)
 
+
 def batch_processor_ensemble(model1, model2, data, train_mode, **kwargs):
-    assert 0, 'deprecated'
+    assert 0, "deprecated"
     if "local_rank" in kwargs:
         device = torch.device(kwargs["local_rank"])
     else:
         device = None
 
-    assert train_mode is False 
+    assert train_mode is False
 
     example = example_to_device(data, device, non_blocking=False)
     del data
 
     preds_dicts1 = model1.pred_hm(example)
     preds_dicts2 = model2.pred_hm(example)
-    
+
     num_task = len(preds_dicts1)
 
     merge_list = []
@@ -141,7 +152,7 @@ def batch_processor_ensemble(model1, model2, data, train_mode, **kwargs):
 
         merge_list.append(preds_dict1)
 
-    # now get the final prediciton 
+    # now get the final prediciton
     return model1.pred_result(example, merge_list)
 
 
@@ -163,7 +174,7 @@ def build_one_cycle_optimizer(model, optimizer_config):
 
     optimizer = OptimWrapper.create(
         optimizer_func,
-        3e-3,   # TODO: CHECKING LR HERE !!!
+        3e-3,  # TODO: CHECKING LR HERE !!!
         get_layer_groups(model),
         wd=optimizer_config.wd,
         true_wd=optimizer_config.fixed_wd,
@@ -275,9 +286,11 @@ def train_detector(model, dataset, cfg, distributed=False, validate=False, logge
         cfg.lr_config = None
     else:
         optimizer = build_optimizer(model, cfg.optimizer)
-        lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=cfg.drop_step, gamma=.1)
+        lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
+            optimizer, milestones=cfg.drop_step, gamma=0.1
+        )
         # lr_scheduler = None
-        cfg.lr_config = None 
+        cfg.lr_config = None
 
     # put model on gpus
     if distributed:

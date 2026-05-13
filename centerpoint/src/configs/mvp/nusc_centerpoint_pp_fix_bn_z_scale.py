@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import itertools
 import logging
 
@@ -47,10 +50,16 @@ model = dict(
         type="CenterHead",
         in_channels=sum([128, 128, 128]),
         tasks=tasks,
-        dataset='nuscenes',
+        dataset="nuscenes",
         weight=0.25,
         code_weights=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.2, 0.2, 1.0, 1.0],
-        common_heads={'reg': (2, 2), 'height': (1, 2), 'dim':(3, 2), 'rot':(2, 2), 'vel': (2, 2)}, # (output_channel, num_conv)
+        common_heads={
+            "reg": (2, 2),
+            "height": (1, 2),
+            "dim": (3, 2),
+            "rot": (2, 2),
+            "vel": (2, 2),
+        },  # (output_channel, num_conv)
     ),
 )
 
@@ -62,7 +71,7 @@ assigner = dict(
     max_objs=500,
     min_radius=2,
     pc_range=[-51.2, -51.2, -5.0, 51.2, 51.2, 3.0],
-    voxel_size=[0.2, 0.2, 8]
+    voxel_size=[0.2, 0.2, 8],
 )
 
 
@@ -81,7 +90,7 @@ test_cfg = dict(
     score_threshold=0.1,
     pc_range=[-51.2, -51.2],
     out_size_factor=get_downsample_factor(model),
-    voxel_size=[0.2, 0.2]
+    voxel_size=[0.2, 0.2],
 )
 
 # dataset settings
@@ -120,7 +129,9 @@ db_sampler = dict(
                 pedestrian=5,
             )
         ),
-        dict(filter_by_difficulty=[-1],),
+        dict(
+            filter_by_difficulty=[-1],
+        ),
     ],
     global_random_rotation_range_per_object=[0, 0],
     rate=1.0,
@@ -207,14 +218,21 @@ data = dict(
 )
 
 
-
 optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
 # optimizer
 optimizer = dict(
-    type="adam", amsgrad=0.0, wd=0.01, fixed_wd=True, moving_average=False,
+    type="adam",
+    amsgrad=0.0,
+    wd=0.01,
+    fixed_wd=True,
+    moving_average=False,
 )
 lr_config = dict(
-    type="one_cycle", lr_max=0.001, moms=[0.95, 0.85], div_factor=10.0, pct_start=0.4,
+    type="one_cycle",
+    lr_max=0.001,
+    moms=[0.95, 0.85],
+    div_factor=10.0,
+    pct_start=0.4,
 )
 
 checkpoint_config = dict(interval=1)
@@ -232,7 +250,7 @@ total_epochs = 20
 device_ids = range(8)
 dist_params = dict(backend="nccl", init_method="env://")
 log_level = "INFO"
-work_dir = './work_dirs/{}/'.format(__file__[__file__.rfind('/') + 1:-3])
+work_dir = "./work_dirs/{}/".format(__file__[__file__.rfind("/") + 1 : -3])
 load_from = None
-resume_from = None 
-workflow = [('train', 1)]
+resume_from = None
+workflow = [("train", 1)]

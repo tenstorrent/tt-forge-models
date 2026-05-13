@@ -1,11 +1,16 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
 #ifndef IOU3D_CPU_H
 #define IOU3D_CPU_H
 
-#include <torch/serialize/tensor.h>
-#include <vector>
 #include <cuda.h>
 #include <cuda_runtime_api.h>
+#include <torch/serialize/tensor.h>
+#include <vector>
 
-int boxes_iou_bev_cpu(at::Tensor boxes_a_tensor, at::Tensor boxes_b_tensor, at::Tensor ans_iou_tensor);
+int boxes_iou_bev_cpu(at::Tensor boxes_a_tensor, at::Tensor boxes_b_tensor,
+                      at::Tensor ans_iou_tensor);
 
 #endif

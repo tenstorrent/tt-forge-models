@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import numpy as np
 import pickle
 
@@ -157,6 +160,7 @@ cls_attr_dist = {
     },
 }
 
+
 def _second_det_to_nusc_box(detection):
     box3d = detection["box3d_lidar"].detach().cpu().numpy()
     scores = detection["scores"].detach().cpu().numpy()
@@ -225,9 +229,7 @@ def _get_available_scenes(nusc):
     return available_scenes
 
 
-def get_sample_data(
-    nusc, sample_data_token: str, selected_anntokens: List[str] = None
-):
+def get_sample_data(nusc, sample_data_token: str, selected_anntokens: List[str] = None):
     """
     Returns the data path as well as all annotations related to that sample_data.
     Note that the boxes are transformed into the current sensor's coordinate frame.
@@ -271,31 +273,45 @@ def get_sample_data(
 
     return data_path, box_list, cam_intrinsic
 
-CAM_CHANS = ['CAM_FRONT', 'CAM_FRONT_RIGHT', 'CAM_BACK_RIGHT', 'CAM_BACK', 'CAM_BACK_LEFT', 'CAM_FRONT_LEFT']
+
+CAM_CHANS = [
+    "CAM_FRONT",
+    "CAM_FRONT_RIGHT",
+    "CAM_BACK_RIGHT",
+    "CAM_BACK",
+    "CAM_BACK_LEFT",
+    "CAM_FRONT_LEFT",
+]
 
 
-def get_lidar_to_image_transform(nusc, pointsensor,  camera_sensor):
+def get_lidar_to_image_transform(nusc, pointsensor, camera_sensor):
     tms = []
-    intrinsics = []  
-    cam_paths = [] 
+    intrinsics = []
+    cam_paths = []
     for chan in CAM_CHANS:
         cam = camera_sensor[chan]
 
         # Points live in the point sensor frame. So they need to be transformed via global to the image plane.
         # First step: transform the point-cloud to the ego vehicle frame for the timestamp of the sweep.
-        lidar_cs_record = nusc.get('calibrated_sensor', pointsensor['calibrated_sensor_token'])
+        lidar_cs_record = nusc.get(
+            "calibrated_sensor", pointsensor["calibrated_sensor_token"]
+        )
         car_from_lidar = transform_matrix(
-            lidar_cs_record["translation"], Quaternion(lidar_cs_record["rotation"]), inverse=False
+            lidar_cs_record["translation"],
+            Quaternion(lidar_cs_record["rotation"]),
+            inverse=False,
         )
 
         # Second step: transform to the global frame.
-        lidar_poserecord = nusc.get('ego_pose', pointsensor['ego_pose_token'])
+        lidar_poserecord = nusc.get("ego_pose", pointsensor["ego_pose_token"])
         global_from_car = transform_matrix(
-            lidar_poserecord["translation"],  Quaternion(lidar_poserecord["rotation"]), inverse=False,
+            lidar_poserecord["translation"],
+            Quaternion(lidar_poserecord["rotation"]),
+            inverse=False,
         )
 
         # Third step: transform into the ego vehicle frame for the timestamp of the image.
-        cam_poserecord = nusc.get('ego_pose', cam['ego_pose_token'])
+        cam_poserecord = nusc.get("ego_pose", cam["ego_pose_token"])
         car_from_global = transform_matrix(
             cam_poserecord["translation"],
             Quaternion(cam_poserecord["rotation"]),
@@ -303,9 +319,11 @@ def get_lidar_to_image_transform(nusc, pointsensor,  camera_sensor):
         )
 
         # Fourth step: transform into the camera.
-        cam_cs_record = nusc.get('calibrated_sensor', cam['calibrated_sensor_token'])
+        cam_cs_record = nusc.get("calibrated_sensor", cam["calibrated_sensor_token"])
         cam_from_car = transform_matrix(
-            cam_cs_record["translation"], Quaternion(cam_cs_record["rotation"]), inverse=True
+            cam_cs_record["translation"],
+            Quaternion(cam_cs_record["rotation"]),
+            inverse=True,
         )
 
         tm = reduce(
@@ -313,45 +331,48 @@ def get_lidar_to_image_transform(nusc, pointsensor,  camera_sensor):
             [cam_from_car, car_from_global, global_from_car, car_from_lidar],
         )
 
-        cam_path, _, intrinsic = nusc.get_sample_data(cam['token'])
+        cam_path, _, intrinsic = nusc.get_sample_data(cam["token"])
 
         tms.append(tm)
         intrinsics.append(intrinsic)
-        cam_paths.append(cam_path )
+        cam_paths.append(cam_path)
 
-    return tms, intrinsics, cam_paths  
+    return tms, intrinsics, cam_paths
+
 
 def find_closet_camera_tokens(nusc, pointsensor, ref_sample):
     lidar_timestamp = pointsensor["timestamp"]
 
-    min_cams = {} 
+    min_cams = {}
 
     for chan in CAM_CHANS:
-        camera_token = ref_sample['data'][chan]
+        camera_token = ref_sample["data"][chan]
 
-        cam = nusc.get('sample_data', camera_token)
-        min_diff = abs(lidar_timestamp - cam['timestamp'])
+        cam = nusc.get("sample_data", camera_token)
+        min_diff = abs(lidar_timestamp - cam["timestamp"])
         min_cam = cam
 
-        for i in range(6):  # nusc allows at most 6 previous camera frames 
-            if cam['prev'] == "":
-                break 
+        for i in range(6):  # nusc allows at most 6 previous camera frames
+            if cam["prev"] == "":
+                break
 
-            cam = nusc.get('sample_data', cam['prev'])
-            cam_timestamp = cam['timestamp']
+            cam = nusc.get("sample_data", cam["prev"])
+            cam_timestamp = cam["timestamp"]
 
-            diff = abs(lidar_timestamp-cam_timestamp)
+            diff = abs(lidar_timestamp - cam_timestamp)
 
-            if (diff < min_diff):
-                min_diff = diff 
-                min_cam = cam 
-            
-        min_cams[chan] = min_cam 
+            if diff < min_diff:
+                min_diff = diff
+                min_cam = cam
 
-    return min_cams     
+        min_cams[chan] = min_cam
+
+    return min_cams
 
 
-def _fill_trainval_infos(nusc, train_scenes, val_scenes, test=False, nsweeps=10, filter_zero=True):
+def _fill_trainval_infos(
+    nusc, train_scenes, val_scenes, test=False, nsweeps=10, filter_zero=True
+):
     from nuscenes.utils.geometry_utils import transform_matrix
 
     train_nusc_infos = []
@@ -361,7 +382,7 @@ def _fill_trainval_infos(nusc, train_scenes, val_scenes, test=False, nsweeps=10,
     chan = "LIDAR_TOP"  # The reference channel of the current sample_rec that the point clouds are mapped to.
 
     for sample in tqdm(nusc.sample):
-        """ Manual save info["sweeps"] """        
+        """Manual save info["sweeps"]"""
         # Get reference pose and timestamp
         # ref_chan == "LIDAR_TOP"
         ref_sd_token = sample["data"][ref_chan]
@@ -392,13 +413,19 @@ def _fill_trainval_infos(nusc, train_scenes, val_scenes, test=False, nsweeps=10,
         ref_cams = {}
         # get all camera sensor data
         for cam_chan in CAM_CHANS:
-            camera_token = sample['data'][cam_chan]
-            cam = nusc.get('sample_data', camera_token)
+            camera_token = sample["data"][cam_chan]
+            cam = nusc.get("sample_data", camera_token)
 
-            ref_cams[cam_chan] = cam 
+            ref_cams[cam_chan] = cam
 
-        # get camera info for point painting 
-        all_cams_from_lidar, all_cams_intrinsic, all_cams_path = get_lidar_to_image_transform(nusc, pointsensor=ref_sd_rec, camera_sensor=ref_cams)    
+        # get camera info for point painting
+        (
+            all_cams_from_lidar,
+            all_cams_intrinsic,
+            all_cams_path,
+        ) = get_lidar_to_image_transform(
+            nusc, pointsensor=ref_sd_rec, camera_sensor=ref_cams
+        )
 
         info = {
             "lidar_path": ref_lidar_path,
@@ -411,7 +438,7 @@ def _fill_trainval_infos(nusc, train_scenes, val_scenes, test=False, nsweeps=10,
             "timestamp": ref_time,
             "all_cams_from_lidar": all_cams_from_lidar,
             "all_cams_intrinsic": all_cams_intrinsic,
-            "all_cams_path": all_cams_path
+            "all_cams_path": all_cams_path,
         }
 
         sample_data_token = sample["data"][chan]
@@ -427,7 +454,7 @@ def _fill_trainval_infos(nusc, train_scenes, val_scenes, test=False, nsweeps=10,
                         "time_lag": curr_sd_rec["timestamp"] * 0,
                         "all_cams_from_lidar": all_cams_from_lidar,
                         "all_cams_intrinsic": all_cams_intrinsic,
-                        "all_cams_path": all_cams_path
+                        "all_cams_path": all_cams_path,
                     }
                     sweeps.append(sweep)
                 else:
@@ -435,9 +462,17 @@ def _fill_trainval_infos(nusc, train_scenes, val_scenes, test=False, nsweeps=10,
             else:
                 curr_sd_rec = nusc.get("sample_data", curr_sd_rec["prev"])
 
-                # get nearest camera frame data 
-                cam_data = find_closet_camera_tokens(nusc, curr_sd_rec, ref_sample=sample)
-                cur_cams_from_lidar, cur_cams_intrinsic, cur_cams_path = get_lidar_to_image_transform(nusc, pointsensor=curr_sd_rec, camera_sensor=cam_data)   
+                # get nearest camera frame data
+                cam_data = find_closet_camera_tokens(
+                    nusc, curr_sd_rec, ref_sample=sample
+                )
+                (
+                    cur_cams_from_lidar,
+                    cur_cams_intrinsic,
+                    cur_cams_path,
+                ) = get_lidar_to_image_transform(
+                    nusc, pointsensor=curr_sd_rec, camera_sensor=cam_data
+                )
 
                 # Get past pose
                 current_pose_rec = nusc.get("ego_pose", curr_sd_rec["ego_pose_token"])
@@ -475,22 +510,26 @@ def _fill_trainval_infos(nusc, train_scenes, val_scenes, test=False, nsweeps=10,
                     "time_lag": time_lag,
                     "all_cams_from_lidar": cur_cams_from_lidar,
                     "all_cams_intrinsic": cur_cams_intrinsic,
-                    "all_cams_path": cur_cams_path
+                    "all_cams_path": cur_cams_path,
                 }
                 sweeps.append(sweep)
 
         info["sweeps"] = sweeps
 
-        assert (
-            len(info["sweeps"]) == nsweeps - 1
-        )
-        
+        assert len(info["sweeps"]) == nsweeps - 1
+
         if not test:
             annotations = [
                 nusc.get("sample_annotation", token) for token in sample["anns"]
             ]
 
-            mask = np.array([(anno['num_lidar_pts'] + anno['num_radar_pts'])>0 for anno in annotations], dtype=bool).reshape(-1)
+            mask = np.array(
+                [
+                    (anno["num_lidar_pts"] + anno["num_radar_pts"]) > 0
+                    for anno in annotations
+                ],
+                dtype=bool,
+            ).reshape(-1)
 
             locs = np.array([b.center for b in ref_boxes]).reshape(-1, 3)
             dims = np.array([b.wlh for b in ref_boxes]).reshape(-1, 3)
@@ -511,12 +550,16 @@ def _fill_trainval_infos(nusc, train_scenes, val_scenes, test=False, nsweeps=10,
             if not filter_zero:
                 info["gt_boxes"] = gt_boxes
                 info["gt_boxes_velocity"] = velocity
-                info["gt_names"] = np.array([general_to_detection[name] for name in names])
+                info["gt_names"] = np.array(
+                    [general_to_detection[name] for name in names]
+                )
                 info["gt_boxes_token"] = tokens
             else:
                 info["gt_boxes"] = gt_boxes[mask, :]
                 info["gt_boxes_velocity"] = velocity[mask, :]
-                info["gt_names"] = np.array([general_to_detection[name] for name in names])[mask]
+                info["gt_names"] = np.array(
+                    [general_to_detection[name] for name in names]
+                )[mask]
                 info["gt_boxes_token"] = tokens[mask]
 
         if sample["scene_token"] in train_scenes:
@@ -545,7 +588,9 @@ def quaternion_yaw(q: Quaternion) -> float:
     return yaw
 
 
-def create_nuscenes_infos(root_path, version="v1.0-trainval", nsweeps=10, filter_zero=True):
+def create_nuscenes_infos(
+    root_path, version="v1.0-trainval", nsweeps=10, filter_zero=True
+):
     nusc = NuScenes(version=version, dataroot=root_path, verbose=True)
     available_vers = ["v1.0-trainval", "v1.0-test", "v1.0-mini"]
     assert version in available_vers
@@ -598,11 +643,19 @@ def create_nuscenes_infos(root_path, version="v1.0-trainval", nsweeps=10, filter
             f"train sample: {len(train_nusc_infos)}, val sample: {len(val_nusc_infos)}"
         )
         with open(
-            root_path / "infos_train_{:02d}sweeps_withvelo_filter_{}.pkl".format(nsweeps, filter_zero), "wb"
+            root_path
+            / "infos_train_{:02d}sweeps_withvelo_filter_{}.pkl".format(
+                nsweeps, filter_zero
+            ),
+            "wb",
         ) as f:
             pickle.dump(train_nusc_infos, f)
         with open(
-            root_path / "infos_val_{:02d}sweeps_withvelo_filter_{}.pkl".format(nsweeps, filter_zero), "wb"
+            root_path
+            / "infos_val_{:02d}sweeps_withvelo_filter_{}.pkl".format(
+                nsweeps, filter_zero
+            ),
+            "wb",
         ) as f:
             pickle.dump(val_nusc_infos, f)
 
@@ -619,4 +672,6 @@ def eval_main(nusc, eval_version, res_path, eval_set, output_dir):
         output_dir=output_dir,
         verbose=True,
     )
-    metrics_summary = nusc_eval.main(plot_examples=10,)
+    metrics_summary = nusc_eval.main(
+        plot_examples=10,
+    )

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import abc
 import sys
 import time
@@ -8,6 +11,7 @@ try:
     import numba
 except ImportError:
     import types as _t
+
     numba = _t.SimpleNamespace(
         njit=lambda f=None, **kw: (lambda g: g) if f is None else f,
         jit=lambda f=None, **kw: (lambda g: g) if f is None else f,
@@ -480,7 +484,7 @@ def group_transform_(loc_noise, rot_noise, locs, rots, group_center, valid_mask)
         if valid_mask[i]:
             x = locs[i, 0] - group_center[i, 0]
             y = locs[i, 1] - group_center[i, 1]
-            r = np.sqrt(x ** 2 + y ** 2)
+            r = np.sqrt(x**2 + y**2)
             # calculate rots related to group center
             rot_center = np.arctan2(x, y)
             for j in range(num_try):
@@ -508,7 +512,7 @@ def group_transform_v2_(
         if valid_mask[i]:
             x = locs[i, 0] - group_center[i, 0]
             y = locs[i, 1] - group_center[i, 1]
-            r = np.sqrt(x ** 2 + y ** 2)
+            r = np.sqrt(x**2 + y**2)
             # calculate rots related to group center
             rot_center = np.arctan2(x, y)
             for j in range(num_try):
@@ -807,8 +811,9 @@ def random_flip(gt_boxes, points, probability=0.5):
             gt_boxes[:, 7] = -gt_boxes[:, 7]
     return gt_boxes, points
 
+
 def random_flip_both(gt_boxes, points, probability=0.5, flip_coor=None):
-    # x flip 
+    # x flip
     enable = np.random.choice(
         [False, True], replace=False, p=[1 - probability, probability]
     )
@@ -818,8 +823,8 @@ def random_flip_both(gt_boxes, points, probability=0.5, flip_coor=None):
         points[:, 1] = -points[:, 1]
         if gt_boxes.shape[1] > 7:  # y axis: x, y, z, w, h, l, vx, vy, r
             gt_boxes[:, 7] = -gt_boxes[:, 7]
-    
-    # y flip 
+
+    # y flip
     enable = np.random.choice(
         [False, True], replace=False, p=[1 - probability, probability]
     )
@@ -831,11 +836,11 @@ def random_flip_both(gt_boxes, points, probability=0.5, flip_coor=None):
             gt_boxes[:, 0] = flip_coor * 2 - gt_boxes[:, 0]
             points[:, 0] = flip_coor * 2 - points[:, 0]
 
-        gt_boxes[:, -1] = -gt_boxes[:, -1] + 2*np.pi  # TODO: CHECK THIS 
-        
+        gt_boxes[:, -1] = -gt_boxes[:, -1] + 2 * np.pi  # TODO: CHECK THIS
+
         if gt_boxes.shape[1] > 7:  # y axis: x, y, z, w, h, l, vx, vy, r
             gt_boxes[:, 6] = -gt_boxes[:, 6]
-    
+
     return gt_boxes, points
 
 

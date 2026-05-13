@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 """\
 This module offser helpers for OSS operation.
 
@@ -112,7 +115,8 @@ def get_site():
 
 
 OSS_ENDPOINT = os.getenv(
-    "OSS_ENDPOINT", default="http://oss.{}.brainpp.cn".format(get_site()),
+    "OSS_ENDPOINT",
+    default="http://oss.{}.brainpp.cn".format(get_site()),
 )
 
 
@@ -394,7 +398,10 @@ class OSSPath:
         marker = None
         while True:
             request = dict(
-                Bucket=self.bucket, Delimiter="", Prefix=prefix, MaxKeys=batch_size,
+                Bucket=self.bucket,
+                Delimiter="",
+                Prefix=prefix,
+                MaxKeys=batch_size,
             )
             if marker:
                 request["Marker"] = marker
@@ -445,7 +452,10 @@ class OSSPath:
         marker = None
         while True:
             request = dict(
-                Bucket=self.bucket, Delimiter="/", Prefix=prefix, MaxKeys=batch_size,
+                Bucket=self.bucket,
+                Delimiter="/",
+                Prefix=prefix,
+                MaxKeys=batch_size,
             )
             if marker:
                 request["Marker"] = marker
@@ -516,7 +526,9 @@ class OSSPath:
             raise ValueError('Object key cannot endswith "/": {}'.format(self.key))
 
         r = self._client.put_object(
-            Body=bytes_or_file, Bucket=self.bucket, Key=self.key,
+            Body=bytes_or_file,
+            Bucket=self.bucket,
+            Key=self.key,
         )
         return r["ResponseMetadata"]["HTTPStatusCode"] == 200
 
@@ -552,7 +564,10 @@ class OSSPath:
         ret = []
         while True:
             lr = self._client.list_objects(
-                Bucket=self.bucket, Delimiter="", Prefix=prefix, MaxKeys=batch_size,
+                Bucket=self.bucket,
+                Delimiter="",
+                Prefix=prefix,
+                MaxKeys=batch_size,
             )
 
             dr = self._client.delete_objects(

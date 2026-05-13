@@ -1,9 +1,13 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import torch
 import torch.distributed as dist
 from torch import nn
 from torch.autograd.function import Function
 from torch.nn import functional as F
-import logging 
+import logging
+
 
 class FrozenBatchNorm2d(nn.Module):
     """
@@ -55,7 +59,14 @@ class FrozenBatchNorm2d(nn.Module):
             )
 
     def _load_from_state_dict(
-        self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
+        self,
+        state_dict,
+        prefix,
+        local_metadata,
+        strict,
+        missing_keys,
+        unexpected_keys,
+        error_msgs,
     ):
         version = local_metadata.get("version", None)
 
@@ -63,22 +74,36 @@ class FrozenBatchNorm2d(nn.Module):
             # No running_mean/var in early versions
             # This will silent the warnings
             if prefix + "running_mean" not in state_dict:
-                state_dict[prefix + "running_mean"] = torch.zeros_like(self.running_mean)
+                state_dict[prefix + "running_mean"] = torch.zeros_like(
+                    self.running_mean
+                )
             if prefix + "running_var" not in state_dict:
                 state_dict[prefix + "running_var"] = torch.ones_like(self.running_var)
 
         if version is not None and version < 3:
             logger = logging.getLogger(__name__)
-            logger.info("FrozenBatchNorm {} is upgraded to version 3.".format(prefix.rstrip(".")))
+            logger.info(
+                "FrozenBatchNorm {} is upgraded to version 3.".format(
+                    prefix.rstrip(".")
+                )
+            )
             # In version < 3, running_var are used without +eps.
             state_dict[prefix + "running_var"] -= self.eps
 
         super()._load_from_state_dict(
-            state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
+            state_dict,
+            prefix,
+            local_metadata,
+            strict,
+            missing_keys,
+            unexpected_keys,
+            error_msgs,
         )
 
     def __repr__(self):
-        return "FrozenBatchNorm2d(num_features={}, eps={})".format(self.num_features, self.eps)
+        return "FrozenBatchNorm2d(num_features={}, eps={})".format(
+            self.num_features, self.eps
+        )
 
     @classmethod
     def convert_frozen_batchnorm(cls, module):
@@ -93,7 +118,11 @@ class FrozenBatchNorm2d(nn.Module):
         https://github.com/pytorch/pytorch/blob/master/torch/nn/modules/batchnorm.py
         """
         bn_module = nn.modules.batchnorm
-        bn_module = (bn_module.BatchNorm1d, bn_module.BatchNorm2d, bn_module.SyncBatchNorm)
+        bn_module = (
+            bn_module.BatchNorm1d,
+            bn_module.BatchNorm2d,
+            bn_module.SyncBatchNorm,
+        )
         res = module
         if isinstance(module, bn_module):
             res = cls(module.num_features)

@@ -1,13 +1,20 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import math
 from functools import reduce
 
 import numpy as np
 import torch
 from torch import stack as tstack
+
 try:
     from det3d.ops.iou3d_nms import iou3d_nms_cuda, iou3d_nms_utils
 except:
-    print("iou3d cuda not built. You don't need this if you use circle_nms. Otherwise, refer to the advanced installation part to build this cuda extension")
+    print(
+        "iou3d cuda not built. You don't need this if you use circle_nms. Otherwise, refer to the advanced installation part to build this cuda extension"
+    )
+
 
 def torch_to_np_dtype(ttype):
     type_map = {
@@ -41,7 +48,7 @@ def corners_nd(dims, origin=0.5):
     if isinstance(origin, float):
         origin = [origin] * ndim
     corners_norm = np.stack(
-        np.unravel_index(np.arange(2 ** ndim), [2] * ndim), axis=1
+        np.unravel_index(np.arange(2**ndim), [2] * ndim), axis=1
     ).astype(dtype)
     # now corners_norm has format: (2d) x0y0, x0y1, x1y0, x1y1
     # (3d) x0y0z0, x0y0z1, x0y1z0, x0y1z1, x1y0z0, x1y0z1, x1y1z0, x1y1z1
@@ -55,7 +62,7 @@ def corners_nd(dims, origin=0.5):
         corners_norm = corners_norm[[0, 1, 3, 2, 4, 5, 7, 6]]
     corners_norm = corners_norm - np.array(origin, dtype=dtype)
     corners_norm = torch.from_numpy(corners_norm).type_as(dims)
-    corners = dims.view(-1, 1, ndim) * corners_norm.view(1, 2 ** ndim, ndim)
+    corners = dims.view(-1, 1, ndim) * corners_norm.view(1, 2**ndim, ndim)
     return corners
 
 
@@ -121,6 +128,7 @@ def rotation_3d_in_axis(points, angles, axis=0):
     # print(points.shape, rot_mat_T.shape)
     return torch.einsum("aij,jka->aik", points, rot_mat_T)
 
+
 def rotate_points_along_z(points, angle):
     """
     Args:
@@ -132,11 +140,11 @@ def rotate_points_along_z(points, angle):
     sina = torch.sin(angle)
     zeros = angle.new_zeros(points.shape[0])
     ones = angle.new_ones(points.shape[0])
-    rot_matrix = torch.stack((
-        cosa,  -sina, zeros,
-        sina, cosa, zeros,
-        zeros, zeros, ones
-    ), dim=1).view(-1, 3, 3).float()
+    rot_matrix = (
+        torch.stack((cosa, -sina, zeros, sina, cosa, zeros, zeros, zeros, ones), dim=1)
+        .view(-1, 3, 3)
+        .float()
+    )
     points_rot = torch.matmul(points[:, :, 0:3], rot_matrix)
     points_rot = torch.cat((points_rot, points[:, :, 3:]), dim=-1)
     return points_rot
@@ -254,7 +262,7 @@ def rotate_nms_pcdet(boxes, scores, thresh, pre_maxsize=None, post_max_size=None
     """
     # transform back to pcdet's coordinate
     boxes = boxes[:, [0, 1, 2, 4, 3, 5, -1]]
-    boxes[:, -1] = -boxes[:, -1] - np.pi /2
+    boxes[:, -1] = -boxes[:, -1] - np.pi / 2
 
     order = scores.sort(0, descending=True)[1]
     if pre_maxsize is not None:
@@ -265,7 +273,7 @@ def rotate_nms_pcdet(boxes, scores, thresh, pre_maxsize=None, post_max_size=None
     keep = torch.LongTensor(boxes.size(0))
 
     if len(boxes) == 0:
-        num_out =0
+        num_out = 0
     else:
         num_out = iou3d_nms_cuda.nms_gpu(boxes, keep, thresh)
 
@@ -274,4 +282,4 @@ def rotate_nms_pcdet(boxes, scores, thresh, pre_maxsize=None, post_max_size=None
     if post_max_size is not None:
         selected = selected[:post_max_size]
 
-    return selected 
+    return selected

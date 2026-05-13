@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import collections
 
 from det3d.utils import build_from_cfg
@@ -11,8 +14,8 @@ class Compose(object):
         self.transforms = []
         for transform in transforms:
             if isinstance(transform, dict):
-                if transform['type'] == 'Empty':
-                    continue 
+                if transform["type"] == "Empty":
+                    continue
                 transform = build_from_cfg(transform, PIPELINES)
                 self.transforms.append(transform)
             elif callable(transform):
@@ -34,4 +37,3 @@ class Compose(object):
             format_string += "    {0}".format(t)
         format_string += "\n)"
         return format_string
-

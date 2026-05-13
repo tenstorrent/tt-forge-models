@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 from .io import load, dump, register_handler
 from .handlers import BaseFileHandler, JsonHandler, PickleHandler, YamlHandler
 from .parse import list_from_file, dict_from_file

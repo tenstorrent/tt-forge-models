@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 """PyTorch edition of TensorFlow learning schedule in tensorflow object
 detection API.
 """
@@ -91,8 +94,7 @@ class ManualStepping(_LRSchedulerStep):
 
 
 class ExponentialDecayWithBurnin(_LRSchedulerStep):
-    """Pytorch edition of manual_stepping in tensorflow.
-    """
+    """Pytorch edition of manual_stepping in tensorflow."""
 
     def __init__(
         self,

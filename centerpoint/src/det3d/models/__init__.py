@@ -1,4 +1,8 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import importlib
+
 spconv_spec = importlib.util.find_spec("spconv")
 found = spconv_spec is not None
 if found:
@@ -12,7 +16,7 @@ from .builder import (
     build_head,
     build_loss,
     build_neck,
-    build_roi_head
+    build_roi_head,
 )
 from .detectors import *  # noqa: F401,F403
 from .necks import *  # noqa: F401,F403
@@ -26,6 +30,7 @@ from .registry import (
     READERS,
 )
 from .second_stage import *
+
 try:
     from .roi_heads import *
 except ImportError:

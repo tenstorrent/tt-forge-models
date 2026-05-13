@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import logging
 
 import torch.nn as nn
@@ -252,7 +255,7 @@ class ResNet(nn.Module):
         for i, num_blocks in enumerate(stage_blocks):
             stride = strides[i]
             dilation = dilations[i]
-            planes = 64 * 2 ** i
+            planes = 64 * 2**i
             res_layer = make_res_layer(
                 block,
                 self.inplanes,

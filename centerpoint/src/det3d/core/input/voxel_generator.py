@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import numpy as np
 from det3d.ops.point_cloud.point_cloud_ops import points_to_voxel
 
@@ -18,7 +21,7 @@ class VoxelGenerator:
 
     def generate(self, points, max_voxels=-1):
         if max_voxels == -1:
-            max_voxels=self._max_voxels
+            max_voxels = self._max_voxels
 
         return points_to_voxel(
             points,

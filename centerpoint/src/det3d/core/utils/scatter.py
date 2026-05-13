@@ -1,8 +1,9 @@
 # The following code are copied from pytorch_scatter https://github.com/rusty1s/pytorch_scatter
 # Copyright (c) 2020 Matthias Fey <matthias.fey@tu-dortmund.de>
-# MIT License 
+# MIT License
 from typing import Optional, Tuple
-import torch 
+import torch
+
 
 @torch.jit.script
 def broadcast(src: torch.Tensor, other: torch.Tensor, dim: int):
@@ -11,15 +12,20 @@ def broadcast(src: torch.Tensor, other: torch.Tensor, dim: int):
     if src.dim() == 1:
         for _ in range(dim):
             src = src.unsqueeze(0)
-    for _ in range(other.dim()-src.dim()):
+    for _ in range(other.dim() - src.dim()):
         src = src.unsqueeze(-1)
     src = src.expand_as(other)
     return src
 
+
 @torch.jit.script
-def scatter_sum(src: torch.Tensor, index: torch.Tensor, dim: int = -1,
-                out: Optional[torch.Tensor] = None,
-                dim_size: Optional[int] = None) -> torch.Tensor:
+def scatter_sum(
+    src: torch.Tensor,
+    index: torch.Tensor,
+    dim: int = -1,
+    out: Optional[torch.Tensor] = None,
+    dim_size: Optional[int] = None,
+) -> torch.Tensor:
     index = broadcast(index, src, dim)
     if out is None:
         size = list(src.size())
@@ -34,10 +40,15 @@ def scatter_sum(src: torch.Tensor, index: torch.Tensor, dim: int = -1,
     else:
         return out.scatter_add_(dim, index, src)
 
+
 @torch.jit.script
-def scatter_mean(src: torch.Tensor, index: torch.Tensor, dim: int = -1,
-                 out: Optional[torch.Tensor] = None,
-                 dim_size: Optional[int] = None) -> torch.Tensor:
+def scatter_mean(
+    src: torch.Tensor,
+    index: torch.Tensor,
+    dim: int = -1,
+    out: Optional[torch.Tensor] = None,
+    dim_size: Optional[int] = None,
+) -> torch.Tensor:
 
     out = scatter_sum(src, index, dim, out, dim_size)
     dim_size = out.size(dim)
@@ -55,6 +66,6 @@ def scatter_mean(src: torch.Tensor, index: torch.Tensor, dim: int = -1,
     if torch.is_floating_point(out):
         out.div_(count)
     else:
-        assert 0 
+        assert 0
         # out.floor_divide_(count)
     return out

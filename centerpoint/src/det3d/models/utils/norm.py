@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import torch
 import torch.distributed as dist
 import torch.nn as nn
@@ -65,7 +68,7 @@ norm_cfg = {
 
 
 def build_norm_layer(cfg, num_features, postfix=""):
-    """ Build normalization layer
+    """Build normalization layer
     Args:
         cfg (dict): cfg should contain:
             type (str): identify norm layer type.

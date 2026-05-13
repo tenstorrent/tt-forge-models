@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import argparse
 import copy
 from io import UnsupportedOperation
@@ -29,44 +32,48 @@ from det3d.torchie.apis import (
 from det3d.torchie.trainer import get_dist_info, load_checkpoint
 from det3d.torchie.trainer.utils import all_gather, synchronize
 from torch.nn.parallel import DistributedDataParallel
-import pickle 
-import time 
+import pickle
+import time
+
 
 def convert_state_dict(module, state_dict, strict=False, logger=None):
-    """Load state_dict into a module
-    """
+    """Load state_dict into a module"""
     unexpected_keys = []
     shape_mismatch_pairs = []
 
     own_state = module.state_dict()
     for name, param in state_dict.items():
-        # a hacky fixed to load a new voxelnet 
+        # a hacky fixed to load a new voxelnet
         if name not in own_state:
-            if name[:20] == 'backbone.middle_conv':
-                index = int(name[20:].split('.')[1])
+            if name[:20] == "backbone.middle_conv":
+                index = int(name[20:].split(".")[1])
 
                 if index in [0, 1, 2]:
-                    new_name = 'backbone.conv_input.{}.{}'.format(str(index), name[23:])
+                    new_name = "backbone.conv_input.{}.{}".format(str(index), name[23:])
                 elif index in [3, 4]:
-                    new_name = 'backbone.conv1.{}.{}'.format(str(index-3), name[23:]) 
+                    new_name = "backbone.conv1.{}.{}".format(str(index - 3), name[23:])
                 elif index in [5, 6, 7, 8, 9]:
-                    new_name = 'backbone.conv2.{}.{}'.format(str(index-5), name[23:]) 
+                    new_name = "backbone.conv2.{}.{}".format(str(index - 5), name[23:])
                 elif index in [10, 11, 12, 13, 14]:
-                    new_name = 'backbone.conv3.{}.{}'.format(str(index-10), name[24:])
+                    new_name = "backbone.conv3.{}.{}".format(str(index - 10), name[24:])
                 elif index in [15, 16, 17, 18, 19]:
-                    new_name = 'backbone.conv4.{}.{}'.format(str(index-15), name[24:])
+                    new_name = "backbone.conv4.{}.{}".format(str(index - 15), name[24:])
                 elif index in [20, 21, 22]:
-                    new_name = 'backbone.extra_conv.{}.{}'.format(str(index-20), name[24:])
+                    new_name = "backbone.extra_conv.{}.{}".format(
+                        str(index - 20), name[24:]
+                    )
                 else:
                     raise NotImplementedError(index)
 
                 if param.size() != own_state[new_name].size():
-                    shape_mismatch_pairs.append([name, own_state[name].size(), param.size()])
+                    shape_mismatch_pairs.append(
+                        [name, own_state[name].size(), param.size()]
+                    )
                     continue
 
                 own_state[new_name].copy_(param)
                 print("load {}'s param from {}".format(new_name, name))
-                continue 
+                continue
 
             unexpected_keys.append(name)
             continue
@@ -111,6 +118,7 @@ def convert_state_dict(module, state_dict, strict=False, logger=None):
         else:
             print(err_msg)
 
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Train a detector")
     parser.add_argument("config", help="train config file path")
@@ -121,6 +129,7 @@ def parse_args():
     args = parser.parse_args()
 
     return args
+
 
 def weights_to_cpu(state_dict):
     """Copy a model state_dict to cpu.
@@ -173,14 +182,15 @@ def main():
 
     model = build_detector(cfg.model, train_cfg=None, test_cfg=cfg.test_cfg)
 
-    checkpoint = torch.load(args.checkpoint, map_location='cpu')
-    state_dict = checkpoint['state_dict']
+    checkpoint = torch.load(args.checkpoint, map_location="cpu")
+    state_dict = checkpoint["state_dict"]
 
     if list(state_dict.keys())[0].startswith("module."):
         state_dict = {k[7:]: v for k, v in checkpoint["state_dict"].items()}
 
     convert_state_dict(model, state_dict)
 
-    save_checkpoint(model, osp.join(args.work_dir, 'voxelnet_converted.pth'))
+    save_checkpoint(model, osp.join(args.work_dir, "voxelnet_converted.pth"))
+
 
 main()

@@ -1,9 +1,13 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 from pathlib import Path
 
 try:
     import numba
 except ImportError:
     import types as _t
+
     numba = _t.SimpleNamespace(
         njit=lambda f=None, **kw: (lambda g: g) if f is None else f,
         jit=lambda f=None, **kw: (lambda g: g) if f is None else f,
@@ -13,6 +17,7 @@ from det3d.core.bbox.geometry import (
     points_count_convex_polygon_3d_jit,
     points_in_convex_polygon_3d_jit,
 )
+
 try:
     from spconv.utils import rbbox_intersection, rbbox_iou
 except (ImportError, ModuleNotFoundError):
@@ -75,7 +80,7 @@ def corners_nd(dims, origin=0.5):
     """
     ndim = int(dims.shape[1])
     corners_norm = np.stack(
-        np.unravel_index(np.arange(2 ** ndim), [2] * ndim), axis=1
+        np.unravel_index(np.arange(2**ndim), [2] * ndim), axis=1
     ).astype(dims.dtype)
     # now corners_norm has format: (2d) x0y0, x0y1, x1y0, x1y1
     # (3d) x0y0z0, x0y0z1, x0y1z0, x0y1z1, x1y0z0, x1y0z1, x1y1z0, x1y1z1
@@ -88,7 +93,7 @@ def corners_nd(dims, origin=0.5):
     elif ndim == 3:
         corners_norm = corners_norm[[0, 1, 3, 2, 4, 5, 7, 6]]
     corners_norm = corners_norm - np.array(origin, dtype=dims.dtype)
-    corners = dims.reshape([-1, 1, ndim]) * corners_norm.reshape([1, 2 ** ndim, ndim])
+    corners = dims.reshape([-1, 1, ndim]) * corners_norm.reshape([1, 2**ndim, ndim])
     return corners
 
 
@@ -97,7 +102,7 @@ def corners_2d_jit(dims, origin=0.5):
     ndim = 2
     corners_norm = np.array([[0, 0], [0, 1], [1, 1], [1, 0]], dtype=dims.dtype)
     corners_norm = corners_norm - np.array(origin, dtype=dims.dtype)
-    corners = dims.reshape((-1, 1, ndim)) * corners_norm.reshape((1, 2 ** ndim, ndim))
+    corners = dims.reshape((-1, 1, ndim)) * corners_norm.reshape((1, 2**ndim, ndim))
     return corners
 
 
@@ -110,7 +115,7 @@ def corners_3d_jit(dims, origin=0.5):
     ).reshape((8, 3))
     corners_norm = corners_norm[[0, 1, 3, 2, 4, 5, 7, 6]]
     corners_norm = corners_norm - np.array(origin, dtype=dims.dtype)
-    corners = dims.reshape((-1, 1, ndim)) * corners_norm.reshape((1, 2 ** ndim, ndim))
+    corners = dims.reshape((-1, 1, ndim)) * corners_norm.reshape((1, 2**ndim, ndim))
     return corners
 
 
@@ -789,7 +794,7 @@ def get_minimum_bounding_box_bv(points, voxel_size, bound, downsample=8, margin=
     min_x = np.maximum(min_x - margin, bound[0])
     min_y = np.maximum(min_y - margin, bound[1])
     return np.array([min_x, min_y, max_x, max_y])
-    
+
 
 def box3d_to_bbox(box3d, rect, Trv2c, P2):
     box3d_to_cam = box_lidar_to_camera(box3d, rect, Trv2c)

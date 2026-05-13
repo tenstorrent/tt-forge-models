@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import time
 import numpy as np
 import math
@@ -76,7 +79,7 @@ class RPN(nn.Module):
             )
             blocks.append(block)
             if i - self._upsample_start_idx >= 0:
-                stride = (self._upsample_strides[i - self._upsample_start_idx])
+                stride = self._upsample_strides[i - self._upsample_start_idx]
                 if stride > 1:
                     deblock = Sequential(
                         nn.ConvTranspose2d(
@@ -157,4 +160,3 @@ class RPN(nn.Module):
             x = torch.cat(ups, dim=1)
 
         return x
-

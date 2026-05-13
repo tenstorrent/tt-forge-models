@@ -1,7 +1,11 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 try:
     import numba
 except ImportError:
     import types as _t
+
     numba = _t.SimpleNamespace(
         njit=lambda f=None, **kw: (lambda g: g) if f is None else f,
         jit=lambda f=None, **kw: (lambda g: g) if f is None else f,

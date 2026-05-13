@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import logging
 
 import torch.nn as nn
@@ -89,7 +92,7 @@ class VGG(nn.Module):
             num_modules = num_blocks * (2 + with_bn) + 1
             end_idx = start_idx + num_modules
             dilation = dilations[i]
-            planes = 64 * 2 ** i if i < 4 else 512
+            planes = 64 * 2**i if i < 4 else 512
             vgg_layer = make_vgg_layer(
                 self.inplanes,
                 planes,

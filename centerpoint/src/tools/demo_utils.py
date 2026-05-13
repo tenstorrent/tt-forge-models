@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 """The following code is takend from the nuscenes-devkit"""
 
 import copy
@@ -11,7 +14,7 @@ import cv2
 import numpy as np
 from matplotlib.axes import Axes
 from pyquaternion import Quaternion
-from matplotlib import pyplot as plt 
+from matplotlib import pyplot as plt
 
 
 def view_points(points: np.ndarray, view: np.ndarray, normalize: bool) -> np.ndarray:
@@ -38,7 +41,7 @@ def view_points(points: np.ndarray, view: np.ndarray, normalize: bool) -> np.nda
     assert points.shape[0] == 3
 
     viewpad = np.eye(4)
-    viewpad[:view.shape[0], :view.shape[1]] = view
+    viewpad[: view.shape[0], : view.shape[1]] = view
 
     nbr_points = points.shape[1]
 
@@ -51,6 +54,7 @@ def view_points(points: np.ndarray, view: np.ndarray, normalize: bool) -> np.nda
         points = points / points[2:3, :].repeat(3, 0).reshape(3, nbr_points)
 
     return points
+
 
 def _second_det_to_nusc_box(detection):
     box3d = detection["box3d_lidar"]
@@ -74,17 +78,19 @@ def _second_det_to_nusc_box(detection):
 
 
 class Box:
-    """ Simple data class representing a 3d box including, label, score and velocity. """
+    """Simple data class representing a 3d box including, label, score and velocity."""
 
-    def __init__(self,
-                 center: List[float],
-                 size: List[float],
-                 orientation: Quaternion,
-                 label: int = np.nan,
-                 score: float = np.nan,
-                 velocity: Tuple = (np.nan, np.nan, np.nan),
-                 name: str = None,
-                 token: str = None):
+    def __init__(
+        self,
+        center: List[float],
+        size: List[float],
+        orientation: Quaternion,
+        label: int = np.nan,
+        score: float = np.nan,
+        velocity: Tuple = (np.nan, np.nan, np.nan),
+        name: str = None,
+        token: str = None,
+    ):
         """
         :param center: Center of box given as x, y, z.
         :param size: Size of box in width, length, height.
@@ -115,22 +121,45 @@ class Box:
         center = np.allclose(self.center, other.center)
         wlh = np.allclose(self.wlh, other.wlh)
         orientation = np.allclose(self.orientation.elements, other.orientation.elements)
-        label = (self.label == other.label) or (np.isnan(self.label) and np.isnan(other.label))
-        score = (self.score == other.score) or (np.isnan(self.score) and np.isnan(other.score))
-        vel = (np.allclose(self.velocity, other.velocity) or
-               (np.all(np.isnan(self.velocity)) and np.all(np.isnan(other.velocity))))
+        label = (self.label == other.label) or (
+            np.isnan(self.label) and np.isnan(other.label)
+        )
+        score = (self.score == other.score) or (
+            np.isnan(self.score) and np.isnan(other.score)
+        )
+        vel = np.allclose(self.velocity, other.velocity) or (
+            np.all(np.isnan(self.velocity)) and np.all(np.isnan(other.velocity))
+        )
 
         return center and wlh and orientation and label and score and vel
 
     def __repr__(self):
-        repr_str = 'label: {}, score: {:.2f}, xyz: [{:.2f}, {:.2f}, {:.2f}], wlh: [{:.2f}, {:.2f}, {:.2f}], ' \
-                   'rot axis: [{:.2f}, {:.2f}, {:.2f}], ang(degrees): {:.2f}, ang(rad): {:.2f}, ' \
-                   'vel: {:.2f}, {:.2f}, {:.2f}, name: {}, token: {}'
+        repr_str = (
+            "label: {}, score: {:.2f}, xyz: [{:.2f}, {:.2f}, {:.2f}], wlh: [{:.2f}, {:.2f}, {:.2f}], "
+            "rot axis: [{:.2f}, {:.2f}, {:.2f}], ang(degrees): {:.2f}, ang(rad): {:.2f}, "
+            "vel: {:.2f}, {:.2f}, {:.2f}, name: {}, token: {}"
+        )
 
-        return repr_str.format(self.label, self.score, self.center[0], self.center[1], self.center[2], self.wlh[0],
-                               self.wlh[1], self.wlh[2], self.orientation.axis[0], self.orientation.axis[1],
-                               self.orientation.axis[2], self.orientation.degrees, self.orientation.radians,
-                               self.velocity[0], self.velocity[1], self.velocity[2], self.name, self.token)
+        return repr_str.format(
+            self.label,
+            self.score,
+            self.center[0],
+            self.center[1],
+            self.center[2],
+            self.wlh[0],
+            self.wlh[1],
+            self.wlh[2],
+            self.orientation.axis[0],
+            self.orientation.axis[1],
+            self.orientation.axis[2],
+            self.orientation.degrees,
+            self.orientation.radians,
+            self.velocity[0],
+            self.velocity[1],
+            self.velocity[2],
+            self.name,
+            self.token,
+        )
 
     @property
     def rotation_matrix(self) -> np.ndarray:
@@ -166,9 +195,9 @@ class Box:
         w, l, h = self.wlh * wlh_factor
 
         # 3D bounding box corners. (Convention: x points forward, y to the left, z up.)
-        x_corners = l / 2 * np.array([1,  1,  1,  1, -1, -1, -1, -1])
-        y_corners = w / 2 * np.array([1, -1, -1,  1,  1, -1, -1,  1])
-        z_corners = h / 2 * np.array([1,  1, -1, -1,  1,  1, -1, -1])
+        x_corners = l / 2 * np.array([1, 1, 1, 1, -1, -1, -1, -1])
+        y_corners = w / 2 * np.array([1, -1, -1, 1, 1, -1, -1, 1])
+        z_corners = h / 2 * np.array([1, 1, -1, -1, 1, 1, -1, -1])
         corners = np.vstack((x_corners, y_corners, z_corners))
 
         # Rotate
@@ -189,12 +218,14 @@ class Box:
         """
         return self.corners()[:, [2, 3, 7, 6]]
 
-    def render(self,
-               axis: Axes,
-               view: np.ndarray = np.eye(3),
-               normalize: bool = False,
-               colors: Tuple = ('b', 'r', 'k'),
-               linewidth: float = 2) -> None:
+    def render(
+        self,
+        axis: Axes,
+        view: np.ndarray = np.eye(3),
+        normalize: bool = False,
+        colors: Tuple = ("b", "r", "k"),
+        linewidth: float = 2,
+    ) -> None:
         """
         Renders the box in the provided Matplotlib axis.
         :param axis: Axis onto which the box should be drawn.
@@ -209,14 +240,22 @@ class Box:
         def draw_rect(selected_corners, color):
             prev = selected_corners[-1]
             for corner in selected_corners:
-                axis.plot([prev[0], corner[0]], [prev[1], corner[1]], color=color, linewidth=linewidth)
+                axis.plot(
+                    [prev[0], corner[0]],
+                    [prev[1], corner[1]],
+                    color=color,
+                    linewidth=linewidth,
+                )
                 prev = corner
 
         # Draw the sides
         for i in range(4):
-            axis.plot([corners.T[i][0], corners.T[i + 4][0]],
-                      [corners.T[i][1], corners.T[i + 4][1]],
-                      color=colors[2], linewidth=linewidth)
+            axis.plot(
+                [corners.T[i][0], corners.T[i + 4][0]],
+                [corners.T[i][1], corners.T[i + 4][1]],
+                color=colors[2],
+                linewidth=linewidth,
+            )
 
         # Draw front (first 4 corners) and rear (last 4 corners) rectangles(3d)/lines(2d)
         draw_rect(corners.T[:4], colors[0])
@@ -225,16 +264,21 @@ class Box:
         # Draw line indicating the front
         center_bottom_forward = np.mean(corners.T[2:4], axis=0)
         center_bottom = np.mean(corners.T[[2, 3, 7, 6]], axis=0)
-        axis.plot([center_bottom[0], center_bottom_forward[0]],
-                  [center_bottom[1], center_bottom_forward[1]],
-                  color=colors[0], linewidth=linewidth)
+        axis.plot(
+            [center_bottom[0], center_bottom_forward[0]],
+            [center_bottom[1], center_bottom_forward[1]],
+            color=colors[0],
+            linewidth=linewidth,
+        )
 
-    def render_cv2(self,
-                   im: np.ndarray,
-                   view: np.ndarray = np.eye(3),
-                   normalize: bool = False,
-                   colors: Tuple = ((0, 0, 255), (255, 0, 0), (155, 155, 155)),
-                   linewidth: int = 2) -> None:
+    def render_cv2(
+        self,
+        im: np.ndarray,
+        view: np.ndarray = np.eye(3),
+        normalize: bool = False,
+        colors: Tuple = ((0, 0, 255), (255, 0, 0), (155, 155, 155)),
+        linewidth: int = 2,
+    ) -> None:
         """
         Renders box using OpenCV2.
         :param im: <np.array: width, height, 3>. Image array. Channels are in BGR order.
@@ -248,18 +292,24 @@ class Box:
         def draw_rect(selected_corners, color):
             prev = selected_corners[-1]
             for corner in selected_corners:
-                cv2.line(im,
-                         (int(prev[0]), int(prev[1])),
-                         (int(corner[0]), int(corner[1])),
-                         color, linewidth)
+                cv2.line(
+                    im,
+                    (int(prev[0]), int(prev[1])),
+                    (int(corner[0]), int(corner[1])),
+                    color,
+                    linewidth,
+                )
                 prev = corner
 
         # Draw the sides
         for i in range(4):
-            cv2.line(im,
-                     (int(corners.T[i][0]), int(corners.T[i][1])),
-                     (int(corners.T[i + 4][0]), int(corners.T[i + 4][1])),
-                     colors[2][::-1], linewidth)
+            cv2.line(
+                im,
+                (int(corners.T[i][0]), int(corners.T[i][1])),
+                (int(corners.T[i + 4][0]), int(corners.T[i + 4][1])),
+                colors[2][::-1],
+                linewidth,
+            )
 
         # Draw front (first 4 corners) and rear (last 4 corners) rectangles(3d)/lines(2d)
         draw_rect(corners.T[:4], colors[0][::-1])
@@ -268,12 +318,15 @@ class Box:
         # Draw line indicating the front
         center_bottom_forward = np.mean(corners.T[2:4], axis=0)
         center_bottom = np.mean(corners.T[[2, 3, 7, 6]], axis=0)
-        cv2.line(im,
-                 (int(center_bottom[0]), int(center_bottom[1])),
-                 (int(center_bottom_forward[0]), int(center_bottom_forward[1])),
-                 colors[0][::-1], linewidth)
+        cv2.line(
+            im,
+            (int(center_bottom[0]), int(center_bottom[1])),
+            (int(center_bottom_forward[0]), int(center_bottom_forward[1])),
+            colors[0][::-1],
+            linewidth,
+        )
 
-    def copy(self) -> 'Box':
+    def copy(self) -> "Box":
         """
         Create a copy of self.
         :return: A copy.
@@ -295,18 +348,19 @@ def visual(points, gt_anno, det, i, eval_range=35, conf_th=0.5):
 
     # Show GT boxes.
     for box in boxes_gt:
-        box.render(ax, view=np.eye(4), colors=('r', 'r', 'r'), linewidth=2)
+        box.render(ax, view=np.eye(4), colors=("r", "r", "r"), linewidth=2)
 
     # Show EST boxes.
     for box in boxes_est:
         if box.score >= conf_th:
-            box.render(ax, view=np.eye(4), colors=('b', 'b', 'b'), linewidth=1)
+            box.render(ax, view=np.eye(4), colors=("b", "b", "b"), linewidth=1)
 
-
-    axes_limit = eval_range + 3  # Slightly bigger to include boxes that extend beyond the range.
+    axes_limit = (
+        eval_range + 3
+    )  # Slightly bigger to include boxes that extend beyond the range.
     ax.set_xlim(-axes_limit, axes_limit)
     ax.set_ylim(-axes_limit, axes_limit)
-    plt.axis('off')
+    plt.axis("off")
 
     plt.savefig("demo/file%02d.png" % i)
     plt.close()
@@ -321,4 +375,4 @@ def remove_close(points, radius: float) -> None:
     y_filt = np.abs(points[1, :]) < radius
     not_close = np.logical_not(np.logical_and(x_filt, y_filt))
     points = points[:, not_close]
-    return points    
+    return points

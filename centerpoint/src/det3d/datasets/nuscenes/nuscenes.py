@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import sys
 import pickle
 import json
@@ -21,7 +24,7 @@ from det3d.datasets.nuscenes.nusc_common import (
     cls_attr_dist,
     _second_det_to_nusc_box,
     _lidar_nusc_box_to_global,
-    eval_main
+    eval_main,
 )
 from det3d.datasets.registry import DATASETS
 
@@ -34,7 +37,7 @@ class NuScenesDataset(PointCloudDataset):
         self,
         info_path,
         root_path,
-        nsweeps=0, # here set to zero to catch unset nsweep
+        nsweeps=0,  # here set to zero to catch unset nsweep
         cfg=None,
         pipeline=None,
         class_names=None,
@@ -43,7 +46,7 @@ class NuScenesDataset(PointCloudDataset):
         load_interval=1,
         **kwargs,
     ):
-        self.load_interval = load_interval 
+        self.load_interval = load_interval
         super(NuScenesDataset, self).__init__(
             root_path, info_path, pipeline, test_mode=test_mode, class_names=class_names
         )
@@ -61,9 +64,9 @@ class NuScenesDataset(PointCloudDataset):
         self._num_point_features = NuScenesDataset.NumPointFeatures
         self._name_mapping = general_to_detection
 
-        self.virtual = kwargs.get('virtual', False)
+        self.virtual = kwargs.get("virtual", False)
         if self.virtual:
-            self._num_point_features = 16 
+            self._num_point_features = 16
 
         self.version = version
         self.eval_version = "detection_cvpr_2019"
@@ -78,7 +81,7 @@ class NuScenesDataset(PointCloudDataset):
         with open(self._info_path, "rb") as f:
             _nusc_infos_all = pickle.load(f)
 
-        _nusc_infos_all = _nusc_infos_all[::self.load_interval]
+        _nusc_infos_all = _nusc_infos_all[:: self.load_interval]
 
         if not self.test_mode:  # if training
             self.frac = int(len(_nusc_infos_all) * 0.25)
@@ -90,7 +93,9 @@ class NuScenesDataset(PointCloudDataset):
                         _cls_infos[name].append(info)
 
             duplicated_samples = sum([len(v) for _, v in _cls_infos.items()])
-            _cls_dist = {k: len(v) / max(duplicated_samples, 1) for k, v in _cls_infos.items()}
+            _cls_dist = {
+                k: len(v) / max(duplicated_samples, 1) for k, v in _cls_infos.items()
+            }
 
             self._nusc_infos = []
 
@@ -130,7 +135,7 @@ class NuScenesDataset(PointCloudDataset):
     def ground_truth_annotations(self):
         if "gt_boxes" not in self._nusc_infos[0]:
             return None
-        cls_range_map = config_factory(self.eval_version).serialize()['class_range']
+        cls_range_map = config_factory(self.eval_version).serialize()["class_range"]
         gt_annos = []
         for info in self._nusc_infos:
             gt_names = np.array(info["gt_names"])
@@ -179,7 +184,7 @@ class NuScenesDataset(PointCloudDataset):
             "calib": None,
             "cam": {},
             "mode": "val" if self.test_mode else "train",
-            "virtual": self.virtual 
+            "virtual": self.virtual,
         }
 
         data, _ = self.pipeline(res, info)
@@ -322,8 +327,12 @@ class NuScenesDataset(PointCloudDataset):
 
         if res_nusc is not None:
             res = {
-                "results": {"nusc": res_nusc["results"]["nusc"],},
-                "detail": {"eval.nusc": res_nusc["detail"]["nusc"],},
+                "results": {
+                    "nusc": res_nusc["results"]["nusc"],
+                },
+                "detail": {
+                    "eval.nusc": res_nusc["detail"]["nusc"],
+                },
             }
         else:
             res = None

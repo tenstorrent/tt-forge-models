@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import collections
 from collections import defaultdict
 
@@ -87,7 +90,6 @@ def collate(batch, samples_per_gpu=1):
         return default_collate(batch)
 
 
-
 def collate_kitti(batch_list, samples_per_gpu=1):
     example_merged = collections.defaultdict(list)
     for example in batch_list:
@@ -98,13 +100,21 @@ def collate_kitti(batch_list, samples_per_gpu=1):
         else:
             for k, v in example.items():
                 example_merged[k].append(v)
-    batch_size = len(example_merged['metadata'])
+    batch_size = len(example_merged["metadata"])
     ret = {}
     # voxel_nums_list = example_merged["num_voxels"]
     # example_merged.pop("num_voxels")
     for key, elems in example_merged.items():
-        if key in ["voxels", "num_points", "num_gt", "voxel_labels", "num_voxels",
-                   "cyv_voxels", "cyv_num_points", "cyv_num_voxels"]:
+        if key in [
+            "voxels",
+            "num_points",
+            "num_gt",
+            "voxel_labels",
+            "num_voxels",
+            "cyv_voxels",
+            "cyv_num_points",
+            "cyv_num_voxels",
+        ]:
             ret[key] = torch.tensor(np.concatenate(elems, axis=0))
         elif key in [
             "gt_boxes",
@@ -144,8 +154,18 @@ def collate_kitti(batch_list, samples_per_gpu=1):
                 )
                 coors.append(coor_pad)
             ret[key] = torch.tensor(np.concatenate(coors, axis=0))
-        elif key in ["anchors", "anchors_mask", "reg_targets", "reg_weights", "labels", "hm", "anno_box",
-                    "ind", "mask", "cat"]:
+        elif key in [
+            "anchors",
+            "anchors_mask",
+            "reg_targets",
+            "reg_weights",
+            "labels",
+            "hm",
+            "anno_box",
+            "ind",
+            "mask",
+            "cat",
+        ]:
 
             ret[key] = defaultdict(list)
             res = []
@@ -155,7 +175,7 @@ def collate_kitti(batch_list, samples_per_gpu=1):
             for kk, vv in ret[key].items():
                 res.append(torch.stack(vv))
             ret[key] = res
-        elif key == 'gt_boxes_and_cls':
+        elif key == "gt_boxes_and_cls":
             ret[key] = torch.tensor(np.stack(elems, axis=0))
         else:
             ret[key] = np.stack(elems, axis=0)

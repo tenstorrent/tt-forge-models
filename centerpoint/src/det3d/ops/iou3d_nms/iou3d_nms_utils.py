@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 """
 3D IoU Calculation and Rotated NMS
 Written by Shaoshuai Shi
@@ -6,8 +9,7 @@ All Rights Reserved 2019-2020.
 import torch
 
 from . import iou3d_nms_cuda
-import numpy as np 
-
+import numpy as np
 
 
 def boxes_iou_bev(boxes_a, boxes_b):
@@ -20,17 +22,23 @@ def boxes_iou_bev(boxes_a, boxes_b):
         ans_iou: (N, M)
     """
     assert boxes_a.shape[1] == boxes_b.shape[1] == 7
-    ans_iou = torch.cuda.FloatTensor(torch.Size((boxes_a.shape[0], boxes_b.shape[0]))).zero_()
+    ans_iou = torch.cuda.FloatTensor(
+        torch.Size((boxes_a.shape[0], boxes_b.shape[0]))
+    ).zero_()
 
-    iou3d_nms_cuda.boxes_iou_bev_gpu(boxes_a.contiguous(), boxes_b.contiguous(), ans_iou)
+    iou3d_nms_cuda.boxes_iou_bev_gpu(
+        boxes_a.contiguous(), boxes_b.contiguous(), ans_iou
+    )
 
     return ans_iou
+
 
 def to_pcdet(boxes):
     # transform back to pcdet's coordinate
     boxes = boxes[:, [0, 1, 2, 4, 3, 5, -1]]
-    boxes[:, -1] = -boxes[:, -1] - np.pi/2
+    boxes[:, -1] = -boxes[:, -1] - np.pi / 2
     return boxes
+
 
 def boxes_iou3d_gpu(boxes_a, boxes_b):
     """
@@ -54,8 +62,12 @@ def boxes_iou3d_gpu(boxes_a, boxes_b):
     boxes_b_height_min = (boxes_b[:, 2] - boxes_b[:, 5] / 2).view(1, -1)
 
     # bev overlap
-    overlaps_bev = torch.cuda.FloatTensor(torch.Size((boxes_a.shape[0], boxes_b.shape[0]))).zero_()  # (N, M)
-    iou3d_nms_cuda.boxes_overlap_bev_gpu(boxes_a.contiguous(), boxes_b.contiguous(), overlaps_bev)
+    overlaps_bev = torch.cuda.FloatTensor(
+        torch.Size((boxes_a.shape[0], boxes_b.shape[0]))
+    ).zero_()  # (N, M)
+    iou3d_nms_cuda.boxes_overlap_bev_gpu(
+        boxes_a.contiguous(), boxes_b.contiguous(), overlaps_bev
+    )
 
     max_of_min = torch.max(boxes_a_height_min, boxes_b_height_min)
     min_of_max = torch.min(boxes_a_height_max, boxes_b_height_max)

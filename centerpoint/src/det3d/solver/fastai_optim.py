@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 from collections import Iterable, defaultdict
 from copy import deepcopy
 from itertools import chain
@@ -7,12 +10,26 @@ from torch import nn
 from torch._utils import _unflatten_dense_tensors
 from torch.autograd import Variable
 from torch.nn.utils import parameters_to_vector
+
 try:
     from apex.parallel.optimized_sync_batchnorm import SyncBatchNorm
-    bn_types = (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d, nn.modules.batchnorm._BatchNorm, SyncBatchNorm)
+
+    bn_types = (
+        nn.BatchNorm1d,
+        nn.BatchNorm2d,
+        nn.BatchNorm3d,
+        nn.modules.batchnorm._BatchNorm,
+        SyncBatchNorm,
+    )
 except:
-    print('no apex')
-    bn_types = (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d,nn.modules.batchnorm._BatchNorm)
+    print("no apex")
+    bn_types = (
+        nn.BatchNorm1d,
+        nn.BatchNorm2d,
+        nn.BatchNorm3d,
+        nn.modules.batchnorm._BatchNorm,
+    )
+
 
 def split_bn_bias(layer_groups):
     "Split the layers in `layer_groups` into batchnorm (`bn_types`) and non-batchnorm groups."

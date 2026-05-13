@@ -1,8 +1,12 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
 // modify from
 // https://github.com/chengdazhi/Deformable-Convolution-V2-PyTorch/blob/mmdetection/mmdet/ops/dcn/src/deform_conv_cuda.c
 
-#include <torch/extension.h>
 #include <ATen/DeviceGuard.h>
+#include <torch/extension.h>
 
 #include <cmath>
 #include <vector>
@@ -375,7 +379,7 @@ int deform_conv_backward_input_cuda(at::Tensor input, at::Tensor offset,
 
 int deform_conv_backward_parameters_cuda(
     at::Tensor input, at::Tensor offset, at::Tensor gradOutput,
-    at::Tensor gradWeight,  // at::Tensor gradBias,
+    at::Tensor gradWeight, // at::Tensor gradBias,
     at::Tensor columns, at::Tensor ones, int kW, int kH, int dW, int dH,
     int padW, int padH, int dilationW, int dilationH, int group,
     int deformable_group, float scale, int im2col_step) {

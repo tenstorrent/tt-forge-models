@@ -1,9 +1,12 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import itertools
 import logging
 from det3d.utils.config_tool import get_downsample_factor
 
 tasks = [
-    dict(num_class=3, class_names=['VEHICLE', 'PEDESTRIAN', 'CYCLIST']),
+    dict(num_class=3, class_names=["VEHICLE", "PEDESTRIAN", "CYCLIST"]),
 ]
 
 class_names = list(itertools.chain(*[t["class_names"] for t in tasks]))
@@ -38,12 +41,17 @@ model = dict(
     ),
     bbox_head=dict(
         type="CenterHead",
-        in_channels=128*3,
+        in_channels=128 * 3,
         tasks=tasks,
-        dataset='waymo',
+        dataset="waymo",
         weight=2,
         code_weights=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
-        common_heads={'reg': (2, 2), 'height': (1, 2), 'dim':(3, 2), 'rot':(2, 2)}, # (output_channel, num_conv)
+        common_heads={
+            "reg": (2, 2),
+            "height": (1, 2),
+            "dim": (3, 2),
+            "rot": (2, 2),
+        },  # (output_channel, num_conv)
     ),
 )
 
@@ -69,7 +77,7 @@ test_cfg = dict(
     score_threshold=0.1,
     pc_range=[-74.88, -74.88],
     out_size_factor=get_downsample_factor(model),
-    voxel_size=[0.32, 0.32]
+    voxel_size=[0.32, 0.32],
 )
 
 
@@ -95,11 +103,13 @@ db_sampler = dict(
                 CYCLIST=5,
             )
         ),
-        dict(filter_by_difficulty=[-1],),
+        dict(
+            filter_by_difficulty=[-1],
+        ),
     ],
     global_random_rotation_range_per_object=[0, 0],
     rate=1.0,
-) 
+)
 
 train_preprocessor = dict(
     mode="train",
@@ -119,7 +129,10 @@ voxel_generator = dict(
     range=[-74.88, -74.88, -2, 74.88, 74.88, 4.0],
     voxel_size=[0.32, 0.32, 6.0],
     max_points_in_voxel=20,
-    max_voxel_num=[32000, 60000], # we only use non-empty voxels. this will be much smaller than max_voxel_num
+    max_voxel_num=[
+        32000,
+        60000,
+    ],  # we only use non-empty voxels. this will be much smaller than max_voxel_num
 )
 
 train_pipeline = [
@@ -177,15 +190,22 @@ data = dict(
 )
 
 
-
 optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
 
 # optimizer
 optimizer = dict(
-    type="adam", amsgrad=0.0, wd=0.01, fixed_wd=True, moving_average=False,
+    type="adam",
+    amsgrad=0.0,
+    wd=0.01,
+    fixed_wd=True,
+    moving_average=False,
 )
 lr_config = dict(
-    type="one_cycle", lr_max=0.003, moms=[0.95, 0.85], div_factor=10.0, pct_start=0.4,
+    type="one_cycle",
+    lr_max=0.003,
+    moms=[0.95, 0.85],
+    div_factor=10.0,
+    pct_start=0.4,
 )
 
 checkpoint_config = dict(interval=1)
@@ -203,7 +223,7 @@ total_epochs = 36
 device_ids = range(8)
 dist_params = dict(backend="nccl", init_method="env://")
 log_level = "INFO"
-work_dir = './work_dirs/{}/'.format(__file__[__file__.rfind('/') + 1:-3])
-load_from = None 
-resume_from = None  
-workflow = [('train', 1)]
+work_dir = "./work_dirs/{}/".format(__file__[__file__.rfind("/") + 1 : -3])
+load_from = None
+resume_from = None
+workflow = [("train", 1)]

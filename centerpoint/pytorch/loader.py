@@ -68,7 +68,9 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, dtype_override: torch.dtype = torch.bfloat16) -> CenterPointRPNHead:
+    def load_model(
+        self, dtype_override: torch.dtype = torch.bfloat16
+    ) -> CenterPointRPNHead:
         """Load CenterPointRPNHead with pretrained mmdetection3d weights.
 
         Args:

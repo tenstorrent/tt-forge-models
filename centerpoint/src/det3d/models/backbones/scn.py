@@ -1,10 +1,14 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import numpy as np
+
 try:
-    import spconv.pytorch as spconv 
+    import spconv.pytorch as spconv
     from spconv.pytorch import ops
     from spconv.pytorch import SparseConv3d, SubMConv3d
-except: 
-    import spconv 
+except:
+    import spconv
     from spconv import ops
     from spconv import SparseConv3d, SubMConv3d
 
@@ -14,6 +18,7 @@ from torch.nn import functional as F
 from ..registry import BACKBONES
 from ..utils import build_norm_layer
 
+
 def replace_feature(out, new_features):
     if "replace_feature" in out.__dir__():
         # spconv 2.x behaviour
@@ -21,6 +26,7 @@ def replace_feature(out, new_features):
     else:
         out.features = new_features
         return out
+
 
 def conv3x3(in_planes, out_planes, stride=1, indice_key=None, bias=True):
     """3x3 convolution with padding"""
@@ -112,10 +118,10 @@ class SpMiddleResNetFHD(nn.Module):
         self.conv_input = spconv.SparseSequential(
             SubMConv3d(num_input_features, 16, 3, bias=False, indice_key="res0"),
             build_norm_layer(norm_cfg, 16)[1],
-            nn.ReLU(inplace=True)
+            nn.ReLU(inplace=True),
         )
 
-        self.conv1 = spconv.SparseSequential(        
+        self.conv1 = spconv.SparseSequential(
             SparseBasicBlock(16, 16, norm_cfg=norm_cfg, indice_key="res0"),
             SparseBasicBlock(16, 16, norm_cfg=norm_cfg, indice_key="res0"),
         )
@@ -150,7 +156,6 @@ class SpMiddleResNetFHD(nn.Module):
             SparseBasicBlock(128, 128, norm_cfg=norm_cfg, indice_key="res3"),
         )
 
-
         self.extra_conv = spconv.SparseSequential(
             SparseConv3d(
                 128, 128, (3, 1, 1), (2, 1, 1), bias=False
@@ -182,10 +187,10 @@ class SpMiddleResNetFHD(nn.Module):
         ret = ret.view(N, C * D, H, W)
 
         multi_scale_voxel_features = {
-            'conv1': x_conv1,
-            'conv2': x_conv2,
-            'conv3': x_conv3,
-            'conv4': x_conv4,
+            "conv1": x_conv1,
+            "conv2": x_conv2,
+            "conv3": x_conv3,
+            "conv4": x_conv4,
         }
 
         return ret, multi_scale_voxel_features

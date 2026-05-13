@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import numpy as np
 import torch.nn as nn
 
@@ -37,6 +40,6 @@ def kaiming_init(
 
 
 def bias_init_with_prob(prior_prob):
-    """ initialize conv/fc bias value according to giving probablity"""
+    """initialize conv/fc bias value according to giving probablity"""
     bias_init = float(-np.log((1 - prior_prob) / prior_prob))
     return bias_init

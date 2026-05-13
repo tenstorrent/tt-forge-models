@@ -267,7 +267,9 @@ class CenterPointRPNHead(nn.Module):
         return task_outputs
 
 
-def load_model_with_weights(dtype: Optional[torch.dtype] = torch.bfloat16) -> CenterPointRPNHead:
+def load_model_with_weights(
+    dtype: Optional[torch.dtype] = torch.bfloat16,
+) -> CenterPointRPNHead:
     """Create CenterPointRPNHead with pretrained mmdetection3d weights."""
     _init_centerpoint()
     model = CenterPointRPNHead()
@@ -345,14 +347,16 @@ class PillarFeatureNetCPU(nn.Module):
 
     def forward(
         self,
-        features: torch.Tensor,   # (N, max_pts, num_input)
+        features: torch.Tensor,  # (N, max_pts, num_input)
         num_points: torch.Tensor,  # (N,)
-        coors: torch.Tensor,       # (N, 4): [batch, 0, y_idx, x_idx]
-    ) -> torch.Tensor:             # (N, 64)
+        coors: torch.Tensor,  # (N, 4): [batch, 0, y_idx, x_idx]
+    ) -> torch.Tensor:  # (N, 64)
         N, P, _ = features.shape
         dtype = features.dtype
 
-        pts_mean = features[:, :, :3].sum(1, keepdim=True) / num_points.float().view(N, 1, 1)
+        pts_mean = features[:, :, :3].sum(1, keepdim=True) / num_points.float().view(
+            N, 1, 1
+        )
         f_cluster = features[:, :, :3] - pts_mean
 
         f_center = torch.zeros(N, P, 2, dtype=dtype, device=features.device)
@@ -379,11 +383,11 @@ class _PointPillarsScatterCPU(nn.Module):
     def forward(
         self,
         features: torch.Tensor,  # (N, C)
-        coors: torch.Tensor,     # (N, 4): [batch, 0, y_idx, x_idx]
+        coors: torch.Tensor,  # (N, 4): [batch, 0, y_idx, x_idx]
         batch_size: int,
         ny: int,
         nx: int,
-    ) -> torch.Tensor:           # (B, C, ny, nx)
+    ) -> torch.Tensor:  # (B, C, ny, nx)
         C = features.shape[1]
         canvas = features.new_zeros(batch_size, C, ny * nx)
         for b in range(batch_size):
@@ -603,8 +607,17 @@ def postprocess(
             vel_flat = vel[b].view(2, -1)[:, idx]
             yaw = torch.atan2(rot_flat[0], rot_flat[1])
             boxes = torch.stack(
-                [cx, cy, cz, dim_flat[0], dim_flat[1], dim_flat[2], yaw,
-                 vel_flat[0], vel_flat[1]],
+                [
+                    cx,
+                    cy,
+                    cz,
+                    dim_flat[0],
+                    dim_flat[1],
+                    dim_flat[2],
+                    yaw,
+                    vel_flat[0],
+                    vel_flat[1],
+                ],
                 dim=1,
             )
             results.append(
@@ -664,7 +677,15 @@ def plot_bev_detections(
         pts = points[in_range]
         z = pts[:, 2]
         z_norm = (z - z.min()) / (z.ptp() + 1e-6)
-        ax.scatter(pts[:, 0], pts[:, 1], c=z_norm, cmap="gray", s=0.15, alpha=0.35, linewidths=0)
+        ax.scatter(
+            pts[:, 0],
+            pts[:, 1],
+            c=z_norm,
+            cmap="gray",
+            s=0.15,
+            alpha=0.35,
+            linewidths=0,
+        )
 
     for task_i, task in enumerate(task_outputs):
         hm = torch.sigmoid(task["hm"].float())
@@ -695,11 +716,19 @@ def plot_bev_detections(
             score = scores[j].item()
             if w <= 0 or l <= 0 or w > 20 or l > 20:
                 continue
-            _draw_rotated_box(ax, cx, cy, w, l, yaw, color=color, alpha=min(score + 0.25, 1.0))
+            _draw_rotated_box(
+                ax, cx, cy, w, l, yaw, color=color, alpha=min(score + 0.25, 1.0)
+            )
             n_drawn += 1
         total_drawn += n_drawn
         if n_drawn > 0:
-            ax.plot([], [], color=color, linewidth=1.2, label=f"{TASK_NAMES[task_i]} ({n_drawn})")
+            ax.plot(
+                [],
+                [],
+                color=color,
+                linewidth=1.2,
+                label=f"{TASK_NAMES[task_i]} ({n_drawn})",
+            )
 
     ax.plot(0, 0, "w+", markersize=12, markeredgewidth=2, zorder=10)
     ax.set_xlim(PC_RANGE[0], PC_RANGE[3])

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import itertools
 import logging
 
@@ -21,19 +24,17 @@ target_assigner = dict(
 
 # model settings
 model = dict(
-    type='TwoStageDetector',
+    type="TwoStageDetector",
     first_stage_cfg=dict(
         type="VoxelNet",
-        pretrained='work_dirs/nusc_centerpoint_voxelnet_0075voxel_fix_bn_z_scale_virtual/epoch_20.pth',
+        pretrained="work_dirs/nusc_centerpoint_voxelnet_0075voxel_fix_bn_z_scale_virtual/epoch_20.pth",
         reader=dict(
             type="DynamicVoxelEncoder",
             pc_range=[-54, -54, -5.0, 54, 54, 3.0],
             voxel_size=[0.075, 0.075, 0.2],
-            virtual=True
+            virtual=True,
         ),
-        backbone=dict(
-            type="SpMiddleResNetFHD", num_input_features=21, ds_factor=8
-        ),
+        backbone=dict(type="SpMiddleResNetFHD", num_input_features=21, ds_factor=8),
         neck=dict(
             type="RPN",
             layer_nums=[5, 5],
@@ -48,12 +49,18 @@ model = dict(
             type="CenterHead",
             in_channels=sum([256, 256]),
             tasks=tasks,
-            dataset='nuscenes',
+            dataset="nuscenes",
             weight=0.25,
             code_weights=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.2, 0.2, 1.0, 1.0],
-            common_heads={'reg': (2, 2), 'height': (1, 2), 'dim':(3, 2), 'rot':(2, 2), 'vel': (2, 2)},
+            common_heads={
+                "reg": (2, 2),
+                "height": (1, 2),
+                "dim": (3, 2),
+                "rot": (2, 2),
+                "vel": (2, 2),
+            },
             share_conv_channel=64,
-            dcn_head=False
+            dcn_head=False,
         ),
     ),
     second_stage_modules=[
@@ -61,12 +68,12 @@ model = dict(
             type="BEVFeatureExtractor",
             pc_start=[-54, -54],
             voxel_size=[0.075, 0.075],
-            out_stride=8
+            out_stride=8,
         )
     ],
     roi_head=dict(
         type="RoIHead",
-        input_channels=64*5+10,
+        input_channels=64 * 5 + 10,
         add_box_param=True,
         model_cfg=dict(
             CLASS_AGNOSTIC=True,
@@ -74,35 +81,33 @@ model = dict(
             CLS_FC=[256, 256],
             REG_FC=[256, 256],
             DP_RATIO=0.3,
-
             TARGET_CONFIG=dict(
                 ROI_PER_IMAGE=128,
                 FG_RATIO=0.5,
                 SAMPLE_ROI_BY_EACH_CLASS=True,
-                CLS_SCORE_TYPE='roi_iou',
+                CLS_SCORE_TYPE="roi_iou",
                 CLS_FG_THRESH=0.75,
                 CLS_BG_THRESH=0.25,
                 CLS_BG_THRESH_LO=0.1,
                 HARD_BG_RATIO=0.8,
-                REG_FG_THRESH=0.55
+                REG_FG_THRESH=0.55,
             ),
             LOSS_CONFIG=dict(
-                CLS_LOSS='BinaryCrossEntropy',
-                REG_LOSS='L1',
+                CLS_LOSS="BinaryCrossEntropy",
+                REG_LOSS="L1",
                 LOSS_WEIGHTS={
-                'rcnn_cls_weight': 1.0,
-                'rcnn_reg_weight': 1.0,
-                'code_weights': [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.2, 0.2]
-                }
-            )
+                    "rcnn_cls_weight": 1.0,
+                    "rcnn_reg_weight": 1.0,
+                    "code_weights": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.2, 0.2],
+                },
+            ),
         ),
-        code_size=9
+        code_size=9,
     ),
     NMS_POST_MAXSIZE=500,
     num_point=5,
     freeze=True,
-    use_final_feature=True
-
+    use_final_feature=True,
 )
 
 assigner = dict(
@@ -113,7 +118,7 @@ assigner = dict(
     max_objs=500,
     min_radius=2,
     pc_range=[-54, -54, -5.0, 54, 54, 3.0],
-    voxel_size=[0.075, 0.075, 0.2]
+    voxel_size=[0.075, 0.075, 0.2],
 )
 
 
@@ -132,7 +137,7 @@ test_cfg = dict(
     score_threshold=0.1,
     pc_range=[-54, -54],
     out_size_factor=get_downsample_factor(model),
-    voxel_size=[0.075, 0.075]
+    voxel_size=[0.075, 0.075],
 )
 
 # dataset settings
@@ -171,7 +176,9 @@ db_sampler = dict(
                 pedestrian=5,
             )
         ),
-        dict(filter_by_difficulty=[-1],),
+        dict(
+            filter_by_difficulty=[-1],
+        ),
     ],
     global_random_rotation_range_per_object=[0, 0],
     rate=1.0,
@@ -182,7 +189,7 @@ train_preprocessor = dict(
     global_rot_noise=[-0.78539816, 0.78539816],
     global_scale_noise=[0.9, 1.1],
     global_translate_std=0.5,
-    db_sampler=None, # db_sampler,
+    db_sampler=None,  # db_sampler,
     class_names=class_names,
 )
 
@@ -254,14 +261,21 @@ data = dict(
 )
 
 
-
 optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
 # optimizer
 optimizer = dict(
-    type="adam", amsgrad=0.0, wd=0.01, fixed_wd=True, moving_average=False,
+    type="adam",
+    amsgrad=0.0,
+    wd=0.01,
+    fixed_wd=True,
+    moving_average=False,
 )
 lr_config = dict(
-    type="one_cycle", lr_max=0.001, moms=[0.95, 0.85], div_factor=3.0, pct_start=0.05,
+    type="one_cycle",
+    lr_max=0.001,
+    moms=[0.95, 0.85],
+    div_factor=3.0,
+    pct_start=0.05,
 )
 
 checkpoint_config = dict(interval=1)
@@ -279,7 +293,7 @@ total_epochs = 6
 device_ids = range(8)
 dist_params = dict(backend="nccl", init_method="env://")
 log_level = "INFO"
-work_dir = './work_dirs/{}/'.format(__file__[__file__.rfind('/') + 1:-3])
+work_dir = "./work_dirs/{}/".format(__file__[__file__.rfind("/") + 1 : -3])
 load_from = None
-resume_from = None 
-workflow = [('train', 1)]
+resume_from = None
+workflow = [("train", 1)]

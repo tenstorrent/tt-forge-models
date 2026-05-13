@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import os
 import os.path as osp
 import pkgutil
@@ -38,7 +41,7 @@ open_mmlab_model_urls = {
     "kin400/nl3d_r50_f32s2_k400": "https://open-mmlab.s3.ap-northeast-2.amazonaws.com/pretrain/third_party/nl3d_r50_f32s2_k400-fa7e7caa.pth",  # noqa: E501
 }  # yapf: disable
 
-import torch.nn as nn 
+import torch.nn as nn
 from typing import Set
 
 try:
@@ -48,6 +51,7 @@ except ImportError:
         import spconv as spconv
     except ImportError:
         spconv = None
+
 
 def find_all_spconv_keys(model: nn.Module, prefix="") -> Set[str]:
     """
@@ -68,8 +72,7 @@ def find_all_spconv_keys(model: nn.Module, prefix="") -> Set[str]:
 
 
 def load_state_dict(module, state_dict, strict=False, logger=None):
-    """Load state_dict into a module
-    """
+    """Load state_dict into a module"""
     unexpected_keys = []
     shape_mismatch_pairs = []
 
@@ -79,22 +82,31 @@ def load_state_dict(module, state_dict, strict=False, logger=None):
 
     for name, param in state_dict.items():
 
-        if name in spconv_keys and name in own_state and own_state[name].shape != param.shape:
+        if (
+            name in spconv_keys
+            and name in own_state
+            and own_state[name].shape != param.shape
+        ):
             # from https://github.com/acivgin1/OpenPCDet/blob/8fc1a5d57bcb418d71d5118fb3df4b58d4ea0244/pcdet/models/detectors/detector3d_template.py
             # with different spconv versions, we need to adapt weight shapes for spconv blocks
             # adapt spconv weights from version 1.x to version 2.x if you used weights from spconv 1.x
 
-            param_native = param.transpose(-1, -2)  # (k1, k2, k3, c_in, c_out) to (k1, k2, k3, c_out, c_in)
+            param_native = param.transpose(
+                -1, -2
+            )  # (k1, k2, k3, c_in, c_out) to (k1, k2, k3, c_out, c_in)
             if param_native.shape == own_state[name].shape:
                 param = param_native.contiguous()
             else:
-                assert param.shape.__len__() == 5, 'currently only spconv 3D is supported'
-                param_implicit = param.permute(4, 0, 1, 2, 3)  # (k1, k2, k3, c_in, c_out) to (c_out, k1, k2, k3, c_in)
+                assert (
+                    param.shape.__len__() == 5
+                ), "currently only spconv 3D is supported"
+                param_implicit = param.permute(
+                    4, 0, 1, 2, 3
+                )  # (k1, k2, k3, c_in, c_out) to (c_out, k1, k2, k3, c_in)
                 if param_implicit.shape == own_state[name].shape:
                     param = param_implicit.contiguous()
 
-
-        # a hacky fixed to load a new voxelnet 
+        # a hacky fixed to load a new voxelnet
         if name not in own_state:
             unexpected_keys.append(name)
             continue
@@ -141,8 +153,8 @@ def load_state_dict(module, state_dict, strict=False, logger=None):
 
 
 def load_url_dist(url):
-    """ In distributed setting, this function only download checkpoint at
-    local rank 0 """
+    """In distributed setting, this function only download checkpoint at
+    local rank 0"""
     rank, world_size = get_dist_info()
     rank = int(os.environ.get("LOCAL_RANK", rank))
     if rank == 0:
@@ -166,7 +178,7 @@ def get_torchvision_models():
     return model_urls
 
 
-def load_checkpoint(model, filename, map_location='cpu', strict=False, logger=None):
+def load_checkpoint(model, filename, map_location="cpu", strict=False, logger=None):
     """Load checkpoint from a file or URI.
 
     Args:
