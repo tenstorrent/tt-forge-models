@@ -5,20 +5,21 @@
 SigLIP model loader implementation for image-text similarity.
 """
 
-import torch
-from transformers import AutoProcessor, AutoModel
 from typing import Optional
-from PIL import Image
+
+import torch
 from datasets import load_dataset
+from PIL import Image
+from transformers import AutoModel, AutoProcessor
 
 from ....base import ForgeModel
 from ....config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
 
@@ -195,3 +196,26 @@ class ModelLoader(ForgeModel):
                     inputs[key] = inputs[key].to(dtype_override)
 
         return inputs
+
+    def unpack_forward_output(self, forward_output):
+        """Unpack forward pass output to a single differentiable tensor.
+
+        Forward output structure (with return_dict=False):
+            tuple(6):
+              [0] Tensor (batch_image, batch_text) — logits_per_image.
+              [1] Tensor (batch_text, batch_image) — logits_per_text.
+              [2] Tensor (batch_text, hidden_dim) — text_embeds.
+              [3] Tensor (batch_image, hidden_dim) — image_embeds.
+              [4] tuple — text_outputs (last_hidden_state, pooler_output).
+              [5] tuple — vision_outputs (last_hidden_state, pooler_output).
+
+        What is selected and why:
+            SigLIP's contrastive sigmoid loss is computed from the
+            image-text logit pairs. logits_per_image and logits_per_text are
+            transposes of the same dot-product matrix, so either is sufficient
+            as a loss gradient source. We return logits_per_text to mirror the
+            existing CLIPOutput → logits_per_text registry entry. The text /
+            vision encoder outputs and projected embeddings are intermediates
+            and excluded.
+        """
+        return forward_output[1]

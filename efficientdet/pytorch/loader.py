@@ -6,17 +6,21 @@ Efficientdet model loader implementation
 """
 
 from typing import Optional
+
+import torch
+from datasets import load_dataset
+
+from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
-from ...base import ForgeModel
-from datasets import load_dataset
+from ...tools.utils import extract_tensors_recursive
 
 
 class ModelVariant(StrEnum):
@@ -145,8 +149,9 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.Tensor: Preprocessed input tensor suitable for Efficientdet.
         """
-        from .src.model_utils import preprocess_image
         import io
+
+        from .src.model_utils import preprocess_image
 
         # Load image from HuggingFace dataset
         dataset = load_dataset("huggingface/cats-image")["test"]
@@ -168,3 +173,24 @@ class ModelLoader(ForgeModel):
             inputs = inputs.to(dtype_override)
 
         return inputs
+
+    def unpack_forward_output(self, forward_output):
+        """Unpack forward pass output to a single differentiable tensor.
+
+        Forward output structure:
+            tuple(2):
+              [0] list[Tensor] of length 5 — classification logits per FPN scale,
+                  shapes (B, num_anchors*num_classes, Hi, Wi) for i in 5 scales.
+              [1] list[Tensor] of length 5 — box regression outputs per FPN scale,
+                  shapes (B, num_anchors*4, Hi, Wi) for i in 5 scales.
+
+        What is selected and why:
+            Both lists feed the EfficientDet detection loss (focal loss on
+            classification logits, smooth L1 / IoU on box regression). All 10
+            tensors are loss-relevant; we flatten and concatenate them into a
+            single tensor so the test runner can apply a random gradient and
+            backpropagate through every head output.
+        """
+        tensors = []
+        extract_tensors_recursive(forward_output, tensors)
+        return torch.cat(tensors, dim=0)

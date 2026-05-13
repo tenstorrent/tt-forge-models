@@ -5,22 +5,23 @@
 MaskFormer Swin-B model loader implementation for segmentation tasks.
 """
 
-import torch
-from PIL import Image
 from typing import Optional
-from transformers import MaskFormerImageProcessor, MaskFormerForInstanceSegmentation
+
+import torch
+from datasets import load_dataset
+from PIL import Image
+from transformers import MaskFormerForInstanceSegmentation, MaskFormerImageProcessor
 
 from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
-from datasets import load_dataset
 
 
 class ModelVariant(StrEnum):
@@ -72,9 +73,11 @@ class ModelLoader(ForgeModel):
         return ModelInfo(
             model="MaskFormer Swin-B",
             variant=variant,
-            group=ModelGroup.RED
-            if variant == ModelVariant.SWIN_B_COCO
-            else ModelGroup.GENERALITY,
+            group=(
+                ModelGroup.RED
+                if variant == ModelVariant.SWIN_B_COCO
+                else ModelGroup.GENERALITY
+            ),
             task=ModelTask.CV_IMAGE_SEG,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
@@ -155,3 +158,26 @@ class ModelLoader(ForgeModel):
         #     inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
 
         return inputs
+
+    def unpack_forward_output(self, forward_output):
+        """Unpack forward pass output to a single differentiable tensor.
+
+        Forward output structure (with return_dict=False, no labels):
+            tuple(5):
+              [0] Tensor (B, num_queries, num_classes+1) — class_queries_logits.
+              [1] Tensor (B, num_queries, H/4, W/4)      — masks_queries_logits.
+              [2] Tensor (B, C_enc, h_enc, w_enc)        — encoder_last_hidden_state.
+              [3] Tensor (B, C_pix, H/4, W/4)            — pixel_decoder_last_hidden_state.
+              [4] Tensor (B, num_queries, d_model)       — transformer_decoder_last_hidden_state.
+
+        What is selected and why:
+            MaskFormer's loss combines a class-prediction cross-entropy on
+            class_queries_logits and a per-pixel mask loss (dice + focal) on
+            masks_queries_logits. Only these two outputs drive the loss; the
+            three trailing hidden-states are encoder/decoder intermediates that
+            do not contribute. We return the two head outputs flattened and
+            concatenated so the runner's random-gradient backward pass touches
+            both heads but no auxiliary tensors.
+        """
+        class_logits, mask_logits = forward_output[0], forward_output[1]
+        return torch.cat([class_logits.flatten(), mask_logits.flatten()], dim=0)

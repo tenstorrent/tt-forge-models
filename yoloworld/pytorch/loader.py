@@ -5,18 +5,21 @@
 YOLO-World model loader implementation
 """
 
+from typing import Optional
+
+import torch
+
 from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
-from typing import Optional
-from ...tools.utils import get_file
+from ...tools.utils import extract_tensors_recursive, get_file
 
 
 class ModelVariant(StrEnum):
@@ -84,17 +87,19 @@ class ModelLoader(ForgeModel):
         return ModelInfo(
             model="YOLO-World",
             variant=variant,
-            group=ModelGroup.RED
-            if variant == cls.DEFAULT_VARIANT
-            else ModelGroup.GENERALITY,
+            group=(
+                ModelGroup.RED
+                if variant == cls.DEFAULT_VARIANT
+                else ModelGroup.GENERALITY
+            ),
             task=ModelTask.CV_OBJECT_DET,
             source=ModelSource.CUSTOM,
             framework=Framework.TORCH,
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        from .src.utils import init_detector, Config, get_base_cfg
         from .src.model import MODELS
+        from .src.utils import Config, get_base_cfg, init_detector
 
         checkpoint = str(get_file(f"test_files/pytorch/yoloworld/{self.variant}.pth"))
         base_cfg = get_base_cfg(variant=self.variant)
@@ -109,8 +114,8 @@ class ModelLoader(ForgeModel):
 
     def load_inputs(self, dtype_override=None):
 
-        from .src.utils import get_test_pipeline_cfg
         from .src.model import Compose
+        from .src.utils import get_test_pipeline_cfg
 
         self.image_file = get_file("https://ultralytics.com/images/bus.jpg")
         test_pipeline_cfg = get_test_pipeline_cfg(cfg=self.config)
@@ -126,12 +131,37 @@ class ModelLoader(ForgeModel):
         self.data_batch = self.model.data_preprocessor(self.data_batch, False)
         return self.data_batch
 
+    def unpack_forward_output(self, forward_output):
+        """Unpack forward pass output to a single differentiable tensor.
+
+        Forward output structure:
+            Nested tuple/list of Tensors from the YOLO-World detection head —
+            multi-scale class-affinity and box-regression maps. The exact
+            number of tensors depends on number of FPN scales and head splits;
+            CPU triage was unavailable for this model (the YOLO-World source
+            transitively imports lvis-api and yapf during model construction).
+
+        What is selected and why:
+            All detection-head outputs feed YOLO-World's loss (objectness +
+            box regression + class-affinity contrastive loss against the
+            text features). We flatten every tensor in the nested output and
+            concatenate them so the test runner's random-gradient backward
+            pass propagates through the entire detection head. This mirrors
+            the YOLOv9 override pattern in
+            third_party/tt_forge_models/yolov9/pytorch/loader.py.
+        """
+        tensors = []
+        extract_tensors_recursive(forward_output, tensors)
+        return torch.cat(tensors, dim=0)
+
     def post_process(self, output, output_dir):
 
-        import supervision as sv
-        import cv2
         import os
         import os.path as osp
+
+        import cv2
+        import supervision as sv
+
         from .src.model import LabelAnnotator
 
         output = self.model.post_process(output, self.data_batch["data_samples"])
