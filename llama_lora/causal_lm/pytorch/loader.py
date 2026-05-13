@@ -10,11 +10,6 @@ from ....tools.lora import LoRAModelMixin
 
 
 _LORA_CONFIGS = {
-    ModelVariant.TINYLLAMA_V1_1: LoraConfig(
-        r=4,
-        lora_alpha=8.0,
-        target_modules=["q_proj", "v_proj"],
-    ),
     ModelVariant.LLAMA_3_2_1B: LoraConfig(
         r=4,
         lora_alpha=8.0,
