@@ -31,6 +31,39 @@ from .src.utils import MathShim
 pm.np = MathShim()
 
 
+def _install_dynamo_safe_param_props(module: torch.nn.Module) -> None:
+    """Override module.dtype/.device on a single instance to iterate named_parameters().
+
+    Dynamo (torch 2.10.0) has a bug in nn_module.wrap_values that returns an
+    undefined ``named_children`` symbol when tracing module.parameters() /
+    .children() / .buffers() / .modules(). The named_parameters() branch has
+    its own local list and is unaffected.
+
+    Implemented as a per-instance __class__ swap (one fresh subclass per call
+    site) so no transformers/torch package state is mutated globally.
+    """
+    cls = type(module)
+    if getattr(cls, "_tt_xla_dynamo_safe", False):
+        return
+
+    class _DynamoSafe(cls):
+        _tt_xla_dynamo_safe = True
+
+        @property
+        def dtype(self):
+            return next(
+                p.dtype for _, p in self.named_parameters() if p.is_floating_point()
+            )
+
+        @property
+        def device(self):
+            return next(p.device for _, p in self.named_parameters())
+
+    _DynamoSafe.__name__ = cls.__name__
+    _DynamoSafe.__qualname__ = cls.__qualname__
+    module.__class__ = _DynamoSafe
+
+
 class ModelVariant(StrEnum):
     """Available PerceiverIO Vision model variants."""
 
@@ -110,6 +143,11 @@ class ModelLoader(ForgeModel):
 
         # Load the model using the appropriate class
         model = model_class.from_pretrained(pretrained_model_name, **kwargs)
+        # PerceiverModel.forward calls self.invert_attention_mask -> self.dtype,
+        # which triggers a dynamo bug when tracing self.parameters() under
+        # torch.compile. Swap the inner perceiver's class to one whose dtype/
+        # device properties iterate named_parameters() instead.
+        _install_dynamo_safe_param_props(model.perceiver)
         model.eval()
 
         # Initialize image processor for this variant
