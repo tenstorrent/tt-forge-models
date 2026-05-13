@@ -89,16 +89,25 @@ def load_transformer(dtype: torch.dtype = DTYPE):
     ).eval()
 
 
-def load_vae(dtype: torch.dtype = DTYPE):
-    """Load AutoencoderKLHunyuanVideo15 from the vae subfolder."""
+def load_vae(dtype: torch.dtype = DTYPE, enable_tiling: bool = False):
+    """Load AutoencoderKLHunyuanVideo15 from the vae subfolder.
+
+    When enable_tiling=True, the VAE will split spatially-large latents into
+    overlapping tiles and blend the outputs — see
+    AutoencoderKLHunyuanVideo15.enable_tiling. Lower memory + smaller per-step
+    attention seq_len at the cost of tile-boundary approximation.
+    """
     from diffusers import AutoencoderKLHunyuanVideo15
 
-    return AutoencoderKLHunyuanVideo15.from_pretrained(
+    vae = AutoencoderKLHunyuanVideo15.from_pretrained(
         REPO_ID,
         subfolder="vae",
         torch_dtype=dtype,
         device_map="cpu",
-    ).eval()
+    )
+    if enable_tiling:
+        vae.enable_tiling()
+    return vae.eval()
 
 
 # ---------------------------------------------------------------------------
