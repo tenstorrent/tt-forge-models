@@ -1,6 +1,6 @@
-# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2023 Deepseek
 #
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 import math
 from dataclasses import dataclass
 from typing import Tuple, Optional, Literal
