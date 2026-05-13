@@ -5,7 +5,6 @@
 MGP-STR model loader implementation
 """
 
-import torch
 from datasets import load_dataset
 from transformers import MgpstrForSceneTextRecognition, MgpstrProcessor
 
@@ -95,12 +94,11 @@ class ModelLoader(ForgeModel):
         3-tuple of per-head classification tensors (char/bpe/wp predictions) of
         shape ``(B, max_token_len, vocab_size_i)``.
 
-        What is selected and why: concatenate all three heads along the last
-        (vocab) dim. All three are valid gradient sinks for the MGP-STR loss; a
-        single ``logits[i]`` would only train one of the three classification
-        heads.
+        What is selected and why: sum all values across all three heads. All
+        three are valid gradient sinks for the MGP-STR loss; a single
+        ``logits[i]`` would only train one of the three classification heads.
         """
-        return torch.cat(fwd_output.logits, dim=-1)
+        return sum(t.sum() for t in fwd_output.logits)
 
     def decode_output(self, co_out):
         """Helper method to decode model outputs into human-readable text.

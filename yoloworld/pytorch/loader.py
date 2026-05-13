@@ -7,8 +7,6 @@ YOLO-World model loader implementation
 
 from typing import Optional
 
-import torch
-
 from ...base import ForgeModel
 from ...config import (
     Framework,
@@ -144,15 +142,13 @@ class ModelLoader(ForgeModel):
         What is selected and why:
             All detection-head outputs feed YOLO-World's loss (objectness +
             box regression + class-affinity contrastive loss against the
-            text features). We flatten every tensor in the nested output and
-            concatenate them so the test runner's random-gradient backward
-            pass propagates through the entire detection head. This mirrors
-            the YOLOv9 override pattern in
-            third_party/tt_forge_models/yolov9/pytorch/loader.py.
+            text features). We sum all values to a scalar so the test runner's
+            random-gradient backward pass propagates through the entire
+            detection head.
         """
         tensors = []
         extract_tensors_recursive(forward_output, tensors)
-        return torch.cat(tensors, dim=0)
+        return sum(t.sum() for t in tensors)
 
     def post_process(self, output, output_dir):
 

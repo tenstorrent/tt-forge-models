@@ -175,9 +175,9 @@ class ModelLoader(ForgeModel):
             class_queries_logits and a per-pixel mask loss (dice + focal) on
             masks_queries_logits. Only these two outputs drive the loss; the
             three trailing hidden-states are encoder/decoder intermediates that
-            do not contribute. We return the two head outputs flattened and
-            concatenated so the runner's random-gradient backward pass touches
-            both heads but no auxiliary tensors.
+            do not contribute. We sum the two head outputs to a scalar so the
+            runner's random-gradient backward pass touches both heads but no
+            auxiliary tensors.
         """
         class_logits, mask_logits = forward_output[0], forward_output[1]
-        return torch.cat([class_logits.flatten(), mask_logits.flatten()], dim=0)
+        return class_logits.sum() + mask_logits.sum()

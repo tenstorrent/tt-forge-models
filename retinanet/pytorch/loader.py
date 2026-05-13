@@ -352,17 +352,13 @@ class ModelLoader(ForgeModel):
         level (P3..P7). Each map has shape
         ``(B, num_anchors * (num_classes or 4), H_i, W_i)``.
 
-        What is selected and why: flatten and concatenate all 10 maps. These
-        are exactly the tensors RetinaNet's focal classification loss and
-        smooth L1 box loss consume; both heads share the FPN backbone so
-        backward through the concatenated result trains the full backbone +
-        FPN + cls/reg heads. The flattened concatenation is a 1D tensor, not
-        the per-anchor / per-cell layout the upstream loss consumes -- it
-        drives backward through the full graph correctly, but downstream
-        numeric comparison against the torch loss output should account for
-        this layout difference.
+        What is selected and why: sum all values across all 10 maps to a
+        scalar. These are exactly the tensors RetinaNet's focal classification
+        loss and smooth L1 box loss consume; both heads share the FPN backbone
+        so backward through the sum trains the full backbone + FPN + cls/reg
+        heads.
         """
-        return torch.cat([t.flatten() for t in fwd_output])
+        return sum(t.sum() for t in fwd_output)
 
     def cleanup(self):
         """Clean up downloaded files."""

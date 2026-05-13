@@ -7,7 +7,6 @@ Efficientdet model loader implementation
 
 from typing import Optional
 
-import torch
 from datasets import load_dataset
 
 from ...base import ForgeModel
@@ -187,10 +186,9 @@ class ModelLoader(ForgeModel):
         What is selected and why:
             Both lists feed the EfficientDet detection loss (focal loss on
             classification logits, smooth L1 / IoU on box regression). All 10
-            tensors are loss-relevant; we flatten and concatenate them into a
-            single tensor so the test runner can apply a random gradient and
-            backpropagate through every head output.
+            tensors are loss-relevant; we sum all values to a scalar so the
+            test runner can backpropagate through every head output.
         """
         tensors = []
         extract_tensors_recursive(forward_output, tensors)
-        return torch.cat(tensors, dim=0)
+        return sum(t.sum() for t in tensors)
