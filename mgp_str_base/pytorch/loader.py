@@ -5,16 +5,11 @@
 MGP-STR model loader implementation
 """
 
-from ...config import (
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
-    Framework,
-)
-from ...base import ForgeModel
-from transformers import MgpstrProcessor, MgpstrForSceneTextRecognition
 from datasets import load_dataset
+from transformers import MgpstrForSceneTextRecognition, MgpstrProcessor
+
+from ...base import ForgeModel
+from ...config import Framework, ModelGroup, ModelInfo, ModelSource, ModelTask
 
 
 class ModelLoader(ForgeModel):
@@ -93,6 +88,17 @@ class ModelLoader(ForgeModel):
         inputs = inputs.repeat_interleave(batch_size, dim=0)
 
         return inputs
+
+    def unpack_forward_output(self, fwd_output):
+        """Forward output structure: ``MgpstrModelOutput`` whose ``logits`` is a
+        3-tuple of per-head classification tensors (char/bpe/wp predictions) of
+        shape ``(B, max_token_len, vocab_size_i)``.
+
+        What is selected and why: sum all values across all three heads. All
+        three are valid gradient sinks for the MGP-STR loss; a single
+        ``logits[i]`` would only train one of the three classification heads.
+        """
+        return sum(t.sum() for t in fwd_output.logits)
 
     def decode_output(self, co_out):
         """Helper method to decode model outputs into human-readable text.
