@@ -162,8 +162,10 @@ class ModelLoader(ForgeModel):
     def unpack_forward_output(self, forward_output):
         """Unpack forward pass output to a single differentiable tensor.
 
-        Forward output structure (with return_dict=False, no labels):
-            tuple(5):
+        Forward output structure (return_dict=True default, no labels supplied):
+            MaskFormerForInstanceSegmentationOutput supports integer indexing;
+            None-valued fields (loss) are excluded from the iteration order, so
+            positional access maps to:
               [0] Tensor (B, num_queries, num_classes+1) — class_queries_logits.
               [1] Tensor (B, num_queries, H/4, W/4)      — masks_queries_logits.
               [2] Tensor (B, C_enc, h_enc, w_enc)        — encoder_last_hidden_state.
