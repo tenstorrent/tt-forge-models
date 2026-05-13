@@ -3,7 +3,7 @@
 #
 # SPDX-FileContributor: Modified by Tenstorrent USA, Inc. in 2026 under Apache 2.0
 #
-# SPDX-License-Identifier: MIT OR Apache-2.0
+# SPDX-License-Identifier: MIT AND Apache-2.0
 import torch
 
 
