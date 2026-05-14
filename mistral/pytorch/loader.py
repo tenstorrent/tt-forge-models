@@ -269,6 +269,10 @@ class ModelLoader(ForgeModel):
             inputs = {"input_ids": input_ids, "attention_mask": attention_mask}
 
         elif self._variant in self._USE_Mistral3ForConditionalGeneration_VARIANTS:
+            # TODO: While running the model with image + text, an error is encountered.
+            # This needs to be fixed and is being tracked in: https://github.com/tenstorrent/tt-xla/issues/4568.
+            # This is a temporary workaround to run the model with text-only input.
+            """
             from mistral_common.protocol.instruct.request import ChatCompletionRequest
 
             image_url = "https://static.wikia.nocookie.net/essentialsdocs/images/7/70/Battle.png/revision/latest?cb=20220523172438"
@@ -302,6 +306,20 @@ class ModelLoader(ForgeModel):
                 "pixel_values": pixel_values,
                 "image_sizes": image_sizes,
             }
+            """
+            from mistral_common.protocol.instruct.messages import UserMessage
+            from mistral_common.protocol.instruct.request import ChatCompletionRequest
+
+            req = ChatCompletionRequest(
+                messages=[UserMessage(content=test_input)],
+            )
+            encoded = self.tokenizer.encode_chat_completion(req)
+            token_ids = encoded.tokens
+
+            input_ids = torch.tensor([token_ids], dtype=torch.long)
+            attention_mask = torch.ones_like(input_ids, dtype=torch.long)
+            inputs = {"input_ids": input_ids, "attention_mask": attention_mask}
+
         else:
             inputs = self.tokenizer(test_input, return_tensors="pt")
 

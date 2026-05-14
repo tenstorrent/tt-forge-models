@@ -102,3 +102,20 @@ class ModelLoader(ForgeModel):
         )
 
         return self.config
+
+    def unpack_forward_output(self, forward_output):
+        """Forward output structure: bare ``dict`` with up to three tensors:
+        ``dense_vecs`` (B, dim), ``sparse_vecs`` (B, vocab_size), and
+        ``colbert_vecs`` (B, seq_len-1, dim).
+
+        What is selected and why: returning ``dense_vecs`` -- the pooled
+        sentence embedding through which the contrastive retrieval loss
+        backpropagates through the entire XLM-Roberta encoder. The sparse and
+        ColBERT heads are dropped: each is a single linear projection on top
+        of the same encoder, so omitting them only skips two small head layers
+        while still exercising the bulk of the parameters. Trade-off: the
+        sparse and ColBERT head linears (``sparse_linear``, ``colbert_linear``)
+        do not receive gradient under this unpack -- anyone validating the
+        full multi-vector retrieval graph on TT needs a different unpacker.
+        """
+        return forward_output["dense_vecs"]
