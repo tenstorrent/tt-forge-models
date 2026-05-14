@@ -546,16 +546,9 @@ class DeepseekV2DecoderLayer(nn.Module):
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
         _deepseek_ocr_finite_debug(self.layer_idx, "20_rotary_emb_out", position_embeddings)
 
-        # In transformers==4.46.3, `LlamaAttention` returns (attn_output, attn_weights, past_key_value),
-        # whereas in transformers==4.52.4, it returns only (attn_output, attn_weights):
-        #
-        # 4.46.3 → https://github.com/huggingface/transformers/blob/052e652d6d53c2b26ffde87e039b723949a53493/src/transformers/models/llama/modeling_llama.py#L397
-        # 4.52.4 → https://github.com/huggingface/transformers/blob/51f94ea06d19a6308c61bbb4dc97c40aabd12bad/src/transformers/models/llama/modeling_llama.py#L278
-        #
-        # Accordingly, the unpacking of `present_key_value` has been removed for compatibility with 4.52.4.
-
-        # hidden_states, self_attn_weights, present_key_value = self.self_attn( # 4.46.3
-        hidden_states, self_attn_weights = self.self_attn(  # 4.52.4
+        # ``LlamaAttention`` return arity varies by transformers release (2 vs 3-tuple).
+        # 5.2.x returns ``(attn_output, attn_weights, past_key_value)`` — see ``modeling_llama.LlamaAttention``.
+        _attn = self.self_attn(
             hidden_states=hidden_states,
             attention_mask=attention_mask,
             position_ids=position_ids,
@@ -565,6 +558,8 @@ class DeepseekV2DecoderLayer(nn.Module):
             position_embeddings=position_embeddings,
             **kwargs,
         )
+        hidden_states, self_attn_weights = _attn[0], _attn[1]
+        # present_key_value = _attn[2] if len(_attn) > 2 else None
         _deepseek_ocr_finite_debug(self.layer_idx, "30_post_self_attn", hidden_states)
         hidden_states = residual + hidden_states
         _deepseek_ocr_finite_debug(self.layer_idx, "35_post_attn_residual", hidden_states)
@@ -582,8 +577,8 @@ class DeepseekV2DecoderLayer(nn.Module):
         if output_attentions:
             outputs += (self_attn_weights,)
 
-        # Note: `LlamaAttention` no longer returns `present_key_value` in 4.52.4,
-        # so the corresponding section is commented out below.
+        # Note: ``LlamaAttention`` may return a third ``past_key_value`` entry; cache plumbing
+        # below was only needed when wiring full ``use_cache`` through this layer.
         # if use_cache:
         #     outputs += (present_key_value,)
 

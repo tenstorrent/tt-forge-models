@@ -119,7 +119,6 @@ class ModelLoader(ForgeModel):
         snapshot_download(
             repo_id=repo_id,
             local_dir=model_path,
-            local_dir_use_symlinks=False,
             allow_patterns=[
                 "*.safetensors",
                 "config.json",
