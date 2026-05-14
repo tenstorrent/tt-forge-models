@@ -346,6 +346,20 @@ class ModelLoader(ForgeModel):
         )
         return detections
 
+    def unpack_forward_output(self, fwd_output):
+        """Forward output structure: ``list`` of length 10 -- 5 classification
+        feature maps followed by 5 box-regression feature maps, one per FPN
+        level (P3..P7). Each map has shape
+        ``(B, num_anchors * (num_classes or 4), H_i, W_i)``.
+
+        What is selected and why: sum all values across all 10 maps to a
+        scalar. These are exactly the tensors RetinaNet's focal classification
+        loss and smooth L1 box loss consume; both heads share the FPN backbone
+        so backward through the sum trains the full backbone + FPN + cls/reg
+        heads.
+        """
+        return sum(t.sum() for t in fwd_output)
+
     def cleanup(self):
         """Clean up downloaded files."""
         for file_path in self._cleanup_files:

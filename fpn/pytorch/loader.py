@@ -129,3 +129,15 @@ class ModelLoader(ForgeModel):
         feat2 = torch.rand(batch_size, 2048, 8, 8, dtype=dtype)
 
         return [feat0, feat1, feat2]
+
+    def unpack_forward_output(self, fwd_output):
+        """Forward output structure: ``tuple`` of four feature-map tensors --
+        the three lateral FPN outputs plus the extra-blocks pool layer
+        (``P3..P6`` style), each of shape ``(B, 256, H_i, W_i)``.
+
+        What is selected and why: sum all values across all four maps. They
+        are the entirety of the FPN's output and the gradient sink for any
+        downstream detector; backward through the sum trains the FPN's lateral
+        1x1 + smooth 3x3 conv stack.
+        """
+        return sum(t.sum() for t in fwd_output)
