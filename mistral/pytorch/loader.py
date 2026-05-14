@@ -147,7 +147,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
+    def _load_tokenizer(self):
         """Load tokenizer for the current variant.
 
         Returns:
@@ -173,15 +173,9 @@ class ModelLoader(ForgeModel):
                 self._variant_config.pretrained_model_name
             )
             return self.tokenizer
-
-        tokenizer_kwargs = {
-            "padding_side": "right",
-        }
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
         # Initialize tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name, padding_side="right"
         )
         return self.tokenizer
 
@@ -189,7 +183,6 @@ class ModelLoader(ForgeModel):
         """Load and return the Mistral model instance for this instance's variant.
 
         Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use bfloat16.
 
         Returns:
@@ -200,7 +193,7 @@ class ModelLoader(ForgeModel):
 
         # Ensure tokenizer is loaded
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override)
+            self._load_tokenizer()
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -244,7 +237,6 @@ class ModelLoader(ForgeModel):
         """Load and return sample inputs for the Mistral model with this instance's variant settings.
 
         Args:
-            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
             batch_size: Optional batch size to override the default batch size of 1.
 
         Returns:
@@ -252,7 +244,7 @@ class ModelLoader(ForgeModel):
         """
         # Ensure tokenizer is initialized
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override)
+            self._load_tokenizer()
 
         if self.model is None:
             self.load_model(dtype_override=dtype_override)
@@ -277,6 +269,10 @@ class ModelLoader(ForgeModel):
             inputs = {"input_ids": input_ids, "attention_mask": attention_mask}
 
         elif self._variant in self._USE_Mistral3ForConditionalGeneration_VARIANTS:
+            # TODO: While running the model with image + text, an error is encountered.
+            # This needs to be fixed and is being tracked in: https://github.com/tenstorrent/tt-xla/issues/4568.
+            # This is a temporary workaround to run the model with text-only input.
+            """
             from mistral_common.protocol.instruct.request import ChatCompletionRequest
 
             image_url = "https://static.wikia.nocookie.net/essentialsdocs/images/7/70/Battle.png/revision/latest?cb=20220523172438"
@@ -310,6 +306,20 @@ class ModelLoader(ForgeModel):
                 "pixel_values": pixel_values,
                 "image_sizes": image_sizes,
             }
+            """
+            from mistral_common.protocol.instruct.messages import UserMessage
+            from mistral_common.protocol.instruct.request import ChatCompletionRequest
+
+            req = ChatCompletionRequest(
+                messages=[UserMessage(content=test_input)],
+            )
+            encoded = self.tokenizer.encode_chat_completion(req)
+            token_ids = encoded.tokens
+
+            input_ids = torch.tensor([token_ids], dtype=torch.long)
+            attention_mask = torch.ones_like(input_ids, dtype=torch.long)
+            inputs = {"input_ids": input_ids, "attention_mask": attention_mask}
+
         else:
             inputs = self.tokenizer(test_input, return_tensors="pt")
 
@@ -339,7 +349,7 @@ class ModelLoader(ForgeModel):
             str: Decoded next token text
         """
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override)
+            self._load_tokenizer()
 
         # Get logits for the last token
         next_token_logits = outputs.logits[:, -1]

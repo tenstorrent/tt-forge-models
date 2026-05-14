@@ -4109,13 +4109,16 @@ class FlowmatchingActionHead(nn.Module):
         # Embed state.
         state_features = self.state_encoder(action_input.state, embodiment_id)
 
-        # Set initial actions as the sampled noise.
         batch_size = vl_embs.shape[0]
-        actions = torch.randn(
-            size=(batch_size, self.config.action_horizon, self.config.action_dim),
-            dtype=vl_embs.dtype,
-        )
-        actions = actions.to(device=backbone_device)
+        noise = getattr(action_input, "noise", None)
+        if noise is not None:
+            actions = noise.to(dtype=vl_embs.dtype, device=backbone_device)
+        else:
+            actions = torch.randn(
+                size=(batch_size, self.config.action_horizon, self.config.action_dim),
+                dtype=vl_embs.dtype,
+            )
+            actions = actions.to(device=backbone_device)
         num_steps = self.num_inference_timesteps
         dt = 1.0 / num_steps
 
