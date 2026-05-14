@@ -764,8 +764,13 @@ def get_prefill_texts_for_batch(seq_len: int, batch_size: int) -> list:
 
     Returns:
         List of text strings for the batch.
+
+    Raises:
+        KeyError: If seq_len is not supported.
     """
-    return [
-        get_prefill_text(seq_len, i % len(PREFILL_TEXTS[seq_len]))
-        for i in range(batch_size)
-    ]
+    if seq_len not in PREFILL_TEXTS:
+        raise KeyError(
+            f"seq_len {seq_len} not supported. Available: {list(PREFILL_TEXTS.keys())}"
+        )
+    n = len(PREFILL_TEXTS[seq_len])
+    return [get_prefill_text(seq_len, i % n) for i in range(batch_size)]
