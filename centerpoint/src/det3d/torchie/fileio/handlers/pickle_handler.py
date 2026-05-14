@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+from six.moves import cPickle as pickle
+
+from .base import BaseFileHandler
+
+
+class PickleHandler(BaseFileHandler):
+    def load_from_fileobj(self, file, **kwargs):
+        return pickle.load(file, **kwargs)
+
+    def load_from_path(self, filepath, **kwargs):
+        return super(PickleHandler, self).load_from_path(filepath, mode="rb", **kwargs)
+
+    def dump_to_str(self, obj, **kwargs):
+        kwargs.setdefault("protocol", 2)
+        return pickle.dumps(obj, **kwargs)
+
+    def dump_to_fileobj(self, obj, file, **kwargs):
+        kwargs.setdefault("protocol", 2)
+        pickle.dump(obj, file, **kwargs)
+
+    def dump_to_path(self, obj, filepath, **kwargs):
+        super(PickleHandler, self).dump_to_path(obj, filepath, mode="wb", **kwargs)
