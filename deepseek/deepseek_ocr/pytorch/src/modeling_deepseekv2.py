@@ -8,6 +8,7 @@ Code adapted from: https://huggingface.co/deepseek-ai/DeepSeek-OCR/blob/main/mod
 
 
 import math
+import os
 import warnings
 from typing import List, Optional, Tuple, Union
 import numpy as np
@@ -42,6 +43,32 @@ from .configuration_deepseek_v2 import DeepseekV2Config
 from transformers.models.llama.modeling_llama import (
     LlamaRotaryEmbedding,
 )  # Needed to compute position embeddings
+
+
+def _deepseek_ocr_finite_debug(layer_idx: int, tag: str, value: object) -> None:
+    """Set DEEPSEEK_OCR_FINITE_DEBUG=1 and optional DEEPSEEK_OCR_FINITE_DEBUG_LAYER (default 0) to print finiteness."""
+    if os.environ.get("DEEPSEEK_OCR_FINITE_DEBUG", "") != "1":
+        return
+    want = int(os.environ.get("DEEPSEEK_OCR_FINITE_DEBUG_LAYER", "0"))
+    if layer_idx != want:
+        return
+
+    def _one(name: str, t: torch.Tensor) -> None:
+        ok = bool(torch.isfinite(t).all().item())
+        print(
+            f"[deepseek-finite] layer={layer_idx} {name} all_finite={ok} "
+            f"shape={tuple(t.shape)} dtype={t.dtype}",
+            flush=True,
+        )
+
+    if torch.is_tensor(value):
+        _one(tag, value)
+        return
+    if isinstance(value, tuple):
+        for i, y in enumerate(value):
+            if torch.is_tensor(y):
+                _one(f"{tag}[{i}]", y)
+
 
 import torch.fx
 
@@ -451,6 +478,7 @@ ATTENTION_CLASSES = {
 class DeepseekV2DecoderLayer(nn.Module):
     def __init__(self, config: DeepseekV2Config, layer_idx: int):
         super().__init__()
+        self.layer_idx = layer_idx
         self.hidden_size = config.hidden_size
 
         if config.use_mla:
@@ -499,7 +527,10 @@ class DeepseekV2DecoderLayer(nn.Module):
             )
         residual = hidden_states
 
+        _deepseek_ocr_finite_debug(self.layer_idx, "00_layer_in", residual)
+
         hidden_states = self.input_layernorm(hidden_states)
+        _deepseek_ocr_finite_debug(self.layer_idx, "10_post_input_layernorm", hidden_states)
 
         # In transformers==4.46.3, the `position_embeddings` parameter is optional,
         # but in transformers==4.52.4, it is mandatory in `LlamaAttention`.
@@ -513,6 +544,7 @@ class DeepseekV2DecoderLayer(nn.Module):
         # Therefore, we explicitly compute `position_embeddings` here and pass them to `LlamaAttention`.
 
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
+        _deepseek_ocr_finite_debug(self.layer_idx, "20_rotary_emb_out", position_embeddings)
 
         # In transformers==4.46.3, `LlamaAttention` returns (attn_output, attn_weights, past_key_value),
         # whereas in transformers==4.52.4, it returns only (attn_output, attn_weights):
@@ -533,12 +565,17 @@ class DeepseekV2DecoderLayer(nn.Module):
             position_embeddings=position_embeddings,
             **kwargs,
         )
+        _deepseek_ocr_finite_debug(self.layer_idx, "30_post_self_attn", hidden_states)
         hidden_states = residual + hidden_states
+        _deepseek_ocr_finite_debug(self.layer_idx, "35_post_attn_residual", hidden_states)
 
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
+        _deepseek_ocr_finite_debug(self.layer_idx, "40_post_post_attn_layernorm", hidden_states)
         hidden_states = self.mlp(hidden_states)
+        _deepseek_ocr_finite_debug(self.layer_idx, "50_post_mlp", hidden_states)
         hidden_states = residual + hidden_states
+        _deepseek_ocr_finite_debug(self.layer_idx, "60_layer_out", hidden_states)
 
         outputs = (hidden_states,)
 
