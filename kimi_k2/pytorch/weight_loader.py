@@ -30,23 +30,42 @@ REPO_ID = "moonshotai/Kimi-K2-Instruct"
 _FP8_BLOCK = 128
 
 
+def _ceil_div(a: int, b: int) -> int:
+    return (a + b - 1) // b
+
+
 def _dequant_fp8(weight: torch.Tensor, scale_inv: torch.Tensor) -> torch.Tensor:
-    """[out, in] fp8_e4m3fn + [out/128, in/128] f32 -> [out, in] bf16."""
+    """[out, in] fp8_e4m3fn + [ceil(out/128), ceil(in/128)] f32 -> [out, in] bf16.
+
+    Handles dimensions that are not exact multiples of 128 by zero-padding
+    to the next block boundary, dequantizing, then slicing back.
+    """
     out_dim, in_dim = weight.shape
-    assert (
-        out_dim % _FP8_BLOCK == 0 and in_dim % _FP8_BLOCK == 0
-    ), f"fp8 dims must be multiples of {_FP8_BLOCK}: got {weight.shape}"
+    out_blocks = _ceil_div(out_dim, _FP8_BLOCK)
+    in_blocks = _ceil_div(in_dim, _FP8_BLOCK)
     assert scale_inv.shape == (
-        out_dim // _FP8_BLOCK,
-        in_dim // _FP8_BLOCK,
+        out_blocks,
+        in_blocks,
     ), f"fp8 scale shape mismatch: weight={weight.shape}, scale_inv={scale_inv.shape}"
+
+    # Pad to full block boundaries if needed.
+    pad_out = out_blocks * _FP8_BLOCK - out_dim
+    pad_in = in_blocks * _FP8_BLOCK - in_dim
+    if pad_out or pad_in:
+        weight = torch.nn.functional.pad(weight, (0, pad_in, 0, pad_out))
+
     w = (
         weight.to(torch.float32)
         .unflatten(0, (-1, _FP8_BLOCK))
         .unflatten(-1, (-1, _FP8_BLOCK))
     )  # [bOut, 128, bIn, 128]
     s = scale_inv.to(torch.float32)[:, None, :, None]  # [bOut, 1, bIn, 1]
-    return (w * s).flatten(2, 3).flatten(0, 1).to(torch.bfloat16)
+    result = (w * s).flatten(2, 3).flatten(0, 1).to(torch.bfloat16)
+
+    # Slice back to original dimensions.
+    if pad_out or pad_in:
+        result = result[:out_dim, :in_dim]
+    return result
 
 
 def _find_shards_for_keys(
