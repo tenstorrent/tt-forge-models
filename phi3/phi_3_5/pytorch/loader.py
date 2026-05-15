@@ -65,14 +65,10 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
+    def _load_tokenizer(self):
         """Load tokenizer for the current variant."""
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            **tokenizer_kwargs,
+            self._variant_config.pretrained_model_name
         )
         # Ensure padding token is set
         if self.tokenizer.pad_token_id is None:
@@ -83,7 +79,7 @@ class ModelLoader(ForgeModel):
         """Load and return the Phi 3.5 model instance for this instance's variant."""
         pretrained_model_name = self._variant_config.pretrained_model_name
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override)
+            self._load_tokenizer()
         model_dtype = dtype_override if dtype_override is not None else torch.bfloat16
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name,
@@ -97,7 +93,7 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the Phi 3.5 model with this instance's variant settings."""
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override)
+            self._load_tokenizer()
         prompt = [
             {
                 "role": "user",

@@ -10,6 +10,7 @@ import inspect
 import os
 import warnings
 from abc import ABC, abstractmethod
+from dataclasses import replace
 from typing import Dict, Optional, Union, Type, Any
 
 from .config import ModelConfig, ModelInfo, StrEnum
@@ -115,16 +116,23 @@ class ForgeModel(ABC):
     def get_model_info(cls, variant: Optional[StrEnum] = None) -> ModelInfo:
         """Get model information for dashboard and metrics reporting.
 
+        Automatically populates model_name_clean from the variant's pretrained_model_name
+        when the loader uses the _VARIANTS system.
+
         Args:
             variant: Optional StrEnum specifying which variant to get info for.
                      If None, DEFAULT_VARIANT is used.
-
 
         Returns:
             ModelInfo: Information about the model and variant
         """
         variant_enum = cls._validate_variant(variant)
-        return cls._get_model_info(variant_enum)
+        info = cls._get_model_info(variant_enum)
+        if info.model_name_clean is None:
+            config = cls.get_variant_config(variant_enum)
+            if config is not None:
+                info = replace(info, model_name_clean=config.model_name_clean)
+        return info
 
     @classmethod
     @abstractmethod
@@ -254,3 +262,26 @@ class ForgeModel(ABC):
                 f"Available configs: {os.listdir(config_dir)}"
             )
         return None
+
+
+class ForgePrefillModel(ForgeModel):
+    """Loader for models on which we test prefill extensively with various
+    meshes, strategies, batches and sequence lengths.
+
+    Subclasses must implement:
+        * ``load_inputs_prefill`` — produces prefill-phase inputs sized for
+          the requested ``batch_size`` / ``seq_len``.
+        * ``load_shard_spec`` — produces weight shard specs parameterized by
+          ``strategy`` and ``batch_axis`` so the model can be swept across
+          different mesh / sharding combinations.
+    """
+
+    def load_inputs_prefill(self, dtype_override, batch_size, seq_len):
+        raise NotImplementedError(
+            f"{type(self).__name__} must implement load_inputs_prefill(dtype_override, batch_size, seq_len)"
+        )
+
+    def load_shard_spec(self, model, strategy, batch_axis):
+        raise NotImplementedError(
+            f"{type(self).__name__} must implement load_shard_spec(model, strategy, batch_axis)"
+        )

@@ -409,6 +409,14 @@ class MoEGate(nn.Module):
         import torch.nn.init as init
 
         init.kaiming_uniform_(self.weight, a=math.sqrt(5))
+        # Modified: The e_score_correction_bias is uninitialized as torch.empty(...)
+        # which causes non-determinism in routing topk between pytest invocations.
+        # Initialize it with a uniform distribution to ensure deterministic behavior
+        # under torch.manual_seed when random weights are used.
+        if getattr(self, "e_score_correction_bias", None) is not None:
+            fan_in, _ = init._calculate_fan_in_and_fan_out(self.weight)
+            bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
+            init.uniform_(self.e_score_correction_bias, -bound, bound)
 
     def forward(self, hidden_states):
         bsz, seq_len, h = hidden_states.shape

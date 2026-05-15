@@ -226,6 +226,20 @@ class ModelLoader(ForgeModel):
             batch_size=batch_size,
         )
 
+    def unpack_forward_output(self, fwd_output):
+        """Forward output structure: list of length 2 in eval mode --
+        ``[predictions, featmaps]`` where ``predictions`` is the decoded detection
+        head output Tensor of shape ``(B, num_anchors, num_classes + 5)`` and
+        ``featmaps`` is a list of three neck feature-map tensors per scale.
+
+        What is selected and why: returning ``predictions`` -- the decoded head
+        output is the gradient sink for the YOLOv6 detection loss (cls + box +
+        objectness). It exercises the full backbone -> neck -> detect head
+        graph; the neck feature maps are dropped because their gradients are a
+        strict subset of the predictions' graph.
+        """
+        return fwd_output[0]
+
     def output_postprocess(self, output):
         """Post-process model outputs.
 
