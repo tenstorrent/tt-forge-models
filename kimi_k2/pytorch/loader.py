@@ -8,11 +8,14 @@ Uses a locally modified DeepSeek V3-based model (modeling_deepseek.py) instead o
 loading directly from HuggingFace. The modifications adapt the model for
 Tenstorrent hardware by replacing cache utilities with a static MLA cache.
 """
+import gc
+import time
 from pathlib import Path
 from typing import Optional
 
 import torch
 import torch_xla.runtime as xr
+from loguru import logger
 from transformers import AutoTokenizer
 
 from ...base import ForgeModel
@@ -137,30 +140,141 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The Kimi K2 model in eval mode.
         """
+        t_start = time.monotonic()
+
+        # --- Stage 1: Config ---
         config = self._load_config(num_layers=self.num_layers)
+        logger.info(
+            f"[kimi_k2] Config loaded: num_hidden_layers={config.num_hidden_layers}, "
+            f"hidden_size={config.hidden_size}, "
+            f"num_experts={getattr(config, 'n_routed_experts', '?')}, "
+            f"vocab_size={config.vocab_size}"
+        )
 
+        # --- Stage 2: Tokenizer ---
         self._load_tokenizer()
+        logger.info(f"[kimi_k2] Tokenizer loaded: vocab_size={len(self.tokenizer)}")
 
+        # --- Stage 3: Model construction (random weights) ---
+        t_construct = time.monotonic()
         model = DeepseekV3ForCausalLM(config)
+        model_params = sum(p.numel() for p in model.parameters())
+        model_bytes = sum(
+            p.numel() * p.element_size() for p in model.parameters()
+        )
+        logger.info(
+            f"[kimi_k2] Model constructed in {time.monotonic() - t_construct:.1f}s: "
+            f"{model_params / 1e9:.2f}B params, "
+            f"{model_bytes / (1024**3):.2f} GB (dtype={next(model.parameters()).dtype})"
+        )
 
+        # --- Stage 4: Load real checkpoint weights ---
+        from . import weight_loader
+
+        layer_ids = list(range(config.num_hidden_layers))
+        sd = weight_loader.load_transformer_state_dict(layer_ids)
+
+        # Log key overlap diagnostics before load_state_dict.
+        model_keys = set(model.state_dict().keys())
+        sd_keys = set(sd.keys())
+        overlap = model_keys & sd_keys
+        logger.info(
+            f"[kimi_k2] Key overlap: model has {len(model_keys)} keys, "
+            f"checkpoint has {len(sd_keys)} keys, "
+            f"overlap={len(overlap)}"
+        )
+
+        t_load = time.monotonic()
+        missing, unexpected = model.load_state_dict(sd, strict=False)
+        logger.info(
+            f"[kimi_k2] load_state_dict in {time.monotonic() - t_load:.1f}s: "
+            f"missing={len(missing)}, unexpected={len(unexpected)}"
+        )
+
+        # Log missing keys (these are expected: non-persistent buffers, caches).
+        if missing:
+            logger.info(f"[kimi_k2] Missing keys ({len(missing)}):")
+            for k in sorted(missing):
+                logger.debug(f"[kimi_k2]   MISSING: {k}")
+            # Summarise by prefix for readability.
+            prefixes: dict[str, int] = {}
+            for k in missing:
+                prefix = k.rsplit(".", 1)[0] if "." in k else k
+                prefixes[prefix] = prefixes.get(prefix, 0) + 1
+            for pfx, cnt in sorted(prefixes.items(), key=lambda x: -x[1])[:20]:
+                logger.info(f"[kimi_k2]   missing prefix: {pfx} ({cnt} keys)")
+
+        if unexpected:
+            logger.warning(f"[kimi_k2] Unexpected keys ({len(unexpected)}):")
+            for k in sorted(unexpected):
+                logger.warning(f"[kimi_k2]   UNEXPECTED: {k}")
+
+        del sd
+        gc.collect()
+
+        # --- Stage 5: dtype override ---
         if dtype_override is not None:
+            t_cast = time.monotonic()
             model = model.to(dtype_override)
+            logger.info(
+                f"[kimi_k2] Cast to {dtype_override} in "
+                f"{time.monotonic() - t_cast:.1f}s"
+            )
 
         model = model.eval()
 
-        # Enable sparse MLP
+        # --- Stage 6: Verify no uninitialized parameters ---
+        # After loading real weights + dtype cast, check for params that look
+        # uninitialized (all-zero AND were not in the checkpoint overlap).
+        loaded_keys = overlap  # keys that were overwritten by checkpoint
+        n_suspect = 0
+        for name, param in model.named_parameters():
+            if name in loaded_keys:
+                continue  # populated from checkpoint
+            is_zero = param.count_nonzero() == 0
+            if is_zero and param.numel() > 1:
+                n_suspect += 1
+                logger.warning(
+                    f"[kimi_k2] SUSPECT unloaded param (all zeros): "
+                    f"{name}  shape={list(param.shape)}  dtype={param.dtype}"
+                )
+        if n_suspect == 0:
+            logger.info(
+                "[kimi_k2] All non-checkpoint parameters have non-zero values (OK)"
+            )
+        else:
+            logger.warning(
+                f"[kimi_k2] {n_suspect} parameters are all-zero and were NOT "
+                f"loaded from checkpoint -- these may be uninitialized"
+            )
+
+        # --- Stage 7: Enable sparse MLP ---
         has_dense_moe = any(
             isinstance(layer.mlp, DeepseekV3MoE) for layer in model.model.layers
         )
         if has_dense_moe:
+            t_sparse = time.monotonic()
             num_devices = xr.global_runtime_device_count()
             mesh_shape, _ = self.get_mesh_config(num_devices)
+            logger.info(
+                f"[kimi_k2] Enabling sparse MLP: "
+                f"mesh_shape={mesh_shape}, num_devices={num_devices}"
+            )
             enable_sparse_mlp(
                 model, mesh=mesh_shape, cluster_axis=0, config=model.config
             )
+            logger.info(
+                f"[kimi_k2] Sparse MLP enabled in "
+                f"{time.monotonic() - t_sparse:.1f}s"
+            )
+        else:
+            logger.info("[kimi_k2] No dense MoE layers found, skipping sparse MLP")
 
         self.model = model
 
+        logger.info(
+            f"[kimi_k2] load_model complete in {time.monotonic() - t_start:.1f}s"
+        )
         return model
 
     def load_inputs(self, batch_size: int = 1, seq_len: int = 32):
