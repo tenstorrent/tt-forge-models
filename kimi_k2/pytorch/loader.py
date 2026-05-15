@@ -155,9 +155,15 @@ class ModelLoader(ForgeModel):
         self._load_tokenizer()
         logger.info(f"[kimi_k2] Tokenizer loaded: vocab_size={len(self.tokenizer)}")
 
-        # --- Stage 3: Model construction (random weights) ---
+        # --- Stage 3: Model construction ---
+        # Construct directly in the target dtype to halve peak RSS
+        # (avoid fp32 model + bf16 checkpoint held simultaneously).
+        init_dtype = dtype_override or torch.bfloat16
         t_construct = time.monotonic()
-        model = DeepseekV3ForCausalLM(config)
+        with torch.device("meta"):
+            model = DeepseekV3ForCausalLM(config)
+        # Materialize on CPU in the target dtype (empty — will be overwritten).
+        model = model.to_empty(device="cpu").to(init_dtype)
         model_params = sum(p.numel() for p in model.parameters())
         model_bytes = sum(
             p.numel() * p.element_size() for p in model.parameters()
@@ -165,7 +171,7 @@ class ModelLoader(ForgeModel):
         logger.info(
             f"[kimi_k2] Model constructed in {time.monotonic() - t_construct:.1f}s: "
             f"{model_params / 1e9:.2f}B params, "
-            f"{model_bytes / (1024**3):.2f} GB (dtype={next(model.parameters()).dtype})"
+            f"{model_bytes / (1024**3):.2f} GB (dtype={init_dtype})"
         )
 
         # --- Stage 4: Load real checkpoint weights ---
@@ -183,6 +189,11 @@ class ModelLoader(ForgeModel):
             f"checkpoint has {len(sd_keys)} keys, "
             f"overlap={len(overlap)}"
         )
+
+        # Cast checkpoint tensors to match model dtype before loading to avoid
+        # load_state_dict upcasting bf16 checkpoint -> fp32 model params.
+        if init_dtype != torch.bfloat16:
+            sd = {k: v.to(init_dtype) if v.is_floating_point() else v for k, v in sd.items()}
 
         t_load = time.monotonic()
         missing, unexpected = model.load_state_dict(sd, strict=False)
@@ -211,15 +222,6 @@ class ModelLoader(ForgeModel):
 
         del sd
         gc.collect()
-
-        # --- Stage 5: dtype override ---
-        if dtype_override is not None:
-            t_cast = time.monotonic()
-            model = model.to(dtype_override)
-            logger.info(
-                f"[kimi_k2] Cast to {dtype_override} in "
-                f"{time.monotonic() - t_cast:.1f}s"
-            )
 
         model = model.eval()
 
