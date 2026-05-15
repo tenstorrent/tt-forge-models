@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
     """Available Stable Diffusion UNet model variants."""
 
     BASE = "Base"
+    V1_5 = "V1_5"
 
 
 class ModelLoader(ForgeModel):
@@ -37,7 +38,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BASE: ModelConfig(
             pretrained_model_name="CompVis/stable-diffusion-v1-4",
-        )
+        ),
+        ModelVariant.V1_5: ModelConfig(
+            pretrained_model_name="stable-diffusion-v1-5/stable-diffusion-v1-5",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.BASE
