@@ -16,7 +16,9 @@
 
 from __future__ import annotations
 
+import gc
 import json
+import os
 import time
 from typing import Dict, Iterable, List
 
@@ -24,6 +26,8 @@ import torch
 from huggingface_hub import hf_hub_download
 from loguru import logger
 from safetensors import safe_open
+from safetensors.torch import load_file as safetensors_load_file
+from safetensors.torch import save_file as safetensors_save_file
 
 REPO_ID = "moonshotai/Kimi-K2-Instruct"
 
@@ -194,12 +198,106 @@ def _dequant_paired(
     return out
 
 
+def _dequant_cache_dir(n_layers: int) -> str:
+    """Per-model BF16 safetensors cache directory."""
+    repo_slug = REPO_ID.replace("/", "--")
+    base = os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
+    return os.path.join(base, "tt_xla_dequant_cache", f"{repo_slug}_{n_layers}layers")
+
+
+def _cache_chunk_names(layer_ids: List[int]) -> List[str]:
+    """Return ordered list of expected cache chunk filenames."""
+    names = ["shared.safetensors"]
+    for L in layer_ids:
+        names.append(f"layer_{L:04d}.safetensors")
+    return names
+
+
+def _has_cache(cache_dir: str, layer_ids: List[int]) -> bool:
+    """Check that all expected cache chunks exist."""
+    if not os.path.isdir(cache_dir):
+        return False
+    for name in _cache_chunk_names(layer_ids):
+        if not os.path.isfile(os.path.join(cache_dir, name)):
+            return False
+    return True
+
+
+def _load_from_cache(
+    cache_dir: str, layer_ids: List[int]
+) -> Dict[str, torch.Tensor]:
+    """Load and merge all cached safetensors chunks into one state dict."""
+    t0 = time.monotonic()
+    sd: Dict[str, torch.Tensor] = {}
+    chunks = _cache_chunk_names(layer_ids)
+    for name in chunks:
+        path = os.path.join(cache_dir, name)
+        chunk = safetensors_load_file(path)
+        sd.update(chunk)
+        logger.info(
+            f"[weight_loader] Loaded cache chunk {name}: "
+            f"{len(chunk)} keys, {os.path.getsize(path) / (1024**3):.2f} GB"
+        )
+        del chunk
+    logger.info(
+        f"[weight_loader] Cache load complete: {len(sd)} keys in "
+        f"{time.monotonic() - t0:.1f}s"
+    )
+    return sd
+
+
+def _build_cache(cache_dir: str, layer_ids: List[int]) -> None:
+    """Dequant one chunk at a time and save to cache directory.
+
+    Processes each layer independently to bound peak memory to one MoE
+    layer's worth of raw FP8 + dequanted BF16 at a time.
+    """
+    os.makedirs(cache_dir, exist_ok=True)
+    t_total = time.monotonic()
+    total_bytes = 0
+
+    # Chunk definitions: (chunk_name, prefixes)
+    chunks = [("shared", ["model.embed_tokens.", "model.norm.", "lm_head."])]
+    for L in layer_ids:
+        chunks.append((f"layer_{L:04d}", [f"model.layers.{L}."]))
+
+    for chunk_name, prefixes in chunks:
+        t_chunk = time.monotonic()
+        raw = _load_raw_subset(prefixes)
+        sd = _dequant_paired(raw, "")
+        del raw
+        gc.collect()
+
+        chunk_path = os.path.join(cache_dir, f"{chunk_name}.safetensors")
+        safetensors_save_file(sd, chunk_path)
+        chunk_size = os.path.getsize(chunk_path)
+        total_bytes += chunk_size
+        del sd
+        gc.collect()
+
+        logger.info(
+            f"[weight_loader] Saved cache chunk {chunk_name}.safetensors: "
+            f"{chunk_size / (1024**3):.2f} GB ({time.monotonic() - t_chunk:.1f}s)"
+        )
+
+    logger.info(
+        f"[weight_loader] Cache build complete: {len(chunks)} chunks, "
+        f"{total_bytes / (1024**3):.2f} GB total, "
+        f"{time.monotonic() - t_total:.1f}s"
+    )
+    logger.info(f"[weight_loader] Cache dir: {cache_dir}")
+
+
 def load_transformer_state_dict(
     layer_ids: Iterable[int],
 ) -> Dict[str, torch.Tensor]:
     """Full DeepseekV3ForCausalLM state dict for the requested layer subset
     plus top-level (embed_tokens, norm, lm_head). Load with strict=False --
     non-persistent buffers and cache tensors aren't in the checkpoint.
+
+    Dequantized BF16 weights are cached to disk as safetensors under
+    $HF_HOME/tt_xla_dequant_cache/. First run builds the cache (~200s),
+    subsequent runs load from cache (~10-20s).
     """
     layer_ids = sorted(set(layer_ids))
     logger.info(
@@ -208,15 +306,20 @@ def load_transformer_state_dict(
     )
     t_total = time.monotonic()
 
-    prefixes: List[str] = ["model.embed_tokens.", "model.norm.", "lm_head."]
-    prefixes.extend(f"model.layers.{L}." for L in layer_ids)
-    raw = _load_raw_subset(prefixes)
-    sd = _dequant_paired(raw, "")
+    cache_dir = _dequant_cache_dir(len(layer_ids))
+
+    if not _has_cache(cache_dir, layer_ids):
+        logger.info(f"[weight_loader] Cache miss, building at {cache_dir}")
+        _build_cache(cache_dir, layer_ids)
+    else:
+        logger.info(f"[weight_loader] Cache hit at {cache_dir}")
+
+    sd = _load_from_cache(cache_dir, layer_ids)
 
     # Log summary of what we produced.
     total_params = sum(t.numel() for t in sd.values())
     total_bytes = sum(t.nelement() * t.element_size() for t in sd.values())
-    dtypes = {}
+    dtypes: Dict[str, int] = {}
     for t in sd.values():
         dtypes[str(t.dtype)] = dtypes.get(str(t.dtype), 0) + 1
     logger.info(
