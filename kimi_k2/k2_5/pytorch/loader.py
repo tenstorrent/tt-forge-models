@@ -29,7 +29,7 @@ from ....config import (
 from tt_torch.sparse_mlp import A2aSparseMLPWithSharedExperts, enable_sparse_mlp
 
 from .configuration_kimi_k25 import KimiK25Config
-from .modeling_deepseek import DeepseekV3ForCausalLM, DeepseekV3MoE
+from .modified_modeling_deepseek import DeepseekV3ForCausalLM, DeepseekV3MoE
 
 
 class ModelVariant(StrEnum):

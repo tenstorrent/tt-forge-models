@@ -67,7 +67,9 @@ from transformers.models.llava.modeling_llava import LlavaCausalLMOutputWithPast
 from transformers.utils import is_flash_attn_2_available
 
 from .configuration_kimi_k25 import KimiK25Config
-from .modeling_deepseek import DeepseekV3ForCausalLM
+from .modified_modeling_deepseek import (
+    DeepseekV3ForCausalLM,
+)  # Modified: import the locally modified DeepSeekV3ForCausalLM instead of the original one from modeling_deepseek.py
 
 # Flash attention imports
 if is_flash_attn_2_available():
