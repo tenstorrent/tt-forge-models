@@ -169,13 +169,10 @@ class ModelLoader(ForgeModel):
         ``(B, anchors_per_region * (5 + num_classes), H_i, W_i)`` corresponding
         to strides 32, 16, and 8.
 
-        What is selected and why: flatten and concatenate all three per-scale
-        outputs. These are exactly the tensors the YOLOv3 detection loss
-        consumes (objectness + class + box per anchor per cell), so backward
-        through the concatenated result trains the full backbone and the three
+        What is selected and why: sum all values across all three per-scale
+        outputs to a scalar. These are exactly the tensors the YOLOv3 detection
+        loss consumes (objectness + class + box per anchor per cell), so
+        backward through the sum trains the full backbone and the three
         detection heads.
-
-        Why a registry entry was not sufficient: the forward returns a bare
-        ``list`` with no class name the registry can key on.
         """
-        return torch.cat([t.flatten() for t in fwd_output])
+        return sum(t.sum() for t in fwd_output)

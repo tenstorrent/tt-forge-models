@@ -135,12 +135,9 @@ class ModelLoader(ForgeModel):
         the three lateral FPN outputs plus the extra-blocks pool layer
         (``P3..P6`` style), each of shape ``(B, 256, H_i, W_i)``.
 
-        What is selected and why: flatten and concatenate all four maps. They
+        What is selected and why: sum all values across all four maps. They
         are the entirety of the FPN's output and the gradient sink for any
-        downstream detector; backward through the concatenation trains the
-        FPN's lateral 1x1 + smooth 3x3 conv stack.
-
-        Why a registry entry was not sufficient: the forward returns a bare
-        ``tuple`` with no class name the registry can key on.
+        downstream detector; backward through the sum trains the FPN's lateral
+        1x1 + smooth 3x3 conv stack.
         """
-        return torch.cat([t.flatten() for t in fwd_output])
+        return sum(t.sum() for t in fwd_output)
