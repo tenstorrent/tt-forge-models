@@ -292,16 +292,6 @@ class ForgePrefillModel(ForgeModel):
         Returns:
             dict: Input tensors (input_ids, attention_mask) padded to seq_len.
         """
-        assert hasattr(
-            self, "tokenizer"
-        ), f"{type(self).__name__} must define self.tokenizer to use ForgePrefillModel"
-        assert hasattr(
-            self, "_load_tokenizer"
-        ), f"{type(self).__name__} must define self._load_tokenizer to use ForgePrefillModel"
-        assert hasattr(
-            self, "seq_len"
-        ), f"{type(self).__name__} must define self.seq_len to use ForgePrefillModel"
-
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
