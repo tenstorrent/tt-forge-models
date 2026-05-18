@@ -2,64 +2,61 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Stable Diffusion 1.4 model loader implementation.
-
-Returns the ``UNet2DConditionModel`` (an ``nn.Module``) directly from
-``load_model`` — the format the tt-xla model tester expects. The tokenizer,
-text encoder and scheduler needed to build a sample input batch are kept on
-the loader instance and used by ``load_inputs``.
-
-The previous implementation of this loader returned the full
-``StableDiffusionPipeline`` and referenced ``torch`` without importing it,
-which made it unusable end-to-end; this rewrite mirrors the convention used
-by ``stable_diffusion_unet`` and the new ``stable_diffusion_1_5`` loader.
+Stable Diffusion 1.4 model loader implementation
 """
 
-from typing import Optional
-
-import torch
-from diffusers import LMSDiscreteScheduler, UNet2DConditionModel
-from transformers import CLIPTextModel, CLIPTokenizer
-
-from ...base import ForgeModel
 from ...config import (
-    Framework,
     ModelConfig,
-    ModelGroup,
     ModelInfo,
-    ModelSource,
+    ModelGroup,
     ModelTask,
+    ModelSource,
+    Framework,
     StrEnum,
 )
+from ...base import ForgeModel
+from diffusers import StableDiffusionPipeline
+from typing import Optional
 
 
 class ModelVariant(StrEnum):
-    """Available Stable Diffusion 1.4 model variants."""
+    """Available Stable Diffusion model variants."""
 
     BASE = "Base"
 
 
 class ModelLoader(ForgeModel):
-    """Stable Diffusion 1.4 model loader implementation."""
+    """Stable Diffusion model loader implementation."""
 
+    # Dictionary of available model variants
     _VARIANTS = {
         ModelVariant.BASE: ModelConfig(
             pretrained_model_name="CompVis/stable-diffusion-v1-4",
-        ),
+        )
     }
 
     DEFAULT_VARIANT = ModelVariant.BASE
 
     def __init__(self, variant: Optional[ModelVariant] = None):
-        """Initialize ModelLoader with the requested variant.
+        """Initialize ModelLoader with specified variant.
 
         Args:
-            variant: Optional ``ModelVariant``; falls back to ``DEFAULT_VARIANT``.
+            variant: Optional string specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
         """
         super().__init__(variant)
 
     @classmethod
-    def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
+    def _get_model_info(cls, variant: Optional[ModelVariant] = None):
+        """Get model information for dashboard and metrics reporting.
+
+        Args:
+            variant_name: Optional variant name string. If None, uses 'base'.
+
+        Returns:
+            ModelInfo: Information about the model and variant
+        """
+
         return ModelInfo(
             model="Stable Diffusion 1.4",
             variant=variant,
@@ -70,64 +67,33 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the SD1.4 UNet.
+        """Load and return the Stable Diffusion pipeline from Hugging Face.
 
         Args:
-            dtype_override: Optional ``torch.dtype`` for the UNet weights;
-                defaults to ``torch.bfloat16`` to match TT execution.
+            dtype_override: Optional torch.dtype to override the model's default dtype.
+                           If not provided, the model will use torch.bfloat16.
 
         Returns:
-            torch.nn.Module: The ``UNet2DConditionModel`` instance for SD1.4.
+            StableDiffusionPipeline: The pre-trained Stable Diffusion pipeline object.
         """
         dtype = dtype_override or torch.bfloat16
-
-        self.tokenizer = CLIPTokenizer.from_pretrained(
-            "openai/clip-vit-large-patch14", **kwargs
+        pipe = StableDiffusionPipeline.from_pretrained(
+            self._variant_config.pretrained_model_name, torch_dtype=dtype, **kwargs
         )
-        self.text_encoder = CLIPTextModel.from_pretrained(
-            "openai/clip-vit-large-patch14", **kwargs
-        )
-        unet = UNet2DConditionModel.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            subfolder="unet",
-            torch_dtype=dtype,
-            **kwargs,
-        )
-        self.scheduler = LMSDiscreteScheduler.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            subfolder="scheduler",
-            **kwargs,
-        )
-
-        self.in_channels = unet.in_channels
-        return unet
+        return pipe
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Return a single-step UNet sample input batch for SD1.4.
+        """Load and return sample text prompts for the Stable Diffusion model.
 
         Args:
-            dtype_override: Optional ``torch.dtype``; defaults to ``torch.bfloat16``.
-            batch_size: Repetition factor for the prompt.
+            dtype_override: This parameter is ignored for this model.
+            batch_size: Optional batch size for the prompts.
 
         Returns:
-            dict: ``{"sample": …, "timestep": 0, "encoder_hidden_states": …}``.
+            list: A list of sample text prompts.
         """
-        dtype = dtype_override or torch.bfloat16
 
-        prompt = ["A fantasy landscape with mountains and rivers"] * batch_size
-        text_input = self.tokenizer(prompt, return_tensors="pt")
-        text_embeddings = self.text_encoder(text_input.input_ids)[0]
-
-        height, width = 512, 512
-        latents = torch.randn((batch_size, self.in_channels, height // 8, width // 8))
-
-        num_inference_steps = 1
-        self.scheduler.set_timesteps(num_inference_steps)
-        latents = latents * self.scheduler.init_noise_sigma
-        latent_model_input = self.scheduler.scale_model_input(latents, 0)
-
-        return {
-            "sample": latent_model_input.to(dtype),
-            "timestep": 0,
-            "encoder_hidden_states": text_embeddings.to(dtype),
-        }
+        prompt = [
+            "a photo of an astronaut riding a horse on mars",
+        ] * batch_size
+        return prompt
