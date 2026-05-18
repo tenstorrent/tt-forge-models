@@ -2,68 +2,66 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Stable Diffusion UNET model loader implementation
+Stable Diffusion 1.5 model loader implementation.
+
+SD1.4 (``CompVis/stable-diffusion-v1-4``) and SD1.5
+(``stable-diffusion-v1-5/stable-diffusion-v1-5``) share the same
+``UNet2DConditionModel`` architecture, ``LMSDiscreteScheduler`` and CLIP
+text encoder; they only differ in pretrained weights. We still ship them
+as separate loader packages so each bringup can advance independently and
+each can carry its own ModelInfo / dashboards / status in the test runner.
+
+``load_model`` returns the SD1.5 UNet (an ``nn.Module``) — the format the
+tt-xla model tester expects.
 """
 
+from typing import Optional
+
+import torch
+from diffusers import LMSDiscreteScheduler, UNet2DConditionModel
+from transformers import CLIPTextModel, CLIPTokenizer
+
+from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
-from ...base import ForgeModel
-import torch
-from diffusers import (
-    UNet2DConditionModel,
-    LMSDiscreteScheduler,
-)
-from transformers import CLIPTextModel, CLIPTokenizer
-from typing import Optional
 
 
 class ModelVariant(StrEnum):
-    """Available Stable Diffusion UNet model variants."""
+    """Available Stable Diffusion 1.5 model variants."""
 
     BASE = "Base"
 
 
 class ModelLoader(ForgeModel):
-    """Stable Diffusion UNet model loader implementation."""
+    """Stable Diffusion 1.5 model loader implementation."""
 
-    # Dictionary of available model variants
     _VARIANTS = {
         ModelVariant.BASE: ModelConfig(
-            pretrained_model_name="CompVis/stable-diffusion-v1-4",
-        )
+            pretrained_model_name="stable-diffusion-v1-5/stable-diffusion-v1-5",
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.BASE
 
     def __init__(self, variant: Optional[ModelVariant] = None):
-        """Initialize ModelLoader with specified variant.
+        """Initialize ModelLoader with the requested variant.
 
         Args:
-            variant: Optional string specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
+            variant: Optional ``ModelVariant``; falls back to ``DEFAULT_VARIANT``.
         """
         super().__init__(variant)
 
     @classmethod
-    def _get_model_info(cls, variant: Optional[ModelVariant] = None):
-        """Get model information for dashboard and metrics reporting.
-
-        Args:
-            variant_name: Optional variant name string. If None, uses 'base'.
-
-        Returns:
-            ModelInfo: Information about the model and variant
-        """
-
+    def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         return ModelInfo(
-            model="Stable Diffusion UNet",
+            model="Stable Diffusion 1.5",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.MM_IMAGE_TTT,  # FIXME: Update to text to image
@@ -72,24 +70,22 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the UNet model along with required components.
+        """Load and return the SD1.5 UNet.
 
         Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-                           If not provided, the model will use torch.bfloat16.
+            dtype_override: Optional ``torch.dtype`` for the UNet weights;
+                defaults to ``torch.bfloat16`` to match TT execution.
 
         Returns:
-            UNet2DConditionModel: The pre-trained UNet model.
+            torch.nn.Module: The ``UNet2DConditionModel`` instance for SD1.5.
         """
         dtype = dtype_override or torch.bfloat16
 
-        # Load the pre-trained model and tokenizer
         self.tokenizer = CLIPTokenizer.from_pretrained(
             "openai/clip-vit-large-patch14", **kwargs
         )
         self.text_encoder = CLIPTextModel.from_pretrained(
-            "openai/clip-vit-large-patch14",
-            **kwargs,
+            "openai/clip-vit-large-patch14", **kwargs
         )
         unet = UNet2DConditionModel.from_pretrained(
             self._variant_config.pretrained_model_name,
@@ -103,44 +99,35 @@ class ModelLoader(ForgeModel):
             **kwargs,
         )
 
-        # in_channels is needed in load_inputs so we store it here
         self.in_channels = unet.in_channels
         return unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the UNet model.
+        """Return a single-step UNet sample input batch for SD1.5.
 
         Args:
-            dtype_override: Optional torch.dtype to override the input dtype.
-            batch_size: Optional batch size for the inputs.
+            dtype_override: Optional ``torch.dtype``; defaults to ``torch.bfloat16``.
+            batch_size: Repetition factor for the prompt.
 
         Returns:
-            dict: Dictionary containing sample, timestep, and encoder_hidden_states.
+            dict: ``{"sample": …, "timestep": 0, "encoder_hidden_states": …}``.
         """
         dtype = dtype_override or torch.bfloat16
 
-        # Prepare the text prompt
         prompt = ["A fantasy landscape with mountains and rivers"] * batch_size
         text_input = self.tokenizer(prompt, return_tensors="pt")
         text_embeddings = self.text_encoder(text_input.input_ids)[0]
 
-        # Generate noise
-        height, width = 512, 512  # Output image size
-        # Use the stored in_channels from the loaded model
+        height, width = 512, 512
         latents = torch.randn((batch_size, self.in_channels, height // 8, width // 8))
 
-        # Set number of diffusion steps
         num_inference_steps = 1
         self.scheduler.set_timesteps(num_inference_steps)
-
-        # Scale the latent noise to match the model's expected input
         latents = latents * self.scheduler.init_noise_sigma
-
-        # Get the model's predicted noise
         latent_model_input = self.scheduler.scale_model_input(latents, 0)
-        arguments = {
+
+        return {
             "sample": latent_model_input.to(dtype),
             "timestep": 0,
             "encoder_hidden_states": text_embeddings.to(dtype),
         }
-        return arguments
