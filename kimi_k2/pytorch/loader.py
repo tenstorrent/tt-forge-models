@@ -100,9 +100,17 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded tokenizer instance.
         """
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        import os
+        from .weight_loader import DEFAULT_CHECKPOINT_DIR
+
+        checkpoint_dir = os.environ.get("KIMI_K2_CHECKPOINT_DIR", DEFAULT_CHECKPOINT_DIR)
+        if checkpoint_dir == DEFAULT_CHECKPOINT_DIR and "KIMI_K2_CHECKPOINT_DIR" not in os.environ:
+            logger.warning(
+                f"[kimi_k2] KIMI_K2_CHECKPOINT_DIR not set, using default: {DEFAULT_CHECKPOINT_DIR}. "
+                f"Set KIMI_K2_CHECKPOINT_DIR to override."
+            )
         self.tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name,
+            checkpoint_dir,
             trust_remote_code=True,
         )
         return self.tokenizer

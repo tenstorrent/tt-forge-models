@@ -30,6 +30,7 @@ from safetensors.torch import load_file as safetensors_load_file
 from safetensors.torch import save_file as safetensors_save_file
 
 REPO_ID = "unsloth/Kimi-K2-Instruct-BF16"
+DEFAULT_CHECKPOINT_DIR = "/mnt/models/kimi-forge"
 
 _FP8_BLOCK = 128
 
@@ -79,6 +80,18 @@ def _find_shards_for_keys(
     return sorted({shard for k, shard in weight_map.items() if k.startswith(prefixes)})
 
 
+def _resolve_file(filename: str) -> str:
+    """Return a local path for `filename` from KIMI_K2_CHECKPOINT_DIR.
+    Falls back to hf_hub_download if the env var is unset, with a warning."""
+    checkpoint_dir = os.environ.get("KIMI_K2_CHECKPOINT_DIR", DEFAULT_CHECKPOINT_DIR)
+    if checkpoint_dir == DEFAULT_CHECKPOINT_DIR and "KIMI_K2_CHECKPOINT_DIR" not in os.environ:
+        logger.warning(
+            f"[weight_loader] KIMI_K2_CHECKPOINT_DIR not set, using default: {DEFAULT_CHECKPOINT_DIR}. "
+            f"Set KIMI_K2_CHECKPOINT_DIR to override."
+        )
+    return os.path.join(checkpoint_dir, filename)
+
+
 def _load_raw_subset(
     prefixes: Iterable[str],
 ) -> Dict[str, torch.Tensor]:
@@ -90,9 +103,7 @@ def _load_raw_subset(
         logger.debug(f"[weight_loader]   prefix: {p}")
 
     t0 = time.monotonic()
-    index_path = hf_hub_download(
-        repo_id=REPO_ID, filename="model.safetensors.index.json"
-    )
+    index_path = _resolve_file("model.safetensors.index.json")
     with open(index_path) as f:
         index = json.load(f)
     weight_map = index["weight_map"]
@@ -111,7 +122,7 @@ def _load_raw_subset(
     total_bytes = 0
     for i, shard in enumerate(shard_names):
         t_shard = time.monotonic()
-        shard_path = hf_hub_download(repo_id=REPO_ID, filename=shard)
+        shard_path = _resolve_file(shard)
         t_download = time.monotonic() - t_shard
         shard_keys = 0
         with safe_open(shard_path, framework="pt", device="cpu") as f:
