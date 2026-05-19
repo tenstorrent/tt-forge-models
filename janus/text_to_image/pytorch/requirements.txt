@@ -1,0 +1,2 @@
+# Pin <5.0: transformers 5.x breaks Janus-Pro CPU image generation on CPU.
+transformers>=4.48,<5.0
