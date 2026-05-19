@@ -4402,7 +4402,6 @@ class GeometryKernelAttention(BaseModule):
 
         bs, num_query, _ = query.shape
         bs, num_value, _ = value.shape
-        assert (spatial_shapes[:, 0] * spatial_shapes[:, 1]).sum() == num_value
 
         value = self.value_proj(value)
         value = value.view(bs, num_value, self.num_heads, -1)
@@ -4427,9 +4426,9 @@ class GeometryKernelAttention(BaseModule):
                 reference_points = (
                     reference_points[:, :, :, None, :] * offset_normalizer
                 )
-                sampling_locations = (
-                    (reference_points[:, :, :, :, None, :] + offsets).round().long()
-                )
+                sampling_locations = torch.floor(
+                    (reference_points[:, :, :, :, None, :] + offsets) + 0.5
+                ).long()
             (
                 bs,
                 num_query,
@@ -4535,7 +4534,6 @@ class CustomMSDeformableAttention(BaseModule):
 
         bs, num_query, _ = query.shape
         bs, num_value, _ = value.shape
-        assert (spatial_shapes[:, 0] * spatial_shapes[:, 1]).sum() == num_value
 
         value = self.value_proj(value)
         value = value.view(bs, num_value, self.num_heads, -1)
@@ -5666,6 +5664,9 @@ class BEVFormerEncoder(TransformerLayerSequence):
             device=bev_query.device,
             dtype=bev_query.dtype,
         )
+        bs = ref_2d.shape[0]
+        len_bev = ref_2d.shape[1]
+        num_bev_level = ref_2d.shape[2]
 
         reference_points_cam, bev_mask = self.point_sampling(
             ref_3d, self.pc_range, kwargs["img_metas"]
@@ -5676,7 +5677,6 @@ class BEVFormerEncoder(TransformerLayerSequence):
 
         bev_query = bev_query.permute(1, 0, 2)
         bev_pos = bev_pos.permute(1, 0, 2)
-        bs, len_bev, num_bev_level, _ = ref_2d.shape
 
         hybird_ref_2d = torch.stack([ref_2d, ref_2d], 1).reshape(
             bs * 2, len_bev, num_bev_level, 2
@@ -6438,8 +6438,18 @@ class MapTR(MVXTwoStageDetector):
         tmp_pos = copy.deepcopy(img_metas[0][0]["can_bus"][:3])
         tmp_angle = copy.deepcopy(img_metas[0][0]["can_bus"][-1])
 
-        img_metas[0][0]["can_bus"][-1] = 0
-        img_metas[0][0]["can_bus"][:3] = 0
+        can_bus = img_metas[0][0]["can_bus"]
+        if torch.is_tensor(can_bus):
+            img_metas[0][0]["can_bus"] = torch.cat(
+                [
+                    torch.zeros(3, dtype=can_bus.dtype, device=can_bus.device),
+                    can_bus[3:-1],
+                    torch.zeros(1, dtype=can_bus.dtype, device=can_bus.device),
+                ]
+            )
+        else:
+            can_bus[-1] = 0
+            can_bus[:3] = 0
 
         new_prev_bev, bbox_results = self.simple_test(
             img_metas[0],
