@@ -215,7 +215,10 @@ class ModelLoader(ForgeModel):
 
             internlm2_config = InternLM2Config()
             partition_rules = internlm2_config.get_partition_rules()
-
+            if partition_rules is None:
+                # EasyDeL >= 0.3 returns None from get_partition_rules() and uses
+                # craft_sharding hooks instead; fall back to fully-replicated.
+                partition_rules = ((r".*", PartitionSpec()),)
         from infra.utilities import make_easydel_parameters_partition_specs
 
         return make_easydel_parameters_partition_specs(

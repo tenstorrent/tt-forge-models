@@ -222,7 +222,10 @@ class ModelLoader(ForgeModel):
 
             gpt2_config = GPT2Config()
             partition_rules = gpt2_config.get_partition_rules()
-
+            if partition_rules is None:
+                # EasyDeL >= 0.3 returns None from get_partition_rules() and uses
+                # craft_sharding hooks instead; fall back to fully-replicated.
+                partition_rules = ((r".*", PartitionSpec()),)
             # Override lm_head/kernel to use replicated partitioning instead of ('fsdp', 'sp'), 'tp'
             partition_rules = list(partition_rules)  # Convert to mutable list
             for i, (pattern, spec) in enumerate(partition_rules):
