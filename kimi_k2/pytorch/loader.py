@@ -46,7 +46,7 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.KIMI_K2_INSTRUCT_MODIFIED: LLMModelConfig(
-            pretrained_model_name="moonshotai/Kimi-K2-Instruct",
+            pretrained_model_name="unsloth/Kimi-K2-Instruct-BF16",
         ),
     }
 

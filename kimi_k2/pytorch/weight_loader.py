@@ -29,7 +29,7 @@ from safetensors import safe_open
 from safetensors.torch import load_file as safetensors_load_file
 from safetensors.torch import save_file as safetensors_save_file
 
-REPO_ID = "moonshotai/Kimi-K2-Instruct"
+REPO_ID = "unsloth/Kimi-K2-Instruct-BF16"
 
 _FP8_BLOCK = 128
 
@@ -295,9 +295,7 @@ def load_transformer_state_dict(
     plus top-level (embed_tokens, norm, lm_head). Load with strict=False --
     non-persistent buffers and cache tensors aren't in the checkpoint.
 
-    Dequantized BF16 weights are cached to disk as safetensors under
-    $HF_HOME/tt_xla_dequant_cache/. First run builds the cache (~200s),
-    subsequent runs load from cache (~10-20s).
+    Loads BF16 weights directly from the HF safetensors (no dequant cache).
     """
     layer_ids = sorted(set(layer_ids))
     logger.info(
@@ -306,25 +304,23 @@ def load_transformer_state_dict(
     )
     t_total = time.monotonic()
 
-    cache_dir = _dequant_cache_dir(len(layer_ids))
+    prefixes = ["model.embed_tokens.", "model.norm.", "lm_head."]
+    for L in layer_ids:
+        prefixes.append(f"model.layers.{L}.")
 
-    if not _has_cache(cache_dir, layer_ids):
-        logger.info(f"[weight_loader] Cache miss, building at {cache_dir}")
-        _build_cache(cache_dir, layer_ids)
-    else:
-        logger.info(f"[weight_loader] Cache hit at {cache_dir}")
+    raw = _load_raw_subset(prefixes)
 
-    sd = _load_from_cache(cache_dir, layer_ids)
+    sd: Dict[str, torch.Tensor] = {
+        k: v.to(torch.bfloat16) if v.is_floating_point() else v
+        for k, v in raw.items()
+        if not k.endswith(".weight_scale_inv")
+    }
 
-    # Log summary of what we produced.
     total_params = sum(t.numel() for t in sd.values())
     total_bytes = sum(t.nelement() * t.element_size() for t in sd.values())
-    dtypes: Dict[str, int] = {}
-    for t in sd.values():
-        dtypes[str(t.dtype)] = dtypes.get(str(t.dtype), 0) + 1
     logger.info(
         f"[weight_loader] State dict ready: {len(sd)} keys, "
         f"{total_params / 1e9:.2f}B params, {total_bytes / (1024**3):.2f} GB, "
-        f"dtypes={dtypes}, took {time.monotonic() - t_total:.1f}s total"
+        f"took {time.monotonic() - t_total:.1f}s total"
     )
     return sd
