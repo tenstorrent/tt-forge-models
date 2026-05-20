@@ -270,12 +270,8 @@ class ModelLoader(ForgeModel):
             )
         return mesh_shape, ("batch", "model")
 
-    def load_shard_spec(self, model, strategy="fsdp", batch_axis="batch"):
-        """Default shard spec on a ("batch", "model") mesh.
-
-        ``strategy`` and ``batch_axis`` are accepted to match
-        :class:`ModelLoaderPrefill`'s signature but are ignored here.
-        """
+    def load_shard_spec(self, model):
+        """Default shard spec on a ("batch", "model") mesh."""
         shard_specs = {}
         for layer in model.model.layers:
             shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
@@ -341,39 +337,4 @@ class ModelLoaderPrefill(ModelLoader, ForgePrefillModel):
         """Weight shard spec parameterized by ``strategy`` and ``batch_axis``
         (use "data" when inputs are also sharded).
         """
-        shard_specs = {}
-
-        if strategy == "fsdp":
-            shard_specs[model.lm_head.weight] = ("model", batch_axis)
-            for layer in model.model.layers:
-                shard_specs[layer.mlp.up_proj.weight] = ("model", batch_axis)
-                shard_specs[layer.mlp.gate_proj.weight] = ("model", batch_axis)
-                shard_specs[layer.mlp.down_proj.weight] = (batch_axis, "model")
-
-                shard_specs[layer.self_attn.q_proj.weight] = ("model", batch_axis)
-                shard_specs[layer.self_attn.q_proj.bias] = ("model",)
-                shard_specs[layer.self_attn.k_proj.weight] = ("model", batch_axis)
-                shard_specs[layer.self_attn.k_proj.bias] = ("model",)
-                shard_specs[layer.self_attn.v_proj.weight] = ("model", batch_axis)
-                shard_specs[layer.self_attn.v_proj.bias] = ("model",)
-                shard_specs[layer.self_attn.o_proj.weight] = (batch_axis, "model")
-
-        elif strategy == "megatron":
-            shard_specs[model.lm_head.weight] = ("model", None)
-            for layer in model.model.layers:
-                shard_specs[layer.mlp.up_proj.weight] = ("model", None)
-                shard_specs[layer.mlp.gate_proj.weight] = ("model", None)
-                shard_specs[layer.mlp.down_proj.weight] = (None, "model")
-
-                shard_specs[layer.self_attn.q_proj.weight] = ("model", None)
-                shard_specs[layer.self_attn.q_proj.bias] = ("model",)
-                shard_specs[layer.self_attn.k_proj.weight] = ("model", None)
-                shard_specs[layer.self_attn.k_proj.bias] = ("model",)
-                shard_specs[layer.self_attn.v_proj.weight] = ("model", None)
-                shard_specs[layer.self_attn.v_proj.bias] = ("model",)
-                shard_specs[layer.self_attn.o_proj.weight] = (None, "model")
-
-        else:
-            raise ValueError(f"Unknown sharding strategy: {strategy!r}")
-
-        return shard_specs
+        raise ValueError(f"Unknown sharding strategy: {strategy!r}")

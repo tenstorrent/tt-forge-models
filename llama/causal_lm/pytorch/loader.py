@@ -364,13 +364,8 @@ class ModelLoader(ForgeModel):
 
         return mesh_shape, ("batch", "model")
 
-    def load_shard_spec(self, model, strategy="fsdp", batch_axis="batch"):
-        """Default shard spec on a ("batch", "model") mesh.
-
-        Used by non-prefill TP paths; see :class:`ModelLoaderPrefill` for the
-        strategy-parameterized version. ``strategy`` and ``batch_axis`` are
-        accepted to match the prefill subclass signature but are ignored here.
-        """
+    def load_shard_spec(self, model):
+        """Default shard spec on a ("batch", "model") mesh."""
         if self._variant in [
             ModelVariant.LLAMA_3_2_1B,
             ModelVariant.LLAMA_3_2_1B_INSTRUCT,
@@ -451,9 +446,7 @@ class ModelLoaderPrefill(ModelLoader, ForgePrefillModel):
                 shard_specs[layer.post_attention_layernorm.weight] = (batch_axis,)
 
         elif strategy == "megatron":
-            shard_specs[model.model.embed_tokens.weight] = (None, None)
             shard_specs[model.lm_head.weight] = ("model", None)
-            shard_specs[model.model.norm.weight] = (None,)
             for layer in model.model.layers:
                 shard_specs[layer.mlp.up_proj.weight] = ("model", None)
                 shard_specs[layer.mlp.gate_proj.weight] = ("model", None)
@@ -463,8 +456,6 @@ class ModelLoaderPrefill(ModelLoader, ForgePrefillModel):
                 shard_specs[layer.self_attn.k_proj.weight] = ("model", None)
                 shard_specs[layer.self_attn.v_proj.weight] = ("model", None)
                 shard_specs[layer.self_attn.o_proj.weight] = (None, "model")
-                shard_specs[layer.input_layernorm.weight] = (None,)
-                shard_specs[layer.post_attention_layernorm.weight] = (None,)
 
         else:
             raise ValueError(f"Unknown sharding strategy: {strategy!r}")

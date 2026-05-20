@@ -136,7 +136,7 @@ class ModelLoader(ForgeModel):
         )
         return self.config
 
-    def load_shard_spec(self, model, strategy="fsdp", batch_axis="batch"):
+    def load_shard_spec(self, model):
         """No default TP sharding for Phi-1; see :class:`ModelLoaderPrefill`
         for the parameterized FSDP/Megatron version.
         """
@@ -221,63 +221,4 @@ class ModelLoaderPrefill(ModelLoader, ForgePrefillModel):
     DEFAULT_VARIANT = ModelVariant.PHI1
 
     def load_shard_spec(self, model, strategy="fsdp", batch_axis="batch"):
-        """Weight shard spec parameterized by ``strategy`` and ``batch_axis``
-        (use "data" when inputs are also sharded).
-
-        Phi-1 differs from Llama-family models: attention output is named
-        ``self_attn.dense``, the MLP is a non-gated two-layer ``fc1``/``fc2``,
-        the final layer norm lives at ``model.final_layernorm``, and most
-        weights have biases.
-        """
-        shard_specs = {}
-
-        if strategy == "fsdp":
-            shard_specs[model.model.embed_tokens.weight] = (None, batch_axis)
-            shard_specs[model.lm_head.weight] = ("model", batch_axis)
-            shard_specs[model.lm_head.bias] = ("model",)
-            shard_specs[model.model.final_layernorm.weight] = (batch_axis,)
-            shard_specs[model.model.final_layernorm.bias] = (batch_axis,)
-            for layer in model.model.layers:
-                shard_specs[layer.mlp.fc1.weight] = ("model", batch_axis)
-                shard_specs[layer.mlp.fc1.bias] = ("model",)
-                shard_specs[layer.mlp.fc2.weight] = (batch_axis, "model")
-                shard_specs[layer.mlp.fc2.bias] = (batch_axis,)
-
-                shard_specs[layer.self_attn.q_proj.weight] = ("model", batch_axis)
-                shard_specs[layer.self_attn.q_proj.bias] = ("model",)
-                shard_specs[layer.self_attn.k_proj.weight] = ("model", batch_axis)
-                shard_specs[layer.self_attn.k_proj.bias] = ("model",)
-                shard_specs[layer.self_attn.v_proj.weight] = ("model", batch_axis)
-                shard_specs[layer.self_attn.v_proj.bias] = ("model",)
-                shard_specs[layer.self_attn.dense.weight] = (batch_axis, "model")
-                shard_specs[layer.self_attn.dense.bias] = (batch_axis,)
-                shard_specs[layer.input_layernorm.weight] = (batch_axis,)
-                shard_specs[layer.input_layernorm.bias] = (batch_axis,)
-
-        elif strategy == "megatron":
-            shard_specs[model.model.embed_tokens.weight] = (None, None)
-            shard_specs[model.lm_head.weight] = ("model", None)
-            shard_specs[model.lm_head.bias] = ("model",)
-            shard_specs[model.model.final_layernorm.weight] = (None,)
-            shard_specs[model.model.final_layernorm.bias] = (None,)
-            for layer in model.model.layers:
-                shard_specs[layer.mlp.fc1.weight] = ("model", None)
-                shard_specs[layer.mlp.fc1.bias] = ("model",)
-                shard_specs[layer.mlp.fc2.weight] = (None, "model")
-                shard_specs[layer.mlp.fc2.bias] = (None,)
-
-                shard_specs[layer.self_attn.q_proj.weight] = ("model", None)
-                shard_specs[layer.self_attn.q_proj.bias] = ("model",)
-                shard_specs[layer.self_attn.k_proj.weight] = ("model", None)
-                shard_specs[layer.self_attn.k_proj.bias] = ("model",)
-                shard_specs[layer.self_attn.v_proj.weight] = ("model", None)
-                shard_specs[layer.self_attn.v_proj.bias] = ("model",)
-                shard_specs[layer.self_attn.dense.weight] = (None, "model")
-                shard_specs[layer.self_attn.dense.bias] = (None,)
-                shard_specs[layer.input_layernorm.weight] = (None,)
-                shard_specs[layer.input_layernorm.bias] = (None,)
-
-        else:
-            raise ValueError(f"Unknown sharding strategy: {strategy!r}")
-
-        return shard_specs
+        raise ValueError(f"Unknown sharding strategy: {strategy!r}")
