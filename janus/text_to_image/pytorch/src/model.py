@@ -16,9 +16,13 @@ This module matches **one iteration** of that loop (i=0), **before** CFG and sam
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import torch
 import torch.nn as nn
-from transformers import JanusForConditionalGeneration
+
+if TYPE_CHECKING:
+    from transformers import JanusForConditionalGeneration
 
 
 class JanusImageTokenLogitsStep(nn.Module):

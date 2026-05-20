@@ -10,10 +10,12 @@ generation_head (first image-token step, matching transformers image generate i=
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import torch
-from transformers import JanusForConditionalGeneration, JanusProcessor
+
+if TYPE_CHECKING:
+    from transformers import JanusForConditionalGeneration, JanusProcessor
 
 from ....base import ForgeModel
 from ....config import (

@@ -7,8 +7,12 @@ Helpers for Janus-Pro T2I bring-up: HF weight load, processor, CFG prompt embeds
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import torch
-from transformers import JanusForConditionalGeneration, JanusProcessor
+
+if TYPE_CHECKING:
+    from transformers import JanusForConditionalGeneration, JanusProcessor
 
 
 STANDARD_PROMPT = (
@@ -19,6 +23,8 @@ STANDARD_PROMPT = (
 
 def load_processor(repo_id: str) -> JanusProcessor:
     """Load JanusProcessor for a Hub repo id."""
+    from transformers import JanusProcessor
+
     return JanusProcessor.from_pretrained(repo_id)
 
 
@@ -29,6 +35,8 @@ def load_janus_model(
     **kwargs,
 ) -> JanusForConditionalGeneration:
     """Load Janus-Pro weights (backbone for input prep; compile target is src.model wrapper)."""
+    from transformers import JanusForConditionalGeneration
+
     model_kwargs: dict = {
         "low_cpu_mem_usage": True,
         "attn_implementation": "eager",
