@@ -365,7 +365,11 @@ class ModelLoader(ForgeModel):
         return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
-        """Default shard spec on a ("batch", "model") mesh."""
+        """Default shard spec on a ("batch", "model") mesh.
+
+        Used by non-prefill TP paths; see :class:`ModelLoaderPrefill` for the
+        strategy-parameterized version.
+        """
         if self._variant in [
             ModelVariant.LLAMA_3_2_1B,
             ModelVariant.LLAMA_3_2_1B_INSTRUCT,
