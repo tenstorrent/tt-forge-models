@@ -20,6 +20,7 @@ from ....config import (
 )
 from ....tools.utils import get_file
 from .src.modeling_deepseekocr import DeepseekOCRForCausalLM
+from .src.modeling_deepseekv2 import reinit_llama_rotary_inv_freq_buffers
 from .src.model_utils import preprocess
 from huggingface_hub import snapshot_download
 
@@ -133,6 +134,8 @@ class ModelLoader(ForgeModel):
             trust_remote_code=True,
             **kwargs,
         )
+        # Belt-and-suspenders if a caller bypasses DeepseekV2PreTrainedModel._finalize_model_loading.
+        reinit_llama_rotary_inv_freq_buffers(model)
 
         # Configure model settings
         model.config.return_dict = False
