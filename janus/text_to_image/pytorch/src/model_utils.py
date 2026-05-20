@@ -21,6 +21,7 @@ STANDARD_PROMPT = (
     "stars, and radiating swirls of blue."
 )
 
+
 def load_processor(repo_id: str) -> JanusProcessor:
     """Load JanusProcessor for a Hub repo id."""
     from transformers import JanusProcessor
@@ -66,9 +67,7 @@ def prepare_cfg_prompt_embeds(
             "content": [{"type": "text", "text": prompt}],
         }
     ]
-    prompt_text = processor.apply_chat_template(
-        messages, add_generation_prompt=True
-    )
+    prompt_text = processor.apply_chat_template(messages, add_generation_prompt=True)
     batch = processor(text=prompt_text, generation_mode="image", return_tensors="pt")
     input_ids = batch.input_ids
     attention_mask = batch.attention_mask
