@@ -64,7 +64,7 @@ class ModelLoader(ForgeModel):
             model="Stable Diffusion 1.5",
             variant=variant,
             group=ModelGroup.GENERALITY,
-            task=ModelTask.MM_IMAGE_TTT,  # FIXME: Update to text to image
+            task=ModelTask.MM_IMAGE_TTT,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
