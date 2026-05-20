@@ -207,7 +207,6 @@ class ModelLoader(ForgeModel):
         return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
-        """Default shard spec on a ("batch", "model") mesh."""
         if self._variant in [
             ModelVariant.GEMMA_1_1_2B_IT,
             ModelVariant.GEMMA_2B,
