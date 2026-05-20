@@ -21,7 +21,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """PyTorch DeepSeek model. Modified for tt-xla with modifications marked with # Modified: <description>."""
-
 import math
 import warnings
 from typing import List, Optional, Tuple, Union
@@ -35,18 +34,17 @@ from torch import nn
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 from transformers.activations import ACT2FN
 from transformers.cache_utils import Cache, DynamicCache
-from transformers.modeling_attn_mask_utils import (
-    AttentionMaskConverter,
-    _prepare_4d_attention_mask,
-    _prepare_4d_causal_attention_mask,
-)
+from transformers.modeling_attn_mask_utils import _prepare_4d_causal_attention_mask
 from transformers.modeling_outputs import (
     BaseModelOutputWithPast,
     CausalLMOutputWithPast,
     SequenceClassifierOutputWithPast,
 )
 from transformers.modeling_utils import PreTrainedModel
-from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
+from transformers.pytorch_utils import (
+    ALL_LAYERNORM_LAYERS,
+    is_torch_greater_or_equal_than_1_13,
+)
 from transformers.utils import (
     add_start_docstrings,
     add_start_docstrings_to_model_forward,
@@ -56,12 +54,22 @@ from transformers.utils import (
     replace_return_docstrings,
 )
 
+# from transformers.utils.import_utils import is_torch_fx_available
+
 from .configuration_deepseek import DeepseekV3Config
 
 if is_flash_attn_2_available():
     from flash_attn import flash_attn_func, flash_attn_varlen_func
-    from flash_attn.bert_padding import index_first_axis, pad_input, unpad_input  # noqa
+    from flash_attn.bert_padding import pad_input  # noqa
+    from flash_attn.bert_padding import index_first_axis, unpad_input
 
+# This makes `_prepare_4d_causal_attention_mask` a leaf function in the FX graph.
+# It means that the function will not be traced through and simply appear as a node in the graph.
+# if is_torch_fx_available():
+#     if not is_torch_greater_or_equal_than_1_13:
+#         import torch.fx
+
+#     _prepare_4d_causal_attention_mask = torch.fx.wrap(_prepare_4d_causal_attention_mask)
 
 logger = logging.get_logger(__name__)
 
@@ -80,6 +88,21 @@ def _get_unpad_data(attention_mask):
         cu_seqlens,
         max_seqlen_in_batch,
     )
+
+
+# code modified from transformers 4.48.3 to amend breaks in newer transformers versions
+def get_usable_length(
+    past_key_value, new_seq_length: int, layer_idx: Optional[int] = 0
+) -> int:
+    max_length = past_key_value.get_max_cache_shape()
+    previous_seq_length = past_key_value.get_seq_length(layer_idx)
+    if (
+        max_length is not None
+        and max_length > 0
+        and previous_seq_length + new_seq_length > max_length
+    ):
+        return max_length - new_seq_length
+    return previous_seq_length
 
 
 class DeepseekV3RMSNorm(nn.Module):
@@ -409,14 +432,6 @@ class MoEGate(nn.Module):
         import torch.nn.init as init
 
         init.kaiming_uniform_(self.weight, a=math.sqrt(5))
-        # Modified: The e_score_correction_bias is uninitialized as torch.empty(...)
-        # which causes non-determinism in routing topk between pytest invocations.
-        # Initialize it with a uniform distribution to ensure deterministic behavior
-        # under torch.manual_seed when random weights are used.
-        if getattr(self, "e_score_correction_bias", None) is not None:
-            fan_in, _ = init._calculate_fan_in_and_fan_out(self.weight)
-            bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
-            init.uniform_(self.e_score_correction_bias, -bound, bound)
 
     def forward(self, hidden_states):
         bsz, seq_len, h = hidden_states.shape
@@ -797,44 +812,80 @@ class DeepseekV3Attention(nn.Module):
         )
         k_pe = k_pe.view(bsz, q_len, 1, self.qk_rope_head_dim).transpose(1, 2)
 
-        # Modified: use MLACache to get cached key and value states
-        kv_seq_len = past_key_value.get_max_cache_shape() if past_key_value else q_len
-        cos, sin = self.rotary_emb(k_pe, seq_len=kv_seq_len)
-        q_pe, k_pe = apply_rotary_pos_emb(q_pe, k_pe, cos, sin, position_ids)
+        # Modified: branch on MLACache (static, compressed KV) vs DynamicCache (expanded KV).
+        # MLAStaticLayer.get_max_cache_shape() returns max_cache_len > 0;
+        # DynamicLayer.get_max_cache_shape() returns -1.
+        _is_mla_cache = (
+            past_key_value is not None and past_key_value.get_max_cache_shape() > 0
+        )
 
-        if past_key_value is not None:
-            if self.layer_idx is None:
-                raise ValueError(
-                    f"The cache structure has changed since version v4.36. If you are using {self.__class__.__name__} "
-                    "for auto-regressive decoding with k/v caching, please make sure to initialize the attention class "
-                    "with a layer index."
-                )
-            cache_kwargs = {
-                "sin": sin,
-                "cos": cos,
-                "cache_position": cache_position,
-            }  # Specific to RoPE models
+        if _is_mla_cache:
+            # Modified: MLACache path — RoPE over full max_cache_len, cache compressed_kv + k_pe
+            kv_seq_len = past_key_value.get_max_cache_shape()
+            cos, sin = self.rotary_emb(k_pe, seq_len=kv_seq_len)
+            q_pe, k_pe = apply_rotary_pos_emb(q_pe, k_pe, cos, sin, position_ids)
+
+            cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
             compressed_kv, k_pe = past_key_value.update(
                 compressed_kv.unsqueeze(1), k_pe, self.layer_idx, cache_kwargs
             )
             compressed_kv = compressed_kv.squeeze(1)
 
-        kv = (
-            self.kv_b_proj(self.kv_a_layernorm(compressed_kv))
-            .view(
-                bsz, kv_seq_len, self.num_heads, self.qk_nope_head_dim + self.v_head_dim
+            kv = (
+                self.kv_b_proj(self.kv_a_layernorm(compressed_kv))
+                .view(
+                    bsz,
+                    kv_seq_len,
+                    self.num_heads,
+                    self.qk_nope_head_dim + self.v_head_dim,
+                )
+                .transpose(1, 2)
             )
-            .transpose(1, 2)
-        )
+            k_nope, value_states = torch.split(
+                kv, [self.qk_nope_head_dim, self.v_head_dim], dim=-1
+            )
+            query_states = torch.cat([q_nope, q_pe], dim=-1)
+            key_states = torch.cat(
+                [k_nope, k_pe.expand(-1, self.num_heads, -1, -1)], dim=-1
+            )
+        else:
+            # Standard DynamicCache path — expand KV now, cache full key/value states
+            kv = (
+                self.kv_b_proj(self.kv_a_layernorm(compressed_kv))
+                .view(
+                    bsz, q_len, self.num_heads, self.qk_nope_head_dim + self.v_head_dim
+                )
+                .transpose(1, 2)
+            )
+            k_nope, value_states = torch.split(
+                kv, [self.qk_nope_head_dim, self.v_head_dim], dim=-1
+            )
+            kv_seq_len = value_states.shape[-2]
+            if past_key_value is not None:
+                if self.layer_idx is None:
+                    raise ValueError(
+                        f"The cache structure has changed since version v4.36. If you are using {self.__class__.__name__} "
+                        "for auto-regressive decoding with k/v caching, please make sure to initialize the attention class "
+                        "with a layer index."
+                    )
+                kv_seq_len += get_usable_length(
+                    past_key_value, kv_seq_len, self.layer_idx
+                )
+            cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
+            q_pe, k_pe = apply_rotary_pos_emb(q_pe, k_pe, cos, sin, position_ids)
 
-        k_nope, value_states = torch.split(
-            kv, [self.qk_nope_head_dim, self.v_head_dim], dim=-1
-        )
+            query_states = k_pe.new_empty(bsz, self.num_heads, q_len, self.q_head_dim)
+            query_states[:, :, :, : self.qk_nope_head_dim] = q_nope
+            query_states[:, :, :, self.qk_nope_head_dim :] = q_pe
+            key_states = k_pe.new_empty(bsz, self.num_heads, q_len, self.q_head_dim)
+            key_states[:, :, :, : self.qk_nope_head_dim] = k_nope
+            key_states[:, :, :, self.qk_nope_head_dim :] = k_pe
 
-        query_states = torch.cat([q_nope, q_pe], dim=-1)
-        key_states = torch.cat(
-            [k_nope, k_pe.expand(-1, self.num_heads, -1, -1)], dim=-1
-        )
+            if past_key_value is not None:
+                cache_kwargs = {"sin": sin, "cos": cos}  # Specific to RoPE models
+                key_states, value_states = past_key_value.update(
+                    key_states, value_states, self.layer_idx, cache_kwargs
+                )
 
         attn_weights = (
             torch.matmul(query_states, key_states.transpose(2, 3)) * self.softmax_scale
@@ -892,7 +943,7 @@ class DeepseekV3FlashAttention2(DeepseekV3Attention):
         super().__init__(*args, **kwargs)
 
         # TODO: Should be removed once Flash Attention for RoCm is bumped to 2.1.
-        # flash_attn<2.1 generates top-left aligned causal mask, while what is needed here is bottom-right alignement, that was made default for flash_attn>=2.1. This attribute is used to handle this difference. Reference: https://github.com/Dao-AILab/flash-attention/releases/tag/v2.1.0.
+        # flash_attn<2.1 generates top-left aligned causal mask, while what is needed here is bottom-right alignment, that was made default for flash_attn>=2.1. This attribute is used to handle this difference. Reference: https://github.com/Dao-AILab/flash-attention/releases/tag/v2.1.0.
         # Beware that with flash_attn<2.1, using q_seqlen != k_seqlen (except for the case q_seqlen == 1) produces a wrong mask (top-left).
         self._flash_attn_uses_top_left_mask = not is_flash_attn_greater_or_equal_2_10()
 
@@ -949,7 +1000,7 @@ class DeepseekV3FlashAttention2(DeepseekV3Attention):
 
         kv_seq_len = value_states.shape[-2]
         if past_key_value is not None:
-            kv_seq_len += past_key_value.get_seq_length(self.layer_idx)
+            kv_seq_len += get_usable_length(past_key_value, kv_seq_len, self.layer_idx)
 
         cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
         q_pe, k_pe = apply_rotary_pos_emb(q_pe, k_pe, cos, sin, position_ids)
@@ -1454,21 +1505,17 @@ class DeepseekV3Model(DeepseekV3PreTrainedModel):
         if use_cache:
             use_legacy_cache = not isinstance(past_key_values, Cache)
             if use_legacy_cache:
-                new_cache = DynamicCache()
-                if past_key_values is not None:
-                    for layer_idx, (k, v) in enumerate(past_key_values):
-                        new_cache.update(k, v, layer_idx)
-                past_key_values = new_cache
-            # Modified: Only call get_seq_length() when cache_position is absent; when
+                past_key_values = DynamicCache.from_legacy_cache(past_key_values)
+            # Modified: Only call get_usable_length() when cache_position is absent; when
             # cache_position is provided we derive position_ids and the mask
             # directly from it, avoiding "failed to legalize operation
             # 'stablehlo.reduce'" error.
             elif cache_position is None:
-                past_key_values_length = past_key_values.get_seq_length()
+                past_key_values_length = get_usable_length(past_key_values, seq_length)
 
         if position_ids is None:
             if cache_position is not None:
-                # Modified: use MLACache to get position_ids
+                # Modified: use cache_position to get position_ids
                 position_ids = cache_position.unsqueeze(0)
             else:
                 device = (
@@ -1497,7 +1544,7 @@ class DeepseekV3Model(DeepseekV3PreTrainedModel):
             and getattr(past_key_values, "layers", None)
             and hasattr(past_key_values.layers[0], "build_causal_mask")
         ):
-            # Modified: use MLACache to get attention_mask
+            # Modified: use MLACache to build attention_mask
             attention_mask = past_key_values.layers[0].build_causal_mask(
                 cache_position, batch_size, inputs_embeds.dtype, inputs_embeds.device
             )
@@ -1566,12 +1613,11 @@ class DeepseekV3Model(DeepseekV3PreTrainedModel):
 
         next_cache = None
         if use_cache:
-            if use_legacy_cache:
-                next_cache = tuple(
-                    (layer.keys, layer.values) for layer in next_decoder_cache.layers
-                )
-            else:
-                next_cache = next_decoder_cache
+            next_cache = (
+                next_decoder_cache.to_legacy_cache()
+                if use_legacy_cache
+                else next_decoder_cache
+            )
         if not return_dict:
             return tuple(
                 v
@@ -1729,7 +1775,8 @@ class DeepseekV3ForCausalLM(DeepseekV3PreTrainedModel):
         if past_key_values is not None:
             if isinstance(past_key_values, Cache):
                 cache_length = past_key_values.get_seq_length()
-                past_length = past_key_values.seen_tokens
+                # seen_tokens 可能在某些 transformers 版本中不存在，使用 getattr 安全访问
+                past_length = getattr(past_key_values, "seen_tokens", cache_length)
                 max_cache_length = past_key_values.get_max_length()
             else:
                 cache_length = past_length = past_key_values[0][0].shape[2]
@@ -1737,7 +1784,7 @@ class DeepseekV3ForCausalLM(DeepseekV3PreTrainedModel):
 
             # Keep only the unprocessed tokens:
             # 1 - If the length of the attention_mask exceeds the length of input_ids, then we are in a setting where
-            # some of the inputs are exclusivelly passed as part of the cache (e.g. when passing input_embeds as
+            # some of the inputs are exclusively passed as part of the cache (e.g. when passing input_embeds as
             # input)
             if (
                 attention_mask is not None
