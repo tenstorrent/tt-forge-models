@@ -64,7 +64,7 @@ class ModelLoader(ForgeModel):
             model="Stable Diffusion 1.5",
             variant=variant,
             group=ModelGroup.GENERALITY,
-            task=ModelTask.MM_IMAGE_TTT,
+            task=ModelTask.CONDITIONAL_GENERATION,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
