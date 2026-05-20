@@ -221,4 +221,7 @@ class ModelLoaderPrefill(ModelLoader, ForgePrefillModel):
     DEFAULT_VARIANT = ModelVariant.PHI1
 
     def load_shard_spec(self, model, strategy="fsdp", batch_axis="batch"):
-        raise ValueError(f"Unknown sharding strategy: {strategy!r}")
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement load_shard_spec; "
+            "no TP/FSDP sharding is defined for this prefill loader."
+        )
