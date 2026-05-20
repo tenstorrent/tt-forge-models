@@ -43,6 +43,40 @@ from transformers.models.llama.modeling_llama import (
     LlamaRotaryEmbedding,
 )  # Needed to compute position embeddings
 
+
+def reinit_llama_rotary_inv_freq_buffers(module: nn.Module) -> None:
+    """Recompute ``LlamaRotaryEmbedding`` inverse frequencies after ``from_pretrained``.
+
+    Transformers >=5 meta loading fills non-persistent ``inv_freq`` buffers with
+    ``torch.empty_like`` (uninitialized). DeepSeek-OCR checkpoints do not store
+    ``rotary_emb.inv_freq``, so RoPE cos/sin become NaN without this step.
+    """
+    for rotary in module.modules():
+        if not isinstance(rotary, LlamaRotaryEmbedding):
+            continue
+        if hasattr(rotary, "compute_default_rope_parameters"):
+            rope_type = getattr(rotary, "rope_type", "default")
+            if rope_type != "default":
+                from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
+
+                rope_fn = ROPE_INIT_FUNCTIONS[rope_type]
+            else:
+                rope_fn = rotary.compute_default_rope_parameters
+            inv_freq, _ = rope_fn(rotary.config)
+        elif hasattr(rotary, "rope_init_fn"):
+            inv_freq, _ = rotary.rope_init_fn(
+                rotary.config, None, **getattr(rotary, "rope_kwargs", {})
+            )
+        else:
+            continue
+
+        inv_freq = inv_freq.to(device=rotary.inv_freq.device, dtype=rotary.inv_freq.dtype)
+        with torch.no_grad():
+            rotary.inv_freq.copy_(inv_freq)
+            if hasattr(rotary, "original_inv_freq") and rotary.original_inv_freq is not rotary.inv_freq:
+                rotary.original_inv_freq.copy_(inv_freq)
+
+
 import torch.fx
 
 _prepare_4d_causal_attention_mask = torch.fx.wrap(_prepare_4d_causal_attention_mask)
@@ -561,6 +595,14 @@ class DeepseekV2PreTrainedModel(PreTrainedModel):
     _skip_keys_device_placement = "past_key_values"
     _supports_flash_attn_2 = True
     _supports_cache_class = True
+
+    @staticmethod
+    def _finalize_model_loading(model, load_config, loading_info):
+        loading_info = PreTrainedModel._finalize_model_loading(
+            model, load_config, loading_info
+        )
+        reinit_llama_rotary_inv_freq_buffers(model)
+        return loading_info
 
     def _init_weights(self, module):
         std = self.config.initializer_range
