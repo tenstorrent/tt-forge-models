@@ -100,17 +100,11 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded tokenizer instance.
         """
-        import os
-        from .weight_loader import DEFAULT_CHECKPOINT_DIR
-
-        checkpoint_dir = os.environ.get("KIMI_K2_CHECKPOINT_DIR", DEFAULT_CHECKPOINT_DIR)
-        if checkpoint_dir == DEFAULT_CHECKPOINT_DIR and "KIMI_K2_CHECKPOINT_DIR" not in os.environ:
-            logger.warning(
-                f"[kimi_k2] KIMI_K2_CHECKPOINT_DIR not set, using default: {DEFAULT_CHECKPOINT_DIR}. "
-                f"Set KIMI_K2_CHECKPOINT_DIR to override."
-            )
+        # Always load from the canonical moonshotai repo — the unsloth BF16 reupload
+        # ships a broken tokenization_kimi.py that imports bytes_to_unicode from a
+        # path removed in recent transformers versions.
         self.tokenizer = AutoTokenizer.from_pretrained(
-            checkpoint_dir,
+            "moonshotai/Kimi-K2-Instruct",
             trust_remote_code=True,
         )
         return self.tokenizer
