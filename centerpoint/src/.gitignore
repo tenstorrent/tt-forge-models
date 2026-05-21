@@ -1,0 +1,14 @@
+**__pycache__**
+**egg-info**
+data/
+*.pyc
+venv/
+*.idea/
+*.so
+*.yaml
+*.sh
+*.pth
+*.pkl
+*.zip
+*.bin
+.vscode/
