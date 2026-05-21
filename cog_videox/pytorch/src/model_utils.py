@@ -21,11 +21,11 @@ REPO_ID = "THUDM/CogVideoX-5b"
 DTYPE = torch.bfloat16
 
 # ---------------------------------------------------------------------------
-# Inference shape constants (mirrors test_cog5x.py: num_frames=9, default 480x720)
+# Inference shape constants (default 480x720)
 # ---------------------------------------------------------------------------
 
-NUM_FRAMES = 9  # video frames at sampling time
-NUM_LATENT_FRAMES = 3  # (NUM_FRAMES - 1) // VAE_TEMPORAL_RATIO + 1 = (9-1)//4 + 1
+NUM_FRAMES = 1  # video frames at sampling time
+NUM_LATENT_FRAMES = 1  # (NUM_FRAMES - 1) // VAE_TEMPORAL_RATIO + 1 = (1-1)//4 + 1
 LATENT_H = 60  # 480 // VAE_SPATIAL_RATIO (8)
 LATENT_W = 90  # 720 // VAE_SPATIAL_RATIO (8)
 
@@ -45,7 +45,7 @@ T5_VOCAB_SIZE = 32128
 # Rotary positional embedding shape (CogVideoX-5b uses use_rotary_positional_embeddings=True)
 ROTARY_NUM_PATCHES = (
     NUM_LATENT_FRAMES * (LATENT_H // PATCH_SIZE) * (LATENT_W // PATCH_SIZE)
-)  # 3 * 30 * 45 = 4050
+)  # 1 * 30 * 45 = 1350
 
 # ---------------------------------------------------------------------------
 # Component loaders
@@ -94,12 +94,11 @@ def load_vae(dtype: torch.dtype = DTYPE):
 
 
 def load_text_encoder_inputs(dtype: torch.dtype = DTYPE):
-    """Synthetic inputs for the T5 text encoder: [input_ids, attention_mask]."""
+    """Inputs for the T5 text encoder: [input_ids]."""
     input_ids = torch.randint(
         0, T5_VOCAB_SIZE, (1, TEXT_TOKEN_MAX_LEN), dtype=torch.long
     )
-    attention_mask = torch.ones(1, TEXT_TOKEN_MAX_LEN, dtype=torch.long)
-    return [input_ids, attention_mask]
+    return [input_ids]
 
 
 def load_transformer_inputs(dtype: torch.dtype = DTYPE):
@@ -108,9 +107,9 @@ def load_transformer_inputs(dtype: torch.dtype = DTYPE):
     Returns [hidden_states, encoder_hidden_states, timestep,
              image_rotary_emb_cos, image_rotary_emb_sin].
     """
-    # CogVideoX hidden_states layout: (B, F, C, H, W)
+    # CogVideoX hidden_states layout: (B, F, C, H, W); batch=2 for classifier-free guidance
     hidden_states = torch.randn(
-        1,
+        2,
         NUM_LATENT_FRAMES,
         NUM_CHANNELS_LATENTS,
         LATENT_H,
@@ -118,9 +117,9 @@ def load_transformer_inputs(dtype: torch.dtype = DTYPE):
         dtype=dtype,
     )
     encoder_hidden_states = torch.randn(
-        1, TEXT_TOKEN_MAX_LEN, TEXT_EMBED_DIM, dtype=dtype
+        2, TEXT_TOKEN_MAX_LEN, TEXT_EMBED_DIM, dtype=dtype
     )
-    timestep = torch.tensor([1000.0], dtype=dtype)
+    timestep = torch.tensor([999, 999], dtype=torch.long)
     # 3D rotary positional embeddings: (num_patches, head_dim) per cos/sin
     image_rotary_emb_cos = torch.randn(
         ROTARY_NUM_PATCHES, ATTENTION_HEAD_DIM, dtype=dtype
@@ -138,7 +137,7 @@ def load_transformer_inputs(dtype: torch.dtype = DTYPE):
 
 
 def load_vae_inputs(dtype: torch.dtype = DTYPE):
-    """Synthetic inputs for the VAE decoder wrapper: [z (1,16,3,60,90)]."""
+    """Inputs for the VAE decoder wrapper: [z (1,16,1,60,90)]."""
     z = torch.randn(
         1,
         NUM_CHANNELS_LATENTS,
