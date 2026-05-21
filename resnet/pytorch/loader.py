@@ -48,6 +48,7 @@ class ModelVariant(StrEnum):
     # TIMM variants
     RESNET_50_TIMM = "ResNet50_TIMM"
     RESNET_50_TIMM_HIGH_RES = "ResNet50_TIMM_High_Resolution"
+    RESNET_152_TIMM_A1H_IN1K = "ResNet152_TIMM_a1h_in1k"
 
     # Torchvision variants
     RESNET_18 = "ResNet18"
@@ -82,6 +83,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="resnet50",
             source=ModelSource.TIMM,
             high_res_size=(1280, 800),
+        ),
+        ModelVariant.RESNET_152_TIMM_A1H_IN1K: ResNetConfig(
+            pretrained_model_name="resnet152.a1h_in1k",
+            source=ModelSource.TIMM,
         ),
         # Torchvision variants
         ModelVariant.RESNET_18: ResNetConfig(
