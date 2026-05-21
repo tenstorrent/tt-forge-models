@@ -25,14 +25,15 @@ DTYPE = torch.bfloat16
 # Inference shape constants
 #
 # VAE: temporal_compression=4, spatial_compression=8.
-#   latent_frames = (5 - 1) // 4 + 1 = 2
-#   latent_h/w    = 128 // 8 = 16
+#   latent_frames = (1 - 1) // 4 + 1 = 1
+#   latent_h     = 320 // 8 = 40
+#   latent_w     = 512 // 8 = 64
 # ---------------------------------------------------------------------------
 
-NUM_FRAMES = 5
-NUM_LATENT_FRAMES = 2
-LATENT_H = 16
-LATENT_W = 16
+NUM_FRAMES = 1
+NUM_LATENT_FRAMES = 1
+LATENT_H = 40
+LATENT_W = 64
 
 NUM_CHANNELS_LATENTS = 16  # VAE latent channels
 TRANSFORMER_IN_CHANNELS = 16  # transformer in_channels (= latent channels)
@@ -40,7 +41,7 @@ TRANSFORMER_IN_CHANNELS = 16  # transformer in_channels (= latent channels)
 TEXT_EMBED_DIM = 4096  # LLaMA-3 hidden_state dim
 TEXT_EMBED_2_DIM = 768  # CLIP text_encoder pooled projection dim
 
-TEXT_TOKEN_MAX_LEN = 256  # LLaMA tokenized prompt length
+TEXT_TOKEN_MAX_LEN = 351  # LLaMA tokenized prompt length
 TEXT_TOKEN_2_MAX_LEN = 77  # CLIP tokenizer max length
 TRANSFORMER_TEXT_SEQ = 256  # encoder_hidden_states seq dim into transformer
 
@@ -116,19 +117,18 @@ def load_text_encoder_inputs(dtype: torch.dtype = DTYPE):
 
 
 def load_text_encoder_2_inputs(dtype: torch.dtype = DTYPE):
-    """Synthetic inputs for the CLIP text encoder: [input_ids, attention_mask]."""
+    """Synthetic inputs for the CLIP text encoder: [input_ids]."""
     input_ids = torch.randint(
         0, CLIP_VOCAB_SIZE, (1, TEXT_TOKEN_2_MAX_LEN), dtype=torch.long
     )
-    attention_mask = torch.ones(1, TEXT_TOKEN_2_MAX_LEN, dtype=torch.long)
-    return [input_ids, attention_mask]
+    return [input_ids]
 
 
 def load_transformer_inputs(dtype: torch.dtype = DTYPE):
     """Synthetic inputs for HunyuanVideoTransformer3DModel.
 
     Returns [hidden_states, timestep, encoder_hidden_states,
-             encoder_attention_mask, pooled_projections].
+             encoder_attention_mask, pooled_projections, guidance].
     """
     hidden_states = torch.randn(
         1,
@@ -138,23 +138,25 @@ def load_transformer_inputs(dtype: torch.dtype = DTYPE):
         LATENT_W,
         dtype=dtype,
     )
-    timestep = torch.tensor([1000.0], dtype=dtype)
+    timestep = torch.tensor([1000.0])
     encoder_hidden_states = torch.randn(
         1, TRANSFORMER_TEXT_SEQ, TEXT_EMBED_DIM, dtype=dtype
     )
     encoder_attention_mask = torch.ones(1, TRANSFORMER_TEXT_SEQ, dtype=dtype)
     pooled_projections = torch.randn(1, TEXT_EMBED_2_DIM, dtype=dtype)
+    guidance = torch.tensor([6016.0], dtype=dtype)
     return [
         hidden_states,
         timestep,
         encoder_hidden_states,
         encoder_attention_mask,
         pooled_projections,
+        guidance,
     ]
 
 
 def load_vae_inputs(dtype: torch.dtype = DTYPE):
-    """Synthetic latent input for VAEDecoderWrapper: [z (1,16,2,16,16)]."""
+    """Synthetic latent input for VAEDecoderWrapper: [z (1,16,1,40,64)]."""
     z = torch.randn(
         1,
         NUM_CHANNELS_LATENTS,
@@ -196,6 +198,7 @@ class HunyuanVideoTransformerWrapper(torch.nn.Module):
         encoder_hidden_states,
         encoder_attention_mask,
         pooled_projections,
+        guidance,
     ):
         return self.transformer(
             hidden_states=hidden_states,
@@ -203,6 +206,7 @@ class HunyuanVideoTransformerWrapper(torch.nn.Module):
             encoder_hidden_states=encoder_hidden_states,
             encoder_attention_mask=encoder_attention_mask,
             pooled_projections=pooled_projections,
+            guidance=guidance,
             return_dict=False,
         )[0]
 
