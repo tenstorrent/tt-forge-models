@@ -83,7 +83,7 @@ class ModelLoader(ForgeModel):
         task = (
             ModelTask.NLP_EMBED_GEN
             if variant in cls._TEXT_VARIANTS
-            else ModelTask.MM_IMAGE_TTI
+            else ModelTask.MM_IMAGE_TTT
         )
         return ModelInfo(
             model="HunyuanImage21",
