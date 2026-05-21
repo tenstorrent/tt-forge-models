@@ -3,22 +3,22 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Code adapted from:
-- https://huggingface.co/deepseek-ai/DeepSeek-OCR/blob/main/conversation.py
-- https://huggingface.co/deepseek-ai/DeepSeek-OCR/blob/main/modeling_deepseekocr.py
+Input preprocessing (tokenizer + image tiling) for DeepSeek-OCR.
+
+Adapted from hub ``conversation.py`` (see ``loader.py`` / ``src/model.py`` for hub load + patches).
 """
 
-from typing import List, Optional, Tuple
+from __future__ import annotations
+
+import dataclasses
+import math
+from enum import IntEnum, auto
+from typing import Dict, List, Optional, Tuple
+
 from PIL import Image, ImageOps
 import torch
 import torch.nn as nn
 from torchvision import transforms
-from addict import Dict
-from abc import ABC
-import math
-import dataclasses
-from enum import IntEnum, auto
-from typing import Dict as TypingDict
 
 
 class SeparatorStyle(IntEnum):
@@ -80,7 +80,7 @@ class Conversation:
         )
 
 
-conv_templates: TypingDict[str, Conversation] = {}
+conv_templates: Dict[str, Conversation] = {}
 
 
 def register_conv_template(template: Conversation, override: bool = False):
@@ -120,11 +120,10 @@ def load_image(image_path):
         corrected_image = ImageOps.exif_transpose(image)
         return corrected_image
 
-    except Exception as e:
-        print(f"error: {e}")
+    except Exception:
         try:
             return Image.open(image_path)
-        except:
+        except Exception:
             return None
 
 
@@ -173,16 +172,7 @@ def normalize_transform(mean, std):
     return transform
 
 
-class BaseTransform(ABC):
-    def __call__(self, *args, **kwargs) -> torch.Tensor:
-        pass
-
-    @property
-    def default_shape(self):
-        raise NotImplementedError
-
-
-class BasicImageTransform(BaseTransform):
+class BasicImageTransform:
     def __init__(
         self,
         mean: Optional[Tuple[float, float, float]] = (0.5, 0.5, 0.5),
@@ -295,17 +285,9 @@ def preprocess(
     downsample_ratio = 4
     images = load_pil_images(conversation)
 
-    valid_img_tokens = 0
-    ratio = 1
-
-    image_draw = images[0].copy()
-    w, h = image_draw.size
-    ratio = 1 - ((max(w, h) - min(w, h)) / (max(w, h)))
-
     image_transform = BasicImageTransform(
         mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5), normalize=True
     )
-    images_seq_mask = []
 
     image_token = "<image>"
     image_token_id = 128815
@@ -327,21 +309,13 @@ def preprocess(
                 crop_ratio = [1, 1]
 
             else:
-                if crop_mode:
-                    images_crop_raw, crop_ratio = dynamic_preprocess(image)
-                else:
-                    crop_ratio = [1, 1]
+                images_crop_raw, crop_ratio = dynamic_preprocess(image)
 
             global_view = ImageOps.pad(
                 image,
                 (base_size, base_size),
                 color=tuple(int(x * 255) for x in image_transform.mean),
             )
-
-            if base_size == 1024:
-                valid_img_tokens += int(256 * ratio)
-            elif base_size == 1280:
-                valid_img_tokens += int(400 * ratio)
 
             images_list.append(image_transform(global_view))
             width_crop_num, height_crop_num = crop_ratio
@@ -352,9 +326,6 @@ def preprocess(
 
                 for i in range(len(images_crop_raw)):
                     images_crop_list.append(image_transform(images_crop_raw[i]))
-
-            if image_size == 640:
-                valid_img_tokens += len(images_crop_list) * 100
 
             num_queries = math.ceil((image_size // patch_size) / downsample_ratio)
             num_queries_base = math.ceil((base_size // patch_size) / downsample_ratio)

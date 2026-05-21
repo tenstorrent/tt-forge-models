@@ -2,11 +2,24 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-DeepSeek OCR model loader implementation for document OCR tasks.
+DeepSeek OCR — Hugging Face hub load with minimal local patches (transformers==4.46.3).
+
+1. ``snapshot_download`` checkpoint + remote ``modeling_*.py`` into ``DeepSeek_OCR_hub/``.
+2. Patch ``modeling_deepseekocr.py``: ``masked_scatter_`` + ``.cuda()`` → ``masked_scatter``
+   (same as ported forge) so tt-xla ``decompositions.masked_scatter`` applies.
+3. ``AutoModel.from_pretrained`` on that directory; ``src/model.py`` applies patches + CUDA workaround.
+
+Per-model ``requirements.txt`` pins ``transformers==4.46.3``; ``RequirementsManager`` handles
+install/rollback during tt-xla tests.
 """
+from __future__ import annotations
+
 import os
-from transformers import AutoTokenizer
+from pathlib import Path
 from typing import Optional
+
+from huggingface_hub import snapshot_download
+from transformers import AutoModel, AutoTokenizer
 
 from ....base import ForgeModel
 from ....config import (
@@ -19,60 +32,62 @@ from ....config import (
     StrEnum,
 )
 from ....tools.utils import get_file
-from .src.modeling_deepseekocr import DeepseekOCRForCausalLM
+from .src.model import ensure_hub_cpu_cuda_workaround, prepare_hub_snapshot
 from .src.model_utils import preprocess
-from huggingface_hub import snapshot_download
+
+DEFAULT_HF_REVISION = "9f30c71f441d010e5429c532364a86705536c53a"
+_HUB_DIR_NAME = "DeepSeek_OCR_hub"
 
 
 class ModelVariant(StrEnum):
-    """Available DeepSeek OCR model variants."""
-
     DEEPSEEK_OCR = "Ocr"
 
 
 class ModelLoader(ForgeModel):
-    """DeepSeek OCR model loader implementation for document OCR tasks."""
+    """DeepSeek OCR via patched HF hub snapshot + ``AutoModel``."""
 
-    # Dictionary of available model variants using structured configs
     _VARIANTS = {
         ModelVariant.DEEPSEEK_OCR: ModelConfig(
             pretrained_model_name="deepseek-ai/DeepSeek-OCR",
         ),
     }
 
-    # Default variant to use
     DEFAULT_VARIANT = ModelVariant.DEEPSEEK_OCR
-
-    # Shared configuration parameters
     sample_prompt = "<image>\n<|grounding|>Convert the document to markdown. "
 
-    def __init__(
-        self,
-        variant: Optional[ModelVariant] = None,
-    ):
-        """Initialize ModelLoader with specified variant.
-
-        Args:
-            variant: Optional ModelVariant specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-        """
+    def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.tokenizer = None
 
     @classmethod
+    def _hub_revision(cls) -> str:
+        return os.environ.get("DEEPSEEK_OCR_HF_REVISION", DEFAULT_HF_REVISION)
+
+    @classmethod
+    def _hub_dir(cls) -> Path:
+        return Path(__file__).resolve().parent / _HUB_DIR_NAME
+
+    @classmethod
+    def _ensure_hub_snapshot(cls, repo_id: str) -> Path:
+        hub_dir = cls._hub_dir()
+        hub_dir.mkdir(parents=True, exist_ok=True)
+        snapshot_download(
+            repo_id=repo_id,
+            revision=cls._hub_revision(),
+            local_dir=str(hub_dir),
+        )
+        if not (hub_dir / "modeling_deepseekocr.py").is_file():
+            raise FileNotFoundError(
+                f"Expected modeling_deepseekocr.py under {hub_dir} after "
+                f"snapshot_download of {repo_id!r}"
+            )
+        prepare_hub_snapshot(hub_dir)
+        return hub_dir
+
+    @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
-        """Implementation method for getting model info with validated variant.
-
-        Args:
-            variant: Optional ModelVariant specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-
-        Returns:
-            ModelInfo: Information about the model and variant
-        """
         if variant is None:
             variant = cls.DEFAULT_VARIANT
-
         return ModelInfo(
             model="DeepSeek",
             variant=variant,
@@ -82,64 +97,41 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _hub_kwargs(self) -> dict:
+        return {
+            "trust_remote_code": True,
+            "revision": self._hub_revision(),
+        }
+
     def _load_tokenizer(self):
-        """Load tokenizer for the current variant.
-
-        Returns:
-            The loaded tokenizer instance
-        """
-        # Load the tokenizer from HuggingFace
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        repo_id = self._variant_config.pretrained_model_name
+        self._ensure_hub_snapshot(repo_id)
         self.tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name, trust_remote_code=True
+            str(self._hub_dir()),
+            local_files_only=True,
+            **self._hub_kwargs(),
         )
-
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the DeepSeek OCR model instance for this instance's variant.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-                           If not provided, the model will use its default dtype (typically float32).
-
-        Returns:
-            torch.nn.Module: The DeepSeek OCR model instance for document OCR.
-        """
-
         repo_id = self._variant_config.pretrained_model_name
+        hub_dir = self._ensure_hub_snapshot(repo_id)
 
-        # Create a local folder name from the model name
-        model_path = repo_id.split("/")[-1].replace("-", "_") + "_weights"
+        ensure_hub_cpu_cuda_workaround()
 
-        # create folder if it doesn't exist
-        os.makedirs(model_path, exist_ok=True)
-
-        # Download only the essential files.
-        snapshot_download(
-            repo_id=repo_id,
-            local_dir=model_path,
-            local_dir_use_symlinks=False,
-            allow_patterns=[
-                "*.safetensors",
-                "config.json",
-                "model.safetensors.index.json",
-            ],
-        )
-
-        # Load Model
-        model = DeepseekOCRForCausalLM.from_pretrained(
-            model_path,
-            local_files_only=True,
-            trust_remote_code=True,
+        load_kwargs = {
+            "local_files_only": True,
+            "trust_remote_code": True,
             **kwargs,
-        )
+        }
+        if dtype_override is not None:
+            load_kwargs["torch_dtype"] = dtype_override
 
-        # Configure model settings
+        model = AutoModel.from_pretrained(str(hub_dir), **load_kwargs)
+
         model.config.return_dict = False
         model.config.use_cache = False
 
-        # Apply dtype override if specified
         if dtype_override is not None:
             model = model.to(dtype_override)
 
@@ -147,22 +139,10 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the DeepSeek OCR model with this instance's variant settings.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
-
-        Returns:
-            dict: Input tensors that can be fed to the model.
-        """
-        # Ensure tokenizer is initialized
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        # Load the sample image
         image_file = get_file("test_images/doc.png")
-
-        # Process the image and prompt using the preprocess function
         inputs = preprocess(
             tokenizer=self.tokenizer,
             prompt=self.sample_prompt,
@@ -172,9 +152,7 @@ class ModelLoader(ForgeModel):
             crop_mode=True,
         )
 
-        # Only convert dtype if explicitly requested
         if dtype_override is not None:
-            # Convert image tensors to the requested dtype
             for idx, (images_crop, images_ori) in enumerate(inputs["images"]):
                 inputs["images"][idx] = (
                     images_crop.to(dtype_override),
