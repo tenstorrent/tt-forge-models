@@ -25,6 +25,9 @@ class ModelVariant(StrEnum):
     DBMDZ_BERT_LARGE_CASED_FINETUNED_CONLL03_ENGLISH = (
         "dbmdz/bert-large-cased-finetuned-conll03-english"
     )
+    DAVLAN_BERT_BASE_MULTILINGUAL_CASED_NER_HRL = (
+        "Davlan/bert-base-multilingual-cased-ner-hrl"
+    )
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +37,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DBMDZ_BERT_LARGE_CASED_FINETUNED_CONLL03_ENGLISH: LLMModelConfig(
             pretrained_model_name="dbmdz/bert-large-cased-finetuned-conll03-english",
+            max_length=128,
+        ),
+        ModelVariant.DAVLAN_BERT_BASE_MULTILINGUAL_CASED_NER_HRL: LLMModelConfig(
+            pretrained_model_name="Davlan/bert-base-multilingual-cased-ner-hrl",
             max_length=128,
         ),
     }
