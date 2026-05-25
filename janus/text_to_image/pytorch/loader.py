@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Janus-Pro text-to-image loader (Path A — deepseek-ai/Janus git pipeline).
+Janus-Pro text-to-image loader.
 
 Compiles step-0 subgraph: CFG prompt embeds -> JanusGitImageTokenStep0 -> pre-CFG logits.
 """
@@ -39,7 +39,7 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """Janus-Pro T2I bring-up: generation_inference.py step-0 via janus package."""
+    """Janus-Pro text-to-image: first generation step via the janus package."""
 
     _VARIANTS = {
         ModelVariant.PRO_1B: ModelConfig(pretrained_model_name=REPO_ID_PRO_1B),

@@ -2,9 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Janus-Pro Path A helpers: weights load, CFG prompt embeds, transformers 5.x load patches.
-
-Aligned with deepseek-ai/Janus generation_inference.py (not HF JanusForConditionalGeneration).
+Janus-Pro helpers: weights load, CFG prompt embeds, transformers 5.x load patches.
 
 5.x patches are scoped: torch.linspace is restored after each load; post_init patch
 applies only to janus.models.MultiModalityCausalLM (no effect on other forge models).
@@ -157,7 +155,9 @@ def prepare_cfg_inputs_embeds(
 ) -> torch.Tensor:
     input_ids = vl_chat_processor.tokenizer.encode(prompt)
     input_ids = torch.LongTensor(input_ids)
-    tokens = torch.zeros((parallel_size * 2, len(input_ids)), dtype=torch.int).to(device)
+    tokens = torch.zeros((parallel_size * 2, len(input_ids)), dtype=torch.int).to(
+        device
+    )
     for i in range(parallel_size * 2):
         tokens[i, :] = input_ids
         if i % 2 != 0:

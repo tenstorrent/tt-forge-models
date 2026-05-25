@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-"""Path A step-0 module for Janus-Pro T2I (generation_inference.py loop i=0)."""
+"""First image-token step module for Janus-Pro text-to-image."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ class JanusGitImageTokenStep0(nn.Module):
     """
     First image-token step: language_model.model + gen_head.
 
-    Matches deepseek-ai/Janus generation_inference.py when i=0 and past_key_values is None.
     Output shape: [parallel_size * 2, image_token_vocab] (pre-CFG logits).
     """
 
