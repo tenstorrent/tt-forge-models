@@ -277,6 +277,44 @@ def shard_llama_specs(llama) -> dict:
     return specs
 
 
+def shard_t5_encoder_specs(t5_encoder) -> dict:
+    """Shard specs for T5EncoderModel (text_encoder_3, T5 v1.1 XXL).
+
+    Mesh axes: ("batch", "model")
+    Column-parallel (Q, K, V, wi_0, wi_1):  ("model", "batch")
+    Row-parallel   (O, wo):                 ("batch", "model")
+    T5LayerNorm weights sharded along batch.
+    Token embedding sharded along d_model on the batch axis (matches Llama).
+    relative_attention_bias (32 buckets x 64 heads) is tiny; left replicated.
+    """
+    specs = {}
+
+    # Token embedding (tied: t5_encoder.shared and encoder.embed_tokens share weight).
+    specs[t5_encoder.shared.weight] = (None, "batch")
+
+    stack = t5_encoder.encoder  # T5Stack
+    for block in stack.block:
+        # layer[0]: T5LayerSelfAttention.
+        attn_layer = block.layer[0]
+        attn = attn_layer.SelfAttention
+        specs[attn.q.weight] = ("model", "batch")
+        specs[attn.k.weight] = ("model", "batch")
+        specs[attn.v.weight] = ("model", "batch")
+        specs[attn.o.weight] = ("batch", "model")
+        specs[attn_layer.layer_norm.weight] = ("batch",)
+
+        # layer[1]: T5LayerFF with T5DenseGatedActDense (v1.1).
+        ff_layer = block.layer[1]
+        dense = ff_layer.DenseReluDense
+        specs[dense.wi_0.weight] = ("model", "batch")
+        specs[dense.wi_1.weight] = ("model", "batch")
+        specs[dense.wo.weight] = ("batch", "model")
+        specs[ff_layer.layer_norm.weight] = ("batch",)
+
+    specs[stack.final_layer_norm.weight] = ("batch",)
+    return specs
+
+
 def shard_hidream_transformer_specs(transformer) -> dict:
     """Shard specs for HiDreamImageTransformer2DModel.
 
