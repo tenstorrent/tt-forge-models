@@ -83,14 +83,17 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self):
+    def _load_tokenizer(self, dtype_override=None):
         """Load tokenizer for the current variant.
         Returns:
             The loaded tokenizer instance
         """
+        tokenizer_kwargs = {}
+        if dtype_override is not None:
+            tokenizer_kwargs["torch_dtype"] = dtype_override
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
         self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -149,6 +152,8 @@ class ModelLoader(ForgeModel):
         if self.config is None:
             self.load_config()
 
+        # TODO(agobeljicTT): self.model is only populated after load_model() is called; same
+        # implicit ordering exists in other causal-LM loaders — fix in a follow-up.
         max_cache_len = self._variant_config.max_length
         return get_static_cache_decode_inputs(
             tokenizer=self.tokenizer,
