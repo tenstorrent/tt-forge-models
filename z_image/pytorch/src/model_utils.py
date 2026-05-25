@@ -35,6 +35,10 @@ TRANSFORMER_NUM_REFINER_LAYERS = 2
 TRANSFORMER_IN_CHANNELS = 16
 TRANSFORMER_CAP_FEAT_DIM = 2560
 
+# (batch, model) mesh shapes by device count
+MESH_SHAPES = {32: (8, 4), 8: (2, 4), 4: (1, 4), 2: (1, 2), 1: (1, 1)}
+MESH_NAMES = ("batch", "model")
+
 
 def latent_hw_from_pixels(height: int = HEIGHT, width: int = WIDTH) -> tuple[int, int]:
     latent_h = 2 * (int(height) // VAE_SPATIAL_ALIGN)
@@ -189,3 +193,124 @@ class VAEDecoderWrapper(torch.nn.Module):
         z = latents.to(dtype=self.vae.dtype)
         z = (z / self.vae.config.scaling_factor) + self.vae.config.shift_factor
         return self.vae.decode(z, return_dict=False)[0]
+
+
+# ---------------------------------------------------------------------------
+# SPMD shard specifications (transformer only — ~6B params, needs 2+ chips)
+# ---------------------------------------------------------------------------
+
+
+def _set_shard_spec(specs: dict, tensor: torch.Tensor, spec: tuple) -> None:
+    """Record a partition spec whose length matches ``tensor.ndim`` (None = replicate)."""
+    if len(spec) != tensor.ndim:
+        raise ValueError(
+            f"Partition spec length {len(spec)} != tensor rank {tensor.ndim} "
+            f"(shape {tuple(tensor.shape)}): {spec}"
+        )
+    specs[tensor] = spec
+
+
+def _replicate_spec(tensor: torch.Tensor) -> tuple:
+    """Fully replicated spec for any rank (pad tokens, small params)."""
+    return (None,) * tensor.ndim
+
+
+def _shard_zimage_block(block, specs: dict, *, has_modulation: bool) -> None:
+    """Megatron-style sharding for a single ZImageTransformerBlock."""
+    attn = block.attention
+    for proj_name in ("to_q", "to_k", "to_v"):
+        proj = getattr(attn, proj_name)
+        specs[proj.weight] = ("model", "batch")
+        if proj.bias is not None:
+            specs[proj.bias] = ("model",)
+
+    to_out = (
+        attn.to_out[0]
+        if isinstance(attn.to_out, (torch.nn.Sequential, torch.nn.ModuleList))
+        else attn.to_out
+    )
+    specs[to_out.weight] = ("batch", "model")
+    if to_out.bias is not None:
+        specs[to_out.bias] = ("batch",)
+
+    if getattr(attn, "norm_q", None) is not None:
+        specs[attn.norm_q.weight] = ("model",)
+    if getattr(attn, "norm_k", None) is not None:
+        specs[attn.norm_k.weight] = ("model",)
+
+    ff = block.feed_forward
+    specs[ff.w1.weight] = ("model", "batch")
+    specs[ff.w3.weight] = ("model", "batch")
+    specs[ff.w2.weight] = ("batch", "model")
+
+    for norm_name in (
+        "attention_norm1",
+        "attention_norm2",
+        "ffn_norm1",
+        "ffn_norm2",
+    ):
+        norm = getattr(block, norm_name, None)
+        if norm is not None and hasattr(norm, "weight"):
+            specs[norm.weight] = ("batch",)
+
+    if has_modulation and hasattr(block, "adaLN_modulation"):
+        lin = block.adaLN_modulation[0]
+        specs[lin.weight] = ("model", "batch")
+        if lin.bias is not None:
+            specs[lin.bias] = ("model",)
+
+
+def _shard_final_layer(layer, specs: dict) -> None:
+    specs[layer.linear.weight] = (None, "batch")
+    if layer.linear.bias is not None:
+        specs[layer.linear.bias] = (None,)
+    ada_lin = layer.adaLN_modulation[1]
+    specs[ada_lin.weight] = ("model", "batch")
+    if ada_lin.bias is not None:
+        specs[ada_lin.bias] = ("model",)
+
+
+def shard_transformer_specs(transformer) -> dict:
+    """Shard specs for ZImageTransformer2DModel.
+
+    Mesh axes: ("batch", "model")
+    Column-parallel (Q, K, V, FFN w1/w3): ("model", "batch")
+    Row-parallel   (O, FFN w2):           ("batch", "model")
+    """
+    specs = {}
+
+    for embedder in transformer.all_x_embedder.values():
+        specs[embedder.weight] = ("model", "batch")
+        if embedder.bias is not None:
+            specs[embedder.bias] = ("model",)
+
+    for final_layer in transformer.all_final_layer.values():
+        _shard_final_layer(final_layer, specs)
+
+    mlp = transformer.t_embedder.mlp
+    specs[mlp[0].weight] = ("model", "batch")
+    if mlp[0].bias is not None:
+        specs[mlp[0].bias] = ("model",)
+    specs[mlp[2].weight] = ("batch", "model")
+    if mlp[2].bias is not None:
+        specs[mlp[2].bias] = ("batch",)
+
+    cap_lin = transformer.cap_embedder[1]
+    specs[cap_lin.weight] = ("model", "batch")
+    if cap_lin.bias is not None:
+        specs[cap_lin.bias] = ("model",)
+
+    for block in transformer.noise_refiner:
+        _shard_zimage_block(block, specs, has_modulation=True)
+    for block in transformer.context_refiner:
+        _shard_zimage_block(block, specs, has_modulation=False)
+    for block in transformer.layers:
+        _shard_zimage_block(block, specs, has_modulation=True)
+
+    # Pad tokens are (1, dim); must not use 1-axis specs like ("batch",).
+    for pad_name in ("x_pad_token", "cap_pad_token", "siglip_pad_token"):
+        pad = getattr(transformer, pad_name, None)
+        if pad is not None:
+            _set_shard_spec(specs, pad, _replicate_spec(pad))
+
+    return specs
