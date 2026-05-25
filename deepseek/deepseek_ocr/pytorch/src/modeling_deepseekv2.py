@@ -70,10 +70,15 @@ def reinit_llama_rotary_inv_freq_buffers(module: nn.Module) -> None:
         else:
             continue
 
-        inv_freq = inv_freq.to(device=rotary.inv_freq.device, dtype=rotary.inv_freq.dtype)
+        inv_freq = inv_freq.to(
+            device=rotary.inv_freq.device, dtype=rotary.inv_freq.dtype
+        )
         with torch.no_grad():
             rotary.inv_freq.copy_(inv_freq)
-            if hasattr(rotary, "original_inv_freq") and rotary.original_inv_freq is not rotary.inv_freq:
+            if (
+                hasattr(rotary, "original_inv_freq")
+                and rotary.original_inv_freq is not rotary.inv_freq
+            ):
                 rotary.original_inv_freq.copy_(inv_freq)
 
 
