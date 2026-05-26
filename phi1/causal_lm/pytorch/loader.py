@@ -153,7 +153,7 @@ class ModelLoader(ForgeModel):
             self.load_config()
 
         # TODO(agobeljicTT): self.model is only populated after load_model() is called; same
-        # implicit ordering exists in other causal-LM loaders — fix in a follow-up.
+        # implicit ordering exists in other causal-LM loaders - fix in a follow-up.
         max_cache_len = self._variant_config.max_length
         return get_static_cache_decode_inputs(
             tokenizer=self.tokenizer,
