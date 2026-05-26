@@ -58,6 +58,7 @@ from .src.model_utils import (
     load_vae,
     shard_hidream_transformer_specs,
     shard_llama_specs,
+    shard_t5_encoder_specs,
 )
 
 
@@ -142,7 +143,11 @@ class ModelLoader(ForgeModel):
 
         Supported device counts for sharded variants: 1, 2, 4, 8, 32.
         """
-        sharded_variants = (ModelVariant.TEXT_ENCODER_4, ModelVariant.TRANSFORMER)
+        sharded_variants = (
+            ModelVariant.TEXT_ENCODER_3,
+            ModelVariant.TEXT_ENCODER_4,
+            ModelVariant.TRANSFORMER,
+        )
         if self._variant not in sharded_variants:
             return (1, 1), MESH_NAMES
 
@@ -157,10 +162,13 @@ class ModelLoader(ForgeModel):
         """Return tensor → partition_spec dict for the active component.
 
         Expects the same model object returned by load_model():
+          TEXT_ENCODER_3 → T5EncoderWrapper (specs built from .t5_encoder)
           TEXT_ENCODER_4 → LlamaStackedHiddenWrapper (specs built from .llama)
           TRANSFORMER    → HiDreamTransformerWrapper (specs built from .transformer)
           Others         → None (single-chip, no sharding)
         """
+        if self._variant == ModelVariant.TEXT_ENCODER_3:
+            return shard_t5_encoder_specs(model.t5_encoder)
         if self._variant == ModelVariant.TEXT_ENCODER_4:
             return shard_llama_specs(model.llama)
         if self._variant == ModelVariant.TRANSFORMER:
