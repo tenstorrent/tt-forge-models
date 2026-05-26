@@ -30,6 +30,8 @@ from ...config import (
     StrEnum,
 )
 from .src.utils import (
+    MESH_NAMES,
+    MESH_SHAPES,
     load_pipeline,
     load_vae,
     load_transformer,
@@ -38,6 +40,8 @@ from .src.utils import (
     load_vae_decoder_inputs,
     load_transformer_inputs,
     load_text_encoder_inputs,
+    shard_transformer_specs,
+    shard_vae_decoder_specs,
 )
 
 # Supported subfolders for loading individual components
@@ -183,6 +187,36 @@ class ModelLoader(ForgeModel):
             raise RuntimeError(
                 "Full pipeline is currently not supported for input loading"
             )
+
+    def get_mesh_config(self, num_devices: int):
+        """Return ((batch, model) mesh shape, mesh names) for the active component.
+
+        transformer and vae use the supported shapes in MESH_SHAPES.
+        text_encoder runs on a single chip.
+        """
+        if self._subfolder == "text_encoder":
+            return (1, 1), MESH_NAMES
+
+        if num_devices not in MESH_SHAPES:
+            raise ValueError(
+                f"Unsupported device count: {num_devices}. "
+                f"Expected one of {sorted(MESH_SHAPES)}."
+            )
+        return MESH_SHAPES[num_devices], MESH_NAMES
+
+    def load_shard_spec(self, model):
+        """Return tensor -> partition_spec dict for the active component.
+
+        Expects whatever the test passes to run_graph_test:
+          transformer → MochiTransformer3DModel
+          vae         → MochiDecoder3D (vae.decoder)
+          text_encoder → None (single-chip, no sharding)
+        """
+        if self._subfolder == "transformer":
+            return shard_transformer_specs(model)
+        if self._subfolder == "vae":
+            return shard_vae_decoder_specs(model)
+        return None
 
     def unpack_forward_output(self, output: Any) -> torch.Tensor:
         """
