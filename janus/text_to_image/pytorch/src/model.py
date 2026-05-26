@@ -3,10 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """First image-token step module for Janus-Pro text-to-image."""
 
-from __future__ import annotations
-
 import torch.nn as nn
-from janus.models import MultiModalityCausalLM
 
 
 class JanusGitImageTokenStep0(nn.Module):
@@ -16,7 +13,7 @@ class JanusGitImageTokenStep0(nn.Module):
     Output shape: [parallel_size * 2, image_token_vocab] (pre-CFG logits).
     """
 
-    def __init__(self, mmgpt: MultiModalityCausalLM):
+    def __init__(self, mmgpt):
         super().__init__()
         self.mmgpt = mmgpt
 

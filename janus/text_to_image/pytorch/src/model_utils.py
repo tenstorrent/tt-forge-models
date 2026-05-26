@@ -11,10 +11,9 @@ applies only to janus.models.MultiModalityCausalLM (no effect on other forge mod
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Iterator, Optional
+from typing import Any, Iterator, Optional
 
 import torch
-from janus.models import MultiModalityCausalLM, VLChatProcessor
 from transformers import AutoModelForCausalLM
 
 REPO_ID_PRO_1B = "deepseek-ai/Janus-Pro-1B"
@@ -31,8 +30,8 @@ STANDARD_PROMPT = (
 )
 
 _orig_torch_linspace = None
-_processor_cache: dict[str, VLChatProcessor] = {}
-_mmgpt_cache: dict[str, MultiModalityCausalLM] = {}
+_processor_cache: dict[str, Any] = {}
+_mmgpt_cache: dict[str, Any] = {}
 
 
 def transformers_major_version() -> int:
@@ -103,17 +102,15 @@ def model_from_pretrained_kwargs() -> dict:
     return {"low_cpu_mem_usage": True}
 
 
-def load_processor(repo_id: str) -> VLChatProcessor:
+def load_processor(repo_id: str):
+    from janus.models import VLChatProcessor
+
     if repo_id not in _processor_cache:
         _processor_cache[repo_id] = VLChatProcessor.from_pretrained(repo_id)
     return _processor_cache[repo_id]
 
 
-def load_mmgpt(
-    repo_id: str,
-    dtype: torch.dtype = DTYPE,
-    **kwargs,
-) -> MultiModalityCausalLM:
+def load_mmgpt(repo_id: str, dtype: torch.dtype = DTYPE, **kwargs):
     if repo_id not in _mmgpt_cache:
         apply_multimodality_post_init_patch()
         load_kw = {
@@ -132,7 +129,7 @@ def load_mmgpt(
     return _mmgpt_cache[repo_id]
 
 
-def build_prompt(vl_chat_processor: VLChatProcessor, user_prompt: str) -> str:
+def build_prompt(vl_chat_processor, user_prompt: str) -> str:
     conversation = [
         {"role": "<|User|>", "content": user_prompt},
         {"role": "<|Assistant|>", "content": ""},
@@ -146,8 +143,8 @@ def build_prompt(vl_chat_processor: VLChatProcessor, user_prompt: str) -> str:
 
 
 def prepare_cfg_inputs_embeds(
-    mmgpt: MultiModalityCausalLM,
-    vl_chat_processor: VLChatProcessor,
+    mmgpt,
+    vl_chat_processor,
     prompt: str,
     *,
     parallel_size: int = PARALLEL_SIZE,

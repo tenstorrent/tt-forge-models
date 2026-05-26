@@ -23,14 +23,9 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
-from .src.model import JanusGitImageTokenStep0
-from .src.model_utils import (
-    DTYPE,
-    REPO_ID_PRO_1B,
-    REPO_ID_PRO_7B,
-    load_mmgpt,
-    make_cfg_inputs_embeds,
-)
+
+REPO_ID_PRO_1B = "deepseek-ai/Janus-Pro-1B"
+REPO_ID_PRO_7B = "deepseek-ai/Janus-Pro-7B"
 
 
 class ModelVariant(StrEnum):
@@ -61,12 +56,18 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
+        # Lazy imports: discovery imports loader.py before requirements.txt runs.
+        from .src.model import JanusGitImageTokenStep0
+        from .src.model_utils import DTYPE, load_mmgpt
+
         dtype = dtype_override if dtype_override is not None else DTYPE
         repo_id = self._variant_config.pretrained_model_name
         mmgpt = load_mmgpt(repo_id, dtype, **kwargs)
         return JanusGitImageTokenStep0(mmgpt).eval()
 
     def load_inputs(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
+        from .src.model_utils import DTYPE, make_cfg_inputs_embeds
+
         dtype = dtype_override if dtype_override is not None else DTYPE
         repo_id = self._variant_config.pretrained_model_name
         inputs_embeds = make_cfg_inputs_embeds(repo_id, dtype)
