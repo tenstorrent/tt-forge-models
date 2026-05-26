@@ -88,6 +88,12 @@ class DeepSeekV32ForCausalLM(nn.Module):
         # the SPMD graph; freqs_cis[cache_position] is a no-.item() gather that avoids this.
         seqlen = input_ids.size(1)
         start_pos = 0
+        # LLMSamplingWrapper passes position_ids=[1, seqlen] but not cache_position; recover it
+        # so downstream Indexer.forward takes the 4D write path instead of the 3D fallback.
+        if cache_position is None:
+            position_ids = kwargs.get("position_ids")
+            if position_ids is not None:
+                cache_position = position_ids[0]
         if cache_position is not None:
             freqs_cis = self.transformer.freqs_cis[cache_position]
         else:
