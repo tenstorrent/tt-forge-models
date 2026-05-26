@@ -8,7 +8,7 @@ import torch
 from transformers import PhiForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
-from ....base import ForgeModel
+from ....base import ForgeModel, ForgePrefillModel
 from ....config import (
     LLMModelConfig,
     ModelInfo,
@@ -17,6 +17,9 @@ from ....config import (
     ModelSource,
     Framework,
     StrEnum,
+)
+from ....tools.utils import (
+    get_static_cache_decode_inputs,
 )
 
 
@@ -56,6 +59,9 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.tokenizer = None
         self.num_layers = num_layers
+        self.model = None
+        self.config = None
+        self.seq_len = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -77,14 +83,17 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self):
+    def _load_tokenizer(self, dtype_override=None):
         """Load tokenizer for the current variant.
         Returns:
             The loaded tokenizer instance
         """
+        tokenizer_kwargs = {}
+        if dtype_override is not None:
+            tokenizer_kwargs["torch_dtype"] = dtype_override
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
         self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -118,7 +127,42 @@ class ModelLoader(ForgeModel):
 
         model = PhiForCausalLM.from_pretrained(pretrained_model_name, **model_kwargs)
 
+        self.model = model
+        self.config = model.config
+
         return model
+
+    def load_config(self):
+        """Load and return the configuration for the Phi-1 model variant."""
+        self.config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name
+        )
+        return self.config
+
+    def load_shard_spec(self, model):
+        """No default TP sharding for Phi-1; see :class:`ModelLoaderPrefill`
+        for the parameterized FSDP/Megatron version.
+        """
+        return {}
+
+    def load_inputs_decode(self, dtype_override=None, batch_size=1):
+        """Load decode-step inputs (single token + static KV cache)."""
+        if self.tokenizer is None:
+            self._load_tokenizer(dtype_override=dtype_override)
+        if self.config is None:
+            self.load_config()
+
+        # TODO(agobeljicTT): self.model is only populated after load_model() is called; same
+        # implicit ordering exists in other causal-LM loaders - fix in a follow-up.
+        max_cache_len = self._variant_config.max_length
+        return get_static_cache_decode_inputs(
+            tokenizer=self.tokenizer,
+            config=self.config,
+            model=self.model,
+            batch_size=batch_size,
+            max_cache_len=max_cache_len,
+            dtype=dtype_override,
+        )
 
     def load_inputs(self, dtype_override=None):
         """Load and return sample inputs for the PHI1 model with this instance's variant settings.
@@ -169,3 +213,20 @@ class ModelLoader(ForgeModel):
         )
 
         return predicted_text
+
+
+class ModelLoaderPrefill(ModelLoader, ForgePrefillModel):
+    """Prefill-focused loader for PHI1 variants on which we test prefill
+    extensively with various meshes, strategies, batches and sequence lengths.
+    """
+
+    _VARIANTS = {
+        ModelVariant.PHI1: ModelLoader._VARIANTS[ModelVariant.PHI1],
+    }
+    DEFAULT_VARIANT = ModelVariant.PHI1
+
+    def load_shard_spec(self, model, strategy="fsdp", batch_axis="batch"):
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement load_shard_spec; "
+            "no TP/FSDP sharding is defined for this prefill loader."
+        )
