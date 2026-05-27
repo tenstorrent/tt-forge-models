@@ -24,9 +24,7 @@ class JanusGitImageTokenStep(nn.Module):
     def forward(self, inputs_embeds, past_key_values=None):
         from .model_utils import align_kv_cache_device
 
-        past_key_values = align_kv_cache_device(
-            past_key_values, inputs_embeds.device
-        )
+        past_key_values = align_kv_cache_device(past_key_values, inputs_embeds.device)
         outputs = self.mmgpt.language_model.model(
             inputs_embeds=inputs_embeds,
             use_cache=True,

@@ -247,9 +247,7 @@ def make_gen_img_embed_inputs(
 ) -> dict[str, torch.Tensor]:
     del repo_id, dtype
     return {
-        "image_ids": torch.zeros(
-            PARALLEL_SIZE * 2, dtype=torch.long, device=DEVICE
-        ),
+        "image_ids": torch.zeros(PARALLEL_SIZE * 2, dtype=torch.long, device=DEVICE),
     }
 
 

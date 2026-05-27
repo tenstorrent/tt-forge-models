@@ -44,7 +44,7 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """Janus-Pro T2I components via the janus package (no HF generate())."""
+    """Janus-Pro T2I components (janus_pro loader; deepseek-ai Janus runtime package)."""
 
     _VARIANTS = {
         ModelVariant.PRO_1B: ModelConfig(pretrained_model_name=REPO_ID_PRO_1B),
@@ -116,9 +116,7 @@ class ModelLoader(ForgeModel):
 
         if component == ModelVariant.GEN_VISION_DECODE:
             mmgpt = load_mmgpt(repo_id, dtype, **kwargs)
-            return JanusGenVisionDecode(
-                mmgpt.gen_vision_model, decode_shape()
-            ).eval()
+            return JanusGenVisionDecode(mmgpt.gen_vision_model, decode_shape()).eval()
 
         raise ValueError(f"Unknown component: {component}")
 
