@@ -28,6 +28,10 @@ from ....config import (
     StrEnum,
     LLMModelConfig,
 )
+from ....tools.meta_loading import (
+    load_meta_model_from_checkpoint,
+    resolve_hf_shards_for_layers,
+)
 
 
 class ModelVariant(StrEnum):
@@ -37,6 +41,7 @@ class ModelVariant(StrEnum):
 
 
 from .src.modified_model import LayerNorm, MoE, ModelArgs, Transformer
+from ._meta_fixups import _fix_meta_buffers, _rename_hf_key
 
 
 @dataclass
@@ -114,6 +119,11 @@ class ModelLoader(ForgeModel):
     }
 
     DEFAULT_VARIANT = ModelVariant.DEEPSEEK_V3_2_EXP_MODIFIED
+
+    # BF16-dequantized weight mirror used when loading via the meta-loader path.
+    # The primary repo (pretrained_model_name) ships FP8 weights with scale-inv
+    # auxiliaries; the BF16 mirror is what the custom Transformer expects.
+    _BF16_WEIGHTS_REPO = "DevQuasar-2/deepseek-ai.DeepSeek-V3.1-BF16"
 
     def __init__(
         self,
@@ -271,7 +281,24 @@ class ModelLoader(ForgeModel):
         if self.config is None or self._args is None:
             self._load_config(**kwargs)
 
-        transformer = Transformer(self._args)
+        if self.num_layers is not None:
+            shard_paths = resolve_hf_shards_for_layers(
+                self._BF16_WEIGHTS_REPO, self.num_layers
+            )
+            transformer = load_meta_model_from_checkpoint(
+                lambda: Transformer(self._args),
+                shard_paths,
+                n_layers=self.num_layers,
+                rename_key=lambda k: _rename_hf_key(
+                    k, n_dense_layers=self._args.n_dense_layers
+                ),
+            )
+            transformer.head.weight = nn.Parameter(
+                transformer.head.weight.to(torch.float32)
+            )
+            _fix_meta_buffers(transformer, self._args)
+        else:
+            transformer = Transformer(self._args)
 
         if dtype_override is not None:
             transformer = transformer.to(dtype_override)

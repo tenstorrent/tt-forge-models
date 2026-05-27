@@ -24,6 +24,10 @@ from ....tools.utils import (
     cast_input_to_type,
     get_static_cache_decode_inputs,
 )
+from ....tools.meta_loading import (
+    load_meta_model_from_checkpoint,
+    resolve_hf_shards_for_layers,
+)
 
 
 class ModelVariant(StrEnum):
@@ -140,21 +144,27 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
-
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
             config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-        model_kwargs |= kwargs
-
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
-        if self.num_layers is not None:
-            model.model.layers = model.model.layers[: self.num_layers]
+            shard_paths = resolve_hf_shards_for_layers(
+                pretrained_model_name, self.num_layers
+            )
+            model = load_meta_model_from_checkpoint(
+                lambda: AutoModelForCausalLM.from_config(
+                    config, torch_dtype=dtype_override
+                ),
+                shard_paths,
+                n_layers=self.num_layers,
+            )
+        else:
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
+            model_kwargs |= kwargs
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
 
         model.eval()
         self.model = model
