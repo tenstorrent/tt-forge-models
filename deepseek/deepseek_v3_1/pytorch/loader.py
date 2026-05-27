@@ -25,6 +25,10 @@ from ....config import (
     ModelTask,
     StrEnum,
 )
+from ....tools.meta_loading import (
+    load_meta_model_from_checkpoint,
+    resolve_hf_shards_for_layers,
+)
 
 from tt_torch.sparse_mlp import A2aSparseMLPWithSharedExperts, enable_sparse_mlp
 
@@ -125,7 +129,17 @@ class ModelLoader(ForgeModel):
 
         self._load_tokenizer()
 
-        model = DeepseekV3ForCausalLM(config)
+        if self.num_layers is not None:
+            shard_paths = resolve_hf_shards_for_layers(
+                self._BF16_WEIGHTS_REPO, self.num_layers
+            )
+            model = load_meta_model_from_checkpoint(
+                lambda: DeepseekV3ForCausalLM(config),
+                shard_paths,
+                n_layers=self.num_layers,
+            )
+        else:
+            model = DeepseekV3ForCausalLM(config)
 
         if dtype_override is not None:
             model = model.to(dtype_override)
