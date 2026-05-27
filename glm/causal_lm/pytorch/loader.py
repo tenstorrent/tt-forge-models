@@ -156,6 +156,13 @@ class ModelLoader(ForgeModel):
                 ),
                 shard_paths,
                 n_layers=self.num_layers,
+                check_unmaterialized_meta=False,
+            )
+            # rotary_emb computes inv_freq from config in __init__; it is a
+            # non-persistent buffer and isn't in the checkpoint, so meta build
+            # leaves it on meta. Rebuild the module on CPU.
+            model.model.rotary_emb = type(model.model.rotary_emb)(
+                config=config, device="cpu"
             )
         else:
             model_kwargs = {}
