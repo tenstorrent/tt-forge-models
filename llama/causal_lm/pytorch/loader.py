@@ -24,7 +24,6 @@ from ....tools.utils import (
     cast_input_to_type,
     get_static_cache_decode_inputs,
 )
-from ....prefill_inputs import get_prefill_texts_for_batch, PREFILL_TEXTS
 
 
 class ModelVariant(StrEnum):
@@ -201,7 +200,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self):
+    def _load_tokenizer(self, dtype_override=None):
         """Load tokenizer for the current variant.
         Returns:
             The loaded tokenizer instance
@@ -209,7 +208,13 @@ class ModelLoader(ForgeModel):
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
+        tokenizer_kwargs = {}
+        if dtype_override is not None:
+            tokenizer_kwargs["torch_dtype"] = dtype_override
+
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            pretrained_model_name, **tokenizer_kwargs
+        )
 
         # Set pad token to eos token for Llama models
         self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -425,33 +430,6 @@ class ModelLoaderPrefill(ModelLoader, ForgePrefillModel):
     }
     DEFAULT_VARIANT = ModelVariant.LLAMA_3_2_1B
 
-    def load_inputs_prefill(self, dtype_override=None, batch_size=1, seq_len=128):
-        """Prefill inputs (input_ids, attention_mask) padded to ``seq_len``."""
-        if self.tokenizer is None:
-            self._load_tokenizer()
-
-        if seq_len not in PREFILL_TEXTS:
-            available = sorted(PREFILL_TEXTS.keys())
-            raise ValueError(
-                f"seq_len={seq_len} is not supported. Available sequence lengths: {available}"
-            )
-        texts = get_prefill_texts_for_batch(seq_len, batch_size)
-
-        inputs = self.tokenizer(
-            texts,
-            return_tensors="pt",
-            padding="max_length",
-            truncation=True,
-            max_length=seq_len,
-        )
-
-        if dtype_override is not None:
-            for key in inputs:
-                inputs[key] = cast_input_to_type(inputs[key], dtype_override)
-
-        self.seq_len = seq_len
-        return inputs
-
     def load_shard_spec(self, model, strategy="fsdp", batch_axis="batch"):
         """Weight shard spec parameterized by ``strategy`` and ``batch_axis``
         (use "data" when inputs are also sharded).
@@ -478,9 +456,7 @@ class ModelLoaderPrefill(ModelLoader, ForgePrefillModel):
                 shard_specs[layer.post_attention_layernorm.weight] = (batch_axis,)
 
         elif strategy == "megatron":
-            shard_specs[model.model.embed_tokens.weight] = (None, None)
             shard_specs[model.lm_head.weight] = ("model", None)
-            shard_specs[model.model.norm.weight] = (None,)
             for layer in model.model.layers:
                 shard_specs[layer.mlp.up_proj.weight] = ("model", None)
                 shard_specs[layer.mlp.gate_proj.weight] = ("model", None)
@@ -490,8 +466,6 @@ class ModelLoaderPrefill(ModelLoader, ForgePrefillModel):
                 shard_specs[layer.self_attn.k_proj.weight] = ("model", None)
                 shard_specs[layer.self_attn.v_proj.weight] = ("model", None)
                 shard_specs[layer.self_attn.o_proj.weight] = (None, "model")
-                shard_specs[layer.input_layernorm.weight] = (None,)
-                shard_specs[layer.post_attention_layernorm.weight] = (None,)
 
         else:
             raise ValueError(f"Unknown sharding strategy: {strategy!r}")
