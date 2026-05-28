@@ -14,7 +14,7 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
-from transformers import AutoTokenizer, PretrainedConfig
+from transformers import PreTrainedTokenizerFast, PretrainedConfig
 import torch_xla.runtime as xr
 from tt_torch.sparse_mlp import enable_sparse_mlp
 
@@ -88,6 +88,12 @@ class DeepSeekV32ForCausalLM(nn.Module):
         # the SPMD graph; freqs_cis[cache_position] is a no-.item() gather that avoids this.
         seqlen = input_ids.size(1)
         start_pos = 0
+        # LLMSamplingWrapper passes position_ids=[1, seqlen] but not cache_position; recover it
+        # so downstream Indexer.forward takes the 4D write path instead of the 3D fallback.
+        if cache_position is None:
+            position_ids = kwargs.get("position_ids")
+            if position_ids is not None:
+                cache_position = position_ids[0]
         if cache_position is not None:
             freqs_cis = self.transformer.freqs_cis[cache_position]
         else:
@@ -175,7 +181,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
+        # AutoTokenizer loads model config to detect tokenizer class; for deepseek_v32
+        # (unregistered in transformers 5.5) this triggers a rope_scaling/
+        # max_position_embeddings ordering bug. PreTrainedTokenizerFast loads
+        # tokenizer.json directly without touching model config.
+        self.tokenizer = PreTrainedTokenizerFast.from_pretrained(
             pretrained_model_name, **tokenizer_kwargs
         )
 
@@ -198,7 +208,14 @@ class ModelLoader(ForgeModel):
         with open(config_path) as f:
             raw = json.load(f)
 
-        self.config = PretrainedConfig(**raw)
+        # transformers 5.5 calls convert_rope_params_to_dict during PretrainedConfig.__init__
+        # before kwargs are applied to self, so self.max_position_embeddings doesn't exist yet
+        # when rope_scaling is processed. Strip rope_scaling and re-apply it after init.
+        raw_copy = dict(raw)
+        rope_scaling = raw_copy.pop("rope_scaling", None)
+        self.config = PretrainedConfig(**raw_copy)
+        if rope_scaling is not None:
+            self.config.rope_scaling = rope_scaling
 
         _JSON_TO_ARGS = {
             "hidden_size": "dim",
