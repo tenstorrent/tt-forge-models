@@ -4,7 +4,12 @@
 """
 Qwen 3 model loader implementation for causal language modeling.
 """
+
+import os
+import tempfile
+
 import torch
+from huggingface_hub import snapshot_download
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from typing import Optional
 
@@ -31,6 +36,7 @@ class ModelVariant(StrEnum):
     QWEN_3_14B = "14B"
     QWEN_3_32B = "32B"
     QWEN_3_30B_A3B = "30B_A3b"
+    BW_V1 = "bw_v1"
 
 
 class ModelLoader(ForgeModel):
@@ -66,7 +72,18 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Qwen/Qwen3-30B-A3B",
             max_length=128,
         ),
+        ModelVariant.BW_V1: LLMModelConfig(
+            pretrained_model_name="abcorrea/bw-v1",
+            max_length=128,
+        ),
     }
+
+    # Variants whose HF repo ships both a LoRA adapter (adapter_config.json) and
+    # the full merged weights. transformers would auto-trigger the PEFT load path,
+    # which re-initializes modules_to_save (embed_tokens, lm_head) and corrupts the
+    # model. For these we materialize a clean snapshot containing only the merged
+    # weights + tokenizer so the model loads as a plain Qwen3ForCausalLM.
+    _MERGED_ONLY_VARIANTS = {ModelVariant.BW_V1}
 
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.QWEN_3_0_6B
@@ -88,6 +105,40 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self.config = None
         self.num_layers = num_layers
+        self._resolved_path = None
+
+    def _resolve_pretrained_path(self):
+        """Resolve the from_pretrained source for the current variant.
+
+        For most variants this is just the HF repo id. For variants listed in
+        _MERGED_ONLY_VARIANTS, download a clean local snapshot that excludes the
+        LoRA adapter files so transformers loads the full merged weights instead
+        of taking the (lossy) PEFT path.
+        """
+        name = self._variant_config.pretrained_model_name
+        if self._variant not in self._MERGED_ONLY_VARIANTS:
+            return name
+
+        if self._resolved_path is None:
+            local_dir = os.path.join(
+                tempfile.gettempdir(), "tt_forge_merged", name.replace("/", "__")
+            )
+            self._resolved_path = snapshot_download(
+                name,
+                local_dir=local_dir,
+                allow_patterns=[
+                    "config.json",
+                    "generation_config.json",
+                    "model*.safetensors*",
+                    "tokenizer*.json",
+                    "vocab.json",
+                    "merges.txt",
+                    "added_tokens.json",
+                    "special_tokens_map.json",
+                    "chat_template.jinja",
+                ],
+            )
+        return self._resolved_path
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -114,9 +165,7 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded tokenizer instance
         """
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+        self.tokenizer = AutoTokenizer.from_pretrained(self._resolve_pretrained_path())
 
         return self.tokenizer
 
@@ -129,8 +178,8 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The Qwen 3 model instance for causal language modeling.
         """
-        # Get the pretrained model name from the instance's variant config
-        pretrained_model_name = self._variant_config.pretrained_model_name
+        # Get the pretrained model name (or clean merged-weights snapshot path).
+        pretrained_model_name = self._resolve_pretrained_path()
 
         # Ensure tokenizer is loaded
         if self.tokenizer is None:
@@ -224,9 +273,7 @@ class ModelLoader(ForgeModel):
         Returns:
             The configuration object for the Qwen3 model.
         """
-        self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
-        )
+        self.config = AutoConfig.from_pretrained(self._resolve_pretrained_path())
 
         return self.config
 
