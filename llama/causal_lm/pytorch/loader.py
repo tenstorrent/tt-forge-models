@@ -52,6 +52,7 @@ class ModelVariant(StrEnum):
 
     # HuggingFace community variants
     HUGGYLLAMA_7B = "Huggyllama_7B"
+    LLAMA_3_1_STORM_8B = "3.1_Storm_8B"
 
     # TinyLlama variants
     TINYLLAMA_V1_1 = "Tinyllama_v1.1"
@@ -121,6 +122,10 @@ class ModelLoader(ForgeModel):
         # HuggingFace community variants
         ModelVariant.HUGGYLLAMA_7B: LLMModelConfig(
             pretrained_model_name="huggyllama/llama-7b",
+            max_length=128,
+        ),
+        ModelVariant.LLAMA_3_1_STORM_8B: LLMModelConfig(
+            pretrained_model_name="akjindal53244/Llama-3.1-Storm-8B",
             max_length=128,
         ),
         # TinyLlama variants
