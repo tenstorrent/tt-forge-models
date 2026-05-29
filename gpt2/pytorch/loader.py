@@ -30,6 +30,7 @@ class ModelVariant(StrEnum):
 
     GPT2_BASE = "Default"
     GPT2_SEQUENCE_CLASSIFICATION = "Sequence_Classification"
+    GPT2_ALIAS_SMALL_X21 = "alias_gpt2_small_x21"
 
 
 class ModelLoader(ForgeModel):
@@ -42,6 +43,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.GPT2_SEQUENCE_CLASSIFICATION: LLMModelConfig(
             pretrained_model_name="mnoukhov/gpt2-imdb-sentiment-classifier",
+            max_length=256,
+        ),
+        ModelVariant.GPT2_ALIAS_SMALL_X21: LLMModelConfig(
+            pretrained_model_name="stanford-crfm/alias-gpt2-small-x21",
             max_length=256,
         ),
     }
@@ -63,9 +68,9 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         task = (
-            ModelTask.NLP_CAUSAL_LM
-            if variant == ModelVariant.GPT2_BASE
-            else ModelTask.NLP_TEXT_CLS
+            ModelTask.NLP_TEXT_CLS
+            if variant == ModelVariant.GPT2_SEQUENCE_CLASSIFICATION
+            else ModelTask.NLP_CAUSAL_LM
         )
 
         return ModelInfo(
@@ -82,8 +87,8 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name
         )
 
-        # Set padding side to left if not base GPT2 (i.e., classification)
-        if self._variant != ModelVariant.GPT2_BASE:
+        # Set padding side to left for classification variant
+        if self._variant == ModelVariant.GPT2_SEQUENCE_CLASSIFICATION:
             self.tokenizer.padding_side = "left"
 
         return self.tokenizer
@@ -91,7 +96,7 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         model_name = self._variant_config.pretrained_model_name
 
-        if self._variant == ModelVariant.GPT2_BASE:
+        if self._variant != ModelVariant.GPT2_SEQUENCE_CLASSIFICATION:
             config = GPT2Config.from_pretrained(model_name)
             config_dict = config.to_dict()
             config_dict["use_cache"] = True
@@ -119,7 +124,7 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        if self._variant == ModelVariant.GPT2_BASE:
+        if self._variant != ModelVariant.GPT2_SEQUENCE_CLASSIFICATION:
             # Use random input for text generation
             vocab_size = GPT2Config.from_pretrained(
                 self._variant_config.pretrained_model_name
