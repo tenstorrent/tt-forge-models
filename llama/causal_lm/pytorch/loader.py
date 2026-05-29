@@ -56,6 +56,9 @@ class ModelVariant(StrEnum):
     # TinyLlama variants
     TINYLLAMA_V1_1 = "Tinyllama_v1.1"
 
+    # Tiny testing variant (afmck/testing-llama-tiny)
+    TESTING_LLAMA_TINY = "testing_llama_tiny"
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -126,6 +129,11 @@ class ModelLoader(ForgeModel):
         # TinyLlama variants
         ModelVariant.TINYLLAMA_V1_1: LLMModelConfig(
             pretrained_model_name="TinyLlama/TinyLlama_v1.1",
+            max_length=128,
+        ),
+        # Tiny testing variant
+        ModelVariant.TESTING_LLAMA_TINY: LLMModelConfig(
+            pretrained_model_name="afmck/testing-llama-tiny",
             max_length=128,
         ),
     }
@@ -269,15 +277,31 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors suitable for causal LM.
         """
-        # Ensure tokenizer is initialized
-        if self.tokenizer is None:
-            self._load_tokenizer()
+        if self._variant == ModelVariant.TESTING_LLAMA_TINY:
+            # Randomly-initialized tiny test model: its embedding vocab
+            # (config.vocab_size) is much smaller than the Llama tokenizer's
+            # vocab, so real tokenized ids index out of range. Use deterministic
+            # random ids within the model's vocab instead.
+            if self.config is None:
+                self.load_config()
+            gen = torch.Generator().manual_seed(0)
+            input_ids = torch.randint(
+                1, self.config.vocab_size, (1, 8), generator=gen
+            )
+            inputs = {
+                "input_ids": input_ids,
+                "attention_mask": torch.ones_like(input_ids),
+            }
+        else:
+            # Ensure tokenizer is initialized
+            if self.tokenizer is None:
+                self._load_tokenizer()
 
-        # For causal LM, we need both input_ids and attention_mask
-        inputs = self.tokenizer(
-            self.sample_text,
-            return_tensors="pt",
-        )
+            # For causal LM, we need both input_ids and attention_mask
+            inputs = self.tokenizer(
+                self.sample_text,
+                return_tensors="pt",
+            )
 
         # Replicate tensors for batch size
         for key in inputs:
