@@ -36,6 +36,9 @@ class ModelVariant(StrEnum):
     GEMMA_2_9B_IT = "2_9B_IT"
     GEMMA_2_27B_IT = "2_27B_IT"
 
+    # Gemma 2.x fine-tunes
+    C2S_SCALE_GEMMA_2_2B = "2_c2s_scale_2B"
+
 
 class ModelLoader(ForgeModel):
     """Gemma model loader implementation for causal language modeling tasks."""
@@ -59,6 +62,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.GEMMA_2_27B_IT: LLMModelConfig(
             pretrained_model_name="google/gemma-2-27b-it",
+        ),
+        ModelVariant.C2S_SCALE_GEMMA_2_2B: LLMModelConfig(
+            pretrained_model_name="vandijklab/C2S-Scale-Gemma-2-2B",
+            max_length=256,
         ),
     }
 
@@ -167,7 +174,8 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
         self.tokenizer.padding_side = "right"
-        if self._variant == ModelVariant.GEMMA_2B:
+        # Base / non-chat fine-tuned variants have no chat template; tokenize plainly.
+        if self._variant in (ModelVariant.GEMMA_2B, ModelVariant.C2S_SCALE_GEMMA_2_2B):
             input_prompt = prompt or self.sample_text
             inputs = self.tokenizer(
                 input_prompt,
@@ -207,6 +215,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.GEMMA_1_1_2B_IT,
             ModelVariant.GEMMA_2B,
             ModelVariant.GEMMA_2_2B_IT,
+            ModelVariant.C2S_SCALE_GEMMA_2_2B,
         ]:
             assert (
                 self.config.num_attention_heads % mesh_shape[1] == 0
@@ -218,6 +227,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.GEMMA_1_1_2B_IT,
             ModelVariant.GEMMA_2B,
             ModelVariant.GEMMA_2_2B_IT,
+            ModelVariant.C2S_SCALE_GEMMA_2_2B,
         ]:
             return None
 
