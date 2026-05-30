@@ -24,6 +24,11 @@ class ModelVariant(StrEnum):
     """Available Qwen 2 model variants for causal language modeling."""
 
     QWQ_32B = "Qwq_32B"
+    # Speculative-decoding "draft" model for Mistral-Small-3.1. Despite the
+    # Mistral name and GGUF packaging, the architecture is Qwen2 (model_type
+    # "qwen2", Qwen2ForCausalLM) with the vocab extended to 131072 to match
+    # Mistral's tokenizer. Distributed only as GGUF, loaded via gguf_file=.
+    MISTRAL_SMALL_3_1_DRAFT_0_5B_GGUF = "mistral_small_3.1_draft_0.5b_gguf"
 
 
 class ModelLoader(ForgeModel):
@@ -34,6 +39,18 @@ class ModelLoader(ForgeModel):
         ModelVariant.QWQ_32B: LLMModelConfig(
             pretrained_model_name="Qwen/QwQ-32B",
             max_length=128,
+        ),
+        ModelVariant.MISTRAL_SMALL_3_1_DRAFT_0_5B_GGUF: LLMModelConfig(
+            pretrained_model_name="bartowski/alamios_Mistral-Small-3.1-DRAFT-0.5B-GGUF",
+            max_length=128,
+        ),
+    }
+
+    # Variants distributed only as GGUF checkpoints. Maps variant -> the GGUF
+    # filename within the repo to load (and de-quantize) via transformers.
+    _GGUF_FILES = {
+        ModelVariant.MISTRAL_SMALL_3_1_DRAFT_0_5B_GGUF: (
+            "alamios_Mistral-Small-3.1-DRAFT-0.5B-bf16.gguf"
         ),
     }
 
@@ -68,10 +85,15 @@ class ModelLoader(ForgeModel):
         Returns:
             ModelInfo: Information about the model and variant
         """
+        group = (
+            ModelGroup.GENERALITY
+            if variant == ModelVariant.MISTRAL_SMALL_3_1_DRAFT_0_5B_GGUF
+            else ModelGroup.RED
+        )
         return ModelInfo(
             model="Qwen 2",
             variant=variant,
-            group=ModelGroup.RED,
+            group=group,
             task=ModelTask.NLP_CAUSAL_LM,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
@@ -82,8 +104,12 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded tokenizer instance
         """
+        tokenizer_kwargs = {}
+        if self._variant in self._GGUF_FILES:
+            # GGUF-only repos embed the tokenizer in the GGUF file.
+            tokenizer_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
 
         return self.tokenizer
@@ -107,6 +133,10 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        if self._variant in self._GGUF_FILES:
+            # Load and de-quantize the GGUF checkpoint; transformers
+            # reconstructs the full Qwen2ForCausalLM from the GGUF tensors.
+            model_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
@@ -137,12 +167,17 @@ class ModelLoader(ForgeModel):
         # Get max_length from the variant config
         max_length = self._variant_config.max_length
 
-        # Use chat template for QwQ-32B
-        messages = [{"role": "user", "content": self.sample_text}]
-        text = self.tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
-        prompts = [text]
+        if self._variant in self._GGUF_FILES:
+            # GGUF-embedded tokenizers may not carry a chat template; tokenize
+            # the raw sample text directly.
+            prompts = [self.sample_text]
+        else:
+            # Use chat template for QwQ-32B
+            messages = [{"role": "user", "content": self.sample_text}]
+            text = self.tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+            prompts = [text]
 
         inputs = self.tokenizer(
             prompts,
@@ -195,8 +230,13 @@ class ModelLoader(ForgeModel):
         Returns:
             The configuration object for the Qwen2 model.
         """
+        config_kwargs = {}
+        if self._variant in self._GGUF_FILES:
+            # GGUF-only repos ship no config.json; the config is embedded in
+            # the GGUF file and must be read through gguf_file=.
+            config_kwargs["gguf_file"] = self._GGUF_FILES[self._variant]
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, **config_kwargs
         )
 
         return self.config
