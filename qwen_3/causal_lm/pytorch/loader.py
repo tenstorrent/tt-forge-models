@@ -31,6 +31,7 @@ class ModelVariant(StrEnum):
     QWEN_3_14B = "14B"
     QWEN_3_32B = "32B"
     QWEN_3_30B_A3B = "30B_A3b"
+    CHIMERA_4B_RL_GGUF = "CHIMERA_4B_RL_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -66,6 +67,16 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Qwen/Qwen3-30B-A3B",
             max_length=128,
         ),
+        ModelVariant.CHIMERA_4B_RL_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/CHIMERA-4B-RL-i1-GGUF",
+            max_length=128,
+        ),
+    }
+
+    # GGUF-only variants: maps variant -> the .gguf filename within the repo.
+    # transformers loads (and dequantizes) the model/tokenizer/config from this file.
+    _GGUF_VARIANTS = {
+        ModelVariant.CHIMERA_4B_RL_GGUF: "CHIMERA-4B-RL.i1-Q4_K_M.gguf",
     }
 
     # Default variant to use
@@ -114,8 +125,12 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded tokenizer instance
         """
+        tokenizer_kwargs = {}
+        gguf_file = self._GGUF_VARIANTS.get(self._variant)
+        if gguf_file is not None:
+            tokenizer_kwargs["gguf_file"] = gguf_file
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
 
         return self.tokenizer
@@ -140,6 +155,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        # GGUF-only variants: load (and dequantize) weights from the .gguf file.
+        gguf_file = self._GGUF_VARIANTS.get(self._variant)
+        if gguf_file is not None:
+            model_kwargs["gguf_file"] = gguf_file
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
@@ -224,8 +244,12 @@ class ModelLoader(ForgeModel):
         Returns:
             The configuration object for the Qwen3 model.
         """
+        config_kwargs = {}
+        gguf_file = self._GGUF_VARIANTS.get(self._variant)
+        if gguf_file is not None:
+            config_kwargs["gguf_file"] = gguf_file
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, **config_kwargs
         )
 
         return self.config
