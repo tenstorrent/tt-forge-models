@@ -40,6 +40,7 @@ class ModelVariant(StrEnum):
     MAGISTRAL_SMALL_2506 = "Magistral_Small_2506"
     MISTRAL_SMALL_3_1_24B_INSTRUCT_2503 = "mistral_small_3.1_24b_instruct_2503"  # Untested in Transformers; for full testing, please refer to VLLM.
     MISTRAL_SMALL_3_2_24B_INSTRUCT_2506 = "mistral_small_3.2_24b_instruct_2506"
+    CHARACTERBUILDERAI_GGUF = "characterbuilderai_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -56,6 +57,12 @@ class ModelLoader(ForgeModel):
     }
     _USE_Mistral3ForConditionalGeneration_VARIANTS = {
         ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_2506,
+    }
+    # GGUF-only repos: map the variant to the .gguf file inside the repo.
+    # transformers loads (and dequantizes) the model/tokenizer from the GGUF
+    # via the gguf_file= kwarg. Requires the `gguf>=0.10.0` pip package.
+    _GGUF_VARIANTS = {
+        ModelVariant.CHARACTERBUILDERAI_GGUF: "unsloth.Q4_K_M.gguf",
     }
 
     # Dictionary of available model variants
@@ -92,6 +99,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_2506: ModelConfig(
             pretrained_model_name="mistralai/Mistral-Small-3.2-24B-Instruct-2506",
+        ),
+        ModelVariant.CHARACTERBUILDERAI_GGUF: ModelConfig(
+            pretrained_model_name="Idrinth/characterbuilderai-gguf",
         ),
     }
 
@@ -173,6 +183,15 @@ class ModelLoader(ForgeModel):
                 self._variant_config.pretrained_model_name
             )
             return self.tokenizer
+        if self._variant in self._GGUF_VARIANTS:
+            # GGUF-only repo: tokenizer is embedded in the .gguf file.
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                gguf_file=self._GGUF_VARIANTS[self._variant],
+                padding_side="right",
+            )
+            return self.tokenizer
+
         # Initialize tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, padding_side="right"
@@ -199,6 +218,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        if self._variant in self._GGUF_VARIANTS:
+            # GGUF-only repo: weights live in the .gguf file; transformers
+            # dequantizes them on load via the gguf_file= kwarg.
+            model_kwargs["gguf_file"] = self._GGUF_VARIANTS[self._variant]
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
@@ -424,6 +448,15 @@ class ModelLoader(ForgeModel):
         Returns:
             The configuration object for the Mistral model.
         """
+        if self._variant in self._GGUF_VARIANTS:
+            # GGUF-only repo has only a stub config.json; the real config is
+            # embedded in the .gguf file and must be read via gguf_file=.
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                gguf_file=self._GGUF_VARIANTS[self._variant],
+            )
+            return self.config
+
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name
         )
