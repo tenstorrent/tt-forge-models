@@ -33,6 +33,7 @@ class ModelVariant(StrEnum):
 
     # Gemma 2.x
     GEMMA_2_2B_IT = "2_2B_IT"
+    GEMMA_2_2B_IT_UNSLOTH = "2_2B_IT_unsloth"
     GEMMA_2_9B_IT = "2_9B_IT"
     GEMMA_2_27B_IT = "2_27B_IT"
 
@@ -53,6 +54,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.GEMMA_2_2B_IT: LLMModelConfig(
             pretrained_model_name="google/gemma-2-2b-it",
+        ),
+        ModelVariant.GEMMA_2_2B_IT_UNSLOTH: LLMModelConfig(
+            pretrained_model_name="unsloth/gemma-2-2b-it",
         ),
         ModelVariant.GEMMA_2_9B_IT: LLMModelConfig(
             pretrained_model_name="google/gemma-2-9b-it",
@@ -207,6 +211,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.GEMMA_1_1_2B_IT,
             ModelVariant.GEMMA_2B,
             ModelVariant.GEMMA_2_2B_IT,
+            ModelVariant.GEMMA_2_2B_IT_UNSLOTH,
         ]:
             assert (
                 self.config.num_attention_heads % mesh_shape[1] == 0
@@ -218,6 +223,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.GEMMA_1_1_2B_IT,
             ModelVariant.GEMMA_2B,
             ModelVariant.GEMMA_2_2B_IT,
+            ModelVariant.GEMMA_2_2B_IT_UNSLOTH,
         ]:
             return None
 
