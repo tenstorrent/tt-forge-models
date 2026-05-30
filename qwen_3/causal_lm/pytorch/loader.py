@@ -31,6 +31,7 @@ class ModelVariant(StrEnum):
     QWEN_3_14B = "14B"
     QWEN_3_32B = "32B"
     QWEN_3_30B_A3B = "30B_A3b"
+    QWEN_3_4B_INSTRUCT_2507_SANDBOX_RL = "4B_Instruct_2507_Sandbox_RL"
 
 
 class ModelLoader(ForgeModel):
@@ -64,6 +65,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_30B_A3B: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen3-30B-A3B",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_4B_INSTRUCT_2507_SANDBOX_RL: LLMModelConfig(
+            pretrained_model_name="daixuancheng/Qwen3-4B-Instruct-2507-LLM-in-Sandbox-RL",
             max_length=128,
         ),
     }
