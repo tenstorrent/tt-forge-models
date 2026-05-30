@@ -1,0 +1,182 @@
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+"""
+Alpaca-Native model loader implementation for causal language modeling.
+
+Alpaca-Native is a LLaMA-7B model fully fine-tuned (without LoRA) on the
+Stanford Alpaca instruction-following dataset. It uses the standard
+``LlamaForCausalLM`` architecture and is loaded directly from HuggingFace.
+"""
+import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+from typing import Optional
+
+from ...base import ForgeModel
+from ...config import (
+    ModelConfig,
+    ModelInfo,
+    ModelGroup,
+    ModelTask,
+    ModelSource,
+    Framework,
+    StrEnum,
+)
+
+
+class ModelVariant(StrEnum):
+    """Available Alpaca-Native model variants."""
+
+    ALPACA_NATIVE_7B = "Alpaca_Native_7B"
+
+
+class ModelLoader(ForgeModel):
+    """Alpaca-Native model loader implementation for causal language modeling tasks."""
+
+    # Dictionary of available model variants
+    _VARIANTS = {
+        ModelVariant.ALPACA_NATIVE_7B: ModelConfig(
+            pretrained_model_name="maicomputer/alpaca-native",
+        ),
+    }
+
+    # Default variant to use
+    DEFAULT_VARIANT = ModelVariant.ALPACA_NATIVE_7B
+
+    def __init__(
+        self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
+    ):
+        """Initialize ModelLoader with specified variant.
+
+        Args:
+            variant: Optional ModelVariant specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+            num_layers: Optional number of hidden layers to use. If None, uses the model's default.
+        """
+        super().__init__(variant)
+        self.tokenizer = None
+        self.num_layers = num_layers
+
+    @classmethod
+    def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
+        """Implementation method for getting model info with validated variant.
+
+        Args:
+            variant: Optional ModelVariant specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
+
+        Returns:
+            ModelInfo: Information about the model and variant
+        """
+        return ModelInfo(
+            model="AlpacaNative",
+            variant=variant,
+            group=ModelGroup.GENERALITY,
+            task=ModelTask.NLP_CAUSAL_LM,
+            source=ModelSource.HUGGING_FACE,
+            framework=Framework.TORCH,
+        )
+
+    def _load_tokenizer(self):
+        """Load tokenizer for the current variant.
+
+        Returns:
+            The loaded tokenizer instance
+        """
+        # Initialize tokenizer
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            self._variant_config.pretrained_model_name
+        )
+        self.tokenizer.pad_token = self.tokenizer.eos_token
+        return self.tokenizer
+
+    def load_model(self, *, dtype_override=None, **kwargs):
+        """Load and return the Alpaca-Native model instance for this instance's variant.
+
+        Args:
+            dtype_override: Optional torch.dtype to override the model's default dtype.
+                            If not provided, the model uses its default dtype.
+
+        Returns:
+            torch.nn.Module: The Alpaca-Native model instance for causal language modeling.
+        """
+        # Get the pretrained model name from the instance's variant config
+        pretrained_model_name = self._variant_config.pretrained_model_name
+
+        # Ensure tokenizer is loaded
+        if self.tokenizer is None:
+            self._load_tokenizer()
+
+        model_kwargs = {}
+        if dtype_override is not None:
+            model_kwargs["torch_dtype"] = dtype_override
+        model_kwargs |= kwargs
+
+        if self.num_layers is not None:
+            config = AutoConfig.from_pretrained(pretrained_model_name)
+            config.num_hidden_layers = self.num_layers
+            model_kwargs["config"] = config
+
+        # Load pre-trained model from HuggingFace
+        model = AutoModelForCausalLM.from_pretrained(
+            pretrained_model_name, **model_kwargs
+        )
+
+        # Disable gradients for inference
+        for param in model.parameters():
+            param.requires_grad = False
+
+        model.eval()
+
+        return model
+
+    def load_inputs(self, dtype_override=None, batch_size=1):
+        """Load and return sample inputs for the Alpaca-Native model with this instance's variant settings.
+
+        Args:
+            dtype_override: Optional torch.dtype (only float inputs are cast).
+            batch_size: Optional batch size to override the default batch size of 1.
+
+        Returns:
+            dict: Input tensors (input_ids, attention_mask) that can be fed to the model.
+        """
+        # Ensure tokenizer is initialized
+        if self.tokenizer is None:
+            self._load_tokenizer()
+
+        # Sample text input
+        test_input = "This is a sample text from "
+
+        # Tokenize input
+        self.tokenizer.padding_side = "right"
+        inputs = self.tokenizer(
+            test_input,
+            return_tensors="pt",
+            max_length=32,
+            padding="max_length",
+            add_special_tokens=True,
+            truncation=True,
+        )
+
+        # Add batch dimension
+        for key in inputs:
+            if torch.is_tensor(inputs[key]):
+                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+
+        return inputs
+
+    def decode_output(self, outputs, dtype_override=None):
+        """Helper method to decode model outputs into human-readable text.
+
+        Args:
+            outputs: Model output from a forward pass
+        Returns:
+            str: Decoded next token text
+        """
+        if self.tokenizer is None:
+            self._load_tokenizer()
+
+        # Get logits for the last token
+        next_token_logits = outputs.logits[:, -1]
+        next_token = next_token_logits.softmax(dim=-1).argmax()
+        return self.tokenizer.decode([next_token])
