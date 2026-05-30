@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available DeepSeek Qwen model variants for causal language modeling."""
 
     DEEPSEEK_QWEN_R1_DISTILL_32B = "R1_Distill_32B"
+    DEEPSEEK_QWEN_R1_DISTILL_1_5B = "R1_Distill_1.5B"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DEEPSEEK_QWEN_R1_DISTILL_32B: LLMModelConfig(
             pretrained_model_name="deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
+            max_length=256,
+        ),
+        ModelVariant.DEEPSEEK_QWEN_R1_DISTILL_1_5B: LLMModelConfig(
+            pretrained_model_name="mlx-community/DeepSeek-R1-Distill-Qwen-1.5B",
             max_length=256,
         ),
     }
