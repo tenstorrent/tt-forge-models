@@ -56,6 +56,9 @@ class ModelVariant(StrEnum):
     # TinyLlama variants
     TINYLLAMA_V1_1 = "Tinyllama_v1.1"
 
+    # GGUF-only community variants (Llama-3 arch)
+    NEMOTRON_NANO_8B_GGUF = "nemotron_nano_8b_gguf"
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -128,6 +131,19 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="TinyLlama/TinyLlama_v1.1",
             max_length=128,
         ),
+        # GGUF-only community variants (Llama-3 arch)
+        ModelVariant.NEMOTRON_NANO_8B_GGUF: LLMModelConfig(
+            pretrained_model_name="bartowski/nvidia_Llama-3.1-Nemotron-Nano-8B-v1-GGUF",
+            max_length=128,
+        ),
+    }
+
+    # GGUF-only variants: map variant -> the specific .gguf file to load from the repo.
+    # transformers loads both model and tokenizer from the GGUF via gguf_file=, then
+    # dequantizes to fp32. The quant level does not affect PCC (CPU golden and device
+    # share the same dequantized weights), so a small quant is fine.
+    _GGUF_VARIANTS = {
+        ModelVariant.NEMOTRON_NANO_8B_GGUF: "nvidia_Llama-3.1-Nemotron-Nano-8B-v1-Q4_K_M.gguf",
     }
 
     # Default variant to use
@@ -212,6 +228,10 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
+        # GGUF-only repos carry the tokenizer inside the .gguf file.
+        if self._variant in self._GGUF_VARIANTS:
+            tokenizer_kwargs["gguf_file"] = self._GGUF_VARIANTS[self._variant]
+
         self.tokenizer = AutoTokenizer.from_pretrained(
             pretrained_model_name, **tokenizer_kwargs
         )
@@ -241,6 +261,10 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        # GGUF-only repos: load (and dequantize) weights from the .gguf file.
+        if self._variant in self._GGUF_VARIANTS:
+            model_kwargs["gguf_file"] = self._GGUF_VARIANTS[self._variant]
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
@@ -410,8 +434,13 @@ class ModelLoader(ForgeModel):
         Returns:
             The configuration object for the Llama model.
         """
+        config_kwargs = {}
+        # GGUF-only repos have no config.json; the config lives in the .gguf file.
+        if self._variant in self._GGUF_VARIANTS:
+            config_kwargs["gguf_file"] = self._GGUF_VARIANTS[self._variant]
+
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, **config_kwargs
         )
 
         return self.config
