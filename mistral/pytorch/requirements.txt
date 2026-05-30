@@ -1,1 +1,2 @@
 mistral-common>=1.5.5
+gguf>=0.10.0

@@ -40,6 +40,7 @@ class ModelVariant(StrEnum):
     MAGISTRAL_SMALL_2506 = "Magistral_Small_2506"
     MISTRAL_SMALL_3_1_24B_INSTRUCT_2503 = "mistral_small_3.1_24b_instruct_2503"  # Untested in Transformers; for full testing, please refer to VLLM.
     MISTRAL_SMALL_3_2_24B_INSTRUCT_2506 = "mistral_small_3.2_24b_instruct_2506"
+    MISTRAL_BATVENOM_V9_1 = "BatVenom_V9.1"
 
 
 class ModelLoader(ForgeModel):
@@ -56,6 +57,13 @@ class ModelLoader(ForgeModel):
     }
     _USE_Mistral3ForConditionalGeneration_VARIANTS = {
         ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_2506,
+    }
+    # GGUF-only repos: no safetensors/config.json at the repo root, so both the
+    # model and tokenizer must be reconstructed from a specific GGUF file via
+    # transformers' gguf_file= path (dequantizes weights + rebuilds config/tokenizer
+    # from GGUF metadata). Maps each variant to the GGUF filename to load.
+    _GGUF_FILE = {
+        ModelVariant.MISTRAL_BATVENOM_V9_1: "Mistral-BatVenom_V9.1_Q4_K_M.gguf",
     }
 
     # Dictionary of available model variants
@@ -92,6 +100,14 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_2506: ModelConfig(
             pretrained_model_name="mistralai/Mistral-Small-3.2-24B-Instruct-2506",
+        ),
+        # GGUF-only roleplay fine-tune of mistralai/Mistral-Nemo-Instruct-2407 (12B).
+        # Loaded directly from its Q4_K_M GGUF (general.architecture=llama, supported
+        # by transformers' GGUF_CONFIG_MAPPING) so the actual fine-tuned weights are
+        # used rather than the vanilla Nemo base. Same Nemo architecture as
+        # MISTRAL_NEMO_INSTRUCT_2407, which passes single_device on p150.
+        ModelVariant.MISTRAL_BATVENOM_V9_1: ModelConfig(
+            pretrained_model_name="BrainDelay/BatVenom",
         ),
     }
 
@@ -173,6 +189,16 @@ class ModelLoader(ForgeModel):
                 self._variant_config.pretrained_model_name
             )
             return self.tokenizer
+
+        if self._variant in self._GGUF_FILE:
+            # GGUF-only repo: rebuild the tokenizer from the GGUF metadata.
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                gguf_file=self._GGUF_FILE[self._variant],
+                padding_side="right",
+            )
+            return self.tokenizer
+
         # Initialize tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, padding_side="right"
@@ -198,6 +224,9 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        if self._variant in self._GGUF_FILE:
+            # Reconstruct config + dequantize weights from the GGUF file.
+            model_kwargs["gguf_file"] = self._GGUF_FILE[self._variant]
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
@@ -424,8 +453,14 @@ class ModelLoader(ForgeModel):
         Returns:
             The configuration object for the Mistral model.
         """
+        config_kwargs = {}
+        if self._variant in self._GGUF_FILE:
+            # GGUF-only repo: reconstruct the config from the GGUF metadata, since
+            # there is no config.json at the repo root.
+            config_kwargs["gguf_file"] = self._GGUF_FILE[self._variant]
+
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, **config_kwargs
         )
 
         return self.config
