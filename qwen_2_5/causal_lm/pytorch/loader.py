@@ -42,6 +42,7 @@ class ModelVariant(StrEnum):
     QWEN_2_5_72B_INSTRUCT = "72B_Instruct"
     QWEN_2_5_72B = "72B"
     QWEN_2_5_MATH_7B = "Math_7B"
+    ATHENA_1_7B_GGUF = "Athena_1_7B_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -113,6 +114,19 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Qwen/Qwen2.5-Math-7B",
             max_length=128,
         ),
+        # GGUF-only repo (Qwen2.5-7B arch finetune). Loaded via transformers
+        # gguf_file=; transformers dequantizes to fp32 on load.
+        ModelVariant.ATHENA_1_7B_GGUF: LLMModelConfig(
+            pretrained_model_name="mradermacher/Athena-1-7B-i1-GGUF",
+            max_length=128,
+        ),
+    }
+
+    # Map of GGUF-only variants to the specific .gguf file to load from the repo.
+    # A small quant is fine: transformers dequantizes to fp32, so the quant level
+    # does not affect PCC (CPU golden and device run share the same weights).
+    _GGUF_VARIANTS = {
+        ModelVariant.ATHENA_1_7B_GGUF: "Athena-1-7B.i1-Q2_K.gguf",
     }
 
     # Default variant to use
@@ -180,6 +194,11 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
+        # GGUF-only repos carry the tokenizer inside the .gguf file.
+        gguf_file = self._GGUF_VARIANTS.get(self._variant)
+        if gguf_file is not None:
+            tokenizer_kwargs["gguf_file"] = gguf_file
+
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
@@ -205,6 +224,12 @@ class ModelLoader(ForgeModel):
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+
+        # GGUF-only repos: load weights from the .gguf file (dequantized to fp32).
+        gguf_file = self._GGUF_VARIANTS.get(self._variant)
+        if gguf_file is not None:
+            model_kwargs["gguf_file"] = gguf_file
+
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
@@ -299,8 +324,13 @@ class ModelLoader(ForgeModel):
         Returns:
             The configuration object for the Qwen 2.5 model.
         """
+        config_kwargs = {}
+        gguf_file = self._GGUF_VARIANTS.get(self._variant)
+        if gguf_file is not None:
+            config_kwargs["gguf_file"] = gguf_file
+
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, **config_kwargs
         )
 
         return self.config
