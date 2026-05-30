@@ -40,6 +40,7 @@ class ModelVariant(StrEnum):
     MAGISTRAL_SMALL_2506 = "Magistral_Small_2506"
     MISTRAL_SMALL_3_1_24B_INSTRUCT_2503 = "mistral_small_3.1_24b_instruct_2503"  # Untested in Transformers; for full testing, please refer to VLLM.
     MISTRAL_SMALL_3_2_24B_INSTRUCT_2506 = "mistral_small_3.2_24b_instruct_2506"
+    CAPYBARAHERMES_2_5_7B = "capybarahermes_2.5_7b"
 
 
 class ModelLoader(ForgeModel):
@@ -92,6 +93,14 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_2506: ModelConfig(
             pretrained_model_name="mistralai/Mistral-Small-3.2-24B-Instruct-2506",
+        ),
+        # CapybaraHermes-2.5-Mistral-7B: a DPO fine-tune of OpenHermes-2.5-Mistral-7B.
+        # The requested repo (TheBloke/CapybaraHermes-2.5-Mistral-7B-GGUF) is a GGUF
+        # quantized export; we point at the upstream safetensors base repo, which is a
+        # standard MistralForCausalLM (model_type=mistral, 32 layers, vocab 32002) and
+        # loads cleanly via AutoModelForCausalLM/AutoTokenizer.
+        ModelVariant.CAPYBARAHERMES_2_5_7B: ModelConfig(
+            pretrained_model_name="argilla/CapybaraHermes-2.5-Mistral-7B",
         ),
     }
 
