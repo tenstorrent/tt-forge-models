@@ -40,6 +40,7 @@ class ModelVariant(StrEnum):
     MAGISTRAL_SMALL_2506 = "Magistral_Small_2506"
     MISTRAL_SMALL_3_1_24B_INSTRUCT_2503 = "mistral_small_3.1_24b_instruct_2503"  # Untested in Transformers; for full testing, please refer to VLLM.
     MISTRAL_SMALL_3_2_24B_INSTRUCT_2506 = "mistral_small_3.2_24b_instruct_2506"
+    QUANTUM_VQE_GGUF = "quantum_vqe_mistral_gguf"
 
 
 class ModelLoader(ForgeModel):
@@ -92,6 +93,11 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_2506: ModelConfig(
             pretrained_model_name="mistralai/Mistral-Small-3.2-24B-Instruct-2506",
+        ),
+        # Community fine-tune of Mistral-7B (safetensors, standard MistralForCausalLM
+        # despite the "gguf" in the repo name).
+        ModelVariant.QUANTUM_VQE_GGUF: ModelConfig(
+            pretrained_model_name="Banana304343/quantum-vqe-mistral-gguf",
         ),
     }
 
