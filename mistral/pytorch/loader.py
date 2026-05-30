@@ -40,6 +40,7 @@ class ModelVariant(StrEnum):
     MAGISTRAL_SMALL_2506 = "Magistral_Small_2506"
     MISTRAL_SMALL_3_1_24B_INSTRUCT_2503 = "mistral_small_3.1_24b_instruct_2503"  # Untested in Transformers; for full testing, please refer to VLLM.
     MISTRAL_SMALL_3_2_24B_INSTRUCT_2506 = "mistral_small_3.2_24b_instruct_2506"
+    MINISTRAL_8B_INSTRUCT_2410_GGUF = "Ministral_8B_Instruct_2410_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -56,6 +57,15 @@ class ModelLoader(ForgeModel):
     }
     _USE_Mistral3ForConditionalGeneration_VARIANTS = {
         ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_2506,
+    }
+    # GGUF-quantized variants: transformers dequantizes the GGUF into a full
+    # fp32 state dict. The model and tokenizer are loaded from a specific .gguf
+    # file inside the repo (see _GGUF_FILES).
+    _GGUF_VARIANTS = {
+        ModelVariant.MINISTRAL_8B_INSTRUCT_2410_GGUF,
+    }
+    _GGUF_FILES = {
+        ModelVariant.MINISTRAL_8B_INSTRUCT_2410_GGUF: "Ministral-8B-Instruct-2410-Q4_K_M.gguf",
     }
 
     # Dictionary of available model variants
@@ -92,6 +102,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_2506: ModelConfig(
             pretrained_model_name="mistralai/Mistral-Small-3.2-24B-Instruct-2506",
+        ),
+        ModelVariant.MINISTRAL_8B_INSTRUCT_2410_GGUF: ModelConfig(
+            pretrained_model_name="bartowski/Ministral-8B-Instruct-2410-GGUF",
         ),
     }
 
@@ -133,6 +146,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.MISTRAL_NEMO_INSTRUCT_2407,
             ModelVariant.DEVSTRAL_SMALL_2505,
             ModelVariant.MAGISTRAL_SMALL_2506,
+            ModelVariant.MINISTRAL_8B_INSTRUCT_2410_GGUF,
         ]:
             group = ModelGroup.RED
         else:
@@ -173,6 +187,16 @@ class ModelLoader(ForgeModel):
                 self._variant_config.pretrained_model_name
             )
             return self.tokenizer
+
+        if self._variant in self._GGUF_VARIANTS:
+            # The GGUF repo ships no standalone HF tokenizer files; transformers
+            # reconstructs the tokenizer from the .gguf file's metadata.
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                gguf_file=self._GGUF_FILES[self._variant],
+                padding_side="right",
+            )
+            return self.tokenizer
         # Initialize tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, padding_side="right"
@@ -194,6 +218,47 @@ class ModelLoader(ForgeModel):
         # Ensure tokenizer is loaded
         if self.tokenizer is None:
             self._load_tokenizer()
+
+        # GGUF variants: transformers dequantizes the GGUF into a full fp32
+        # state dict (~32 GB for 8B). Passing torch_dtype here would make it
+        # hold that fp32 dict AND a second copy of the whole model
+        # simultaneously, risking host OOM on the bringup runner. Instead load
+        # in fp32 and (if requested) cast in place, one tensor at a time, so the
+        # two full copies never coexist.
+        if self._variant in self._GGUF_VARIANTS:
+            model_kwargs = dict(kwargs)
+            if self.num_layers is not None:
+                config = AutoConfig.from_pretrained(
+                    pretrained_model_name,
+                    gguf_file=self._GGUF_FILES[self._variant],
+                )
+                config.num_hidden_layers = self.num_layers
+                model_kwargs["config"] = config
+
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name,
+                gguf_file=self._GGUF_FILES[self._variant],
+                **model_kwargs,
+            ).eval()
+
+            # Ministral-8B's HF config declares sliding-window layers, but the
+            # GGUF is full-attention; force full attention to match.
+            if hasattr(model.config, "layer_types"):
+                model.config.layer_types = ["full_attention"] * len(
+                    model.config.layer_types
+                )
+
+            if dtype_override is not None:
+                for p in model.parameters():
+                    if p.data.is_floating_point():
+                        p.data = p.data.to(dtype_override)
+                for b_name, b in model.named_buffers():
+                    if b.is_floating_point():
+                        b.data = b.data.to(dtype_override)
+
+            self.config = model.config
+            self.model = model
+            return model
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -424,6 +489,15 @@ class ModelLoader(ForgeModel):
         Returns:
             The configuration object for the Mistral model.
         """
+        if self._variant in self._GGUF_VARIANTS:
+            # The GGUF repo has no config.json; the config is reconstructed from
+            # the .gguf file's metadata.
+            self.config = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name,
+                gguf_file=self._GGUF_FILES[self._variant],
+            )
+            return self.config
+
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name
         )
