@@ -52,6 +52,7 @@ class ModelVariant(StrEnum):
 
     # HuggingFace community variants
     HUGGYLLAMA_7B = "Huggyllama_7B"
+    ARGILLA_LLAMA_3_2_1B_APIGEN_FC = "3.2_1B_APIGen_FC"
 
     # TinyLlama variants
     TINYLLAMA_V1_1 = "Tinyllama_v1.1"
@@ -121,6 +122,10 @@ class ModelLoader(ForgeModel):
         # HuggingFace community variants
         ModelVariant.HUGGYLLAMA_7B: LLMModelConfig(
             pretrained_model_name="huggyllama/llama-7b",
+            max_length=128,
+        ),
+        ModelVariant.ARGILLA_LLAMA_3_2_1B_APIGEN_FC: LLMModelConfig(
+            pretrained_model_name="argilla/Llama-3.2-1B-Instruct-APIGen-FC-v0.1",
             max_length=128,
         ),
         # TinyLlama variants
