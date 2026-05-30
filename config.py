@@ -174,4 +174,9 @@ class LLMModelConfig(ModelConfig):
     attention_mechanism: Optional[str] = None
     sliding_window: Optional[int] = None
 
+    # Path to a specific GGUF file within the HF repo. When set, the model and
+    # tokenizer are loaded from this quantized GGUF file via transformers'
+    # `gguf_file=` support (dequantized on load).
+    gguf_file: Optional[str] = None
+
     # Additional LLM-specific configuration

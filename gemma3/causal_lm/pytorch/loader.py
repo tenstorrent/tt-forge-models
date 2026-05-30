@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     GEMMA_3_270M_IT = "270M_Instruct"
     GEMMA_3_1B_IT = "1B_Instruct"
+    GEMMA_3_270M_IT_GGUF = "270M_Instruct_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +39,13 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.GEMMA_3_1B_IT: LLMModelConfig(
             pretrained_model_name="google/gemma-3-1b-it",
+            max_length=256,
+        ),
+        # Ungated GGUF release of gemma-3-270m-it. The model and tokenizer are
+        # dequantized from the Q4_K_M GGUF on load via transformers' gguf_file=.
+        ModelVariant.GEMMA_3_270M_IT_GGUF: LLMModelConfig(
+            pretrained_model_name="unsloth/gemma-3-270m-it-GGUF",
+            gguf_file="gemma-3-270m-it-Q4_K_M.gguf",
             max_length=256,
         ),
     }
@@ -76,7 +84,13 @@ class ModelLoader(ForgeModel):
             The loaded tokenizer instance
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
-        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
+        tokenizer_kwargs = {}
+        gguf_file = getattr(self._variant_config, "gguf_file", None)
+        if gguf_file is not None:
+            tokenizer_kwargs["gguf_file"] = gguf_file
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            pretrained_model_name, **tokenizer_kwargs
+        )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         return self.tokenizer
@@ -96,6 +110,10 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"use_cache": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+
+        gguf_file = getattr(self._variant_config, "gguf_file", None)
+        if gguf_file is not None:
+            model_kwargs["gguf_file"] = gguf_file
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
