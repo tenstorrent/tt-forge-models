@@ -34,6 +34,7 @@ class ModelVariant(StrEnum):
     GLM_4_5_AIR = "4.5_Air"
     GLM_5 = "5"
     GLM_5_1 = "5.1"
+    GLM_Z1_9B = "z1_9b_0414"
 
 
 class ModelLoader(ForgeModel):
@@ -59,6 +60,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.GLM_5_1: LLMModelConfig(
             pretrained_model_name="zai-org/GLM-5.1",
+            max_length=128,
+        ),
+        ModelVariant.GLM_Z1_9B: LLMModelConfig(
+            pretrained_model_name="zai-org/GLM-Z1-9B-0414",
             max_length=128,
         ),
     }
@@ -269,9 +274,15 @@ class ModelLoader(ForgeModel):
         shard_specs = {}
         shard_specs[model.model.embed_tokens.weight] = (None, "batch")
         for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+            mlp = layer.mlp
+            # Dense Glm4 fuses gate/up into a single gate_up_proj; the larger
+            # MoE-style variants expose separate gate_proj/up_proj.
+            if hasattr(mlp, "gate_up_proj"):
+                shard_specs[mlp.gate_up_proj.weight] = ("model", "batch")
+            else:
+                shard_specs[mlp.up_proj.weight] = ("model", "batch")
+                shard_specs[mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[mlp.down_proj.weight] = ("batch", "model")
 
             shard_specs[layer.input_layernorm.weight] = ("batch",)
             shard_specs[layer.post_attention_layernorm.weight] = ("batch",)
