@@ -56,6 +56,9 @@ class ModelVariant(StrEnum):
     # TinyLlama variants
     TINYLLAMA_V1_1 = "Tinyllama_v1.1"
 
+    # CLAUSE-Bielefeld community variants (small Llama fine-tunes)
+    COMMUNICATIVE_BABY_RFOLMO_SCORE = "Communicative_Baby_RFOLMo_Score"
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -126,6 +129,11 @@ class ModelLoader(ForgeModel):
         # TinyLlama variants
         ModelVariant.TINYLLAMA_V1_1: LLMModelConfig(
             pretrained_model_name="TinyLlama/TinyLlama_v1.1",
+            max_length=128,
+        ),
+        # CLAUSE-Bielefeld community variants
+        ModelVariant.COMMUNICATIVE_BABY_RFOLMO_SCORE: LLMModelConfig(
+            pretrained_model_name="CLAUSE-Bielefeld/communicative-baby-rfolmo_score",
             max_length=128,
         ),
     }
