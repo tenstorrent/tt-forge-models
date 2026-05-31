@@ -56,6 +56,9 @@ class ModelVariant(StrEnum):
     # TinyLlama variants
     TINYLLAMA_V1_1 = "Tinyllama_v1.1"
 
+    # NVIDIA ChatQA variants (Llama 3 8B fine-tunes)
+    CHATQA_1_5_8B = "ChatQA_1.5_8B"
+
 
 class ModelLoader(ForgeModel):
     """Llama model loader implementation for causal language modeling tasks."""
@@ -126,6 +129,11 @@ class ModelLoader(ForgeModel):
         # TinyLlama variants
         ModelVariant.TINYLLAMA_V1_1: LLMModelConfig(
             pretrained_model_name="TinyLlama/TinyLlama_v1.1",
+            max_length=128,
+        ),
+        # NVIDIA ChatQA variants (Llama 3 8B fine-tunes)
+        ModelVariant.CHATQA_1_5_8B: LLMModelConfig(
+            pretrained_model_name="nvidia/Llama3-ChatQA-1.5-8B",
             max_length=128,
         ),
     }
