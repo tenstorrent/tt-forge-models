@@ -38,6 +38,7 @@ class ModelVariant(StrEnum):
     QWEN_2_5_14B = "14B"
     QWEN_2_5_14B_INSTRUCT = "14B_Instruct"
     QWEN_2_5_14B_INSTRUCT_1M = "14B_Instruct_1M"
+    QWEN_2_5_14B_INSTRUCT_ABLITERATED = "14B_Instruct_abliterated"
     QWEN_2_5_32B_INSTRUCT = "32B_Instruct"
     QWEN_2_5_72B_INSTRUCT = "72B_Instruct"
     QWEN_2_5_72B = "72B"
@@ -95,6 +96,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_2_5_14B_INSTRUCT_1M: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen2.5-14B-Instruct-1M",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_2_5_14B_INSTRUCT_ABLITERATED: LLMModelConfig(
+            pretrained_model_name="huihui-ai/Qwen2.5-14B-Instruct-abliterated",
             max_length=128,
         ),
         ModelVariant.QWEN_2_5_32B_INSTRUCT: LLMModelConfig(
@@ -156,6 +161,7 @@ class ModelLoader(ForgeModel):
             ModelVariant.QWEN_2_5_3B_INSTRUCT,
             ModelVariant.QWEN_2_5_7B_INSTRUCT,
             ModelVariant.QWEN_2_5_14B_INSTRUCT,
+            ModelVariant.QWEN_2_5_14B_INSTRUCT_ABLITERATED,
             ModelVariant.QWEN_2_5_32B_INSTRUCT,
             ModelVariant.QWEN_2_5_72B_INSTRUCT,
             ModelVariant.QWEN_2_5_72B,
