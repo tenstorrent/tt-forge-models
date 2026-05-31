@@ -40,6 +40,7 @@ class ModelVariant(StrEnum):
     LLAMA_3_1_70B_INSTRUCT = "3.1_70B_Instruct"
     LLAMA_3_1_405B = "3.1_405B"
     LLAMA_3_1_405B_INSTRUCT = "3.1_405B_Instruct"
+    LLAMA_3_1_8B_INSTRUCT_OWL_NUMBERS_FT = "3.1_8B_Instruct_owl_numbers_ft"
 
     # Llama 3.2 variants
     LLAMA_3_2_1B = "3.2_1B"
@@ -94,6 +95,11 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.LLAMA_3_1_405B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="meta-llama/Meta-Llama-3.1-405B-Instruct",
+            max_length=128,
+        ),
+        # Llama 3.1 8B Instruct community fine-tune (owl-numbers SFT)
+        ModelVariant.LLAMA_3_1_8B_INSTRUCT_OWL_NUMBERS_FT: LLMModelConfig(
+            pretrained_model_name="eekay/Llama-3.1-8B-Instruct-owl-numbers-ft",
             max_length=128,
         ),
         # Llama 3.2 variants
