@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
     GPT_NEO_125M = "125M"
     GPT_NEO_1_3B = "1_3B"
     GPT_NEO_2_7B = "2_7B"
+    TINY_STORIES_33M = "tiny_stories_33M"
 
 
 class ModelLoader(ForgeModel):
@@ -43,6 +44,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.GPT_NEO_2_7B: LLMModelConfig(
             pretrained_model_name="EleutherAI/gpt-neo-2.7B",
+            max_length=256,
+        ),
+        ModelVariant.TINY_STORIES_33M: LLMModelConfig(
+            pretrained_model_name="roneneldan/TinyStories-33M",
             max_length=256,
         ),
     }
