@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     GEMMA_3_270M_IT = "270M_Instruct"
     GEMMA_3_1B_IT = "1B_Instruct"
+    GEMMA_3_12B_IT_GGUF = "12B_Instruct_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -40,6 +41,16 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="google/gemma-3-1b-it",
             max_length=256,
         ),
+        ModelVariant.GEMMA_3_12B_IT_GGUF: LLMModelConfig(
+            pretrained_model_name="chatpdflocal/gemma-3-12b-it-gguf",
+            max_length=256,
+        ),
+    }
+
+    # GGUF-quantized variants dequantize back to the base Gemma3 text arch
+    # (Gemma3ForCausalLM) at load time via transformers' gguf_file= path.
+    _GGUF_FILES = {
+        ModelVariant.GEMMA_3_12B_IT_GGUF: "gemma-3-12b-it-q4_0.gguf",
     }
 
     DEFAULT_VARIANT = ModelVariant.GEMMA_3_270M_IT
@@ -76,7 +87,13 @@ class ModelLoader(ForgeModel):
             The loaded tokenizer instance
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
-        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
+        tok_kwargs = {}
+        gguf_file = self._GGUF_FILES.get(self._variant)
+        if gguf_file is not None:
+            tok_kwargs["gguf_file"] = gguf_file
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            pretrained_model_name, **tok_kwargs
+        )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         return self.tokenizer
@@ -96,6 +113,10 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"use_cache": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+
+        gguf_file = self._GGUF_FILES.get(self._variant)
+        if gguf_file is not None:
+            model_kwargs["gguf_file"] = gguf_file
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
