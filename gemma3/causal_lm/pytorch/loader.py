@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     GEMMA_3_270M_IT = "270M_Instruct"
     GEMMA_3_1B_IT = "1B_Instruct"
+    GEMMA_3_1B_IT_QAT_GGUF = "1B_Instruct_QAT_GGUF"
 
 
 class ModelLoader(ForgeModel):
@@ -40,6 +41,17 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="google/gemma-3-1b-it",
             max_length=256,
         ),
+        ModelVariant.GEMMA_3_1B_IT_QAT_GGUF: LLMModelConfig(
+            pretrained_model_name="bartowski/google_gemma-3-1b-it-qat-GGUF",
+            max_length=256,
+        ),
+    }
+
+    # Variants distributed as GGUF files map to the specific GGUF filename within
+    # the HuggingFace repo. transformers dequantizes these to a standard torch model
+    # at load time (the Q4_0 file is the canonical QAT export for this model).
+    _GGUF_FILES = {
+        ModelVariant.GEMMA_3_1B_IT_QAT_GGUF: "google_gemma-3-1b-it-qat-Q4_0.gguf",
     }
 
     DEFAULT_VARIANT = ModelVariant.GEMMA_3_270M_IT
@@ -76,7 +88,13 @@ class ModelLoader(ForgeModel):
             The loaded tokenizer instance
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
-        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
+        tokenizer_kwargs = {}
+        gguf_file = self._GGUF_FILES.get(self._variant)
+        if gguf_file is not None:
+            tokenizer_kwargs["gguf_file"] = gguf_file
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            pretrained_model_name, **tokenizer_kwargs
+        )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         return self.tokenizer
@@ -96,6 +114,10 @@ class ModelLoader(ForgeModel):
         model_kwargs = {"use_cache": False}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+
+        gguf_file = self._GGUF_FILES.get(self._variant)
+        if gguf_file is not None:
+            model_kwargs["gguf_file"] = gguf_file
 
         if self.num_layers is not None:
             config = AutoConfig.from_pretrained(pretrained_model_name)
