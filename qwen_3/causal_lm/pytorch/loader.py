@@ -31,6 +31,7 @@ class ModelVariant(StrEnum):
     QWEN_3_14B = "14B"
     QWEN_3_32B = "32B"
     QWEN_3_30B_A3B = "30B_A3b"
+    QWEN_3_GGBETZ_1_7B = "ggbetz_1_7B"
 
 
 class ModelLoader(ForgeModel):
@@ -64,6 +65,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_30B_A3B: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen3-30B-A3B",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_GGBETZ_1_7B: LLMModelConfig(
+            pretrained_model_name="ggbetz/Qwen3-1.7B",
             max_length=128,
         ),
     }
