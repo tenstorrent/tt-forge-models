@@ -32,6 +32,11 @@ class ModelVariant(StrEnum):
     QWEN_3_5_2B = "2B"
     QWEN_3_5_4B = "4B"
     QWEN_3_5_9B = "9B"
+    # Community abliterated/finetuned 9B (Huihui Claude-4.6-Opus abliterated
+    # heretic). Distributed upstream only as i1/imatrix GGUF quants, which
+    # transformers cannot dequantize for the qwen3_5 architecture; we load the
+    # unquantized base safetensors it was quantized from instead.
+    QWEN_3_5_9B_HUIHUI_ABLITERATED = "9b_huihui_abliterated_heretic"
 
 
 class ModelLoader(ForgeModel):
@@ -52,6 +57,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_5_9B: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen3.5-9B",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_5_9B_HUIHUI_ABLITERATED: LLMModelConfig(
+            pretrained_model_name="sulpikar2/Huihui-Qwen3.5-9B-Claude-4.6-Opus-abliterated-heretic",
             max_length=128,
         ),
     }
