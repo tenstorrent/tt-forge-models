@@ -299,6 +299,23 @@ def _build_cache(cache_dir: str, layer_ids: List[int]) -> None:
     logger.info(f"[weight_loader] Cache dir: {cache_dir}")
 
 
+def _is_loadable_key(key: str) -> bool:
+    """Filter out checkpoint keys that are NOT real, persistent parameters.
+
+    - ``*.weight_scale_inv``: FP8 block scales, already consumed during dequant.
+    - ``*.rotary_emb.*`` (e.g. ``inv_freq``): RoPE caches registered as
+      NON-persistent buffers. They are absent from the module's ``state_dict``
+      (so ``load_state_dict`` reports them as *unexpected*) and are recomputed
+      deterministically from config at runtime, so the checkpoint copies are
+      both unloadable and unnecessary. See note in ``load_block_state_dict``.
+    """
+    if key.endswith(".weight_scale_inv"):
+        return False
+    if ".rotary_emb." in key:
+        return False
+    return True
+
+
 def load_top_level_state_dict() -> Dict[str, torch.Tensor]:
     """Top-level (non-layer) weights only: embed_tokens, final norm, lm_head.
 
@@ -313,7 +330,7 @@ def load_top_level_state_dict() -> Dict[str, torch.Tensor]:
     sd: Dict[str, torch.Tensor] = {
         k: v.to(torch.bfloat16) if v.is_floating_point() else v
         for k, v in raw.items()
-        if not k.endswith(".weight_scale_inv")
+        if _is_loadable_key(k)
     }
     logger.info(f"[weight_loader] Top-level state dict ready: {len(sd)} keys")
     return sd
@@ -328,13 +345,18 @@ def load_block_state_dict(layer_idx: int) -> Dict[str, torch.Tensor]:
     Only the shard file(s) containing this layer are read, which bounds peak
     host memory to roughly one layer's worth of weights -- the core of the
     streaming load strategy.
+
+    Non-persistent RoPE buffers (``self_attn.rotary_emb.inv_freq`` etc.) are
+    dropped via ``_is_loadable_key``: they are not part of the layer's
+    ``state_dict`` and would surface as *unexpected* keys, and Kimi K2's YaRN
+    rotary recomputes them from config on the first forward regardless.
     """
     prefix = f"model.layers.{layer_idx}."
     raw = _load_raw_subset([prefix])
     sd: Dict[str, torch.Tensor] = {
         k[len(prefix) :]: v.to(torch.bfloat16) if v.is_floating_point() else v
         for k, v in raw.items()
-        if not k.endswith(".weight_scale_inv")
+        if _is_loadable_key(k)
     }
     total_bytes = sum(t.nelement() * t.element_size() for t in sd.values())
     logger.info(
