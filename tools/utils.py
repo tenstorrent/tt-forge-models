@@ -15,9 +15,6 @@ from typing import Optional, Union, List, Callable, Any
 from PIL import Image
 from torchvision import models, transforms
 from transformers import AutoImageProcessor
-import timm
-from timm.data import resolve_data_config
-from timm.data.transforms_factory import create_transform
 
 
 def get_file(path):
@@ -501,6 +498,11 @@ class VisionPreprocessor:
         Returns:
             torch.Tensor: Preprocessed tensor with batch dimension
         """
+
+        import timm
+        from timm.data import resolve_data_config
+        from timm.data.transforms_factory import create_transform
+
         # Use provided model, cached model, or load one
         if model_for_config is None:
             if self._cached_model is not None:
