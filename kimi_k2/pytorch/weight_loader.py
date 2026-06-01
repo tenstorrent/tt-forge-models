@@ -299,6 +299,51 @@ def _build_cache(cache_dir: str, layer_ids: List[int]) -> None:
     logger.info(f"[weight_loader] Cache dir: {cache_dir}")
 
 
+def load_top_level_state_dict() -> Dict[str, torch.Tensor]:
+    """Top-level (non-layer) weights only: embed_tokens, final norm, lm_head.
+
+    Keys are returned with their full checkpoint names (e.g.
+    ``model.embed_tokens.weight``, ``model.norm.weight``, ``lm_head.weight``)
+    so the dict can be loaded straight into a ``DeepseekV3ForCausalLM`` via
+    ``model.load_state_dict(sd, strict=False)``. Intended for streaming load,
+    where the transformer layers are loaded one at a time afterwards.
+    """
+    prefixes = ["model.embed_tokens.", "model.norm.", "lm_head."]
+    raw = _load_raw_subset(prefixes)
+    sd: Dict[str, torch.Tensor] = {
+        k: v.to(torch.bfloat16) if v.is_floating_point() else v
+        for k, v in raw.items()
+        if not k.endswith(".weight_scale_inv")
+    }
+    logger.info(f"[weight_loader] Top-level state dict ready: {len(sd)} keys")
+    return sd
+
+
+def load_block_state_dict(layer_idx: int) -> Dict[str, torch.Tensor]:
+    """State dict for a single transformer layer, keyed RELATIVE to the
+    ``DeepseekV3DecoderLayer`` (the ``model.layers.{idx}.`` prefix is
+    stripped), so it can be loaded with
+    ``layer.load_state_dict(sd, strict=False)``.
+
+    Only the shard file(s) containing this layer are read, which bounds peak
+    host memory to roughly one layer's worth of weights -- the core of the
+    streaming load strategy.
+    """
+    prefix = f"model.layers.{layer_idx}."
+    raw = _load_raw_subset([prefix])
+    sd: Dict[str, torch.Tensor] = {
+        k[len(prefix) :]: v.to(torch.bfloat16) if v.is_floating_point() else v
+        for k, v in raw.items()
+        if not k.endswith(".weight_scale_inv")
+    }
+    total_bytes = sum(t.nelement() * t.element_size() for t in sd.values())
+    logger.info(
+        f"[weight_loader] Block {layer_idx} state dict ready: {len(sd)} keys, "
+        f"{total_bytes / (1024**3):.2f} GB"
+    )
+    return sd
+
+
 def load_transformer_state_dict(
     layer_ids: Iterable[int],
 ) -> Dict[str, torch.Tensor]:

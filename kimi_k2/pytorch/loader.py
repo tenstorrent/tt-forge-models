@@ -281,6 +281,62 @@ class ModelLoader(ForgeModel):
         )
         return model
 
+    def build_skeleton(self):
+        """Construct a weight-less CPU skeleton for streaming load.
+
+        The model graph is materialized with empty (uninitialized) bf16
+        storage so that subsequent per-layer ``load_state_dict`` calls write
+        in place without an extra dtype cast. No checkpoint weights are read
+        and sparse MLP is NOT enabled here -- the streaming runner enables it
+        per layer, after that layer's weights are loaded.
+
+        Returns:
+            torch.nn.Module: An empty (uninitialized) DeepseekV3ForCausalLM in
+            eval mode. Also stored on ``self.model``; config / tokenizer are
+            populated on ``self.config`` / ``self.tokenizer``.
+        """
+        config = self._load_config(num_layers=self.num_layers)
+        self._load_tokenizer()
+        logger.info(
+            f"[kimi_k2] Building skeleton: num_hidden_layers={config.num_hidden_layers}, "
+            f"hidden_size={config.hidden_size}"
+        )
+
+        prev_dtype = torch.get_default_dtype()
+        torch.set_default_dtype(torch.bfloat16)
+        try:
+            with torch.device("meta"):
+                model = DeepseekV3ForCausalLM(config)
+        finally:
+            torch.set_default_dtype(prev_dtype)
+
+        # Materialize meta tensors as empty (uninitialized) CPU storage. The
+        # streaming runner overwrites every parameter via per-layer /
+        # top-level load_state_dict before any compute happens.
+        model = model.to_empty(device="cpu").eval()
+        self.model = model
+        return model
+
+    def load_top_level_state_dict(self):
+        """Top-level (embed/norm/lm_head) weights for streaming load.
+
+        Returns a state dict keyed with full checkpoint names so it can be
+        loaded via ``model.load_state_dict(sd, strict=False)``.
+        """
+        from . import weight_loader
+
+        return weight_loader.load_top_level_state_dict()
+
+    def load_block_state_dict(self, layer_idx: int):
+        """Single transformer layer weights for streaming load.
+
+        Returns a state dict keyed relative to the decoder layer so it can be
+        loaded via ``layer.load_state_dict(sd, strict=False)``.
+        """
+        from . import weight_loader
+
+        return weight_loader.load_block_state_dict(layer_idx)
+
     def load_inputs(self, batch_size: int = 1, seq_len: int = 32):
         """Return sample token inputs for the model.
 
@@ -323,6 +379,80 @@ class ModelLoader(ForgeModel):
 
         return mesh_shape, ("batch", "model")
 
+    def load_top_level_shard_spec(self, model):
+        """Shard specs for the non-layer (top-level) weights only.
+
+        These are the embedding, final norm, and lm_head. Split out from
+        ``load_shard_spec`` so the streaming runner can ship the top-level
+        params before the per-layer loop.
+        """
+        return {
+            model.model.embed_tokens.weight: (None, "model"),
+            model.model.norm.weight: ("model",),
+            model.lm_head.weight: ("batch", "model"),
+        }
+
+    def load_block_shard_spec(self, layer):
+        """Shard specs for a single ``DeepseekV3DecoderLayer``.
+
+        Mirrors the per-layer portion of ``load_shard_spec`` so the streaming
+        runner can ship one layer at a time. ``layer.mlp`` must already be in
+        its final form (dense ``DeepseekV3MLP`` for layer 0, or
+        ``A2aSparseMLPWithSharedExperts`` after ``enable_sparse_mlp``).
+
+        This expects the cache and inputs to be sharded as follows:
+            compressed_kv: ("batch", None, None, None)
+            k_pe:          ("batch", None, None, None)
+            input_ids:     ("batch", None)
+        """
+        shard_specs = {}
+
+        # MLA attention sharding
+        shard_specs[layer.self_attn.q_a_proj.weight] = (None, "model")
+        shard_specs[layer.self_attn.q_b_proj.weight] = ("model", None)
+        shard_specs[layer.self_attn.kv_a_proj_with_mqa.weight] = (None, "model")
+        shard_specs[layer.self_attn.kv_b_proj.weight] = ("model", None)
+        shard_specs[layer.self_attn.o_proj.weight] = (None, "model")
+
+        # MLP sharding: MoE for layers >= first_k_dense_replace, dense otherwise
+        if isinstance(layer.mlp, A2aSparseMLPWithSharedExperts):
+            # A2aSparseMLP: experts compound-sharded (batch, model)
+            mlp_wrapper = layer.mlp
+            mlp = mlp_wrapper.mlp if hasattr(mlp_wrapper, "mlp") else mlp_wrapper
+            shard_specs[mlp.router.gate.weight] = (None, "model")
+            shard_specs[mlp.experts.gate_proj] = (
+                ("batch", "model"),
+                None,
+                None,
+            )
+            shard_specs[mlp.experts.up_proj] = (
+                ("batch", "model"),
+                None,
+                None,
+            )
+            shard_specs[mlp.experts.down_proj] = (
+                ("batch", "model"),
+                None,
+                None,
+            )
+
+            # Shared experts (if present, on wrapper not on inner A2aSparseMLP)
+            shared = getattr(mlp_wrapper, "shared_experts", None)
+            if shared is not None:
+                shard_specs[shared.gate_proj.weight] = (None, "model")
+                shard_specs[shared.up_proj.weight] = (None, "model")
+                shard_specs[shared.down_proj.weight] = ("model", None)
+        else:
+            # Dense MLP (layer 0 only, given first_k_dense_replace=1)
+            shard_specs[layer.mlp.gate_proj.weight] = ("batch", "model")
+            shard_specs[layer.mlp.up_proj.weight] = ("batch", "model")
+            shard_specs[layer.mlp.down_proj.weight] = ("model", "batch")
+
+        shard_specs[layer.input_layernorm.weight] = ("model",)
+        shard_specs[layer.post_attention_layernorm.weight] = ("model",)
+
+        return shard_specs
+
     def load_shard_spec(self, model):
         """Load shard specifications for tensor parallelism.
 
@@ -335,60 +465,8 @@ class ModelLoader(ForgeModel):
         """
 
         shard_specs = {}
-
-        # This expects the cache and inputs to be sharded as follows:
-        # compressed_kv: ("batch", None, None, None)
-        # k_pe:          ("batch", None, None, None)
-        # input_ids:     ("batch", None)
-
-        # Embedding and output layers
-        shard_specs[model.model.embed_tokens.weight] = (None, "model")
-        shard_specs[model.model.norm.weight] = ("model",)
-        shard_specs[model.lm_head.weight] = ("batch", "model")
-
+        shard_specs.update(self.load_top_level_shard_spec(model))
         for layer in model.model.layers:
-            # MLA attention sharding
-            shard_specs[layer.self_attn.q_a_proj.weight] = (None, "model")
-            shard_specs[layer.self_attn.q_b_proj.weight] = ("model", None)
-            shard_specs[layer.self_attn.kv_a_proj_with_mqa.weight] = (None, "model")
-            shard_specs[layer.self_attn.kv_b_proj.weight] = ("model", None)
-            shard_specs[layer.self_attn.o_proj.weight] = (None, "model")
-
-            # MLP sharding: MoE for layers >= first_k_dense_replace, dense otherwise
-            if isinstance(layer.mlp, A2aSparseMLPWithSharedExperts):
-                # A2aSparseMLP: experts compound-sharded (batch, model)
-                mlp_wrapper = layer.mlp
-                mlp = mlp_wrapper.mlp if hasattr(mlp_wrapper, "mlp") else mlp_wrapper
-                shard_specs[mlp.router.gate.weight] = (None, "model")
-                shard_specs[mlp.experts.gate_proj] = (
-                    ("batch", "model"),
-                    None,
-                    None,
-                )
-                shard_specs[mlp.experts.up_proj] = (
-                    ("batch", "model"),
-                    None,
-                    None,
-                )
-                shard_specs[mlp.experts.down_proj] = (
-                    ("batch", "model"),
-                    None,
-                    None,
-                )
-
-                # Shared experts (if present, on wrapper not on inner A2aSparseMLP)
-                shared = getattr(mlp_wrapper, "shared_experts", None)
-                if shared is not None:
-                    shard_specs[shared.gate_proj.weight] = (None, "model")
-                    shard_specs[shared.up_proj.weight] = (None, "model")
-                    shard_specs[shared.down_proj.weight] = ("model", None)
-            else:
-                # Dense MLP (layer 0 only, given first_k_dense_replace=1)
-                shard_specs[layer.mlp.gate_proj.weight] = ("batch", "model")
-                shard_specs[layer.mlp.up_proj.weight] = ("batch", "model")
-                shard_specs[layer.mlp.down_proj.weight] = ("model", "batch")
-
-            shard_specs[layer.input_layernorm.weight] = ("model",)
-            shard_specs[layer.post_attention_layernorm.weight] = ("model",)
+            shard_specs.update(self.load_block_shard_spec(layer))
 
         return shard_specs
