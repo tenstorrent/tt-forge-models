@@ -148,7 +148,7 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        # Load only num_layers for GLM-4.7 - Untested for other variants
+        # Load only num_layers weights for GLM-4 - Support needed for GLM-5
         # from_pretrained will load all layers even if a config for less layers is passed in
         if self.num_layers is not None and self._variant in _GLM4_VARIANTS:
             model = load_model_from_checkpoint(pretrained_model_name, self.num_layers)
@@ -171,7 +171,7 @@ class ModelLoader(ForgeModel):
 
         model.eval()
 
-        # Enable sparse MoE for GLM4.7 - Untested for other variants
+        # Enable sparse MoE for GLM4 - Untested for other variants
         if self._variant in _GLM4_VARIANTS:
             num_devices = xr.global_runtime_device_count()
             mesh_shape, _ = self.get_mesh_config(num_devices)
