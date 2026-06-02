@@ -138,7 +138,7 @@ def _restore_glm4_remaining_meta_tensors(model, config):
             )
 
 
-def load_model_for_num_layers(pretrained_model_name, num_layers):
+def load_model_from_checkpoint(pretrained_model_name, num_layers):
     """Build a GLM-4 MoE model on the meta device and populate the first
     ``num_layers`` decoder layers from the HF safetensors checkpoint.
 

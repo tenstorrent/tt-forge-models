@@ -27,7 +27,7 @@ from ....tools.utils import (
     cast_input_to_type,
     get_static_cache_decode_inputs,
 )
-from .meta_loading import load_model_for_num_layers
+from .meta_loading import load_model_from_checkpoint
 
 
 class ModelVariant(StrEnum):
@@ -150,8 +150,8 @@ class ModelLoader(ForgeModel):
 
         # Load only num_layers for GLM-4.7 - Untested for other variants
         # from_pretrained will load all layers even if a config for less layers is passed in
-        if self.num_layers is not None and self._variant == ModelVariant.GLM_4_7:
-            model = load_model_for_num_layers(pretrained_model_name, self.num_layers)
+        if self.num_layers is not None and self._variant in _GLM4_VARIANTS:
+            model = load_model_from_checkpoint(pretrained_model_name, self.num_layers)
         else:
             model_kwargs = {}
             if dtype_override is not None:
@@ -172,7 +172,7 @@ class ModelLoader(ForgeModel):
         model.eval()
 
         # Enable sparse MoE for GLM4.7 - Untested for other variants
-        if self._variant == ModelVariant.GLM_4_7:
+        if self._variant in _GLM4_VARIANTS:
             num_devices = xr.global_runtime_device_count()
             mesh_shape, _ = self.get_mesh_config(num_devices)
             enable_sparse_mlp(
