@@ -10,7 +10,7 @@ from typing import Optional
 import torch
 import torch_xla.runtime as xr
 
-from tt_torch.sparse_mlp import enable_sparse_mlp
+from tt_torch.sparse_mlp import A2aSparseMLPWithSharedExperts, enable_sparse_mlp
 
 from ....config import (
     LLMModelConfig,
