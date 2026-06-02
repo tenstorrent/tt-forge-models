@@ -8,6 +8,9 @@ Model loader implementation for causal language modeling.
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 import torch
+import torch_xla.runtime as xr
+
+from tt_torch.sparse_mlp import enable_sparse_mlp
 
 from ....config import (
     LLMModelConfig,
@@ -24,6 +27,7 @@ from ....tools.utils import (
     cast_input_to_type,
     get_static_cache_decode_inputs,
 )
+from .meta_loading import load_model_for_num_layers
 
 
 class ModelVariant(StrEnum):
@@ -34,6 +38,10 @@ class ModelVariant(StrEnum):
     GLM_4_5_AIR = "4.5_Air"
     GLM_5 = "5"
     GLM_5_1 = "5.1"
+
+
+_GLM4_VARIANTS = {ModelVariant.GLM_4_7, ModelVariant.GLM_4_5, ModelVariant.GLM_4_5_AIR}
+_GLM5_VARIANTS = {ModelVariant.GLM_5, ModelVariant.GLM_5_1}
 
 
 class ModelLoader(ForgeModel):
@@ -140,23 +148,37 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+        # Load only num_layers for GLM-4.7 - Untested for other variants
+        # from_pretrained will load all layers even if a config for less layers is passed in
+        if self.num_layers is not None and self._variant == ModelVariant.GLM_4_7:
+            model = load_model_for_num_layers(pretrained_model_name, self.num_layers)
+        else:
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-        model_kwargs |= kwargs
+            if self.num_layers is not None:
+                config = AutoConfig.from_pretrained(pretrained_model_name)
+                config.num_hidden_layers = self.num_layers
+                model_kwargs["config"] = config
+            model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
-        if self.num_layers is not None:
-            model.model.layers = model.model.layers[: self.num_layers]
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+            if self.num_layers is not None:
+                model.model.layers = model.model.layers[: self.num_layers]
 
         model.eval()
+
+        # Enable sparse MoE for GLM4.7 - Untested for other variants
+        if self._variant == ModelVariant.GLM_4_7:
+            num_devices = xr.global_runtime_device_count()
+            mesh_shape, _ = self.get_mesh_config(num_devices)
+            enable_sparse_mlp(
+                model, mesh=mesh_shape, cluster_axis=0, config=model.config
+            )
+
         self.model = model
         self.config = model.config
 
@@ -269,10 +291,6 @@ class ModelLoader(ForgeModel):
         shard_specs = {}
         shard_specs[model.model.embed_tokens.weight] = (None, "batch")
         for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
-
             shard_specs[layer.input_layernorm.weight] = ("batch",)
             shard_specs[layer.post_attention_layernorm.weight] = ("batch",)
             shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
