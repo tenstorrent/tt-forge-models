@@ -279,29 +279,53 @@ class ModelLoader(ForgeModel):
 
     def get_mesh_config(self, num_devices: int):
         if num_devices == 32:
-            mesh_shape = (8, 4)
+            mesh_shape = (4, 8)
         elif num_devices == 8:
-            mesh_shape = (4, 2)
+            mesh_shape = (2, 4)
         else:
             raise ValueError(f"Unsupported number of devices: {num_devices}")
 
-        return mesh_shape, ("model", "batch")
+        return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
         shard_specs = {}
-        shard_specs[model.model.embed_tokens.weight] = (None, "batch")
+        shard_specs[model.model.embed_tokens.weight] = (None, "model")
+        shard_specs[model.model.norm.weight] = ("model",)
+        shard_specs[model.lm_head.weight] = (None, "model")
+
         for layer in model.model.layers:
-            shard_specs[layer.input_layernorm.weight] = ("batch",)
-            shard_specs[layer.post_attention_layernorm.weight] = ("batch",)
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.q_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-        shard_specs[model.model.norm.weight] = ("batch",)
-        shard_specs[model.lm_head.weight] = ("model", "batch")
+            shard_specs[layer.input_layernorm.weight] = ("model",)
+            shard_specs[layer.post_attention_layernorm.weight] = ("model",)
+
+            attn = layer.self_attn
+            shard_specs[attn.q_proj.weight] = ("model", None)
+            shard_specs[attn.k_proj.weight] = ("model", None)
+            shard_specs[attn.v_proj.weight] = ("model", None)
+            shard_specs[attn.o_proj.weight] = (None, "model")
+            if attn.q_proj.bias is not None:
+                shard_specs[attn.q_proj.bias] = ("model",)
+                shard_specs[attn.k_proj.bias] = ("model",)
+                shard_specs[attn.v_proj.bias] = ("model",)
+            if hasattr(attn, "q_norm"):
+                shard_specs[attn.q_norm.weight] = ("model",)
+                shard_specs[attn.k_norm.weight] = ("model",)
+
+            mlp = layer.mlp
+            if isinstance(mlp, A2aSparseMLPWithSharedExperts):
+                inner = mlp.mlp  # A2aSparseMLP
+                shard_specs[inner.router.gate.weight] = (None, "model")
+                shard_specs[inner.experts.gate_proj] = (("model", "batch"), None, None)
+                shard_specs[inner.experts.up_proj] = (("model", "batch"), None, None)
+                shard_specs[inner.experts.down_proj] = (("model", "batch"), None, None)
+                shared = getattr(mlp, "shared_experts", None)
+                if shared is not None:
+                    shard_specs[shared.gate_proj.weight] = (None, "model")
+                    shard_specs[shared.up_proj.weight] = (None, "model")
+                    shard_specs[shared.down_proj.weight] = ("model", None)
+            else:
+                shard_specs[mlp.gate_proj.weight] = ("batch", "model")
+                shard_specs[mlp.up_proj.weight] = ("batch", "model")
+                shard_specs[mlp.down_proj.weight] = ("model", "batch")
         return shard_specs
 
     def load_config(self):
