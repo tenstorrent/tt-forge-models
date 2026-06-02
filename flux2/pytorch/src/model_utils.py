@@ -123,7 +123,9 @@ class Mistral3TextEncoderWrapper(torch.nn.Module):
         self.text_encoder = text_encoder
         self.hidden_states_layers = hidden_states_layers
 
-    def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, input_ids: torch.Tensor, attention_mask: torch.Tensor
+    ) -> torch.Tensor:
         output = self.text_encoder(
             input_ids=input_ids,
             attention_mask=attention_mask,
