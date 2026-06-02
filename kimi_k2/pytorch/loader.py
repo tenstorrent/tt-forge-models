@@ -9,9 +9,15 @@ loading directly from HuggingFace. The modifications adapt the model for
 Tenstorrent hardware by replacing cache utilities with a static MLA cache.
 """
 import gc
+import os
 import time
 from pathlib import Path
 from typing import Optional
+
+# Default HF cache location. Set before importing transformers/huggingface_hub
+# so their cache constants (HF_HUB_CACHE = $HF_HOME/hub) pick it up. Export
+# HF_HOME yourself to override.
+os.environ.setdefault("HF_HOME", "/mnt/models/users/jzx")
 
 import torch
 import torch_xla.runtime as xr
@@ -38,19 +44,19 @@ from .modified_modeling_deepseek import DeepseekV3ForCausalLM, DeepseekV3MoE
 class ModelVariant(StrEnum):
     """Available Kimi K2 model variants."""
 
-    KIMI_K2_INSTRUCT_MODIFIED = "kimi_k2_instruct_modified"
+    KIMI_K2_BASE_MODIFIED = "kimi_k2_base_modified"
 
 
 class ModelLoader(ForgeModel):
     """Kimi K2 model loader using the locally modified DeepSeek V3-based Transformer."""
 
     _VARIANTS = {
-        ModelVariant.KIMI_K2_INSTRUCT_MODIFIED: LLMModelConfig(
-            pretrained_model_name="unsloth/Kimi-K2-Instruct-BF16",
+        ModelVariant.KIMI_K2_BASE_MODIFIED: LLMModelConfig(
+            pretrained_model_name="unsloth/Kimi-K2-Base-BF16",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.KIMI_K2_INSTRUCT_MODIFIED
+    DEFAULT_VARIANT = ModelVariant.KIMI_K2_BASE_MODIFIED
 
     def __init__(
         self,
@@ -103,9 +109,19 @@ class ModelLoader(ForgeModel):
         # Always load from the canonical moonshotai repo — the unsloth BF16 reupload
         # ships a broken tokenization_kimi.py that imports bytes_to_unicode from a
         # path removed in recent transformers versions.
+        #
+        # Pass cache_dir explicitly (mirroring weight_loader._hub_cache_dir) so the
+        # tokenizer lands in the same HF_HOME-based cache even if huggingface_hub /
+        # transformers were imported before HF_HOME was set in this process.
+        hub_cache_dir = (
+            os.environ.get("HF_HUB_CACHE")
+            or os.environ.get("HUGGINGFACE_HUB_CACHE")
+            or os.path.join(os.environ.get("HF_HOME", "/mnt/models/users/jzx"), "hub")
+        )
         self.tokenizer = AutoTokenizer.from_pretrained(
-            "moonshotai/Kimi-K2-Instruct",
+            "moonshotai/Kimi-K2-Base",
             trust_remote_code=True,
+            cache_dir=hub_cache_dir,
         )
         return self.tokenizer
 

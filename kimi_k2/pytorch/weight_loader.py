@@ -2,23 +2,28 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 #
-# Loads per-layer weights from the moonshotai/Kimi-K2-Instruct HF repo,
-# dequantizing on the fly:
+# Loads per-layer BF16 weights for Kimi K2 from the unsloth/Kimi-K2-Base-BF16
+# HF repo. HuggingFace handles all downloading and caching (under HF_HOME); only
+# the safetensors shard(s) containing the requested layers are fetched, which
+# bounds peak host memory to roughly one layer's worth of weights.
 #
-# - Linear weights are stored as FP8 (e4m3fn) with F32 block scales
-#   [out/128, in/128] named `weight_scale_inv`.
-#   Dequantization: bf16_out = fp8_weight.float() * scale_inv[:, None, :, None]
-# - LayerNorm weights, embeddings, and gate biases ship as BF16/FP32 and
-#   are loaded as-is.
-#
-# Only the shard(s) containing the requested layers are downloaded;
-# subsequent runs hit the standard huggingface_hub cache.
+# The unsloth BF16 reupload is already dequantized, so there is no FP8
+# block-scale handling here -- weights load straight through.
 
 from __future__ import annotations
 
-import gc
-import json
 import os
+
+# Default HF cache location. Set before importing huggingface_hub so (ideally)
+# its cache constants (HF_HUB_CACHE = $HF_HOME/hub) pick it up. Export HF_HOME to
+# override. NOTE: if huggingface_hub was already imported elsewhere before this
+# runs, its constants freeze to the prior value (e.g. ~/.cache/huggingface), so
+# we additionally pass an explicit cache_dir on every download below to be
+# import-order-proof.
+DEFAULT_HF_HOME = "/mnt/models/users/jzx"
+os.environ.setdefault("HF_HOME", DEFAULT_HF_HOME)
+
+import json
 import time
 from typing import Dict, Iterable, List
 
@@ -26,51 +31,68 @@ import torch
 from huggingface_hub import hf_hub_download
 from loguru import logger
 from safetensors import safe_open
-from safetensors.torch import load_file as safetensors_load_file
-from safetensors.torch import save_file as safetensors_save_file
 
-REPO_ID = "unsloth/Kimi-K2-Instruct-BF16"
-DEFAULT_CHECKPOINT_DIR = "/mnt/models/kimi-forge"
+REPO_ID = "unsloth/Kimi-K2-Base-BF16"
 
-_FP8_BLOCK = 128
+_LOGGED_CACHE_DIAGNOSTICS = False
 
 
-def _ceil_div(a: int, b: int) -> int:
-    return (a + b - 1) // b
+def _log_cache_diagnostics() -> None:
+    """Log where HF will actually read/write the checkpoint, once per process.
 
-
-def _dequant_fp8(weight: torch.Tensor, scale_inv: torch.Tensor) -> torch.Tensor:
-    """[out, in] fp8_e4m3fn + [ceil(out/128), ceil(in/128)] f32 -> [out, in] bf16.
-
-    Handles dimensions that are not exact multiples of 128 by zero-padding
-    to the next block boundary, dequantizing, then slicing back.
+    ``HF_HOME`` sets the base, but the hub blob cache and the Xet chunk cache can
+    be redirected independently via ``HF_HUB_CACHE`` / ``HUGGINGFACE_HUB_CACHE``
+    and ``HF_XET_CACHE``. This logs both the relevant env vars and the resolved
+    huggingface_hub constants so it's obvious where the weights land (e.g. only
+    a ``xet/`` dir showing up under HF_HOME while blobs go elsewhere).
     """
-    out_dim, in_dim = weight.shape
-    out_blocks = _ceil_div(out_dim, _FP8_BLOCK)
-    in_blocks = _ceil_div(in_dim, _FP8_BLOCK)
-    assert scale_inv.shape == (
-        out_blocks,
-        in_blocks,
-    ), f"fp8 scale shape mismatch: weight={weight.shape}, scale_inv={scale_inv.shape}"
+    global _LOGGED_CACHE_DIAGNOSTICS
+    if _LOGGED_CACHE_DIAGNOSTICS:
+        return
+    _LOGGED_CACHE_DIAGNOSTICS = True
 
-    # Pad to full block boundaries if needed.
-    pad_out = out_blocks * _FP8_BLOCK - out_dim
-    pad_in = in_blocks * _FP8_BLOCK - in_dim
-    if pad_out or pad_in:
-        weight = torch.nn.functional.pad(weight, (0, pad_in, 0, pad_out))
+    env_keys = [
+        "HF_HOME",
+        "HF_HUB_CACHE",
+        "HUGGINGFACE_HUB_CACHE",
+        "TRANSFORMERS_CACHE",
+        "HF_XET_CACHE",
+        "HF_HUB_DISABLE_XET",
+        "HF_HUB_OFFLINE",
+    ]
+    logger.info(f"[weight_loader] HF cache diagnostics for repo {REPO_ID!r}:")
+    for k in env_keys:
+        logger.info(f"[weight_loader]   env {k}={os.environ.get(k, '<unset>')}")
 
-    w = (
-        weight.to(torch.float32)
-        .unflatten(0, (-1, _FP8_BLOCK))
-        .unflatten(-1, (-1, _FP8_BLOCK))
-    )  # [bOut, 128, bIn, 128]
-    s = scale_inv.to(torch.float32)[:, None, :, None]  # [bOut, 1, bIn, 1]
-    result = (w * s).flatten(2, 3).flatten(0, 1).to(torch.bfloat16)
+    try:
+        from huggingface_hub import constants as hf_constants
 
-    # Slice back to original dimensions.
-    if pad_out or pad_in:
-        result = result[:out_dim, :in_dim]
-    return result
+        for name in ("HF_HOME", "HF_HUB_CACHE", "HF_XET_CACHE"):
+            logger.info(
+                f"[weight_loader]   huggingface_hub.constants.{name}="
+                f"{getattr(hf_constants, name, '<missing>')}"
+            )
+    except Exception as e:  # pragma: no cover - purely diagnostic
+        logger.warning(f"[weight_loader] Could not read huggingface_hub constants: {e}")
+
+    logger.info(
+        f"[weight_loader]   effective cache_dir passed to hf_hub_download="
+        f"{_hub_cache_dir()}"
+    )
+
+
+def _hub_cache_dir() -> str:
+    """Resolve the hub blob cache dir from the *current* environment, rather than
+    relying on huggingface_hub's import-time constants (which freeze to whatever
+    HF_HOME was when the library was first imported -- often ~/.cache/huggingface
+    if it was imported before our setdefault above ran). Respects an explicit
+    HF_HUB_CACHE / HUGGINGFACE_HUB_CACHE override if set."""
+    explicit = os.environ.get("HF_HUB_CACHE") or os.environ.get(
+        "HUGGINGFACE_HUB_CACHE"
+    )
+    if explicit:
+        return explicit
+    return os.path.join(os.environ.get("HF_HOME", DEFAULT_HF_HOME), "hub")
 
 
 def _find_shards_for_keys(
@@ -81,15 +103,19 @@ def _find_shards_for_keys(
 
 
 def _resolve_file(filename: str) -> str:
-    """Return a local path for `filename` from KIMI_K2_CHECKPOINT_DIR.
-    Falls back to hf_hub_download if the env var is unset, with a warning."""
-    checkpoint_dir = os.environ.get("KIMI_K2_CHECKPOINT_DIR", DEFAULT_CHECKPOINT_DIR)
-    if checkpoint_dir == DEFAULT_CHECKPOINT_DIR and "KIMI_K2_CHECKPOINT_DIR" not in os.environ:
-        logger.warning(
-            f"[weight_loader] KIMI_K2_CHECKPOINT_DIR not set, using default: {DEFAULT_CHECKPOINT_DIR}. "
-            f"Set KIMI_K2_CHECKPOINT_DIR to override."
-        )
-    return os.path.join(checkpoint_dir, filename)
+    """Download (or fetch from the HF cache) ``filename`` from ``REPO_ID`` and
+    return its local path. The hub blob cache dir is passed explicitly so the
+    location is import-order-proof (see ``_hub_cache_dir``)."""
+    _log_cache_diagnostics()
+    path = hf_hub_download(REPO_ID, filename, cache_dir=_hub_cache_dir())
+    # The returned path is a symlink under snapshots/<commit>/; resolve it to the
+    # real blob so the on-disk location of the actual bytes is unambiguous.
+    real = os.path.realpath(path)
+    logger.info(
+        f"[weight_loader] Resolved {filename!r} -> {path}"
+        + (f" (blob: {real})" if real != path else "")
+    )
+    return path
 
 
 def _load_raw_subset(
@@ -143,174 +169,15 @@ def _load_raw_subset(
     return raw
 
 
-def _dequant_paired(
-    raw: Dict[str, torch.Tensor], base_prefix: str
-) -> Dict[str, torch.Tensor]:
-    """Walk `raw` under `base_prefix`, combining `.weight`/`.weight_scale_inv`
-    pairs into bf16 tensors keyed by the trimmed local name (base_prefix
-    stripped).
-    """
-    t0 = time.monotonic()
-    out: Dict[str, torch.Tensor] = {}
-    n_fp8 = 0
-    n_passthrough = 0
-    n_other = 0
-    total_bf16_bytes = 0
-
-    # First pass: find all .weight tensors under base_prefix.
-    weights = {
-        k: v
-        for k, v in raw.items()
-        if k.startswith(base_prefix) and k.endswith(".weight")
-    }
-    logger.info(
-        f"[weight_loader] Dequant: {len(weights)} .weight tensors to process "
-        f"(base_prefix={base_prefix!r})"
-    )
-    for wkey, w in weights.items():
-        skey = wkey + "_scale_inv"
-        local = wkey[len(base_prefix) :]  # e.g. "model.layers.0.self_attn.q_a_proj.weight"
-        scale_inv = raw.get(skey)
-        if scale_inv is None:
-            # No scale: BF16/FP32 tensor (layernorm, embedding, gate, etc.)
-            out[local] = w.to(torch.bfloat16) if w.is_floating_point() else w
-            n_passthrough += 1
-            logger.debug(
-                f"[weight_loader]   passthrough {local}: {list(w.shape)} {w.dtype}"
-            )
-        else:
-            # FP8 e4m3fn with block scale_inv.
-            out[local] = _dequant_fp8(w, scale_inv)
-            n_fp8 += 1
-            logger.debug(
-                f"[weight_loader]   dequant fp8 {local}: {list(w.shape)} "
-                f"+ scale {list(scale_inv.shape)} -> bf16"
-            )
-        total_bf16_bytes += out[local].nelement() * out[local].element_size()
-
-    # Pass through non-weight/non-scale tensors (e.g. biases) under base_prefix.
-    for k, v in raw.items():
-        if not k.startswith(base_prefix):
-            continue
-        if k.endswith(".weight") or k.endswith(".weight_scale_inv"):
-            continue
-        local = k[len(base_prefix) :]
-        out[local] = v
-        n_other += 1
-        total_bf16_bytes += v.nelement() * v.element_size()
-        logger.debug(f"[weight_loader]   other {local}: {list(v.shape)} {v.dtype}")
-
-    elapsed = time.monotonic() - t0
-    logger.info(
-        f"[weight_loader] Dequant complete in {elapsed:.1f}s: "
-        f"{n_fp8} fp8->bf16, {n_passthrough} passthrough, {n_other} other "
-        f"=> {len(out)} output tensors, {total_bf16_bytes / (1024**3):.2f} GB"
-    )
-    return out
-
-
-def _dequant_cache_dir(n_layers: int) -> str:
-    """Per-model BF16 safetensors cache directory."""
-    repo_slug = REPO_ID.replace("/", "--")
-    base = os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
-    return os.path.join(base, "tt_xla_dequant_cache", f"{repo_slug}_{n_layers}layers")
-
-
-def _cache_chunk_names(layer_ids: List[int]) -> List[str]:
-    """Return ordered list of expected cache chunk filenames."""
-    names = ["shared.safetensors"]
-    for L in layer_ids:
-        names.append(f"layer_{L:04d}.safetensors")
-    return names
-
-
-def _has_cache(cache_dir: str, layer_ids: List[int]) -> bool:
-    """Check that all expected cache chunks exist."""
-    if not os.path.isdir(cache_dir):
-        return False
-    for name in _cache_chunk_names(layer_ids):
-        if not os.path.isfile(os.path.join(cache_dir, name)):
-            return False
-    return True
-
-
-def _load_from_cache(
-    cache_dir: str, layer_ids: List[int]
-) -> Dict[str, torch.Tensor]:
-    """Load and merge all cached safetensors chunks into one state dict."""
-    t0 = time.monotonic()
-    sd: Dict[str, torch.Tensor] = {}
-    chunks = _cache_chunk_names(layer_ids)
-    for name in chunks:
-        path = os.path.join(cache_dir, name)
-        chunk = safetensors_load_file(path)
-        sd.update(chunk)
-        logger.info(
-            f"[weight_loader] Loaded cache chunk {name}: "
-            f"{len(chunk)} keys, {os.path.getsize(path) / (1024**3):.2f} GB"
-        )
-        del chunk
-    logger.info(
-        f"[weight_loader] Cache load complete: {len(sd)} keys in "
-        f"{time.monotonic() - t0:.1f}s"
-    )
-    return sd
-
-
-def _build_cache(cache_dir: str, layer_ids: List[int]) -> None:
-    """Dequant one chunk at a time and save to cache directory.
-
-    Processes each layer independently to bound peak memory to one MoE
-    layer's worth of raw FP8 + dequanted BF16 at a time.
-    """
-    os.makedirs(cache_dir, exist_ok=True)
-    t_total = time.monotonic()
-    total_bytes = 0
-
-    # Chunk definitions: (chunk_name, prefixes)
-    chunks = [("shared", ["model.embed_tokens.", "model.norm.", "lm_head."])]
-    for L in layer_ids:
-        chunks.append((f"layer_{L:04d}", [f"model.layers.{L}."]))
-
-    for chunk_name, prefixes in chunks:
-        t_chunk = time.monotonic()
-        raw = _load_raw_subset(prefixes)
-        sd = _dequant_paired(raw, "")
-        del raw
-        gc.collect()
-
-        chunk_path = os.path.join(cache_dir, f"{chunk_name}.safetensors")
-        safetensors_save_file(sd, chunk_path)
-        chunk_size = os.path.getsize(chunk_path)
-        total_bytes += chunk_size
-        del sd
-        gc.collect()
-
-        logger.info(
-            f"[weight_loader] Saved cache chunk {chunk_name}.safetensors: "
-            f"{chunk_size / (1024**3):.2f} GB ({time.monotonic() - t_chunk:.1f}s)"
-        )
-
-    logger.info(
-        f"[weight_loader] Cache build complete: {len(chunks)} chunks, "
-        f"{total_bytes / (1024**3):.2f} GB total, "
-        f"{time.monotonic() - t_total:.1f}s"
-    )
-    logger.info(f"[weight_loader] Cache dir: {cache_dir}")
-
-
 def _is_loadable_key(key: str) -> bool:
     """Filter out checkpoint keys that are NOT real, persistent parameters.
 
-    - ``*.weight_scale_inv``: FP8 block scales, already consumed during dequant.
     - ``*.rotary_emb.*`` (e.g. ``inv_freq``): RoPE caches registered as
       NON-persistent buffers. They are absent from the module's ``state_dict``
       (so ``load_state_dict`` reports them as *unexpected*) and are recomputed
       deterministically from config at runtime, so the checkpoint copies are
       both unloadable and unnecessary. See note in ``load_block_state_dict``.
     """
-    if key.endswith(".weight_scale_inv"):
-        return False
     if ".rotary_emb." in key:
         return False
     return True
@@ -373,7 +240,7 @@ def load_transformer_state_dict(
     plus top-level (embed_tokens, norm, lm_head). Load with strict=False --
     non-persistent buffers and cache tensors aren't in the checkpoint.
 
-    Loads BF16 weights directly from the HF safetensors (no dequant cache).
+    Loads BF16 weights directly from the HF safetensors.
     """
     layer_ids = sorted(set(layer_ids))
     logger.info(
@@ -391,7 +258,7 @@ def load_transformer_state_dict(
     sd: Dict[str, torch.Tensor] = {
         k: v.to(torch.bfloat16) if v.is_floating_point() else v
         for k, v in raw.items()
-        if not k.endswith(".weight_scale_inv")
+        if _is_loadable_key(k)
     }
 
     total_params = sum(t.numel() for t in sd.values())
