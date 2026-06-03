@@ -220,7 +220,7 @@ def _shard_zimage_block(block, specs: dict, *, has_modulation: bool) -> None:
     attn = block.attention
     for proj_name in ("to_q", "to_k", "to_v"):
         proj = getattr(attn, proj_name)
-        specs[proj.weight] = ("model", "batch")
+        specs[proj.weight] = ("model", None)
         if proj.bias is not None:
             specs[proj.bias] = ("model",)
 
@@ -229,9 +229,9 @@ def _shard_zimage_block(block, specs: dict, *, has_modulation: bool) -> None:
         if isinstance(attn.to_out, (torch.nn.Sequential, torch.nn.ModuleList))
         else attn.to_out
     )
-    specs[to_out.weight] = ("batch", "model")
+    specs[to_out.weight] = (None, "model")
     if to_out.bias is not None:
-        specs[to_out.bias] = ("batch",)
+        specs[to_out.bias] = (None,)
 
     if getattr(attn, "norm_q", None) is not None:
         specs[attn.norm_q.weight] = ("model",)
@@ -239,9 +239,9 @@ def _shard_zimage_block(block, specs: dict, *, has_modulation: bool) -> None:
         specs[attn.norm_k.weight] = ("model",)
 
     ff = block.feed_forward
-    specs[ff.w1.weight] = ("model", "batch")
-    specs[ff.w3.weight] = ("model", "batch")
-    specs[ff.w2.weight] = ("batch", "model")
+    specs[ff.w1.weight] = ("model", None)
+    specs[ff.w3.weight] = ("model", None)
+    specs[ff.w2.weight] = (None, "model")
 
     for norm_name in (
         "attention_norm1",
@@ -251,21 +251,21 @@ def _shard_zimage_block(block, specs: dict, *, has_modulation: bool) -> None:
     ):
         norm = getattr(block, norm_name, None)
         if norm is not None and hasattr(norm, "weight"):
-            specs[norm.weight] = ("batch",)
+            specs[norm.weight] = (None,)
 
     if has_modulation and hasattr(block, "adaLN_modulation"):
         lin = block.adaLN_modulation[0]
-        specs[lin.weight] = ("model", "batch")
+        specs[lin.weight] = ("model", None)
         if lin.bias is not None:
             specs[lin.bias] = ("model",)
 
 
 def _shard_final_layer(layer, specs: dict) -> None:
-    specs[layer.linear.weight] = (None, "batch")
+    specs[layer.linear.weight] = (None, None)
     if layer.linear.bias is not None:
         specs[layer.linear.bias] = (None,)
     ada_lin = layer.adaLN_modulation[1]
-    specs[ada_lin.weight] = ("model", "batch")
+    specs[ada_lin.weight] = ("model", None)
     if ada_lin.bias is not None:
         specs[ada_lin.bias] = ("model",)
 
@@ -274,13 +274,13 @@ def shard_transformer_specs(transformer) -> dict:
     """Shard specs for ZImageTransformer2DModel.
 
     Mesh axes: ("batch", "model")
-    Column-parallel (Q, K, V, FFN w1/w3): ("model", "batch")
-    Row-parallel   (O, FFN w2):           ("batch", "model")
+    Column-parallel (Q, K, V, FFN w1/w3): ("model", None)
+    Row-parallel   (O, FFN w2):           (None, "model")
     """
     specs = {}
 
     for embedder in transformer.all_x_embedder.values():
-        specs[embedder.weight] = ("model", "batch")
+        specs[embedder.weight] = ("model", None)
         if embedder.bias is not None:
             specs[embedder.bias] = ("model",)
 
@@ -288,15 +288,15 @@ def shard_transformer_specs(transformer) -> dict:
         _shard_final_layer(final_layer, specs)
 
     mlp = transformer.t_embedder.mlp
-    specs[mlp[0].weight] = ("model", "batch")
+    specs[mlp[0].weight] = ("model", None)
     if mlp[0].bias is not None:
         specs[mlp[0].bias] = ("model",)
-    specs[mlp[2].weight] = ("batch", "model")
+    specs[mlp[2].weight] = (None, "model")
     if mlp[2].bias is not None:
-        specs[mlp[2].bias] = ("batch",)
+        specs[mlp[2].bias] = (None,)
 
     cap_lin = transformer.cap_embedder[1]
-    specs[cap_lin.weight] = ("model", "batch")
+    specs[cap_lin.weight] = ("model", None)
     if cap_lin.bias is not None:
         specs[cap_lin.bias] = ("model",)
 
@@ -307,7 +307,7 @@ def shard_transformer_specs(transformer) -> dict:
     for block in transformer.layers:
         _shard_zimage_block(block, specs, has_modulation=True)
 
-    # Pad tokens are (1, dim); must not use 1-axis specs like ("batch",).
+    # Pad tokens are (1, dim); must not use 1-axis specs like ("model",).
     for pad_name in ("x_pad_token", "cap_pad_token", "siglip_pad_token"):
         pad = getattr(transformer, pad_name, None)
         if pad is not None:
