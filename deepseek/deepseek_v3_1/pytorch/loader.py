@@ -136,6 +136,9 @@ class ModelLoader(ForgeModel):
             n_layers=self.num_layers,
         )
 
+        if dtype_override is not None:
+            model = model.to(dtype_override)
+
         model = model.eval()
 
         has_dense_moe = any(

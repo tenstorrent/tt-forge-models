@@ -160,6 +160,31 @@ def resolve_hf_shards_for_layers(
     return paths
 
 
+def _rematerialize_rotary_buffers_on_cpu(model: nn.Module) -> None:
+    """Rebuild each attention layer's rotary embedding on CPU after meta-load.
+
+    The rotary buffers (``inv_freq``/``cos_cached``/``sin_cached``) are
+    registered with ``persistent=False``, so they are absent from the
+    checkpoint and stay on the meta device after meta-build +
+    ``load_state_dict``. Any meta tensor remaining on the model trips the
+    unmaterialized-meta guard (and would otherwise die on the first forward with
+    ``Cannot copy out of meta tensor``).
+
+    Re-running ``_init_rope`` under ``torch.device("cpu")`` reconstructs each
+    rotary module with all three buffers materialized on CPU. This only exists
+    to materialize the buffers: ``DeepseekV3RotaryEmbedding.__init__`` resets
+    ``max_seq_len_cached`` to ``None``, so the first forward recomputes the
+    cache on the real input device — ``apply_rotary_pos_emb`` therefore never
+    reads these CPU values. (Do not pre-populate ``max_seq_len_cached`` here:
+    that would skip the forward-time recompute and leak CPU tensors into an
+    otherwise on-device attention.)
+    """
+    with torch.device("cpu"):
+        for module in model.modules():
+            if hasattr(module, "_init_rope"):
+                module._init_rope()
+
+
 def load_model_from_checkpoint(
     model_factory: Callable[[], nn.Module],
     checkpoint: Union[str, os.PathLike, Sequence[Union[str, os.PathLike]]],
@@ -218,5 +243,9 @@ def load_model_from_checkpoint(
         safetensor_files, n_layers, rename_key=rename_key
     )
     model.load_state_dict(state_dict, strict=False, assign=True)
+
+    # Non-persistent rotary buffers are not in the checkpoint, so they remain on
+    # the meta device after the assign above; re-materialize them on CPU.
+    _rematerialize_rotary_buffers_on_cpu(model)
 
     return model
