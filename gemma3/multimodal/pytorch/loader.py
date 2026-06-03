@@ -8,6 +8,7 @@ Gemma3 model loader implementation for multimodal modeling.
 from typing import Optional, Any
 
 from transformers import (
+    AutoConfig,
     AutoProcessor,
     Gemma3ForConditionalGeneration,
 )
@@ -37,15 +38,24 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """Gemma3 model loader implementation for multimodal modeling tasks."""
 
+    _SLIDING_WINDOW_VARIANTS = {
+        ModelVariant.GEMMA_3_4B_IT,
+        ModelVariant.GEMMA_3_12B_IT,
+        ModelVariant.GEMMA_3_27B_IT,
+    }
+
     _VARIANTS = {
         ModelVariant.GEMMA_3_4B_IT: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_3_4B_IT),
+            max_length=512,
         ),
         ModelVariant.GEMMA_3_12B_IT: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_3_12B_IT),
+            max_length=512,
         ),
         ModelVariant.GEMMA_3_27B_IT: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_3_27B_IT),
+            max_length=512,
         ),
     }
 
@@ -57,6 +67,11 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.processor = None
+
+    @property
+    def requires_model_rewrites(self) -> bool:
+        """Sliding-window variants need the TT causal-mask rewrite applied."""
+        return self._variant in self._SLIDING_WINDOW_VARIANTS
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -105,6 +120,21 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
+        # # Force the language model to use full attention on every layer instead
+        # # of the default mixed sliding/full pattern. The sliding-window cache
+        # # update path (slicing on `-sliding_window`) is not supported on this
+        # # backend, so we disable sliding attention by rewriting `layer_types`
+        # # before the attention layers are constructed (each layer reads
+        # # `layer_types` in its __init__ to decide if it is sliding). Note:
+        # # `sliding_window` is intentionally left untouched because the mask
+        # # builder still constructs (an unused) sliding mask and errors if it
+        # # is None.
+        # config = AutoConfig.from_pretrained(pretrained_model_name)
+        # text_config = config.text_config
+        # text_config.layer_types = ["full_attention"] * text_config.num_hidden_layers
+        # model_kwargs["config"] = config
+
         model = Gemma3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
@@ -112,6 +142,8 @@ class ModelLoader(ForgeModel):
         model.eval()
         self.model = model
         self.config = model.config
+        print("model", model)
+        print("model.config", model.config)
         return model
 
     def load_inputs(
@@ -119,6 +151,7 @@ class ModelLoader(ForgeModel):
         dtype_override=None,
         prompt: Optional[str] = None,
         image_url: Optional[str] = None,
+        batch_size: int = 1,
     ):
         """Load and return sample inputs for the Gemma3 multimodal model with default settings.
 
@@ -154,7 +187,33 @@ class ModelLoader(ForgeModel):
             inputs["pixel_values"] = cast_input_to_type(
                 inputs["pixel_values"], dtype_override
             )
+        print("inputs", inputs)
 
+        # Non-sliding variants: return standard tokenizer output
+        if self._variant not in self._SLIDING_WINDOW_VARIANTS:
+            return inputs
+
+        from tools.utils import prepare_inputs_for_sliding_window_attention
+
+        # The shared helper only forwards the text-side keys (input_ids,
+        # attention_mask, cache, ...). Preserve the multimodal inputs so the
+        # vision tower still receives the image and the image/text token
+        # boundaries are kept.
+        multimodal_inputs = {
+            key: inputs[key]
+            for key in ("pixel_values", "token_type_ids")
+            if key in inputs
+        }
+
+        inputs = prepare_inputs_for_sliding_window_attention(
+            inputs,
+            batch_size=batch_size,
+            max_cache_len=self._variant_config.max_length,
+            dtype_override=dtype_override,
+            config=self.config,
+        )
+        inputs.update(multimodal_inputs)
+        print("inputs", inputs)
         return inputs
 
     def get_mesh_config(self, num_devices: int):
