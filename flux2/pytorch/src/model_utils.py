@@ -261,7 +261,7 @@ def shard_text_encoder_specs(encoder) -> dict:
         language_model = language_model.model
 
     if hasattr(language_model, "embed_tokens"):
-        specs[language_model.embed_tokens.weight] = (None, "batch")
+        specs[language_model.embed_tokens.weight] = (None, None)
 
     layers = getattr(language_model, "layers", None)
     if layers is None:
@@ -271,23 +271,23 @@ def shard_text_encoder_specs(encoder) -> dict:
         sa = layer.self_attn
         for proj_name in ("q_proj", "k_proj", "v_proj"):
             proj = getattr(sa, proj_name)
-            specs[proj.weight] = ("model", "batch")
+            specs[proj.weight] = ("model", None)
             if proj.bias is not None:
                 specs[proj.bias] = ("model",)
-        specs[sa.o_proj.weight] = ("batch", "model")
+        specs[sa.o_proj.weight] = (None, "model")
         if sa.o_proj.bias is not None:
-            specs[sa.o_proj.bias] = ("batch",)
+            specs[sa.o_proj.bias] = (None,)
 
         mlp = layer.mlp
-        specs[mlp.gate_proj.weight] = ("model", "batch")
-        specs[mlp.up_proj.weight] = ("model", "batch")
-        specs[mlp.down_proj.weight] = ("batch", "model")
+        specs[mlp.gate_proj.weight] = ("model", None)
+        specs[mlp.up_proj.weight] = ("model", None)
+        specs[mlp.down_proj.weight] = (None, "model")
 
-        specs[layer.input_layernorm.weight] = ("batch",)
-        specs[layer.post_attention_layernorm.weight] = ("batch",)
+        specs[layer.input_layernorm.weight] = (None,)
+        specs[layer.post_attention_layernorm.weight] = (None,)
 
     if hasattr(language_model, "norm"):
-        specs[language_model.norm.weight] = ("batch",)
+        specs[language_model.norm.weight] = (None,)
 
     return specs
 
@@ -297,7 +297,7 @@ def _shard_flux2_joint_attention(attn, specs: dict) -> None:
     for proj_name in ("to_q", "to_k", "to_v", "add_q_proj", "add_k_proj", "add_v_proj"):
         if hasattr(attn, proj_name) and getattr(attn, proj_name) is not None:
             proj = getattr(attn, proj_name)
-            _add_shard_spec(specs, proj.weight, ("model", "batch"))
+            _add_shard_spec(specs, proj.weight, ("model", None))
             _add_shard_spec(specs, proj.bias, ("model",))
 
     to_out = attn.to_out
@@ -308,12 +308,12 @@ def _shard_flux2_joint_attention(attn, specs: dict) -> None:
     else:
         out_proj = None
     if out_proj is not None:
-        _add_shard_spec(specs, out_proj.weight, ("batch", "model"))
-        _add_shard_spec(specs, out_proj.bias, ("batch",))
+        _add_shard_spec(specs, out_proj.weight, (None, "model"))
+        _add_shard_spec(specs, out_proj.bias, (None,))
 
     if hasattr(attn, "to_add_out") and attn.to_add_out is not None:
-        _add_shard_spec(specs, attn.to_add_out.weight, ("batch", "model"))
-        _add_shard_spec(specs, attn.to_add_out.bias, ("batch",))
+        _add_shard_spec(specs, attn.to_add_out.weight, (None, "model"))
+        _add_shard_spec(specs, attn.to_add_out.bias, (None,))
 
     for norm_name in ("norm_q", "norm_k", "norm_added_q", "norm_added_k"):
         norm = getattr(attn, norm_name, None)
@@ -324,12 +324,12 @@ def _shard_flux2_joint_attention(attn, specs: dict) -> None:
 def _shard_flux2_parallel_attention(attn, specs: dict) -> None:
     """Flux2ParallelSelfAttention in single_stream_blocks (fused QKV+MLP)."""
     if hasattr(attn, "to_qkv_mlp_proj"):
-        _add_shard_spec(specs, attn.to_qkv_mlp_proj.weight, ("model", "batch"))
+        _add_shard_spec(specs, attn.to_qkv_mlp_proj.weight, ("model", None))
         _add_shard_spec(specs, attn.to_qkv_mlp_proj.bias, ("model",))
 
     if hasattr(attn, "to_out") and isinstance(attn.to_out, torch.nn.Linear):
-        _add_shard_spec(specs, attn.to_out.weight, ("batch", "model"))
-        _add_shard_spec(specs, attn.to_out.bias, ("batch",))
+        _add_shard_spec(specs, attn.to_out.weight, (None, "model"))
+        _add_shard_spec(specs, attn.to_out.bias, (None,))
 
     for norm_name in ("norm_q", "norm_k"):
         norm = getattr(attn, norm_name, None)
@@ -338,31 +338,31 @@ def _shard_flux2_parallel_attention(attn, specs: dict) -> None:
 
 
 def _shard_flux2_feed_forward(ff, specs: dict) -> None:
-    _add_shard_spec(specs, ff.linear_in.weight, ("model", "batch"))
-    _add_shard_spec(specs, ff.linear_out.weight, ("batch", "model"))
+    _add_shard_spec(specs, ff.linear_in.weight, ("model", None))
+    _add_shard_spec(specs, ff.linear_out.weight, (None, "model"))
 
 
 def shard_transformer_specs(transformer) -> dict:
     """Shard Flux2Transformer2DModel (dual-stream + single-stream blocks)."""
     specs = {}
 
-    _add_shard_spec(specs, transformer.x_embedder.weight, ("model", "batch"))
-    _add_shard_spec(specs, transformer.context_embedder.weight, ("model", "batch"))
+    _add_shard_spec(specs, transformer.x_embedder.weight, ("model", None))
+    _add_shard_spec(specs, transformer.context_embedder.weight, ("model", None))
 
     for mod in (
         transformer.double_stream_modulation_img,
         transformer.double_stream_modulation_txt,
         transformer.single_stream_modulation,
     ):
-        _add_shard_spec(specs, mod.linear.weight, ("model", "batch"))
+        _add_shard_spec(specs, mod.linear.weight, ("model", None))
 
     def _shard_timestep_embedding(embedder) -> None:
         if embedder is None:
             return
-        _add_shard_spec(specs, embedder.linear_1.weight, ("model", "batch"))
+        _add_shard_spec(specs, embedder.linear_1.weight, ("model", None))
         _add_shard_spec(specs, embedder.linear_1.bias, ("model",))
-        _add_shard_spec(specs, embedder.linear_2.weight, ("batch", "model"))
-        _add_shard_spec(specs, embedder.linear_2.bias, ("batch",))
+        _add_shard_spec(specs, embedder.linear_2.weight, (None, "model"))
+        _add_shard_spec(specs, embedder.linear_2.bias, (None,))
 
     _shard_timestep_embedding(transformer.time_guidance_embed.timestep_embedder)
     _shard_timestep_embedding(transformer.time_guidance_embed.guidance_embedder)
@@ -372,21 +372,21 @@ def shard_transformer_specs(transformer) -> dict:
             norm = getattr(block, norm_name, None)
             if norm is not None:
                 # elementwise_affine=False → weight/bias are None; skip
-                _add_shard_spec(specs, getattr(norm, "weight", None), ("batch",))
-                _add_shard_spec(specs, getattr(norm, "bias", None), ("batch",))
+                _add_shard_spec(specs, getattr(norm, "weight", None), (None,))
+                _add_shard_spec(specs, getattr(norm, "bias", None), (None,))
         _shard_flux2_joint_attention(block.attn, specs)
         _shard_flux2_feed_forward(block.ff, specs)
         _shard_flux2_feed_forward(block.ff_context, specs)
 
     for block in transformer.single_transformer_blocks:
         if hasattr(block, "norm"):
-            _add_shard_spec(specs, getattr(block.norm, "weight", None), ("batch",))
-            _add_shard_spec(specs, getattr(block.norm, "bias", None), ("batch",))
+            _add_shard_spec(specs, getattr(block.norm, "weight", None), (None,))
+            _add_shard_spec(specs, getattr(block.norm, "bias", None), (None,))
         _shard_flux2_parallel_attention(block.attn, specs)
 
     if hasattr(transformer.norm_out, "linear"):
-        _add_shard_spec(specs, transformer.norm_out.linear.weight, ("model", "batch"))
+        _add_shard_spec(specs, transformer.norm_out.linear.weight, ("model", None))
         _add_shard_spec(specs, transformer.norm_out.linear.bias, ("model",))
-    _add_shard_spec(specs, transformer.proj_out.weight, (None, "batch"))
+    _add_shard_spec(specs, transformer.proj_out.weight, (None, None))
 
     return specs
