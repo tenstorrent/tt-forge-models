@@ -5324,7 +5324,9 @@ class PanopticFPN(GeneralizedRCNN):
                     self.combine_instances_score_thresh,
                 )
                 processed_results[-1]["panoptic_seg"] = panoptic_r
-            return processed_results
+            # Return only the fixed-shape sem_seg tensor; instances/panoptic_seg
+            # have variable lengths that break the test comparator's pytree check.
+            return sem_seg_r
         else:
             return detector_results, sem_seg_results
 

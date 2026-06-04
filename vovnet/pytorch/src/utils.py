@@ -18,7 +18,10 @@ from ....tools.utils import get_file
 
 
 def preprocess_steps(model_type):
-    # Use randomly initialized weights (no pretrained download)
+    # TORCH_HUB path only: vovnet39_th / vovnet57_th pretrained weights are
+    # hosted on dl.dropbox.com URLs in src_vovnet_stigma.py (model_urls dict)
+    # which return 403. Random init as workaround until upstream URLs migrate.
+    # See tt-xla#2390. OSMR and TIMM paths are unaffected and use pretrained.
     model = model_type(False, True).eval()
     config = resolve_data_config({}, model=model)
     transform = create_transform(**config)
@@ -37,8 +40,7 @@ def preprocess_steps(model_type):
 
 
 def preprocess_timm_model(model_name):
-    # Use randomly initialized weights (no pretrained download)
-    use_pretrained_weights = False
+    use_pretrained_weights = True
     if model_name == "ese_vovnet99b":
         use_pretrained_weights = False
     model = timm.create_model(model_name, pretrained=use_pretrained_weights)

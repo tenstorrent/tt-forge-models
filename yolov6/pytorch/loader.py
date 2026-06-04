@@ -237,9 +237,6 @@ class ModelLoader(ForgeModel):
         objectness). It exercises the full backbone -> neck -> detect head
         graph; the neck feature maps are dropped because their gradients are a
         strict subset of the predictions' graph.
-
-        Why a registry entry was not sufficient: the forward returns a bare
-        ``list`` with no class name the registry can key on.
         """
         return fwd_output[0]
 

@@ -113,9 +113,9 @@ class ModelLoader(ForgeModel):
         backpropagates through the entire XLM-Roberta encoder. The sparse and
         ColBERT heads are dropped: each is a single linear projection on top
         of the same encoder, so omitting them only skips two small head layers
-        while still exercising the bulk of the parameters.
-
-        Why a registry entry was not sufficient: the forward returns a bare
-        ``dict``, which has no class name the registry can key on.
+        while still exercising the bulk of the parameters. Trade-off: the
+        sparse and ColBERT head linears (``sparse_linear``, ``colbert_linear``)
+        do not receive gradient under this unpack -- anyone validating the
+        full multi-vector retrieval graph on TT needs a different unpacker.
         """
         return forward_output["dense_vecs"]
