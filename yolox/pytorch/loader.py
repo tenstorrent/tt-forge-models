@@ -6,24 +6,25 @@
 YOLOX model loader implementation
 """
 
-import torch
 import os
 from typing import Optional
 
+import torch
+
 os.environ["TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"] = "1"
 
+from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
-from ...base import ForgeModel
 from ...tools.utils import get_file
-from .src.utils import _forward_patch, _decode_outputs
+from .src.utils import _decode_outputs, _forward_patch
 
 
 class ModelVariant(StrEnum):
@@ -229,9 +230,17 @@ class ModelLoader(ForgeModel):
             shape ``[B, max_labels, 5]`` with each row encoding ``[class_id, cx, cy, w, h]``.
             ``targets`` is ignored by the model in eval mode and required in train mode.
         """
-        return self.input_preprocess(
+        images = self.input_preprocess(
             dtype_override=dtype_override, batch_size=batch_size
         )
+        # YOLOX requires targets in training mode (ignored in eval). Targets are a
+        # [B, max_labels, 5] tensor with each row [class_id, cx, cy, w, h] in absolute
+        # pixel coords. One synthetic box per image is enough for a gradient-shape check.
+        targets = torch.zeros((batch_size, 1, 5), dtype=images.dtype)
+        targets[:, 0] = torch.tensor(
+            [0.0, 100.0, 100.0, 50.0, 50.0], dtype=images.dtype
+        )
+        return {"x": images, "targets": targets}
 
     def unpack_forward_output(self, forward_output):
         """Extract the loss-relevant tensor from YOLOX's training-mode output.

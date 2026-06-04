@@ -9,26 +9,27 @@ import os
 import shutil
 import zipfile
 from collections import OrderedDict
+from dataclasses import dataclass
 from typing import Optional
 
 import requests
 import torch
-from torch import Tensor
-from PIL import Image
-from torchvision import transforms, models
-from dataclasses import dataclass
-from ...config import (
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
-    Framework,
-    StrEnum,
-    ModelConfig,
-)
-from ...base import ForgeModel
-from .src.model import Model
 from datasets import load_dataset
+from PIL import Image
+from torch import Tensor
+from torchvision import models, transforms
+
+from ...base import ForgeModel
+from ...config import (
+    Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
+    StrEnum,
+)
+from .src.model import Model
 
 
 def patched_retinanet_forward(
@@ -326,6 +327,21 @@ class ModelLoader(ForgeModel):
             else:
                 batch_t = batch_t.to(dtype_override)
 
+        # Torchvision RetinaNet requires per-image targets in training mode; in
+        # eval mode they are ignored. The CUSTOM (NVIDIA) variants use a different
+        # forward that takes only the image tensor, so leave their return as-is.
+        if source == ModelSource.TORCHVISION:
+            targets = [
+                {
+                    "boxes": torch.tensor(
+                        [[10.0, 10.0, 100.0, 100.0]], dtype=torch.float32
+                    ),
+                    "labels": torch.tensor([1], dtype=torch.int64),
+                }
+                for _ in range(batch_size)
+            ]
+            return {"images": batch_t, "targets": targets}
+
         return batch_t
 
     def postprocess_detections(self, outputs):
@@ -347,17 +363,28 @@ class ModelLoader(ForgeModel):
         return detections
 
     def unpack_forward_output(self, fwd_output):
-        """Forward output structure: ``list`` of length 10 -- 5 classification
+        """Forward output structure depends on the variant source.
+
+        CUSTOM (NVIDIA) variants: ``list`` of length 10 -- 5 classification
         feature maps followed by 5 box-regression feature maps, one per FPN
         level (P3..P7). Each map has shape
         ``(B, num_anchors * (num_classes or 4), H_i, W_i)``.
 
-        What is selected and why: sum all values across all 10 maps to a
-        scalar. These are exactly the tensors RetinaNet's focal classification
-        loss and smooth L1 box loss consume; both heads share the FPN backbone
-        so backward through the sum trains the full backbone + FPN + cls/reg
-        heads.
+        TORCHVISION variant (retinanet_resnet50_fpn_v2): ``tuple(head_outputs,
+        anchors)`` where ``head_outputs`` is ``dict{"cls_logits": (B, A,
+        num_classes), "bbox_regression": (B, A, 4)}`` and ``anchors`` is
+        ``list[Tensor(A, 4)]`` of length B.
+
+        What is selected and why: the classification and box-regression
+        tensors, summed to a scalar. These are exactly the tensors RetinaNet's
+        focal classification loss and smooth L1 box loss consume; both heads
+        share the FPN backbone so backward through the sum trains the full
+        backbone + FPN + cls/reg heads. For the TORCHVISION variant the
+        ``anchors`` are reference geometry with no gradient and are dropped.
         """
+        if self._variant_config.source == ModelSource.TORCHVISION:
+            head_outputs = fwd_output[0]
+            return sum(t.sum() for t in head_outputs.values())
         return sum(t.sum() for t in fwd_output)
 
     def cleanup(self):
