@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Microsoft
+#
+# SPDX-License-Identifier: MIT
+
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 import logging
 import os

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Microsoft
+#
+# SPDX-License-Identifier: MIT
+
 # ------------------------------------------------------------------------------
 # Copyright (c) Microsoft
 # Licensed under the MIT License.

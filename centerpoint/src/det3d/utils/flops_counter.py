@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Microsoft
+#
+# SPDX-License-Identifier: MIT
+
 # Modified from flops-counter.pytorch by Vladislav Sovrasov
 # original repo: https://github.com/sovrasov/flops-counter.pytorch
 

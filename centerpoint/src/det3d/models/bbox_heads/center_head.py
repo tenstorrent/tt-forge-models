@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Microsoft
+#
+# SPDX-License-Identifier: MIT
+
 # ------------------------------------------------------------------------------
 # Portions of this code are from
 # det3d (https://github.com/poodarchu/Det3D/tree/56402d4761a5b73acd23080f537599b0888cce07)

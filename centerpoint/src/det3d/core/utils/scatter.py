@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2026 Microsoft
+#
+# SPDX-License-Identifier: MIT
+
 # The following code are copied from pytorch_scatter https://github.com/rusty1s/pytorch_scatter
 # Copyright (c) 2020 Matthias Fey <matthias.fey@tu-dortmund.de>
 # MIT License
