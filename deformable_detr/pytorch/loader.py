@@ -123,7 +123,7 @@ class ModelLoader(ForgeModel):
             self._load_processor()
 
         # Load the model with dtype override if specified
-        model_kwargs = {}
+        model_kwargs = {"torch_dtype": torch.float32}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -145,23 +145,10 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors that can be fed to the model.
         """
-        # Ensure processor is initialized
-        if self.processor is None:
-            self._load_processor()
+        # Use 512x512 synthetic tensors: minimum tile-aligned size where stride-8 features are 64x64
+        # and stride-16 features are 32x32 (both multiples of the 32-wide TTNN tile)
+        pixel_dtype = dtype_override if dtype_override is not None else torch.float32
+        pixel_values = torch.zeros(batch_size, 3, 512, 512, dtype=pixel_dtype)
+        pixel_mask = torch.ones(batch_size, 512, 512, dtype=torch.long)
 
-        # Load dataset
-        dataset = load_dataset("huggingface/cats-image")["test"]
-        image = dataset[0]["image"]
-
-        # Process the image
-        inputs = self.processor(images=image, return_tensors="pt")
-
-        # Handle batch size
-        for key in inputs:
-            if torch.is_tensor(inputs[key]):
-                inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
-                # Convert the input dtype to dtype_override if specified
-                if dtype_override is not None:
-                    inputs[key] = inputs[key].to(dtype_override)
-
-        return inputs
+        return {"pixel_values": pixel_values, "pixel_mask": pixel_mask}
