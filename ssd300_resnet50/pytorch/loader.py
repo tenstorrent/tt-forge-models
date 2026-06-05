@@ -105,7 +105,7 @@ class ModelLoader(ForgeModel):
 
         return model
 
-    def load_inputs(self, dtype_override=None, batch_size=2):
+    def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the SSD300 ResNet50 model with this instance's variant settings.
 
         Args:
@@ -148,7 +148,7 @@ class ModelLoader(ForgeModel):
               confs: Tensor of shape (B, 81, num_anchors=8732) — per-anchor class logits
 
         What is selected and why:
-            Both tensors are flattened and concatenated. SSD's MultiBoxLoss consumes
+            Both tensors are summed to a scalar. SSD's MultiBoxLoss consumes
             locs (smooth-L1 localization loss) and confs (cross-entropy classification
             loss); both are gradient sources during training and neither is auxiliary.
 
@@ -157,4 +157,4 @@ class ModelLoader(ForgeModel):
             keys on output class name and cannot dispatch on plain Python tuples.
         """
         locs, confs = fwd_output
-        return torch.cat([locs.flatten(), confs.flatten()], dim=0)
+        return locs.sum() + confs.sum()

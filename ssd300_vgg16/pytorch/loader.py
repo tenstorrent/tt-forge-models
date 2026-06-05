@@ -22,7 +22,6 @@ from ...config import (
     StrEnum,
 )
 from datasets import load_dataset
-from ...tools.utils import extract_tensors_recursive
 from .src.utils import patched_grid_default_boxes, patched_forward, patched_SSD_forward
 
 
@@ -164,20 +163,17 @@ class ModelLoader(ForgeModel):
         of length B.
 
         What is selected and why: only the head_outputs values
-        (bbox_regression and cls_logits) are returned, flattened and
-        concatenated. These are the gradient sources consumed by SSD's
-        classification + localization loss. Anchors are reference geometry
-        produced by the (monkey-patched) DefaultBoxGenerator and carry no
-        gradients.
+        (bbox_regression and cls_logits) are summed to a scalar. These are the
+        gradient sources consumed by SSD's classification + localization loss.
+        Anchors are reference geometry produced by the (monkey-patched)
+        DefaultBoxGenerator and carry no gradients.
 
         Why a registry entry was not sufficient: the model's forward output
         is a bare tuple, which has no stable class name to key the global
         unpack registry on.
         """
         head_outputs = fwd_output[0]
-        tensors = []
-        extract_tensors_recursive(head_outputs, tensors)
-        return torch.cat(tensors, dim=0)
+        return sum(t.sum() for t in head_outputs.values())
 
     def postprocess_detections(self, fw_out, co_out):
         """Run post-processing on raw model outputs (head_outputs, anchors) on CPU.
