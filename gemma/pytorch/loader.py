@@ -18,7 +18,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from ...base import ForgeModel
+from ...base import ForgeModel, ForgePrefillModel
 from .src.model_utils import pad_inputs
 from ...tools.utils import cast_input_to_type, get_static_cache_decode_inputs
 
@@ -102,13 +102,20 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self):
+    def _load_tokenizer(self, dtype_override=None):
         """Load tokenizer for the current variant.
         Returns:
             The loaded tokenizer instance
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
-        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
+
+        tokenizer_kwargs = {}
+        if dtype_override is not None:
+            tokenizer_kwargs["torch_dtype"] = dtype_override
+
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            pretrained_model_name, **tokenizer_kwargs
+        )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         return self.tokenizer
@@ -257,4 +264,23 @@ class ModelLoader(ForgeModel):
             batch_size=batch_size,
             max_cache_len=max_cache_len,
             dtype=dtype_override,
+        )
+
+
+class ModelLoaderPrefill(ModelLoader, ForgePrefillModel):
+    """Prefill-focused loader for Gemma variants on which we test prefill
+    extensively with various meshes, strategies, batches and sequence lengths.
+    """
+
+    _VARIANTS = {
+        ModelVariant.GEMMA_1_1_2B_IT: ModelLoader._VARIANTS[
+            ModelVariant.GEMMA_1_1_2B_IT
+        ],
+    }
+    DEFAULT_VARIANT = ModelVariant.GEMMA_1_1_2B_IT
+
+    def load_shard_spec(self, model, strategy="fsdp", batch_axis="batch"):
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement load_shard_spec; "
+            "no TP/FSDP sharding is defined for this prefill loader."
         )
