@@ -88,9 +88,72 @@ def load_transformer(pretrained_model_name: str, dtype: torch.dtype):
     ).eval()
 
 
+def _patch_wan_vae_causal_slice() -> int:
+    """Make AutoencoderKLWan's causal temporal-cache slicing TT-safe.
+
+    The Wan 3D causal VAE caches the last ``CACHE_T`` (=2) temporal frames
+    before each causal conv via ``cache_x = x[:, :, -CACHE_T:, :, :]``.
+    ``AutoencoderKLWan._decode`` feeds the decoder one latent frame at a time
+    (a size-1 temporal dim), so the negative start ``-CACHE_T == -2`` is out of
+    range on a size-1 dim. PyTorch on CPU silently clamps it; torch_xla/TT
+    rejects it during lowering ("Value out of range (expected to be in range of
+    [-1, 0], but got -2)", https://github.com/tenstorrent/tt-xla/issues/4465).
+
+    We rewrite the slice to a numerically-identical *non-negative* start
+    ``max(T - CACHE_T, 0)``. For any temporal size T this selects exactly the
+    same elements as ``-CACHE_T:`` (CPU semantics) while never producing a
+    negative start, so the TT lowering is always legal. The downstream
+    ``if cache_x.shape[2] < 2`` cache-concatenation guard is untouched.
+
+    Implemented as a source rewrite of the offending expression so all other
+    forward logic is preserved verbatim and the patch tracks the upstream code.
+    """
+    import inspect
+    import textwrap
+
+    import diffusers.models.autoencoders.autoencoder_kl_wan as m
+
+    if getattr(m, "_TT_CAUSAL_SLICE_PATCHED", False):
+        return 0
+
+    OLD = "x[:, :, -CACHE_T:, :, :]"
+    NEW = "x[:, :, max(x.shape[2] - CACHE_T, 0):, :, :]"
+
+    # Every class whose forward holds the negative causal-cache slice. Encoder
+    # sites are unused by decode() but are patched too so the loader is correct
+    # for any future encode path.
+    classes = [m.WanResample, m.WanResidualBlock, m.WanEncoder3d, m.WanDecoder3d]
+    total = 0
+    for cls in classes:
+        src = textwrap.dedent(inspect.getsource(cls.forward))
+        n = src.count(OLD)
+        if n == 0:
+            continue
+        # exec with the live module globals so CACHE_T / torch / helpers resolve;
+        # the rebuilt function lands in a throwaway locals dict.
+        local_ns = {}
+        exec(compile(src.replace(OLD, NEW), m.__file__, "exec"), m.__dict__, local_ns)
+        cls.forward = local_ns["forward"]
+        total += n
+
+    if total < 1:
+        # Raise (not assert: must survive python -O) so a diffusers source
+        # change that drops the slice pattern fails loudly instead of silently
+        # leaving the negative slice unpatched.
+        raise RuntimeError(
+            "Wan VAE causal-slice patch matched 0 sites; the diffusers "
+            "AutoencoderKLWan source changed and the patch needs updating."
+        )
+    m._TT_CAUSAL_SLICE_PATCHED = True
+    return total
+
+
 def load_vae(pretrained_model_name: str, dtype: torch.dtype):
     """Load AutoencoderKLWan from the vae subfolder (Wan base repo)."""
     from diffusers import AutoencoderKLWan
+
+    # TT-safe causal-cache slicing (tt-xla#4465); no-op after first call.
+    _patch_wan_vae_causal_slice()
 
     return AutoencoderKLWan.from_pretrained(
         pretrained_model_name,
