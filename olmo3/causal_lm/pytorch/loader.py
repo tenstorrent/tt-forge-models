@@ -34,6 +34,12 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """Olmo3 model loader implementation for causal language modeling tasks."""
 
+    # These variants use sliding window attention and need StaticCache + overrides.
+    _SLIDING_WINDOW_VARIANTS = {
+        ModelVariant.Olmo_3_1025_7B,
+        ModelVariant.Olmo_3_1125_32B,
+    }
+
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
         ModelVariant.Olmo_3_7B_Think: LLMModelConfig(
@@ -75,6 +81,11 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self.config = None
         self.model = None
+
+    @property
+    def requires_model_rewrites(self) -> bool:
+        """Sliding-window variants need the TT causal-mask rewrite applied."""
+        return self._variant in self._SLIDING_WINDOW_VARIANTS
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -134,12 +145,7 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
-        if getattr(model.config, "use_cache", True):
-            model.config.layer_types = [
-                "full_attention"
-            ] * model.config.num_hidden_layers
         model.eval()
-
         self.config = model.config
         self.model = model
         return model
@@ -157,9 +163,6 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        # Get max_length from the variant config
-        max_length = self._variant_config.max_length
-
         prompts = [self.sample_text]
 
         inputs = self.tokenizer(
@@ -167,7 +170,7 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
             padding=True,
             truncation=True,
-            max_length=max_length,
+            max_length=self._variant_config.max_length,
         )
 
         # Add batch dimension
@@ -175,6 +178,19 @@ class ModelLoader(ForgeModel):
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
+        # Non-sliding variants: return standard tokenizer output
+        if self._variant not in self._SLIDING_WINDOW_VARIANTS:
+            return inputs
+
+        from tools.utils import prepare_inputs_for_sliding_window_attention
+
+        inputs = prepare_inputs_for_sliding_window_attention(
+            inputs,
+            batch_size=batch_size,
+            max_cache_len=self._variant_config.max_length,
+            dtype_override=dtype_override,
+            config=self.config,
+        )
         return inputs
 
     def get_mesh_config(self, num_devices: int):
