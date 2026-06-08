@@ -144,8 +144,11 @@ def stable_diffusion_preprocessing_v3(
 
     scheduler_kwargs = {}
     if pipe.scheduler.config.get("use_dynamic_shifting", None) and mu is None:
-        image_seq_len = (height // pipe.transformer.config.patch_size) * (
-            width // pipe.transformer.config.patch_size
+        # Use the latent spatial dims (not the original image height/width) to
+        # match the reference SD3 pipeline implementation.
+        _, _, latent_height, latent_width = latents.shape
+        image_seq_len = (latent_height // pipe.transformer.config.patch_size) * (
+            latent_width // pipe.transformer.config.patch_size
         )
         mu = calculate_shift(
             image_seq_len,
