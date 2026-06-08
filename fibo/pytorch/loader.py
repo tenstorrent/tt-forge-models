@@ -144,7 +144,6 @@ class ModelLoader(ForgeModel):
         Returns:
             tuple: Positional inputs matching ``FiboTransformerWrapper.forward``.
         """
-        del batch_size  # kept for the load_inputs signature contract
         capture = self._ensure_capture(dtype_override=dtype_override)
         inputs = positional_inputs_from_capture(capture)
 
