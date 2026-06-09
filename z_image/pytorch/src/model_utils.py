@@ -35,8 +35,11 @@ TRANSFORMER_NUM_REFINER_LAYERS = 2
 TRANSFORMER_IN_CHANNELS = 16
 TRANSFORMER_CAP_FEAT_DIM = 2560
 
-# (batch, model) mesh shapes by device count
-MESH_SHAPES = {32: (8, 4), 8: (2, 4), 4: (1, 4), 2: (1, 2), 1: (1, 1)}
+# (batch, model) mesh shapes by device count.
+# Megatron TP shards only on "model"; keep batch dim at 1 for counts < 32 so
+# Shardy does not reshard activations onto the batch axis (collective_permute;
+# tt-xla#2496 / tt-mlir#3370). Galaxy (32) uses (8, 4).
+MESH_SHAPES = {32: (8, 4), 8: (1, 8), 4: (1, 4), 2: (1, 2), 1: (1, 1)}
 MESH_NAMES = ("batch", "model")
 
 
@@ -243,15 +246,8 @@ def _shard_zimage_block(block, specs: dict, *, has_modulation: bool) -> None:
     specs[ff.w3.weight] = ("model", None)
     specs[ff.w2.weight] = (None, "model")
 
-    for norm_name in (
-        "attention_norm1",
-        "attention_norm2",
-        "ffn_norm1",
-        "ffn_norm2",
-    ):
-        norm = getattr(block, norm_name, None)
-        if norm is not None and hasattr(norm, "weight"):
-            specs[norm.weight] = (None,)
+    # Block RMSNorms are left unmarked (replicated) — do not force (None,) specs
+    # that can trigger cross-axis reshards when hidden states are model-sharded.
 
     if has_modulation and hasattr(block, "adaLN_modulation"):
         lin = block.adaLN_modulation[0]
@@ -261,7 +257,7 @@ def _shard_zimage_block(block, specs: dict, *, has_modulation: bool) -> None:
 
 
 def _shard_final_layer(layer, specs: dict) -> None:
-    specs[layer.linear.weight] = (None, None)
+    specs[layer.linear.weight] = (None, "model")
     if layer.linear.bias is not None:
         specs[layer.linear.bias] = (None,)
     ada_lin = layer.adaLN_modulation[1]
@@ -313,4 +309,13 @@ def shard_transformer_specs(transformer) -> dict:
         if pad is not None:
             _set_shard_spec(specs, pad, _replicate_spec(pad))
 
+    return specs
+
+
+def shard_transformer_input_specs(args) -> dict:
+    """Replicate forward-pass inputs so Shardy does not reshard them onto batch."""
+    specs = {}
+    for tensor in args:
+        if isinstance(tensor, torch.Tensor):
+            _set_shard_spec(specs, tensor, _replicate_spec(tensor))
     return specs

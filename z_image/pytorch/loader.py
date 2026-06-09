@@ -36,6 +36,7 @@ from .src.model_utils import (
     load_transformer,
     load_vae,
     make_latent_inputs,
+    shard_transformer_input_specs,
     shard_transformer_specs,
     tokenize_prompt,
 )
@@ -105,10 +106,13 @@ class ModelLoader(ForgeModel):
             )
         return MESH_SHAPES[num_devices], MESH_NAMES
 
-    def load_shard_spec(self, model):
+    def load_shard_spec(self, model, args=None, kwargs=None):
         """Return tensor → partition_spec dict for the active component."""
         if self._variant == ModelVariant.TRANSFORMER:
-            return shard_transformer_specs(model.transformer)
+            specs = shard_transformer_specs(model.transformer)
+            if args is not None:
+                specs.update(shard_transformer_input_specs(args))
+            return specs
         return None
 
     def load_inputs(self, dtype_override: Optional[torch.dtype] = None, **kwargs):
