@@ -289,43 +289,63 @@ class ModelLoader(ForgeModel):
 
     def load_shard_spec(self, model):
         shard_specs = {}
-        shard_specs[model.model.embed_tokens.weight] = (None, "model")
-        shard_specs[model.model.norm.weight] = ("model",)
-        shard_specs[model.lm_head.weight] = (None, "model")
+
+        # Hidden is kept replicated everywhere so the RMS norms reduce locally
+        # (no distributed all_gather norm). Embedding replicated; lm_head is
+        # vocab-parallel (shard vocab, not hidden).
+        shard_specs[model.model.embed_tokens.weight] = (None, None)  # [V, H] replicated
+        shard_specs[model.model.norm.weight] = (None,)  # [H] replicated
+        shard_specs[model.lm_head.weight] = ("model", None)  # [V/TP, H]
 
         for layer in model.model.layers:
-            shard_specs[layer.input_layernorm.weight] = ("model",)
-            shard_specs[layer.post_attention_layernorm.weight] = ("model",)
 
+            # Layer norms replicated (see hidden-replicated note above).
+            shard_specs[layer.input_layernorm.weight] = (None,)  # [H] replicated
+            shard_specs[layer.post_attention_layernorm.weight] = (None,)  # [H] replicated
+
+            # Attention: col-parallel q/k/v (shard heads), row-parallel o_proj.
             attn = layer.self_attn
-            shard_specs[attn.q_proj.weight] = ("model", None)
-            shard_specs[attn.k_proj.weight] = ("model", None)
-            shard_specs[attn.v_proj.weight] = ("model", None)
-            shard_specs[attn.o_proj.weight] = (None, "model")
+            shard_specs[attn.q_proj.weight] = ("model", None)  # [Nq*D/TP, H]
+            shard_specs[attn.k_proj.weight] = ("model", None)  # [Nkv*D/TP, H]
+            shard_specs[attn.v_proj.weight] = ("model", None)  # [Nkv*D/TP, H]
+            shard_specs[attn.o_proj.weight] = (None, "model")  # [Nq*D, H/TP]  row-parallel
+
             if attn.q_proj.bias is not None:
                 shard_specs[attn.q_proj.bias] = ("model",)
                 shard_specs[attn.k_proj.bias] = ("model",)
                 shard_specs[attn.v_proj.bias] = ("model",)
+
             if hasattr(attn, "q_norm"):
-                shard_specs[attn.q_norm.weight] = ("model",)
-                shard_specs[attn.k_norm.weight] = ("model",)
+                shard_specs[attn.q_norm.weight] = (None,)  # [D] replicated, per-head local
+                shard_specs[attn.k_norm.weight] = (None,)
 
             mlp = layer.mlp
+
             if isinstance(mlp, A2aSparseMLPWithSharedExperts):
                 inner = mlp.mlp  # A2aSparseMLP
-                shard_specs[inner.router.gate.weight] = (None, "model")
-                shard_specs[inner.experts.gate_proj] = (("model", "batch"), None, None)
-                shard_specs[inner.experts.up_proj] = (("model", "batch"), None, None)
-                shard_specs[inner.experts.down_proj] = (("model", "batch"), None, None)
+
+                shard_specs[inner.router.gate.weight] = (None, None)  # [E, H] replicated
+
+                # Routed experts: compound EP (model x batch) on the expert dim;
+                # A2a routes whole tokens, so per-expert weights stay whole.
+                # Matches DeepSeek V3.x / Kimi K2.
+                shard_specs[inner.experts.gate_proj] = (("model", "batch"), None, None)  # [E/EP, I, H]
+                shard_specs[inner.experts.up_proj] = (("model", "batch"), None, None)  # [E/EP, I, H]
+                shard_specs[inner.experts.down_proj] = (("model", "batch"), None, None)  # [E/EP, H, I]
+
+                # Shared expert: col→row parallel, hidden replicated.
                 shared = getattr(mlp, "shared_experts", None)
                 if shared is not None:
-                    shard_specs[shared.gate_proj.weight] = (None, "model")
-                    shard_specs[shared.up_proj.weight] = (None, "model")
-                    shard_specs[shared.down_proj.weight] = ("model", None)
+                    shard_specs[shared.gate_proj.weight] = ("model", None)  # [I/TP, H]  col-parallel
+                    shard_specs[shared.up_proj.weight] = ("model", None)  # [I/TP, H]
+                    shard_specs[shared.down_proj.weight] = (None, "model")  # [H, I/TP]  row-parallel
+
             else:
-                shard_specs[mlp.gate_proj.weight] = ("batch", "model")
-                shard_specs[mlp.up_proj.weight] = ("batch", "model")
-                shard_specs[mlp.down_proj.weight] = ("model", "batch")
+                # Dense MLP: col→row parallel, hidden replicated.
+                shard_specs[mlp.gate_proj.weight] = ("model", None)  # [I/TP, H]  col-parallel
+                shard_specs[mlp.up_proj.weight] = ("model", None)  # [I/TP, H]
+                shard_specs[mlp.down_proj.weight] = (None, "model")  # [H, I/TP]  row-parallel
+
         return shard_specs
 
     def load_config(self):
