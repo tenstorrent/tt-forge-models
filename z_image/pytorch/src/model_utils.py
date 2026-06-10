@@ -35,9 +35,17 @@ TRANSFORMER_NUM_REFINER_LAYERS = 2
 TRANSFORMER_IN_CHANNELS = 16
 TRANSFORMER_CAP_FEAT_DIM = 2560
 
-# (batch, model) mesh shapes by device count
-MESH_SHAPES = {32: (8, 4), 8: (2, 4), 4: (1, 4), 2: (1, 2), 1: (1, 1)}
-MESH_NAMES = ("batch", "model")
+# Mesh axes ("model", "batch") by device count. Megatron TP shards Q/K/V on
+# "model", splitting the hidden dim into n_heads=30 heads; the head-split reshape
+# unflatten(-1, (30, head_dim)) only partitions when "model" evenly divides 30
+# (divisors 1,2,3,5,6,10,15,30). On power-of-2 device counts "model" must be 2 —
+# model=4/8 give non-integer heads (3840/8 = 3.75) and fail SHLO reshape
+# partitioning (tt-xla#5148). The "model" axis is placed first so the logical
+# mesh maps onto the physical board. model=2 clears the reshape; the transformer
+# then reaches the RoPE complex legalization blocker (tt-xla#4756). Validated on
+# 2/4/8 devices (meshes (2,1)/(2,2)/(2,4)).
+MESH_SHAPES = {32: (2, 16), 8: (2, 4), 4: (2, 2), 2: (2, 1), 1: (1, 1)}
+MESH_NAMES = ("model", "batch")
 
 
 def latent_hw_from_pixels(height: int = HEIGHT, width: int = WIDTH) -> tuple[int, int]:
