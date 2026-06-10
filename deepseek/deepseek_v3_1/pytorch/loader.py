@@ -122,19 +122,39 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The DeepSeek V3.1 model in eval mode.
         """
-        config = self._load_config(num_layers=self.num_layers)
+        # DEBUG (not for commit): when num_layers == 1, load the first 4 layers
+        # so that the 4th layer (index 3) gets its proper checkpoint weights,
+        # then return a model containing only that 4th layer.
+        debug_single_4th_layer = self.num_layers == 1
+        load_n_layers = 4 if debug_single_4th_layer else self.num_layers
+
+        config = self._load_config(num_layers=load_n_layers)
 
         self._load_tokenizer()
 
-        if self.num_layers is None:
-            self.num_layers = 61
+        if load_n_layers is None:
+            load_n_layers = 61
 
         # Load the model using the meta-loader to assign weights from the checkpoint
         model = load_model_from_checkpoint(
             lambda: DeepseekV3ForCausalLM(config),
             self._BF16_WEIGHTS_REPO,
-            n_layers=self.num_layers,
+            n_layers=load_n_layers,
         )
+
+        if debug_single_4th_layer:
+            # Keep only the 4th layer (index 3) with its loaded weights, and
+            # make it behave as a single-layer model: reset its cache index to
+            # 0 so KV-cache updates stay in bounds.
+            fourth_layer = model.model.layers[3]
+            fourth_layer.self_attn.layer_idx = 0
+            model.model.layers = torch.nn.ModuleList([fourth_layer])
+            model.config.num_hidden_layers = 1
+            config.num_hidden_layers = 1
+            self.config.num_hidden_layers = 1
+            self.num_layers = 1
+        elif self.num_layers is None:
+            self.num_layers = 61
 
         if dtype_override is not None:
             model = model.to(dtype_override)

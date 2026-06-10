@@ -151,7 +151,23 @@ class ModelLoader(ForgeModel):
         # Load only num_layers weights for GLM-4 - Support needed for GLM-5
         # from_pretrained will load all layers even if a config for less layers is passed in
         if self.num_layers is not None and self._variant in _GLM4_VARIANTS:
-            model = load_model_from_checkpoint(pretrained_model_name, self.num_layers)
+            # DEBUG (not for commit): when num_layers == 1, load the first 4 layers
+            # so that the 4th layer (index 3) gets its proper checkpoint weights,
+            # then return a model containing only that 4th layer.
+            debug_single_4th_layer = self.num_layers == 1
+            load_n_layers = 4 if debug_single_4th_layer else self.num_layers
+
+            model = load_model_from_checkpoint(pretrained_model_name, load_n_layers)
+
+            if debug_single_4th_layer:
+                # Keep only the 4th layer (index 3) with its loaded weights, and
+                # make it behave as a single-layer model: reset its cache index to
+                # 0 so KV-cache updates stay in bounds.
+                fourth_layer = model.model.layers[3]
+                fourth_layer.self_attn.layer_idx = 0
+                model.model.layers = torch.nn.ModuleList([fourth_layer])
+                model.config.num_hidden_layers = 1
+                self.num_layers = 1
         else:
             model_kwargs = {}
             if dtype_override is not None:
