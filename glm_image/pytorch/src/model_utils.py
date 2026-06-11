@@ -15,6 +15,133 @@ Components:
 
 import torch
 
+
+# ---------------------------------------------------------------------------
+# Model patch
+#
+# The stock GlmImageTransformer2DModel.forward zeroes the dropped prior-token
+# embeddings with a boolean-mask in-place assignment:
+#
+#     prior_embedding[prior_token_drop] *= 0.0
+#
+# Boolean-mask indexing lowers to nonzero/gather/scatter, which is
+# data-dependent (dynamic shape). Under torch.compile this forces a Dynamo
+# graph break, and torch_xla's FX partitioner then fails to fuse the resulting
+# partitions (`assert last_output_node is not None`).
+#
+# We monkey-patch forward to use the mathematically-equivalent static form
+#
+#     prior_embedding = prior_embedding * (~prior_token_drop)[..., None]
+#
+# which zeroes the same rows with no nonzero, no dynamic shape and no graph
+# break. Both the CPU golden and the TT path use the patched op, so PCC is
+# unaffected. Mirrors the GptOss monkey-patch convention in
+# python_package/tt_torch/torch_overrides.py.
+# ---------------------------------------------------------------------------
+
+
+def _patch_glm_image_transformer_forward() -> None:
+    try:
+        from typing import Any
+
+        from diffusers.models.transformers.transformer_glm_image import (
+            GlmImageTransformer2DModel,
+        )
+        from diffusers.models.modeling_outputs import Transformer2DModelOutput
+    except ImportError:
+        return
+
+    if getattr(GlmImageTransformer2DModel.forward, "_tt_static_prior_drop", False):
+        return
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        encoder_hidden_states: torch.Tensor,
+        prior_token_id: torch.Tensor,
+        prior_token_drop: torch.Tensor,
+        timestep: torch.LongTensor,
+        target_size: torch.Tensor,
+        crop_coords: torch.Tensor,
+        attention_kwargs: "dict[str, Any] | None" = None,
+        return_dict: bool = True,
+        attention_mask: torch.Tensor | None = None,
+        kv_caches=None,
+        image_rotary_emb=None,
+    ):
+        batch_size, num_channels, height, width = hidden_states.shape
+
+        # 1. RoPE
+        if image_rotary_emb is None:
+            image_rotary_emb = self.rope(hidden_states)
+
+        # 2. Patch & Timestep embeddings
+        p = self.config.patch_size
+        post_patch_height = height // p
+        post_patch_width = width // p
+
+        hidden_states = self.image_projector(hidden_states)
+        encoder_hidden_states = self.glyph_projector(encoder_hidden_states)
+        prior_embedding = self.prior_token_embedding(prior_token_id)
+        # Static-shape equivalent of `prior_embedding[prior_token_drop] *= 0.0`.
+        keep = (~prior_token_drop).unsqueeze(-1).to(prior_embedding.dtype)
+        prior_embedding = prior_embedding * keep
+        prior_hidden_states = self.prior_projector(prior_embedding)
+
+        hidden_states = hidden_states + prior_hidden_states
+
+        temb = self.time_condition_embed(
+            timestep, target_size, crop_coords, hidden_states.dtype
+        )
+
+        # 3. Transformer blocks
+        for idx, block in enumerate(self.transformer_blocks):
+            if torch.is_grad_enabled() and self.gradient_checkpointing:
+                (
+                    hidden_states,
+                    encoder_hidden_states,
+                ) = self._gradient_checkpointing_func(
+                    block,
+                    hidden_states,
+                    encoder_hidden_states,
+                    temb,
+                    image_rotary_emb,
+                    attention_mask,
+                    attention_kwargs,
+                    kv_caches[idx] if kv_caches is not None else None,
+                )
+            else:
+                hidden_states, encoder_hidden_states = block(
+                    hidden_states,
+                    encoder_hidden_states,
+                    temb,
+                    image_rotary_emb,
+                    attention_mask,
+                    attention_kwargs,
+                    kv_cache=kv_caches[idx] if kv_caches is not None else None,
+                )
+
+        # 4. Output norm & projection
+        hidden_states = self.norm_out(hidden_states, temb)
+        hidden_states = self.proj_out(hidden_states)
+
+        # 5. Unpatchify
+        hidden_states = hidden_states.reshape(
+            batch_size, post_patch_height, post_patch_width, -1, p, p
+        )
+        output = hidden_states.permute(0, 3, 1, 4, 2, 5).flatten(4, 5).flatten(2, 3)
+
+        if not return_dict:
+            return (output,)
+        return Transformer2DModelOutput(sample=output)
+
+    forward._tt_static_prior_drop = True
+    GlmImageTransformer2DModel.forward = forward
+
+
+_patch_glm_image_transformer_forward()
+
+
 # ---------------------------------------------------------------------------
 # Model identity
 # ---------------------------------------------------------------------------
@@ -195,9 +322,14 @@ def load_transformer_inputs(dtype: torch.dtype = DTYPE):
     prior_token_id = torch.randint(
         0, PRIOR_VOCAB_SIZE, (1, PRIOR_SEQ_LEN), dtype=torch.long, generator=gen
     )
-    prior_token_drop = torch.randint(
-        0, PRIOR_VOCAB_SIZE, (1, PRIOR_SEQ_LEN), dtype=torch.long
-    )
+    # Matches the real GLM-Image pipeline, which always passes a *uniform*
+    # boolean mask (all-False for the conditional pass, all-True for the
+    # unconditional pass) rather than a random per-token mask. We use the
+    # all-False conditional case (`prior_token_drop_cond`): no prior tokens
+    # are dropped. A random mask would also make `prior_embedding[mask] *= 0`
+    # a data-dependent nonzero/gather/scatter, which breaks static-shape
+    # compilation.
+    prior_token_drop = torch.zeros((1, PRIOR_SEQ_LEN), dtype=torch.bool)
     timestep = torch.tensor([TRANSFORMER_TIMESTEP_VALUE])
     target_size = torch.tensor([list(TRANSFORMER_TARGET_SIZE)], dtype=torch.bfloat16)
     crop_coords = torch.tensor([list(TRANSFORMER_CROP_COORDS)], dtype=torch.bfloat16)
