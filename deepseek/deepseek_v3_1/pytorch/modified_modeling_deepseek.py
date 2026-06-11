@@ -448,9 +448,15 @@ class MoEGate(nn.Module):
         ### select top-k experts
         if self.topk_method == "noaux_tc":
             assert not self.training
-            scores_for_choice = scores.view(
-                bsz * seq_len, -1
-            ) + self.e_score_correction_bias.unsqueeze(0)
+            # The e_score_correction_bias is ~4.95 for all experts, so adding it
+            # raw makes scores_for_choice ~5 and group_scores ~10, collapsing the
+            # effective fp32 precision of the routing signal to ~1e-6 where the
+            # TT vs CPU matmul rounding flips group/expert selection. Subtracting
+            # a constant (the bias mean) is routing-PRESERVING (top-k is invariant
+            # to a uniform shift) but restores precision around 0.
+            bias = self.e_score_correction_bias
+            bias = bias - bias.mean()
+            scores_for_choice = scores.view(bsz * seq_len, -1) + bias.unsqueeze(0)
             group_scores = (
                 scores_for_choice.view(bsz * seq_len, self.n_group, -1)
                 .topk(2, dim=-1)[0]
@@ -461,8 +467,17 @@ class MoEGate(nn.Module):
             )[
                 1
             ]  # [n, top_k_group]
-            group_mask = torch.zeros_like(group_scores)  # [n, n_group]
-            group_mask.scatter_(1, group_idx, 1)  # [n, n_group]
+            # one_hot + reduction instead of scatter_ for XLA compatibility.
+            # group_idx holds unique group indices per row, so summing the
+            # one-hot encodings over the topk_group dim yields a 0/1 mask.
+            group_mask = (
+                (
+                    group_idx.unsqueeze(-1)
+                    == torch.arange(self.n_group, device=group_idx.device)
+                )
+                .to(group_scores.dtype)
+                .sum(dim=1)
+            )  # [n, n_group]
             score_mask = (
                 group_mask.unsqueeze(-1)
                 .expand(
@@ -474,7 +489,12 @@ class MoEGate(nn.Module):
                 ~score_mask.bool(), float("-inf")
             )  # [n, e]
             _, topk_idx = torch.topk(tmp_scores, k=self.top_k, dim=-1, sorted=False)
-            topk_weight = scores.gather(1, topk_idx)
+            # one_hot + einsum instead of gather for XLA compatibility.
+            topk_one_hot = (
+                topk_idx.unsqueeze(-1)
+                == torch.arange(self.n_routed_experts, device=topk_idx.device)
+            ).to(scores.dtype)  # [n, top_k, e]
+            topk_weight = torch.einsum("ne,nke->nk", scores, topk_one_hot)
         else:
             raise NotImplementedError(
                 f"insupportable TopK function for MoE gating: {self.topk_method}"

@@ -145,10 +145,16 @@ class ModelLoader(ForgeModel):
             isinstance(layer.mlp, DeepseekV3MoE) for layer in model.model.layers
         )
         if has_dense_moe:
+            import os as _os
+
             num_devices = xr.global_runtime_device_count()
             mesh_shape, _ = self.get_mesh_config(num_devices)
+            _cluster_axis = int(_os.environ.get("MOE_CLUSTER_AXIS", "0"))
             enable_sparse_mlp(
-                model, mesh=mesh_shape, cluster_axis=0, config=model.config
+                model,
+                mesh=mesh_shape,
+                cluster_axis=_cluster_axis,
+                config=model.config,
             )
 
         self.model = model
