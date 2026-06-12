@@ -110,6 +110,10 @@ class DeepseekV3RMSNorm(nn.Module):
         hidden_states = hidden_states.to(torch.float32)
         variance = hidden_states.pow(2).mean(-1, keepdim=True)
         hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
+        # [검증] fp32 output → ttir.rms_norm fp32 → fused stats fp32 (bf16-stats precision 가설)
+        import os as _os
+        if _os.environ.get("RMSNORM_FP32_STATS") == "1":
+            return (self.weight.to(torch.float32) * hidden_states).to(input_dtype)
         return self.weight * hidden_states.to(input_dtype)
 
 
