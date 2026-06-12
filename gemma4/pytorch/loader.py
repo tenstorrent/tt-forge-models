@@ -134,12 +134,15 @@ class ModelLoader(ForgeModel):
         return super().unpack_forward_output(fwd_output)
 
     def get_mesh_config(self, num_devices: int):
-        """Return ((1, num_devices), ("batch", "model")) for FSDP-style TP.
+        """Return ((1, num_devices), ("batch", "model")) for Megatron-style TP.
 
         The Gemma4 unified text decoder is a standard causal-LM stack, so it
-        uses Pattern B (batch + model axes). Query heads (and the MLP) are
-        sharded on the model axis, so ``num_attention_heads`` must be divisible
-        by it. KV projections are left replicated (see ``load_shard_spec``):
+        uses Megatron 1D tensor parallelism: weights are sharded only on the
+        ``model`` axis and the non-sharded tensor dimension is replicated
+        (``None`` in the shard specs rather than a second ``batch`` shard axis).
+        Query heads (and the MLP) are sharded on the model axis, so
+        ``num_attention_heads`` must be divisible by it. KV projections are
+        left replicated (see ``load_shard_spec``):
         the 8 global layers carry a single global KV head (``attention_k_eq_v``
         with ``num_global_key_value_heads == 1``) that cannot be split across
         the mesh, so no KV-head divisibility constraint is imposed here.
@@ -173,13 +176,13 @@ class ModelLoader(ForgeModel):
         """
         shard_specs = {}
         for layer in model.model.language_model.layers:
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+            shard_specs[layer.mlp.gate_proj.weight] = ("model", None)
+            shard_specs[layer.mlp.up_proj.weight] = ("model", None)
+            shard_specs[layer.mlp.down_proj.weight] = (None, "model")
 
             attn = layer.self_attn
-            shard_specs[attn.q_proj.weight] = ("model", "batch")
-            shard_specs[attn.o_proj.weight] = ("batch", "model")
+            shard_specs[attn.q_proj.weight] = ("model", None)
+            shard_specs[attn.o_proj.weight] = (None, "model")
             # k_proj/v_proj replicated (skipped). On Gemma4 global layers
             # v_proj is None and k_proj holds a single unsharddable KV head.
         return shard_specs
