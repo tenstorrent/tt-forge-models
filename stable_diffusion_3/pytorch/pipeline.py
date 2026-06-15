@@ -32,11 +32,10 @@ from PIL import Image
 
 
 class SD3Config:
-    def __init__(self, device="cpu"):
+    def __init__(self):
         self.model_id = "stabilityai/stable-diffusion-3-medium-diffusers"
         self.height = 1024
         self.width = 1024
-        self.device = device
 
 
 class SD3Pipeline:
@@ -44,7 +43,6 @@ class SD3Pipeline:
 
     def __init__(self, config: SD3Config):
         self.config = config
-        self.device = config.device
         self.model_id = config.model_id
         self.height = config.height
         self.width = config.width
@@ -115,7 +113,7 @@ class SD3Pipeline:
                 prompt_3=None,
                 negative_prompt=negative_prompt,
                 do_classifier_free_guidance=do_cfg,
-                device=self.device,
+                device="cpu",
                 num_images_per_prompt=1,
                 max_sequence_length=max_sequence_length,
             )
@@ -137,7 +135,7 @@ class SD3Pipeline:
                 self.height,
                 self.width,
                 prompt_embeds.dtype,
-                self.device,
+                "cpu",
                 generator,
                 None,
             )
@@ -164,6 +162,12 @@ class SD3Pipeline:
                 **scheduler_kwargs,
             )
 
+            # The conditioning embeddings are constant across the denoising
+            # loop, so cast them to the TT device once here instead of every
+            # iteration.
+            prompt_embeds_tt = tt_cast(prompt_embeds)
+            pooled_prompt_embeds_tt = tt_cast(pooled_prompt_embeds)
+
             # --- Denoising loop (transformer on TT) ---
             for i, t in enumerate(timesteps):
                 print(f"Step {i + 1} of {num_inference_steps}")
@@ -171,13 +175,13 @@ class SD3Pipeline:
                 latent_model_input = torch.cat([latents] * 2) if do_cfg else latents
                 timestep = t.expand(latent_model_input.shape[0])
 
-                # CPU -> TT
+                # CPU -> TT (sample + timestep change per step; embeds hoisted above)
                 t0 = time.perf_counter()
                 noise_pred = self.transformer(
                     hidden_states=tt_cast(latent_model_input),
                     timestep=tt_cast(timestep),
-                    encoder_hidden_states=tt_cast(prompt_embeds),
-                    pooled_projections=tt_cast(pooled_prompt_embeds),
+                    encoder_hidden_states=prompt_embeds_tt,
+                    pooled_projections=pooled_prompt_embeds_tt,
                     return_dict=False,
                 )[0]
 

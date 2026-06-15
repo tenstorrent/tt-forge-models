@@ -33,11 +33,10 @@ from PIL import Image
 
 
 class Bria23Config:
-    def __init__(self, device="cpu"):
+    def __init__(self):
         self.model_id = "briaai/BRIA-2.3"
         self.height = 1024
         self.width = 1024
-        self.device = device
 
 
 class Bria23Pipeline:
@@ -45,7 +44,6 @@ class Bria23Pipeline:
 
     def __init__(self, config: Bria23Config):
         self.config = config
-        self.device = config.device
         self.model_id = config.model_id
         self.height = config.height
         self.width = config.width
@@ -117,14 +115,14 @@ class Bria23Pipeline:
                 prompt=prompt,
                 negative_prompt=negative_prompt,
                 do_classifier_free_guidance=do_cfg,
-                device=self.device,
+                device="cpu",
                 num_images_per_prompt=1,
             )
             self._perf["components"]["text_encode"] = time.perf_counter() - t0
 
             # --- Prepare timesteps (CPU) ---
             timesteps, num_inference_steps = retrieve_timesteps(
-                pipe.scheduler, num_inference_steps, self.device
+                pipe.scheduler, num_inference_steps, "cpu"
             )
 
             # --- Prepare latents (CPU) ---
@@ -135,7 +133,7 @@ class Bria23Pipeline:
                 self.height,
                 self.width,
                 prompt_embeds.dtype,
-                self.device,
+                "cpu",
                 generator,
                 None,
             )
@@ -164,6 +162,13 @@ class Bria23Pipeline:
                 )
                 add_time_ids = torch.cat([add_time_ids, add_time_ids], dim=0)
 
+            # The conditioning (prompt embeds + SDXL added conds) is constant
+            # across the denoising loop, so cast it to the TT device once here
+            # instead of every iteration.
+            prompt_embeds_tt = tt_cast(prompt_embeds)
+            add_text_embeds_tt = tt_cast(add_text_embeds)
+            add_time_ids_tt = tt_cast(add_time_ids)
+
             # --- Denoising loop (UNet on TT) ---
             for i, t in enumerate(timesteps):
                 print(f"Step {i + 1} of {num_inference_steps}")
@@ -173,15 +178,15 @@ class Bria23Pipeline:
                     latent_model_input, t
                 )
 
-                # CPU -> TT
+                # CPU -> TT (sample + timestep change per step; embeds hoisted above)
                 t0 = time.perf_counter()
                 noise_pred = self.unet(
                     tt_cast(latent_model_input),
                     tt_cast(t.unsqueeze(0)),
-                    encoder_hidden_states=tt_cast(prompt_embeds),
+                    encoder_hidden_states=prompt_embeds_tt,
                     added_cond_kwargs={
-                        "text_embeds": tt_cast(add_text_embeds),
-                        "time_ids": tt_cast(add_time_ids),
+                        "text_embeds": add_text_embeds_tt,
+                        "time_ids": add_time_ids_tt,
                     },
                     return_dict=False,
                 )[0]

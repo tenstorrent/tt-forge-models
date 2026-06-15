@@ -25,14 +25,16 @@ from transformers import CLIPTextModel, CLIPTokenizer
 
 
 class SD15Config:
-    def __init__(self, device="cpu", vae_on_tt=False, clip_on_tt=True):
+    def __init__(self, vae_on_tt=False, clip_on_tt=False):
         self.model_id = "stable-diffusion-v1-5/stable-diffusion-v1-5"
         self.width = 512
         self.height = 512
         self.latents_width = self.width // 8
         self.latents_height = self.height // 8
-        self.device = device
         self.vae_on_tt = vae_on_tt
+        # CLIP text embeddings are precision-sensitive: running CLIP on TT in
+        # bf16 can wash out the prompt conditioning, so it stays on CPU unless
+        # explicitly opted in.
         self.clip_on_tt = clip_on_tt
 
 
@@ -41,7 +43,6 @@ class SD15Pipeline:
 
     def __init__(self, config: SD15Config):
         self.config = config
-        self.device = config.device
         self.model_id = config.model_id
         self.latents_width = config.latents_width
         self.latents_height = config.latents_height
@@ -58,7 +59,7 @@ class SD15Pipeline:
             self.model_id,
             subfolder="vae",
             torch_dtype=torch.float32,
-            device_map=self.device,
+            device_map="cpu",
         )
         if self.vae_on_tt:
             self.vae.compile(backend="tt")
@@ -68,7 +69,7 @@ class SD15Pipeline:
             self.model_id,
             subfolder="unet",
             torch_dtype=torch.bfloat16,
-            device_map=self.device,
+            device_map="cpu",
         )
         self.unet.compile(backend="tt")
         self.unet = self.unet.to(xm.xla_device())
@@ -77,7 +78,7 @@ class SD15Pipeline:
             self.model_id,
             subfolder="text_encoder",
             torch_dtype=torch.bfloat16 if self.clip_on_tt else torch.float16,
-            device_map=self.device,
+            device_map="cpu",
         )
 
         if self.clip_on_tt:
@@ -105,6 +106,9 @@ class SD15Pipeline:
         """Generate an image from a text prompt. Returns tensor (B, 3, H, W)."""
 
         batch_size = 1 if isinstance(prompt, str) else len(prompt)
+        assert (
+            batch_size == 1
+        ), "Only single-prompt generation (batch_size=1) is supported"
 
         # Per-component forward+sync times for the benchmark harness (reset
         # every generate() call). ``components`` holds scalar per-stage seconds,
@@ -142,11 +146,9 @@ class SD15Pipeline:
                 [negative_prompt], padding="max_length", max_length=77
             ).input_ids
 
-            cond_tokens = torch.tensor(cond_tokens, dtype=torch.long).to(
-                device=self.device
-            )
+            cond_tokens = torch.tensor(cond_tokens, dtype=torch.long).to(device="cpu")
             uncond_tokens = torch.tensor(uncond_tokens, dtype=torch.long).to(
-                device=self.device
+                device="cpu"
             )
 
             if self.clip_on_tt:
@@ -167,6 +169,10 @@ class SD15Pipeline:
                 [uncond_hidden_state, cond_hidden_state], dim=0
             )  # (2B, 77, 768)
 
+            # encoder_hidden_states is constant across the denoising loop, so
+            # cast it to the TT device once here instead of every iteration.
+            encoder_hidden_states = tt_cast(encoder_hidden_states)
+
             # --- Prepare timesteps ---
             self.scheduler.set_timesteps(num_inference_steps)
 
@@ -174,7 +180,7 @@ class SD15Pipeline:
             latent_shape = (batch_size, 4, self.latents_height, self.latents_width)
             latents = torch.randn(
                 latent_shape, generator=generator, dtype=torch.float16
-            ).to(device=self.device)
+            ).to(device="cpu")
             latents = latents * self.scheduler.init_noise_sigma
 
             # --- Denoising loop (UNet on TT) ---
@@ -183,10 +189,9 @@ class SD15Pipeline:
                 model_input = torch.cat([latents] * 2)
                 model_input = self.scheduler.scale_model_input(model_input, timestep)
 
-                # CPU → TT
+                # CPU → TT (sample + timestep change per step; embeds hoisted above)
                 model_input = tt_cast(model_input)
                 timestep_tt = tt_cast(timestep.unsqueeze(0))
-                encoder_hidden_states = tt_cast(encoder_hidden_states)
 
                 t0 = time.perf_counter()
                 unet_output = self.unet(
@@ -199,12 +204,16 @@ class SD15Pipeline:
                 unet_output = cpu_cast(unet_output)
                 self._perf["steps"].append(time.perf_counter() - t0)
 
-                # CFG blending (CPU)
+                # CFG blending (CPU). The blend is a cheap elementwise op on the
+                # small noise-pred tensors; running it on CPU between TT UNet
+                # forwards avoids round-tripping tiny tensors to the device.
                 uncond_output, cond_output = unet_output.chunk(2)
                 model_output = uncond_output + (cond_output - uncond_output) * cfg_scale
 
-                # Scheduler step (CPU)
-                latents = cpu_cast(latents)
+                # Scheduler step (CPU). The diffusers scheduler is stateful and
+                # runs on CPU; ``step`` consumes the current latents to produce
+                # the next sample. ``latents`` already stays CPU/float16 here, so
+                # no extra cast is needed.
                 latents = self.scheduler.step(
                     model_output, timestep, latents
                 ).prev_sample
