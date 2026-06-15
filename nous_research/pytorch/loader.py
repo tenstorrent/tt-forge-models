@@ -1,16 +1,16 @@
-# SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-DeepSeek Qwen  model loader implementation.
+Nous Hermes 2 Yi 34B causal LM model loader implementation.
 """
 
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
-from ....base import ForgeModel
-from ....config import (
+from ...base import ForgeModel
+from ...config import (
     LLMModelConfig,
     ModelInfo,
     ModelGroup,
@@ -22,29 +22,24 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available DeepSeek Qwen model variants for causal language modeling."""
+    """Available Nous Hermes 2 Yi 34B model variants for causal language modeling."""
 
-    DEEPSEEK_QWEN_R1_DISTILL_14B = "R1_Distill_14B"
-    DEEPSEEK_QWEN_R1_DISTILL_32B = "R1_Distill_32B"
+    NOUS_HERMES_2_YI_34B = "Nous-Hermes-2-Yi-34B"
 
 
 class ModelLoader(ForgeModel):
-    """DeepSeek Qwen model loader implementation for causal language modeling tasks."""
+    """Nous Hermes 2 Yi 34B model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.DEEPSEEK_QWEN_R1_DISTILL_14B: LLMModelConfig(
-            pretrained_model_name="deepseek-ai/DeepSeek-R1-Distill-Qwen-14B",
-            max_length=256,
-        ),
-        ModelVariant.DEEPSEEK_QWEN_R1_DISTILL_32B: LLMModelConfig(
-            pretrained_model_name="deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
+        ModelVariant.NOUS_HERMES_2_YI_34B: LLMModelConfig(
+            pretrained_model_name="NousResearch/Nous-Hermes-2-Yi-34B",
             max_length=256,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.DEEPSEEK_QWEN_R1_DISTILL_32B
+    DEFAULT_VARIANT = ModelVariant.NOUS_HERMES_2_YI_34B
 
-    sample_text = "Who are you?"
+    sample_text = "Hello?"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
@@ -71,7 +66,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="DeepSeek Qwen",
+            model="NousResearch",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -79,38 +74,29 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
+    def _load_tokenizer(self):
         """Load tokenizer for the current variant.
-        Args:
-            dtype_override: Optional torch.dtype to override the tokenizer's default dtype.
-
         Returns:
             The loaded tokenizer instance
         """
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name
         )
-
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the DeepSeek Qwen model instance for this instance's variant.
+        """Load and return the Nous Hermes 2 Yi 34B model instance for this instance's variant.
 
         Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
-            torch.nn.Module: The DeepSeek Qwen model for causal language modeling.
+            torch.nn.Module: The Nous Hermes 2 Yi 34B model for causal language modeling.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -125,18 +111,17 @@ class ModelLoader(ForgeModel):
         self.model = model
         return model
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the DeepSeek Qwen model with this instance's variant settings.
+    def load_inputs(self, batch_size=1):
+        """Load and return sample inputs for the Nous Hermes 2 Yi 34B model with this instance's variant settings.
 
         Args:
-            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
             batch_size: Batch size for the inputs.
 
         Returns:
             dict: Input tensors that can be fed to the model.
         """
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
         max_length = self._variant_config.max_length
         conversation = [{"role": "user", "content": self.sample_text}]

@@ -1,16 +1,16 @@
-# SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-DeepSeek Qwen  model loader implementation.
+CohereLabs  causal LM model loader implementation.
 """
 
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
-from ....base import ForgeModel
-from ....config import (
+from ...base import ForgeModel
+from ...config import (
     LLMModelConfig,
     ModelInfo,
     ModelGroup,
@@ -22,27 +22,32 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available DeepSeek Qwen model variants for causal language modeling."""
+    """Available CohereLabs model variants for causal language modeling."""
 
-    DEEPSEEK_QWEN_R1_DISTILL_14B = "R1_Distill_14B"
-    DEEPSEEK_QWEN_R1_DISTILL_32B = "R1_Distill_32B"
+    Coherelabs_c4ai_command_r_v01 = "Coherelabs_c4ai_command_r_v01"
+    Coherelabs_aya_expanse_32b = "Coherelabs_aya_expanse_32b"
+    Coherelabs_aya_23_35b = "Coherelabs_aya_23_35b"
 
 
 class ModelLoader(ForgeModel):
-    """DeepSeek Qwen model loader implementation for causal language modeling tasks."""
+    """CohereLabs model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.DEEPSEEK_QWEN_R1_DISTILL_14B: LLMModelConfig(
-            pretrained_model_name="deepseek-ai/DeepSeek-R1-Distill-Qwen-14B",
+        ModelVariant.Coherelabs_c4ai_command_r_v01: LLMModelConfig(
+            pretrained_model_name="CohereLabs/c4ai-command-r-v01",
             max_length=256,
         ),
-        ModelVariant.DEEPSEEK_QWEN_R1_DISTILL_32B: LLMModelConfig(
-            pretrained_model_name="deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
+        ModelVariant.Coherelabs_aya_expanse_32b: LLMModelConfig(
+            pretrained_model_name="CohereLabs/aya-expanse-32b",
+            max_length=256,
+        ),
+        ModelVariant.Coherelabs_aya_23_35b: LLMModelConfig(
+            pretrained_model_name="CohereLabs/aya-23-35b",
             max_length=256,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.DEEPSEEK_QWEN_R1_DISTILL_32B
+    DEFAULT_VARIANT = ModelVariant.Coherelabs_c4ai_command_r_v01
 
     sample_text = "Who are you?"
 
@@ -71,7 +76,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="DeepSeek Qwen",
+            model="CohereLabs",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -98,14 +103,14 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the DeepSeek Qwen model instance for this instance's variant.
+        """Load and return the CohereLabs model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
-            torch.nn.Module: The DeepSeek Qwen model for causal language modeling.
+            torch.nn.Module: The CohereLabs model for causal language modeling.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -126,7 +131,7 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the DeepSeek Qwen model with this instance's variant settings.
+        """Load and return sample inputs for the CohereLabs model with this instance's variant settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.

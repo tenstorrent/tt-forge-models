@@ -1,16 +1,16 @@
-# SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-DeepSeek Qwen  model loader implementation.
+AbacusAI Smaug 72B v0.1 model loader implementation.
 """
 
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
-from ....base import ForgeModel
-from ....config import (
+from ...base import ForgeModel
+from ...config import (
     LLMModelConfig,
     ModelInfo,
     ModelGroup,
@@ -22,27 +22,22 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available DeepSeek Qwen model variants for causal language modeling."""
+    """Available AbacusAI Smaug 72B v0.1 model variants for causal language modeling."""
 
-    DEEPSEEK_QWEN_R1_DISTILL_14B = "R1_Distill_14B"
-    DEEPSEEK_QWEN_R1_DISTILL_32B = "R1_Distill_32B"
+    SMAUG_72B_V0_1 = "Smaug-72B-v0.1"
 
 
 class ModelLoader(ForgeModel):
-    """DeepSeek Qwen model loader implementation for causal language modeling tasks."""
+    """AbacusAI Smaug 72B v0.1 model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.DEEPSEEK_QWEN_R1_DISTILL_14B: LLMModelConfig(
-            pretrained_model_name="deepseek-ai/DeepSeek-R1-Distill-Qwen-14B",
-            max_length=256,
-        ),
-        ModelVariant.DEEPSEEK_QWEN_R1_DISTILL_32B: LLMModelConfig(
-            pretrained_model_name="deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
+        ModelVariant.SMAUG_72B_V0_1: LLMModelConfig(
+            pretrained_model_name="abacusai/Smaug-72B-v0.1",
             max_length=256,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.DEEPSEEK_QWEN_R1_DISTILL_32B
+    DEFAULT_VARIANT = ModelVariant.SMAUG_72B_V0_1
 
     sample_text = "Who are you?"
 
@@ -71,7 +66,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="DeepSeek Qwen",
+            model="AbacusAI Smaug",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -95,17 +90,21 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
 
+        # Smaug's tokenizer ships without a pad token; reuse EOS so padding works.
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the DeepSeek Qwen model instance for this instance's variant.
+        """Load and return the AbacusAI Smaug model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
-            torch.nn.Module: The DeepSeek Qwen model for causal language modeling.
+            torch.nn.Module: The AbacusAI Smaug model for causal language modeling.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -126,7 +125,7 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the DeepSeek Qwen model with this instance's variant settings.
+        """Load and return sample inputs for the AbacusAI Smaug model with this instance's variant settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
@@ -139,10 +138,13 @@ class ModelLoader(ForgeModel):
             self._load_tokenizer(dtype_override=dtype_override)
 
         max_length = self._variant_config.max_length
-        conversation = [{"role": "user", "content": self.sample_text}]
-        prompt = self.tokenizer.apply_chat_template(
-            conversation, tokenize=False, add_generation_prompt=True
-        )
+        if self.tokenizer.chat_template is not None:
+            conversation = [{"role": "user", "content": self.sample_text}]
+            prompt = self.tokenizer.apply_chat_template(
+                conversation, tokenize=False, add_generation_prompt=True
+            )
+        else:
+            prompt = self.sample_text
         inputs = self.tokenizer(
             prompt,
             return_tensors="pt",
