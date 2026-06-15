@@ -18,6 +18,7 @@ This is the reusable pipeline implementation shared by the tt-xla examples and
 benchmarks; callers construct ``SD3Pipeline`` and drive it through ``generate``.
 """
 
+import time
 from typing import Optional
 
 import torch
@@ -75,6 +76,18 @@ class SD3Pipeline:
         pipe = self.pipe
         do_cfg = guidance_scale > 1.0
 
+        # Per-component forward+sync times for the benchmark harness (reset
+        # every generate() call). ``components`` holds scalar per-stage seconds,
+        # ``steps`` holds per-transformer-step seconds; the cpu cast after each
+        # TT forward forces a device sync, so the timer captures device work.
+        self._perf = {
+            "components": {},
+            "steps": [],
+            "step_metric_name": "transformer_step",
+            "total": None,
+        }
+        t_total_start = time.perf_counter()
+
         tt_cast = lambda x: (
             x.to(dtype=torch.bfloat16).to(device=xm.xla_device())
             if x.device == torch.device("cpu")
@@ -90,6 +103,7 @@ class SD3Pipeline:
                 generator.seed()
 
             # --- Text encoding (CLIP x2 + T5) on CPU ---
+            t0 = time.perf_counter()
             (
                 prompt_embeds,
                 negative_prompt_embeds,
@@ -105,6 +119,7 @@ class SD3Pipeline:
                 num_images_per_prompt=1,
                 max_sequence_length=max_sequence_length,
             )
+            self._perf["components"]["text_encode"] = time.perf_counter() - t0
 
             if do_cfg:
                 prompt_embeds = torch.cat(
@@ -157,6 +172,7 @@ class SD3Pipeline:
                 timestep = t.expand(latent_model_input.shape[0])
 
                 # CPU -> TT
+                t0 = time.perf_counter()
                 noise_pred = self.transformer(
                     hidden_states=tt_cast(latent_model_input),
                     timestep=tt_cast(timestep),
@@ -165,8 +181,9 @@ class SD3Pipeline:
                     return_dict=False,
                 )[0]
 
-                # TT -> CPU
+                # TT -> CPU (cpu cast forces sync — timer ends after this)
                 noise_pred = cpu_cast(noise_pred)
+                self._perf["steps"].append(time.perf_counter() - t0)
 
                 if do_cfg:
                     noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
@@ -183,8 +200,11 @@ class SD3Pipeline:
                 latents / pipe.vae.config.scaling_factor
             ) + pipe.vae.config.shift_factor
             latents = latents.to(dtype=torch.float32)
+            t0 = time.perf_counter()
             images = pipe.vae.decode(latents, return_dict=False)[0]
+            self._perf["components"]["vae"] = time.perf_counter() - t0
 
+            self._perf["total"] = time.perf_counter() - t_total_start
             return images
 
 

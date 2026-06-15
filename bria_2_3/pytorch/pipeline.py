@@ -20,6 +20,7 @@ benchmarks; callers construct ``Bria23Pipeline`` and drive it through
 ``generate``.
 """
 
+import time
 from typing import Optional
 
 import torch
@@ -79,6 +80,18 @@ class Bria23Pipeline:
         crops_coords_top_left = (0, 0)
         original_size = target_size = (self.height, self.width)
 
+        # Per-component forward+sync times for the benchmark harness (reset
+        # every generate() call). ``components`` holds scalar per-stage seconds,
+        # ``steps`` holds per-UNet-step seconds; the cpu cast after each TT
+        # forward forces a device sync, so the timer captures real device work.
+        self._perf = {
+            "components": {},
+            "steps": [],
+            "step_metric_name": "unet_step",
+            "total": None,
+        }
+        t_total_start = time.perf_counter()
+
         tt_cast = lambda x: (
             x.to(dtype=torch.bfloat16).to(device=xm.xla_device())
             if x.device == torch.device("cpu")
@@ -94,6 +107,7 @@ class Bria23Pipeline:
                 generator.seed()
 
             # --- Text encoding (CLIP x2) on CPU ---
+            t0 = time.perf_counter()
             (
                 prompt_embeds,
                 negative_prompt_embeds,
@@ -106,6 +120,7 @@ class Bria23Pipeline:
                 device=self.device,
                 num_images_per_prompt=1,
             )
+            self._perf["components"]["text_encode"] = time.perf_counter() - t0
 
             # --- Prepare timesteps (CPU) ---
             timesteps, num_inference_steps = retrieve_timesteps(
@@ -159,6 +174,7 @@ class Bria23Pipeline:
                 )
 
                 # CPU -> TT
+                t0 = time.perf_counter()
                 noise_pred = self.unet(
                     tt_cast(latent_model_input),
                     tt_cast(t.unsqueeze(0)),
@@ -170,8 +186,9 @@ class Bria23Pipeline:
                     return_dict=False,
                 )[0]
 
-                # TT -> CPU
+                # TT -> CPU (cpu cast forces sync — timer ends after this)
                 noise_pred = cpu_cast(noise_pred)
+                self._perf["steps"].append(time.perf_counter() - t0)
 
                 if do_cfg:
                     noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
@@ -211,8 +228,11 @@ class Bria23Pipeline:
             else:
                 latents = latents / pipe.vae.config.scaling_factor
 
+            t0 = time.perf_counter()
             images = pipe.vae.decode(latents, return_dict=False)[0]
+            self._perf["components"]["vae"] = time.perf_counter() - t0
 
+            self._perf["total"] = time.perf_counter() - t_total_start
             return images
 
 

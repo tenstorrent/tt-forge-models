@@ -14,6 +14,7 @@ benchmarks; callers construct ``SD15Pipeline`` and drive it through
 ``generate``.
 """
 
+import time
 from typing import Optional
 
 import torch
@@ -105,6 +106,18 @@ class SD15Pipeline:
 
         batch_size = 1 if isinstance(prompt, str) else len(prompt)
 
+        # Per-component forward+sync times for the benchmark harness (reset
+        # every generate() call). ``components`` holds scalar per-stage seconds,
+        # ``steps`` holds per-UNet-step seconds; the cpu cast after each TT
+        # forward forces a device sync, so the timer captures real device work.
+        self._perf = {
+            "components": {},
+            "steps": [],
+            "step_metric_name": "unet_step",
+            "total": None,
+        }
+        t_total_start = time.perf_counter()
+
         tt_cast = lambda x: (
             x.to(dtype=torch.bfloat16).to(device=xm.xla_device())
             if x.device == torch.device("cpu")
@@ -140,12 +153,15 @@ class SD15Pipeline:
                 cond_tokens = cond_tokens.to(device=xm.xla_device())
                 uncond_tokens = uncond_tokens.to(device=xm.xla_device())
 
+            t0 = time.perf_counter()
             cond_hidden_state = self.text_encoder(cond_tokens)[0]  # (B, 77, 768)
             uncond_hidden_state = self.text_encoder(uncond_tokens)[0]  # (B, 77, 768)
 
             if self.clip_on_tt:
+                # TT → CPU (cpu cast forces sync — timer ends after this)
                 cond_hidden_state = cpu_cast(cond_hidden_state)
                 uncond_hidden_state = cpu_cast(uncond_hidden_state)
+            self._perf["components"]["text_encoder"] = time.perf_counter() - t0
 
             encoder_hidden_states = torch.cat(
                 [uncond_hidden_state, cond_hidden_state], dim=0
@@ -172,14 +188,16 @@ class SD15Pipeline:
                 timestep_tt = tt_cast(timestep.unsqueeze(0))
                 encoder_hidden_states = tt_cast(encoder_hidden_states)
 
+                t0 = time.perf_counter()
                 unet_output = self.unet(
                     model_input,
                     timestep_tt,
                     encoder_hidden_states,
                 ).sample
 
-                # TT → CPU
+                # TT → CPU (cpu cast forces sync — timer ends after this)
                 unet_output = cpu_cast(unet_output)
+                self._perf["steps"].append(time.perf_counter() - t0)
 
                 # CFG blending (CPU)
                 uncond_output, cond_output = unet_output.chunk(2)
@@ -196,10 +214,14 @@ class SD15Pipeline:
             latents = latents.to(dtype=torch.float32)
             if self.vae_on_tt:
                 latents = latents.to(device=xm.xla_device())
+            t0 = time.perf_counter()
             images = self.vae.decode(latents).sample
             if self.vae_on_tt:
+                # TT → CPU (cpu cast forces sync — timer ends after this)
                 images = cpu_cast(images)
+            self._perf["components"]["vae"] = time.perf_counter() - t0
 
+            self._perf["total"] = time.perf_counter() - t_total_start
             return images
 
 
