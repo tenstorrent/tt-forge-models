@@ -155,8 +155,7 @@ class ModelLoader(ForgeModel):
         source = cfg.source
 
         if source == ModelSource.OSMR:
-            # Use randomly initialized weights (no pretrained download)
-            model = ptcv_get_model(model_name, pretrained=False)
+            model = ptcv_get_model(model_name, pretrained=True)
         elif source == ModelSource.TIMM:
             model, _ = download_model(preprocess_timm_model, model_name)
         elif source == ModelSource.TORCH_HUB:

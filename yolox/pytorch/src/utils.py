@@ -6,20 +6,22 @@ import numpy as np
 import torch
 
 
-def print_detection_results(co_out, ratio, input_shape):
-    """
-    Post-processes raw model outputs and prints detected object information.
+def get_detections(out_np, ratio, input_shape):
+    """Run NMS on raw model output and return a list of detection dicts.
 
-    This function converts model outputs into bounding boxes, applies non-maximum suppression (NMS),
-    and prints the class name, confidence score, and bounding box coordinates for each detected object.
+    Args:
+        out_np: numpy array of shape [batch, n_anchors, 85].
+        ratio: scale ratio from preproc, used to map boxes back to original image size.
+        input_shape: (h, w) tuple used during preprocessing.
+
+    Returns:
+        List of dicts with keys: class_name, score, cls_ind, bbox ([x1,y1,x2,y2]).
+        Sorted by descending confidence.
     """
     from yolox.data.datasets import COCO_CLASSES
     from yolox.utils import demo_postprocess, multiclass_nms
 
-    for i in range(len(co_out)):
-        co_out[i] = co_out[i].detach().float().numpy()
-
-    predictions = demo_postprocess(co_out[0], input_shape)[0]
+    predictions = demo_postprocess(out_np, input_shape)[0]
     boxes = predictions[:, :4]
     scores = predictions[:, 4:5] * predictions[:, 5:]
     boxes_xyxy = np.ones_like(boxes)
@@ -30,14 +32,20 @@ def print_detection_results(co_out, ratio, input_shape):
     boxes_xyxy /= ratio
     dets = multiclass_nms(boxes_xyxy, scores, nms_thr=0.45, score_thr=0.1)
 
+    result = []
     if dets is not None:
         final_boxes, final_scores, final_cls_inds = dets[:, :4], dets[:, 4], dets[:, 5]
         for box, score, cls_ind in zip(final_boxes, final_scores, final_cls_inds):
-            class_name = COCO_CLASSES[int(cls_ind)]
-            x_min, y_min, x_max, y_max = box
-            print(
-                f"Class: {class_name}, Confidence: {score}, Coordinates: ({x_min}, {y_min}, {x_max}, {y_max})"
+            result.append(
+                {
+                    "class_name": COCO_CLASSES[int(cls_ind)],
+                    "score": float(score),
+                    "cls_ind": int(cls_ind),
+                    "bbox": box.tolist(),
+                }
             )
+    result.sort(key=lambda d: d["score"], reverse=True)
+    return result
 
 
 def _forward_patch(self, xin, labels=None, imgs=None):

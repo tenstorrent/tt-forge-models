@@ -8,6 +8,9 @@ Model loader implementation for causal language modeling.
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 import torch
+import torch_xla.runtime as xr
+
+from tt_torch.sparse_mlp import A2aSparseMLPWithSharedExperts, enable_sparse_mlp
 
 from ....config import (
     LLMModelConfig,
@@ -24,6 +27,7 @@ from ....tools.utils import (
     cast_input_to_type,
     get_static_cache_decode_inputs,
 )
+from .meta_loading import load_model_from_checkpoint
 
 
 class ModelVariant(StrEnum):
@@ -34,6 +38,10 @@ class ModelVariant(StrEnum):
     GLM_4_5_AIR = "4.5_Air"
     GLM_5 = "5"
     GLM_5_1 = "5.1"
+
+
+_GLM4_VARIANTS = {ModelVariant.GLM_4_7, ModelVariant.GLM_4_5, ModelVariant.GLM_4_5_AIR}
+_GLM5_VARIANTS = {ModelVariant.GLM_5, ModelVariant.GLM_5_1}
 
 
 class ModelLoader(ForgeModel):
@@ -140,23 +148,37 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        model_kwargs = {}
-        if dtype_override is not None:
-            model_kwargs["torch_dtype"] = dtype_override
+        # Load only num_layers weights for GLM-4 - Support needed for GLM-5
+        # from_pretrained will load all layers even if a config for less layers is passed in
+        if self.num_layers is not None and self._variant in _GLM4_VARIANTS:
+            model = load_model_from_checkpoint(pretrained_model_name, self.num_layers)
+        else:
+            model_kwargs = {}
+            if dtype_override is not None:
+                model_kwargs["torch_dtype"] = dtype_override
 
-        if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(pretrained_model_name)
-            config.num_hidden_layers = self.num_layers
-            model_kwargs["config"] = config
-        model_kwargs |= kwargs
+            if self.num_layers is not None:
+                config = AutoConfig.from_pretrained(pretrained_model_name)
+                config.num_hidden_layers = self.num_layers
+                model_kwargs["config"] = config
+            model_kwargs |= kwargs
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
-        if self.num_layers is not None:
-            model.model.layers = model.model.layers[: self.num_layers]
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+            if self.num_layers is not None:
+                model.model.layers = model.model.layers[: self.num_layers]
 
         model.eval()
+
+        # Enable sparse MoE for GLM4 - Untested for other variants
+        if self._variant in _GLM4_VARIANTS:
+            num_devices = xr.global_runtime_device_count()
+            mesh_shape, _ = self.get_mesh_config(num_devices)
+            enable_sparse_mlp(
+                model, mesh=mesh_shape, cluster_axis=0, config=model.config
+            )
+
         self.model = model
         self.config = model.config
 
@@ -257,33 +279,53 @@ class ModelLoader(ForgeModel):
 
     def get_mesh_config(self, num_devices: int):
         if num_devices == 32:
-            mesh_shape = (8, 4)
+            mesh_shape = (4, 8)
         elif num_devices == 8:
-            mesh_shape = (4, 2)
+            mesh_shape = (2, 4)
         else:
             raise ValueError(f"Unsupported number of devices: {num_devices}")
 
-        return mesh_shape, ("model", "batch")
+        return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
         shard_specs = {}
-        shard_specs[model.model.embed_tokens.weight] = (None, "batch")
-        for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+        shard_specs[model.model.embed_tokens.weight] = (None, "model")
+        shard_specs[model.model.norm.weight] = ("model",)
+        shard_specs[model.lm_head.weight] = (None, "model")
 
-            shard_specs[layer.input_layernorm.weight] = ("batch",)
-            shard_specs[layer.post_attention_layernorm.weight] = ("batch",)
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.q_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-        shard_specs[model.model.norm.weight] = ("batch",)
-        shard_specs[model.lm_head.weight] = ("model", "batch")
+        for layer in model.model.layers:
+            shard_specs[layer.input_layernorm.weight] = ("model",)
+            shard_specs[layer.post_attention_layernorm.weight] = ("model",)
+
+            attn = layer.self_attn
+            shard_specs[attn.q_proj.weight] = ("model", None)
+            shard_specs[attn.k_proj.weight] = ("model", None)
+            shard_specs[attn.v_proj.weight] = ("model", None)
+            shard_specs[attn.o_proj.weight] = (None, "model")
+            if attn.q_proj.bias is not None:
+                shard_specs[attn.q_proj.bias] = ("model",)
+                shard_specs[attn.k_proj.bias] = ("model",)
+                shard_specs[attn.v_proj.bias] = ("model",)
+            if hasattr(attn, "q_norm"):
+                shard_specs[attn.q_norm.weight] = ("model",)
+                shard_specs[attn.k_norm.weight] = ("model",)
+
+            mlp = layer.mlp
+            if isinstance(mlp, A2aSparseMLPWithSharedExperts):
+                inner = mlp.mlp  # A2aSparseMLP
+                shard_specs[inner.router.gate.weight] = (None, "model")
+                shard_specs[inner.experts.gate_proj] = (("model", "batch"), None, None)
+                shard_specs[inner.experts.up_proj] = (("model", "batch"), None, None)
+                shard_specs[inner.experts.down_proj] = (("model", "batch"), None, None)
+                shared = getattr(mlp, "shared_experts", None)
+                if shared is not None:
+                    shard_specs[shared.gate_proj.weight] = (None, "model")
+                    shard_specs[shared.up_proj.weight] = (None, "model")
+                    shard_specs[shared.down_proj.weight] = ("model", None)
+            else:
+                shard_specs[mlp.gate_proj.weight] = ("batch", "model")
+                shard_specs[mlp.up_proj.weight] = ("batch", "model")
+                shard_specs[mlp.down_proj.weight] = ("model", "batch")
         return shard_specs
 
     def load_config(self):

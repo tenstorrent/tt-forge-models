@@ -5,7 +5,7 @@
 Z-Image component loader (Tongyi-MAI/Z-Image).
 
 Variants: VAE decoder, Qwen3 text encoder, ZImageTransformer2DModel (DiT).
-All components run on a single chip.
+Text encoder and VAE run on a single chip; transformer supports 2D SPMD sharding.
 """
 
 from typing import Optional
@@ -24,6 +24,8 @@ from ...config import (
 )
 from .src.model_utils import (
     DTYPE,
+    MESH_NAMES,
+    MESH_SHAPES,
     PROMPT,
     Qwen3TextEncoderWrapper,
     REPO_ID,
@@ -34,6 +36,7 @@ from .src.model_utils import (
     load_transformer,
     load_vae,
     make_latent_inputs,
+    shard_transformer_specs,
     tokenize_prompt,
 )
 
@@ -85,6 +88,28 @@ class ModelLoader(ForgeModel):
         if self._variant == ModelVariant.VAE:
             return VAEDecoderWrapper(load_vae(dtype)).eval()
         raise ValueError(f"Unknown variant: {self._variant}")
+
+    def get_mesh_config(self, num_devices: int):
+        """Return (mesh_shape, mesh_names) for a ("batch", "model") 2D mesh.
+
+        Supported device counts: 1, 2, 4, 8, 32.
+        TEXT_ENCODER and VAE fit on a single chip so any count maps to (1, 1).
+        """
+        if self._variant in (ModelVariant.TEXT_ENCODER, ModelVariant.VAE):
+            return (1, 1), MESH_NAMES
+
+        if num_devices not in MESH_SHAPES:
+            raise ValueError(
+                f"Unsupported device count: {num_devices}. "
+                f"Expected one of {sorted(MESH_SHAPES)}."
+            )
+        return MESH_SHAPES[num_devices], MESH_NAMES
+
+    def load_shard_spec(self, model):
+        """Return tensor → partition_spec dict for the active component."""
+        if self._variant == ModelVariant.TRANSFORMER:
+            return shard_transformer_specs(model.transformer)
+        return None
 
     def load_inputs(self, dtype_override: Optional[torch.dtype] = None, **kwargs):
         dtype = dtype_override if dtype_override is not None else DTYPE

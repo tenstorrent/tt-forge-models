@@ -1,0 +1,5 @@
+diffusers==0.38.0
+accelerate==1.13.0
+opencv-python-headless==4.13.0.92
+einops==0.8.2
+sentencepiece==0.2.1
