@@ -347,10 +347,16 @@ def _shard_flux2_joint_attention(attn, specs: dict) -> None:
         _add_shard_spec(specs, attn.to_add_out.weight, (None, "model"))
         _add_shard_spec(specs, attn.to_add_out.bias, (None,))
 
+    # QK-RMSNorm weights are shape (head_dim,) and apply per-head over head_dim.
+    # Sharding splits *heads* across the "model" axis (each device keeps full
+    # head_dim), so these must be REPLICATED — sharding them ("model",) hands each
+    # device only head_dim/num_devices of the norm weights and corrupts the
+    # normalization. (Harmless on random init where every weight is 1.0, but
+    # catastrophic with trained weights → attention output decorrelates.)
     for norm_name in ("norm_q", "norm_k", "norm_added_q", "norm_added_k"):
         norm = getattr(attn, norm_name, None)
         if norm is not None:
-            _add_shard_spec(specs, getattr(norm, "weight", None), ("model",))
+            _add_shard_spec(specs, getattr(norm, "weight", None), (None,))
 
 
 def _shard_flux2_parallel_attention(attn, specs: dict) -> None:
@@ -363,10 +369,12 @@ def _shard_flux2_parallel_attention(attn, specs: dict) -> None:
         _add_shard_spec(specs, attn.to_out.weight, (None, "model"))
         _add_shard_spec(specs, attn.to_out.bias, (None,))
 
+    # QK-RMSNorm weights (head_dim,) must be replicated — see note in
+    # _shard_flux2_joint_attention; heads are sharded, head_dim is not.
     for norm_name in ("norm_q", "norm_k"):
         norm = getattr(attn, norm_name, None)
         if norm is not None:
-            _add_shard_spec(specs, getattr(norm, "weight", None), ("model",))
+            _add_shard_spec(specs, getattr(norm, "weight", None), (None,))
 
 
 def _shard_flux2_feed_forward(ff, specs: dict) -> None:
@@ -381,12 +389,22 @@ def shard_transformer_specs(transformer) -> dict:
     _add_shard_spec(specs, transformer.x_embedder.weight, ("model", None))
     _add_shard_spec(specs, transformer.context_embedder.weight, ("model", None))
 
+    # Modulation (AdaLN) projections must be REPLICATED, not column-sharded.
+    # Flux2Modulation.linear emits dim*3*sets features that the block then splits
+    # with torch.chunk(..., dim=-1) into shift/scale/gate, each of width `dim`.
+    # Column-sharding ("model", None) splits that same last axis 8-way, so the
+    # chunk boundaries (every `dim`) no longer align with the shard boundaries
+    # (every dim*3*sets/8) and shift/scale/gate get misassigned across devices ->
+    # the (1+scale)*x+shift modulation is applied with the wrong per-device slice.
+    # (Invisible on random init where scale/shift≈0, catastrophic with trained
+    # weights — output decorrelates.) These projections are tiny, so replicating
+    # them costs negligible DRAM.
     for mod in (
         transformer.double_stream_modulation_img,
         transformer.double_stream_modulation_txt,
         transformer.single_stream_modulation,
     ):
-        _add_shard_spec(specs, mod.linear.weight, ("model", None))
+        _add_shard_spec(specs, mod.linear.weight, (None, None))
 
     def _shard_timestep_embedding(embedder) -> None:
         if embedder is None:
@@ -416,9 +434,12 @@ def shard_transformer_specs(transformer) -> dict:
             _add_shard_spec(specs, getattr(block.norm, "bias", None), (None,))
         _shard_flux2_parallel_attention(block.attn, specs)
 
+    # norm_out is AdaLayerNormContinuous: its .linear output is chunked into
+    # (scale, shift), so it has the same chunk-vs-shard misalignment as the
+    # modulation projections above and must be replicated.
     if hasattr(transformer.norm_out, "linear"):
-        _add_shard_spec(specs, transformer.norm_out.linear.weight, ("model", None))
-        _add_shard_spec(specs, transformer.norm_out.linear.bias, ("model",))
+        _add_shard_spec(specs, transformer.norm_out.linear.weight, (None, None))
+        _add_shard_spec(specs, transformer.norm_out.linear.bias, (None,))
     _add_shard_spec(specs, transformer.proj_out.weight, (None, None))
 
     return specs
