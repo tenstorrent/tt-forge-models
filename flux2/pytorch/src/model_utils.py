@@ -268,15 +268,19 @@ def _resolve_text_transformer(encoder):
     ``layers``/``embed_tokens`` — lives below those wrappers, so walk through the
     common wrapper attributes until we find it. Returns the wrapper found last if
     no `.layers` exists (e.g. a bare decoder passed directly).
+
+    The descent has no fixed depth: it keeps unwrapping until it reaches a module
+    with ``.layers`` or one that exposes none of the known wrapper attributes. A
+    ``visited`` set guards against pathological self-referential modules.
     """
     module = encoder
-    for _ in range(4):
-        if hasattr(module, "layers"):
-            return module
+    visited = {id(module)}
+    while not hasattr(module, "layers"):
         for attr in ("language_model", "model", "text_model"):
             inner = getattr(module, attr, None)
-            if inner is not None and inner is not module:
+            if inner is not None and id(inner) not in visited:
                 module = inner
+                visited.add(id(module))
                 break
         else:
             break
