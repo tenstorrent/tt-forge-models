@@ -56,15 +56,21 @@ BYT5_VOCAB_SIZE = 384  # ByT5 text_encoder_2
 
 
 def load_text_encoder(dtype: torch.dtype = DTYPE):
-    """Load Qwen2.5-VL text encoder from the text_encoder subfolder."""
+    """Load Qwen2.5-VL text encoder from the text_encoder subfolder.
+
+    The pipeline only feeds input_ids/attention_mask (no pixel_values), so the
+    vision tower never runs. Return just `.language_model` to avoid uploading
+    the unused ~0.68B-param visual tower (replicated on every chip).
+    """
     from transformers import AutoModel
 
-    return AutoModel.from_pretrained(
+    encoder = AutoModel.from_pretrained(
         REPO_ID,
         subfolder="text_encoder",
         torch_dtype=dtype,
         device_map="cpu",
     ).eval()
+    return getattr(encoder, "language_model", encoder)
 
 
 def load_text_encoder_2(dtype: torch.dtype = DTYPE):
@@ -168,12 +174,19 @@ def shard_text_encoder_specs(encoder) -> dict:
     """
     specs = {}
 
+    # Unwrap Qwen2_5_VLModel -> decoder; else embed_tokens/layers aren't found
+    # and every weight stays replicated on each device -> DRAM OOM.
+    encoder = getattr(encoder, "language_model", encoder)
+
     if hasattr(encoder, "embed_tokens"):
         specs[encoder.embed_tokens.weight] = (None, "batch")
 
     layers = getattr(encoder, "layers", None)
-    if layers is None:
-        return specs
+    if not layers:
+        raise ValueError(
+            f"No decoder layers on {type(encoder).__name__}; refusing to run "
+            "fully replicated (expected `.layers` after unwrapping)."
+        )
 
     for layer in layers:
         sa = layer.self_attn

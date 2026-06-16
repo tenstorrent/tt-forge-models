@@ -236,6 +236,14 @@ class ForgeModel(ABC):
         """
         return None
 
+    @property
+    def requires_model_rewrites(self) -> bool:
+        """Whether consumers should apply TT-friendly in-place model rewrites
+        (e.g. the sliding-window causal-mask patch) before compiling this
+        loader's model.
+        """
+        return False
+
     def get_weight_dtype_config_path(self) -> Optional[str]:
         """Return path to a per-variant weight dtype override JSON, if it exists.
 

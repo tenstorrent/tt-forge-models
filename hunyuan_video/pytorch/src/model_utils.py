@@ -469,14 +469,21 @@ def shard_transformer_specs(transformer) -> dict:
             specs[transformer.x_embedder.proj.bias] = ("batch",)
 
     for block in transformer.transformer_blocks:
+        # AdaLayerNorm modulation linears (norm1 / norm1_context). Their output
+        # (6*inner_dim) is immediately chunk-sliced into the six modulation
+        # params, so sharding the OUTPUT dim makes chunk boundaries straddle
+        # shards -> sdy.collective_permute (verifier failure / tt-mlir #3370).
+        # But fully replicating them is also bad: the weight is large and gets
+        # upcast to f32 for the matmul, blowing the per-device DRAM budget.
+        # Instead shard the CONTRACTING (input) dim by "model": row-parallel, so
+        # the weight shrinks 4x, the output stays replicated (chunk-slices are
+        # local, no reshard), and the matmul just needs an all-reduce.
         for norm_name in ("norm1", "norm1_context"):
             if hasattr(block, norm_name) and hasattr(
                 getattr(block, norm_name), "linear"
             ):
                 lin = getattr(block, norm_name).linear
-                specs[lin.weight] = ("model", "batch")
-                if lin.bias is not None:
-                    specs[lin.bias] = ("model",)
+                specs[lin.weight] = (None, "model")
 
         if hasattr(block, "attn"):
             attn = block.attn
@@ -515,6 +522,53 @@ def shard_transformer_specs(transformer) -> dict:
                 specs[ff.net[2].weight] = ("batch", "model")
                 if ff.net[2].bias is not None:
                     specs[ff.net[2].bias] = ("batch",)
+
+    # Single-stream blocks (HunyuanVideoSingleTransformerBlock). These must be
+    # sharded with the SAME column-/row-parallel scheme as the dual blocks --
+    # leaving them unspecified lets Shardy infer layouts that conflict with the
+    # dual blocks, and the reshard between them is materialized as a gather
+    # ttnn.concat whose per-core page exceeds L1 (OOM at runtime). The attn here
+    # is pre_only=True (no to_out); proj_out fuses the output projection of
+    # concat([attn(hidden), mlp(mlp_dim)]) -> hidden, so:
+    #   QKV + proj_mlp : column-parallel ("model", "batch")
+    #   proj_out       : row-parallel    ("batch", "model")
+    #   norm.linear    : replicated (modulation output is chunk-sliced; see above)
+    for block in getattr(transformer, "single_transformer_blocks", []):
+        # Modulation linear (norm.linear): shard contracting dim, see dual-block
+        # note above (output is chunk-sliced; replicating it OOMs in f32).
+        if hasattr(block, "norm") and hasattr(block.norm, "linear"):
+            specs[block.norm.linear.weight] = (None, "model")
+
+        if hasattr(block, "attn"):
+            attn = block.attn
+            for proj_name in (
+                "to_q",
+                "to_k",
+                "to_v",
+                "add_q_proj",
+                "add_k_proj",
+                "add_v_proj",
+            ):
+                proj = getattr(attn, proj_name, None)
+                if proj is not None:
+                    specs[proj.weight] = ("model", "batch")
+                    if proj.bias is not None:
+                        specs[proj.bias] = ("model",)
+
+        if hasattr(block, "proj_mlp"):
+            specs[block.proj_mlp.weight] = ("model", "batch")
+            if block.proj_mlp.bias is not None:
+                specs[block.proj_mlp.bias] = ("model",)
+
+        if hasattr(block, "proj_out"):
+            specs[block.proj_out.weight] = ("batch", "model")
+            if block.proj_out.bias is not None:
+                specs[block.proj_out.bias] = ("batch",)
+
+    # Final AdaLayerNormContinuous modulation (norm_out.linear, 2*inner_dim out,
+    # chunk-sliced into scale/shift). Same contracting-dim sharding as above.
+    if hasattr(transformer, "norm_out") and hasattr(transformer.norm_out, "linear"):
+        specs[transformer.norm_out.linear.weight] = (None, "model")
 
     if hasattr(transformer, "proj_out"):
         specs[transformer.proj_out.weight] = (None, "batch")
