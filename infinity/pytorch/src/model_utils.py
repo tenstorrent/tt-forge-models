@@ -23,7 +23,7 @@ def build_forward_inputs(
     prompt: Optional[str] = None,
     dtype_override: Optional[torch.dtype] = None,
 ):
-    """Build a single forward-pass input dict for ``Infinity.forward``.
+    """Build a single forward-pass input list for ``Infinity.forward``.
 
     Args:
         tokenizer: T5 tokenizer (from ``model.load_tokenizer``).
@@ -38,8 +38,12 @@ def build_forward_inputs(
         dtype_override: Optional ``torch.dtype`` to cast the tensor inputs.
 
     Returns:
-        dict: ``{"label_B_or_BLT": (kv_compact, lens, cu_seqlens_k,
-            max_seqlen_k), "x_BLC_wo_prefix": tensor, "scale_schedule": [...]}``.
+        list: positional args for ``Infinity.forward``, ordered to match its
+            signature -- ``[label_B_or_BLT, x_BLC_wo_prefix, scale_schedule]``
+            where ``label_B_or_BLT`` is ``(kv_compact, lens, cu_seqlens_k,
+            max_seqlen_k)``. Returned as a positional list (not a dict) because
+            ``run_graph_test`` splats the inputs positionally; splatting a dict
+            would pass its keys (strings) as the forward arguments.
     """
     prompt = prompt or "A fantasy landscape with mountains and rivers"
 
@@ -77,8 +81,8 @@ def build_forward_inputs(
         kv_compact = kv_compact.to(dtype_override)
         x_BLC_wo_prefix = x_BLC_wo_prefix.to(dtype_override)
 
-    return {
-        "label_B_or_BLT": (kv_compact, lens_total, cu_seqlens_k, max_seqlen_k),
-        "x_BLC_wo_prefix": x_BLC_wo_prefix,
-        "scale_schedule": scale_schedule,
-    }
+    return [
+        (kv_compact, lens_total, cu_seqlens_k, max_seqlen_k),
+        x_BLC_wo_prefix,
+        scale_schedule,
+    ]

@@ -3039,7 +3039,10 @@ class Infinity(nn.Module):
                 label_B_or_BLT=label_B_or_BLT, scale_schedule=scale_schedule, **kwargs
             )
 
-        _model_dtype = next(self.parameters()).dtype
+        # Read the model dtype from a concrete parameter tensor rather than
+        # next(self.parameters()): the latter forces torch.compile/Dynamo to trace
+        # the parameters() generator, which hits an InternalTorchDynamoError.
+        _model_dtype = self.pos_start.dtype
         x_BLC_wo_prefix = x_BLC_wo_prefix.to(_model_dtype)
         B = x_BLC_wo_prefix.shape[0]
         with torch.amp.autocast("cuda", enabled=False):

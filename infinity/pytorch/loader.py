@@ -135,8 +135,10 @@ class ModelLoader(ForgeModel):
             prompt: Optional override prompt; defaults to a fixed string.
 
         Returns:
-            dict: ``{"label_B_or_BLT": (kv_compact, lens, cu_seqlens_k,
-                max_seqlen_k), "x_BLC_wo_prefix": tensor, "scale_schedule": [...]}``.
+            list: positional args for ``Infinity.forward`` --
+                ``[label_B_or_BLT, x_BLC_wo_prefix, scale_schedule]`` where
+                ``label_B_or_BLT`` is ``(kv_compact, lens, cu_seqlens_k,
+                max_seqlen_k)``.
         """
         if self.text_encoder is None:
             raise RuntimeError("load_model() must be called before load_inputs().")
