@@ -12,6 +12,8 @@ single-device bringup. Vision/audio components are out of scope here.
 
 from typing import Optional
 
+import numpy as np
+import torch
 from PIL import Image
 from transformers import (
     AutoConfig,
@@ -55,6 +57,13 @@ class ModelLoader(ForgeModel):
     # Used by the optional image+text path of ``load_inputs`` (see ``include_image``).
     sample_image_text = "Describe the image."
     sample_image_url = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/p-blog/candy.JPG"
+    # Used by the optional audio+text path of ``load_inputs`` (see ``include_audio``).
+    sample_audio_text = "Transcribe the audio."
+    # Pre-saved 16 kHz mono waveform hosted on the tt-forge-models file server
+    # (reused from the Whisper loader); avoids needing an audio-decode backend.
+    sample_audio_file = "test_files/pytorch/whisper/1272-128104-0000.pt"
+    # Used by the optional video+text path of ``load_inputs`` (see ``include_video``).
+    sample_video_text = "Describe the video."
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -248,6 +257,118 @@ class ModelLoader(ForgeModel):
             )
         return inputs
 
+    def load_audio_inputs(
+        self,
+        dtype_override=None,
+        prompt: Optional[str] = None,
+        audio_array=None,
+    ):
+        """Load audio+text inputs for the Gemma4 unified multimodal (audio) path.
+
+        Gemma4 is an any-to-any model; this drives its audio+text path. The
+        ``Gemma4UnifiedProcessor`` turns ``"<|audio|>" + text`` plus a mono
+        waveform into ``input_ids`` (with the audio token span),
+        ``attention_mask``, ``mm_token_type_ids`` (0=text/1=audio),
+        ``input_features`` ``(1, frames, 640)`` log-mel features, and
+        ``input_features_mask`` ``(1, frames)``. google/gemma-4-12B is a base
+        (non-instruct) checkpoint with no chat template, so the prompt is the
+        plain ``audio_token`` + text (no ``apply_chat_template``).
+
+        The waveform defaults to a pre-saved 16 kHz mono sample hosted on the
+        tt-forge-models file server (reused from the Whisper loader), so no
+        audio-decode backend (soundfile/librosa) is required. The feature
+        extractor expects 16 kHz; pass ``audio_array`` to override.
+
+        Only ``input_features`` is cast to ``dtype_override``; the id/mask
+        tensors stay integer/bool.
+
+        Returns:
+            dict: {input_ids, attention_mask, mm_token_type_ids, input_features,
+                   input_features_mask} for the audio+text path.
+        """
+        if self.processor is None:
+            self._load_processor()
+
+        if audio_array is None:
+            sample_path = get_file(self.sample_audio_file)
+            sample = torch.load(sample_path, weights_only=False)
+            audio_array = sample["audio"]["array"]
+
+        sampling_rate = self.processor.feature_extractor.sampling_rate
+        audio_token = getattr(self.processor, "audio_token", "<|audio|>")
+        input_text = f"{audio_token}{prompt or self.sample_audio_text}"
+
+        inputs = self.processor(
+            text=input_text,
+            audio=audio_array,
+            sampling_rate=sampling_rate,
+            return_tensors="pt",
+        )
+        inputs = dict(inputs)
+        if dtype_override is not None and "input_features" in inputs:
+            inputs["input_features"] = cast_input_to_type(
+                inputs["input_features"], dtype_override
+            )
+        return inputs
+
+    def load_video_inputs(
+        self,
+        dtype_override=None,
+        prompt: Optional[str] = None,
+        num_frames: int = 32,
+        image_url: Optional[str] = None,
+    ):
+        """Load video+text inputs for the Gemma4 unified multimodal (video) path.
+
+        Gemma4 is an any-to-any model; this drives its image-sequence (video)
+        path. The ``Gemma4UnifiedProcessor`` turns ``"<|video|>" + text`` plus a
+        stack of frames into ``input_ids`` (with the video token span),
+        ``attention_mask``, ``mm_token_type_ids`` (0=text/1=video),
+        ``pixel_values_videos`` ``(1, T, patches, 6912)`` merged patches, and
+        ``video_position_ids`` ``(1, T, patches, 2)``. google/gemma-4-12B is a
+        base (non-instruct) checkpoint with no chat template, so the prompt is
+        the plain ``video_token`` + text (no ``apply_chat_template``).
+
+        No video-decode backend (av/decord) is available, so frames are built
+        by replicating the sample image into ``num_frames`` pre-sampled frames
+        (a static clip). ``do_sample_frames=False`` is passed so the processor
+        consumes exactly the frames given (rather than its default 32-frame
+        resampler), which lets ``num_frames`` control the video token count
+        directly: each frame contributes 64 video tokens, so the on-device
+        sequence is ~ ``64 * num_frames``. The full 32-frame clip emits 2048
+        video tokens (a ~2.3k sequence) and is activation-bound on a single
+        chip; lower ``num_frames`` (e.g. 4) for a tractable first bring-up.
+
+        Only ``pixel_values_videos`` is cast to ``dtype_override``; the
+        id/mask tensors stay integer.
+
+        Returns:
+            dict: {input_ids, attention_mask, mm_token_type_ids,
+                   pixel_values_videos, video_position_ids} for the video path.
+        """
+        if self.processor is None:
+            self._load_processor()
+
+        image_file = get_file(image_url or self.sample_image_url)
+        frame = np.array(Image.open(image_file).convert("RGB"))
+        frames = np.stack([frame] * num_frames)  # (T, H, W, C)
+
+        video_token = getattr(self.processor, "video_token", "<|video|>")
+        input_text = f"{video_token}{prompt or self.sample_video_text}"
+
+        inputs = self.processor(
+            text=input_text,
+            videos=frames,
+            do_sample_frames=False,
+            return_tensors="pt",
+        )
+        inputs = dict(inputs)
+        if dtype_override is not None and "pixel_values_videos" in inputs:
+            inputs["pixel_values_videos"] = cast_input_to_type(
+                inputs["pixel_values_videos"], dtype_override
+            )
+        return inputs
+
     def load_inputs(
         self,
         dtype_override=None,
@@ -256,12 +377,19 @@ class ModelLoader(ForgeModel):
         prompt: Optional[str] = None,
         include_image: bool = False,
         image_url: Optional[str] = None,
+        include_audio: bool = False,
+        include_video: bool = False,
+        num_frames: int = 32,
     ):
         """Load and return sample inputs for the Gemma4 model.
 
-        Defaults to the text-only path. Set ``include_image=True`` to get
-        image+text inputs for the unified multimodal (vision) path (delegates to
-        :meth:`load_image_inputs`).
+        Defaults to the text-only path. Set one of ``include_image`` /
+        ``include_audio`` / ``include_video`` to ``True`` to get inputs for the
+        corresponding unified multimodal path (delegates to
+        :meth:`load_image_inputs` / :meth:`load_audio_inputs` /
+        :meth:`load_video_inputs`). The modality flags are mutually exclusive;
+        ``include_image`` takes precedence, then ``include_audio``, then
+        ``include_video``.
 
         Returns a dict (not a list) so the harness passes the tensors as
         keyword arguments. Gemma4UnifiedForConditionalGeneration.forward has
@@ -272,11 +400,20 @@ class ModelLoader(ForgeModel):
 
         Returns:
             dict: {"input_ids", "attention_mask"} for the text path, or the
-            five-tensor image+text dict when ``include_image=True``.
+            multimodal tensor dict for the selected modality.
         """
         if include_image:
             return self.load_image_inputs(
                 dtype_override=dtype_override, prompt=prompt, image_url=image_url
+            )
+        if include_audio:
+            return self.load_audio_inputs(dtype_override=dtype_override, prompt=prompt)
+        if include_video:
+            return self.load_video_inputs(
+                dtype_override=dtype_override,
+                prompt=prompt,
+                num_frames=num_frames,
+                image_url=image_url,
             )
         max_length = self._variant_config.max_length
         if self.tokenizer is None:
