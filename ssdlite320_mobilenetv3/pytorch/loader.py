@@ -155,7 +155,9 @@ class ModelLoader(ForgeModel):
 
         targets = [
             {
-                "boxes": torch.tensor([[10.0, 10.0, 100.0, 100.0]], dtype=torch.float32),
+                "boxes": torch.tensor(
+                    [[10.0, 10.0, 100.0, 100.0]], dtype=torch.float32
+                ),
                 "labels": torch.tensor([1], dtype=torch.int64),
             }
             for _ in range(batch_size)
