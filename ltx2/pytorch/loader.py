@@ -416,44 +416,58 @@ class ModelLoader(ForgeModel):
         """
         return (1, num_devices), ("batch", "model")
 
+    @staticmethod
+    def _shard_transformer(model):
+        """Megatron-style TP map for LTX2VideoTransformer3DModel (per-block
+        attention + MLP)."""
+        shard_specs = {}
+        transformer = getattr(model, "transformer", model)
+        for block in transformer.transformer_blocks:
+            for attn_name in ("attn1", "attn2"):
+                attn = getattr(block, attn_name, None)
+                if attn is None:
+                    continue
+                shard_specs[attn.to_q.weight] = ("model", None)
+                shard_specs[attn.to_k.weight] = ("model", None)
+                shard_specs[attn.to_v.weight] = ("model", None)
+                shard_specs[attn.to_out[0].weight] = (None, "model")
+            ff = getattr(block, "ff", None)
+            if ff is not None and hasattr(ff, "net"):
+                # net[0] is GEGLU/proj (column), net[-1] is the output (row)
+                proj = getattr(ff.net[0], "proj", None)
+                if proj is not None:
+                    shard_specs[proj.weight] = ("model", None)
+                shard_specs[ff.net[-1].weight] = (None, "model")
+        return shard_specs
+
+    @staticmethod
+    def _shard_text_encoder(model):
+        """Megatron-style GQA-TP map for the Gemma3 text encoder. KV projections
+        are replicated (GQA fallback, same as the gemma4 bringup) — only
+        q_proj/o_proj and the MLP gate/up/down are sharded."""
+        shard_specs = {}
+        te = getattr(model, "text_encoder", model)
+        layers = te.model.language_model.layers
+        for layer in layers:
+            attn = layer.self_attn
+            shard_specs[attn.q_proj.weight] = ("model", None)
+            shard_specs[attn.o_proj.weight] = (None, "model")
+            mlp = layer.mlp
+            shard_specs[mlp.gate_proj.weight] = ("model", None)
+            shard_specs[mlp.up_proj.weight] = ("model", None)
+            shard_specs[mlp.down_proj.weight] = (None, "model")
+        return shard_specs
+
     def load_shard_spec(self, model):
         """Megatron-style TP map. Non-sharded dim is ``None`` (replicated).
 
-        Sharded only for the transformer (per-block attention + MLP). Small
-        components replicate everywhere → empty map.
+        Dispatches to the per-component sharding function. Only the weight-bound
+        transformer / text encoder are sharded; the small components
+        (connectors / vae / audio_vae / vocoder) replicate → empty map.
         """
-        shard_specs = {}
-        if self._variant == ModelVariant.LTX2_TRANSFORMER:
-            transformer = getattr(model, "transformer", model)
-            for block in transformer.transformer_blocks:
-                for attn_name in ("attn1", "attn2"):
-                    attn = getattr(block, attn_name, None)
-                    if attn is None:
-                        continue
-                    shard_specs[attn.to_q.weight] = ("model", None)
-                    shard_specs[attn.to_k.weight] = ("model", None)
-                    shard_specs[attn.to_v.weight] = ("model", None)
-                    shard_specs[attn.to_out[0].weight] = (None, "model")
-                ff = getattr(block, "ff", None)
-                if ff is not None and hasattr(ff, "net"):
-                    # net[0] is GEGLU/proj (column), net[-1] is the output (row)
-                    proj = getattr(ff.net[0], "proj", None)
-                    if proj is not None:
-                        shard_specs[proj.weight] = ("model", None)
-                    shard_specs[ff.net[-1].weight] = (None, "model")
-        elif self._variant == ModelVariant.LTX2_TEXT_ENCODER:
-            # Gemma3 language stack: standard Megatron GQA-TP. KV projections are
-            # replicated (GQA fallback, same as the gemma4 bringup) — only
-            # q_proj/o_proj and the MLP gate/up/down are sharded.
-            te = getattr(model, "text_encoder", model)
-            layers = te.model.language_model.layers
-            for layer in layers:
-                attn = layer.self_attn
-                shard_specs[attn.q_proj.weight] = ("model", None)
-                shard_specs[attn.o_proj.weight] = (None, "model")
-                mlp = layer.mlp
-                shard_specs[mlp.gate_proj.weight] = ("model", None)
-                shard_specs[mlp.up_proj.weight] = ("model", None)
-                shard_specs[mlp.down_proj.weight] = (None, "model")
-        # connectors / vae / audio_vae / vocoder: replicate (empty map).
-        return shard_specs
+        shard_fns = {
+            ModelVariant.LTX2_TRANSFORMER: self._shard_transformer,
+            ModelVariant.LTX2_TEXT_ENCODER: self._shard_text_encoder,
+        }
+        shard_fn = shard_fns.get(self._variant)
+        return shard_fn(model) if shard_fn is not None else {}
