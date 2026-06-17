@@ -12,7 +12,13 @@ single-device bringup. Vision/audio components are out of scope here.
 
 from typing import Optional
 
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from PIL import Image
+from transformers import (
+    AutoConfig,
+    AutoModelForCausalLM,
+    AutoProcessor,
+    AutoTokenizer,
+)
 
 from ...base import ForgeModel
 from ...config import (
@@ -24,7 +30,7 @@ from ...config import (
     ModelTask,
     StrEnum,
 )
-from ...tools.utils import cast_input_to_type
+from ...tools.utils import cast_input_to_type, get_file
 
 
 class ModelVariant(StrEnum):
@@ -46,12 +52,16 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.GEMMA_4_12B
 
     sample_text = "What is your favorite city?"
+    # Used by the optional image+text path of ``load_inputs`` (see ``include_image``).
+    sample_image_text = "Describe the image."
+    sample_image_url = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/p-blog/candy.JPG"
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
     ):
         super().__init__(variant)
         self.tokenizer = None
+        self.processor = None
         self.seq_len = None
         self.num_layers = num_layers
 
@@ -82,6 +92,16 @@ class ModelLoader(ForgeModel):
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         return self.tokenizer
+
+    def _load_processor(self):
+        """Load the multimodal processor for the image+text path.
+
+        Returns:
+            The loaded processor instance (``Gemma4UnifiedProcessor``).
+        """
+        pretrained_model_name = self._variant_config.pretrained_model_name
+        self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
+        return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Gemma4 causal_lm model instance (text-only path).
@@ -187,14 +207,61 @@ class ModelLoader(ForgeModel):
             # v_proj is None and k_proj holds a single unsharddable KV head.
         return shard_specs
 
+    def load_image_inputs(
+        self,
+        dtype_override=None,
+        prompt: Optional[str] = None,
+        image_url: Optional[str] = None,
+    ):
+        """Load image+text inputs for the Gemma4 unified multimodal (vision) path.
+
+        Gemma4 is an any-to-any model; this drives its image+text path. The
+        ``Gemma4UnifiedProcessor`` turns ``"<|image|>" + text`` plus a PIL image
+        into the five tensors the forward needs: ``input_ids`` (with the image
+        token span), ``attention_mask``, ``mm_token_type_ids`` (0=text/1=image),
+        ``pixel_values`` ``(1, 280, 6912)`` merged patches, and
+        ``image_position_ids`` ``(1, 280, 2)``. google/gemma-4-12B is a base
+        (non-instruct) checkpoint with no chat template, so the prompt is the
+        plain ``image_token`` + text (no ``apply_chat_template``).
+
+        Only ``pixel_values`` is cast to ``dtype_override``; the id/mask tensors
+        stay integer.
+
+        Returns:
+            dict: {input_ids, attention_mask, mm_token_type_ids, pixel_values,
+                   image_position_ids} for the image+text path.
+        """
+        if self.processor is None:
+            self._load_processor()
+
+        image_file = get_file(image_url or self.sample_image_url)
+        image = Image.open(image_file).convert("RGB")
+
+        image_token = getattr(self.processor, "image_token", "<|image|>")
+        input_text = f"{image_token}{prompt or self.sample_image_text}"
+
+        inputs = self.processor(text=input_text, images=image, return_tensors="pt")
+        inputs = dict(inputs)
+        if dtype_override is not None and "pixel_values" in inputs:
+            inputs["pixel_values"] = cast_input_to_type(
+                inputs["pixel_values"], dtype_override
+            )
+        return inputs
+
     def load_inputs(
         self,
         dtype_override=None,
         batch_size=1,
         max_new_tokens: int = 256,
         prompt: Optional[str] = None,
+        include_image: bool = False,
+        image_url: Optional[str] = None,
     ):
-        """Load and return sample text inputs for the Gemma4 model.
+        """Load and return sample inputs for the Gemma4 model.
+
+        Defaults to the text-only path. Set ``include_image=True`` to get
+        image+text inputs for the unified multimodal (vision) path (delegates to
+        :meth:`load_image_inputs`).
 
         Returns a dict (not a list) so the harness passes the tensors as
         keyword arguments. Gemma4UnifiedForConditionalGeneration.forward has
@@ -204,8 +271,13 @@ class ModelLoader(ForgeModel):
         keeps ``pixel_values`` None and stays on the text-only path.
 
         Returns:
-            dict: {"input_ids", "attention_mask"} tensors for the text path.
+            dict: {"input_ids", "attention_mask"} for the text path, or the
+            five-tensor image+text dict when ``include_image=True``.
         """
+        if include_image:
+            return self.load_image_inputs(
+                dtype_override=dtype_override, prompt=prompt, image_url=image_url
+            )
         max_length = self._variant_config.max_length
         if self.tokenizer is None:
             self._load_tokenizer()
