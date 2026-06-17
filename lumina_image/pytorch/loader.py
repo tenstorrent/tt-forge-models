@@ -29,6 +29,7 @@ from .src.model_utils import (
     LUMINA_REPO_ID,
     MESH_NAMES,
     MESH_SHAPES,
+    Gemma2TextEncoderWrapper,
     Lumina2TransformerWrapper,
     VAEDecoderWrapper,
     load_text_encoder,
@@ -87,7 +88,7 @@ class ModelLoader(ForgeModel):
         """Load and return the component for this variant as a torch.nn.Module.
 
         Returns:
-            TEXT_ENCODER → Gemma2Model
+            TEXT_ENCODER → Gemma2TextEncoderWrapper (plain-tensor forward)
             TRANSFORMER  → Lumina2TransformerWrapper (plain-tensor forward)
             VAE          → VAEDecoderWrapper (decoder-only, returns plain tensor)
         """
@@ -95,7 +96,7 @@ class ModelLoader(ForgeModel):
         dtype = dtype_override if dtype_override is not None else DTYPE
 
         if self._variant == ModelVariant.TEXT_ENCODER:
-            return load_text_encoder(model_name, dtype)
+            return Gemma2TextEncoderWrapper(load_text_encoder(model_name, dtype))
         if self._variant == ModelVariant.TRANSFORMER:
             return Lumina2TransformerWrapper(load_transformer(model_name, dtype))
         if self._variant == ModelVariant.VAE:
@@ -119,12 +120,12 @@ class ModelLoader(ForgeModel):
         """Return tensor → partition_spec dict for the active component.
 
         Expects the same model object returned by load_model():
-          TEXT_ENCODER → Gemma2Model
+          TEXT_ENCODER → Gemma2TextEncoderWrapper  (specs built from .encoder)
           TRANSFORMER  → Lumina2TransformerWrapper  (specs built from .transformer)
           VAE          → VAEDecoderWrapper          (specs built from .vae)
         """
         if self._variant == ModelVariant.TEXT_ENCODER:
-            return shard_text_encoder_specs(model)
+            return shard_text_encoder_specs(model.encoder)
         if self._variant == ModelVariant.TRANSFORMER:
             return shard_transformer_specs(model.transformer)
         if self._variant == ModelVariant.VAE:

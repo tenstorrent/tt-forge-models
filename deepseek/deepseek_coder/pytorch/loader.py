@@ -21,13 +21,13 @@ from ....config import (
     Framework,
     StrEnum,
 )
-from transformers.dynamic_module_utils import get_imports
 
 
 class ModelVariant(StrEnum):
     """Available DeepSeek Coder model variants."""
 
     DEEPSEEK_1_3B_INSTRUCT = "1_3B_Instruct"
+    DEEPSEEK_33B_INSTRUCT = "33B_Instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -37,6 +37,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.DEEPSEEK_1_3B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="deepseek-ai/deepseek-coder-1.3b-instruct",
+            max_length=2048,
+        ),
+        ModelVariant.DEEPSEEK_33B_INSTRUCT: LLMModelConfig(
+            pretrained_model_name="deepseek-ai/deepseek-coder-33b-instruct",
             max_length=2048,
         ),
     }
@@ -97,10 +101,12 @@ class ModelLoader(ForgeModel):
 
         model = AutoModelForCausalLM.from_pretrained(
             self._variant_config.pretrained_model_name, **model_kwargs
-        )
+        ).eval()
 
         if self.tokenizer is None:
             self._load_tokenizer()
+
+        self.config = model.config
 
         return model
 
@@ -115,9 +121,10 @@ class ModelLoader(ForgeModel):
             add_generation_prompt=True,
             return_tensors="pt",
         )
+        if self._variant == ModelVariant.DEEPSEEK_33B_INSTRUCT:
+            return inputs
         padded_inputs, seq_len = pad_inputs(inputs)
         self.seq_len = seq_len
-
         return padded_inputs
 
     def decode_output(self, max_new_tokens, model, inputs, tokenizer):
@@ -134,3 +141,33 @@ class ModelLoader(ForgeModel):
             max_new_tokens, model, inputs, self.seq_len, tokenizer
         )
         return generated_text
+
+    def get_mesh_config(self, num_devices: int):
+        """Return mesh shape and axis names for tensor parallel."""
+        if self.config.num_attention_heads % num_devices == 0:
+            mesh_shape = (1, num_devices)
+        elif (
+            self.config.num_attention_heads % (num_devices // 2) == 0
+            and num_devices % 2 == 0
+        ):
+            mesh_shape = (2, num_devices // 2)
+        else:
+            raise ValueError(
+                f"Cannot evenly distribute {self.config.num_attention_heads} heads "
+                f"across {num_devices} devices"
+            )
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        shard_specs = {}
+        for layer in model.model.layers:
+            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+
+            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+        shard_specs[model.lm_head.weight] = ("model", "batch")
+        return shard_specs
