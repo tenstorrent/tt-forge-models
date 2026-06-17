@@ -57,6 +57,21 @@ VAE_LATENT_C = TRANSFORMER_IN_CHANNELS
 MESH_SHAPES = {32: (1, 32), 8: (1, 8), 4: (1, 4), 2: (1, 2), 1: (1, 1)}
 MESH_NAMES = ("batch", "model")
 
+# Transformer-specific mesh shapes.
+#
+# The text encoder shards cleanly on a 1-D (1, N) ring, but the ~32B transformer
+# deadlocks the CCL on a (1, 32) ring on Galaxy: a flat 32-device ring can't map
+# onto the (4, 8) physical fabric, so the all-reduce/collective-permute hangs in
+# completion_queue_wait. Declare a genuine 2-D (4, 8) mesh instead and shard each
+# weight across BOTH axes (see shard_transformer_specs(two_d=True)): weights stay
+# 32-way sharded (same DRAM as (1, 32)), but the matmul collectives decompose into
+# per-axis reductions (column → 4-way over "batch", row → 8-way over "model"),
+# which lower onto the 4x8 torus instead of one flat 32-ring.
+#
+# Smaller counts keep the 1-D ring (no fabric-mapping problem below a full
+# Galaxy); only 32 needs the 2-D factorization.
+TRANSFORMER_MESH_SHAPES = {32: (4, 8), 8: (1, 8), 4: (1, 4), 2: (1, 2), 1: (1, 1)}
+
 
 def load_text_encoder(dtype: torch.dtype = DTYPE):
     from transformers import Mistral3ForConditionalGeneration
@@ -324,12 +339,12 @@ def shard_text_encoder_specs(encoder) -> dict:
     return specs
 
 
-def _shard_flux2_joint_attention(attn, specs: dict) -> None:
+def _shard_flux2_joint_attention(attn, specs: dict, col: tuple, row: tuple) -> None:
     """Flux2Attention in dual-stream transformer_blocks."""
     for proj_name in ("to_q", "to_k", "to_v", "add_q_proj", "add_k_proj", "add_v_proj"):
         if hasattr(attn, proj_name) and getattr(attn, proj_name) is not None:
             proj = getattr(attn, proj_name)
-            _add_shard_spec(specs, proj.weight, ("model", None))
+            _add_shard_spec(specs, proj.weight, col)
             _add_shard_spec(specs, proj.bias, ("model",))
 
     to_out = attn.to_out
@@ -340,11 +355,11 @@ def _shard_flux2_joint_attention(attn, specs: dict) -> None:
     else:
         out_proj = None
     if out_proj is not None:
-        _add_shard_spec(specs, out_proj.weight, (None, "model"))
+        _add_shard_spec(specs, out_proj.weight, row)
         _add_shard_spec(specs, out_proj.bias, (None,))
 
     if hasattr(attn, "to_add_out") and attn.to_add_out is not None:
-        _add_shard_spec(specs, attn.to_add_out.weight, (None, "model"))
+        _add_shard_spec(specs, attn.to_add_out.weight, row)
         _add_shard_spec(specs, attn.to_add_out.bias, (None,))
 
     # QK-RMSNorm weights are shape (head_dim,) and apply per-head over head_dim.
@@ -359,14 +374,14 @@ def _shard_flux2_joint_attention(attn, specs: dict) -> None:
             _add_shard_spec(specs, getattr(norm, "weight", None), (None,))
 
 
-def _shard_flux2_parallel_attention(attn, specs: dict) -> None:
+def _shard_flux2_parallel_attention(attn, specs: dict, col: tuple, row: tuple) -> None:
     """Flux2ParallelSelfAttention in single_stream_blocks (fused QKV+MLP)."""
     if hasattr(attn, "to_qkv_mlp_proj"):
-        _add_shard_spec(specs, attn.to_qkv_mlp_proj.weight, ("model", None))
+        _add_shard_spec(specs, attn.to_qkv_mlp_proj.weight, col)
         _add_shard_spec(specs, attn.to_qkv_mlp_proj.bias, ("model",))
 
     if hasattr(attn, "to_out") and isinstance(attn.to_out, torch.nn.Linear):
-        _add_shard_spec(specs, attn.to_out.weight, (None, "model"))
+        _add_shard_spec(specs, attn.to_out.weight, row)
         _add_shard_spec(specs, attn.to_out.bias, (None,))
 
     # QK-RMSNorm weights (head_dim,) must be replicated — see note in
@@ -377,17 +392,41 @@ def _shard_flux2_parallel_attention(attn, specs: dict) -> None:
             _add_shard_spec(specs, getattr(norm, "weight", None), (None,))
 
 
-def _shard_flux2_feed_forward(ff, specs: dict) -> None:
-    _add_shard_spec(specs, ff.linear_in.weight, ("model", None))
-    _add_shard_spec(specs, ff.linear_out.weight, (None, "model"))
+def _shard_flux2_feed_forward(ff, specs: dict, col: tuple, row: tuple) -> None:
+    _add_shard_spec(specs, ff.linear_in.weight, col)
+    _add_shard_spec(specs, ff.linear_out.weight, row)
 
 
-def shard_transformer_specs(transformer) -> dict:
-    """Shard Flux2Transformer2DModel (dual-stream + single-stream blocks)."""
+def shard_transformer_specs(transformer, *, two_d: bool = False) -> dict:
+    """Shard Flux2Transformer2DModel (dual-stream + single-stream blocks).
+
+    `two_d` selects how matmul weights map onto the device mesh:
+
+    - False (default): 1-D Megatron sharding on a (1, N) mesh. Column-parallel
+      weights shard their out-dim over "model" (``("model", None)``); row-parallel
+      weights shard their in-dim over "model" (``(None, "model")``). Collectives
+      are a single N-way reduction over "model".
+
+    - True: 2-D sharding for a (4, 8) ("batch", "model") mesh. Each weight shards
+      across BOTH axes — column-parallel ``("model", "batch")`` (out→model,
+      in→batch), row-parallel ``("batch", "model")`` (out→batch, in→model). Weights
+      stay 32-way sharded (same DRAM as 1-D over 32), but the contraction collective
+      becomes per-axis: column reduces 4-way over "batch", row reduces 8-way over
+      "model". This is what maps onto the 4x8 fabric instead of a flat 32-ring (the
+      (1, 32) deadlock). The residual-stream feature dim ends up sharded on "batch",
+      so the replicated norms emit an extra 4-way all-gather over "batch" — axis-
+      local, not a flat-32 collective. Biases and replicated weights (modulation,
+      norm_out, proj_out, QK-RMSNorm) are IDENTICAL across both modes; only the
+      weight 2-tuples change.
+    """
     specs = {}
 
-    _add_shard_spec(specs, transformer.x_embedder.weight, ("model", None))
-    _add_shard_spec(specs, transformer.context_embedder.weight, ("model", None))
+    # Column-/row-parallel partition specs (see docstring).
+    col = ("model", "batch") if two_d else ("model", None)
+    row = ("batch", "model") if two_d else (None, "model")
+
+    _add_shard_spec(specs, transformer.x_embedder.weight, col)
+    _add_shard_spec(specs, transformer.context_embedder.weight, col)
 
     # Modulation (AdaLN) projections must be REPLICATED, not column-sharded.
     # Flux2Modulation.linear emits dim*3*sets features that the block then splits
@@ -409,9 +448,9 @@ def shard_transformer_specs(transformer) -> dict:
     def _shard_timestep_embedding(embedder) -> None:
         if embedder is None:
             return
-        _add_shard_spec(specs, embedder.linear_1.weight, ("model", None))
+        _add_shard_spec(specs, embedder.linear_1.weight, col)
         _add_shard_spec(specs, embedder.linear_1.bias, ("model",))
-        _add_shard_spec(specs, embedder.linear_2.weight, (None, "model"))
+        _add_shard_spec(specs, embedder.linear_2.weight, row)
         _add_shard_spec(specs, embedder.linear_2.bias, (None,))
 
     _shard_timestep_embedding(transformer.time_guidance_embed.timestep_embedder)
@@ -424,15 +463,15 @@ def shard_transformer_specs(transformer) -> dict:
                 # elementwise_affine=False → weight/bias are None; skip
                 _add_shard_spec(specs, getattr(norm, "weight", None), (None,))
                 _add_shard_spec(specs, getattr(norm, "bias", None), (None,))
-        _shard_flux2_joint_attention(block.attn, specs)
-        _shard_flux2_feed_forward(block.ff, specs)
-        _shard_flux2_feed_forward(block.ff_context, specs)
+        _shard_flux2_joint_attention(block.attn, specs, col, row)
+        _shard_flux2_feed_forward(block.ff, specs, col, row)
+        _shard_flux2_feed_forward(block.ff_context, specs, col, row)
 
     for block in transformer.single_transformer_blocks:
         if hasattr(block, "norm"):
             _add_shard_spec(specs, getattr(block.norm, "weight", None), (None,))
             _add_shard_spec(specs, getattr(block.norm, "bias", None), (None,))
-        _shard_flux2_parallel_attention(block.attn, specs)
+        _shard_flux2_parallel_attention(block.attn, specs, col, row)
 
     # norm_out is AdaLayerNormContinuous: its .linear output is chunked into
     # (scale, shift), so it has the same chunk-vs-shard misalignment as the

@@ -34,6 +34,7 @@ from .src.model_utils import (
     MESH_NAMES,
     MESH_SHAPES,
     PROMPT,
+    TRANSFORMER_MESH_SHAPES,
     REPO_ID,
     WIDTH,
     Flux2TransformerWrapper,
@@ -105,27 +106,43 @@ class ModelLoader(ForgeModel):
         raise ValueError(f"Unknown variant: {self._variant}")
 
     def get_mesh_config(self, num_devices: int):
-        """Return (mesh_shape, mesh_names) for a ("batch", "model") 2D mesh.
+        """Return (mesh_shape, mesh_names) for a ("batch", "model") mesh.
 
         Supported device counts: 1, 2, 4, 8, 32.
-        VAE fits on a single chip so any count maps to (1, 1).
+        VAE fits on a single chip so any count maps to (1, 1). The transformer uses
+        its own shape table (TRANSFORMER_MESH_SHAPES): a 2-D (4, 8) mesh on 32 chips
+        to avoid the (1, 32) CCL deadlock; the text encoder keeps the 1-D (1, N) ring.
         """
         if self._variant == ModelVariant.VAE:
             return (1, 1), MESH_NAMES
 
-        if num_devices not in MESH_SHAPES:
+        shapes = (
+            TRANSFORMER_MESH_SHAPES
+            if self._variant == ModelVariant.TRANSFORMER
+            else MESH_SHAPES
+        )
+        if num_devices not in shapes:
             raise ValueError(
                 f"Unsupported device count: {num_devices}. "
-                f"Expected one of {sorted(MESH_SHAPES)}."
+                f"Expected one of {sorted(shapes)}."
             )
-        return MESH_SHAPES[num_devices], MESH_NAMES
+        return shapes[num_devices], MESH_NAMES
 
     def load_shard_spec(self, model):
-        """Return tensor → partition_spec dict for the active component."""
+        """Return tensor → partition_spec dict for the active component.
+
+        The transformer's sharding must match the mesh shape get_mesh_config picks
+        for the live device count: a 2-D (4, 8) mesh needs 2-D weight specs (shard
+        across both axes), a 1-D (1, N) mesh needs 1-D specs. Derive that here so the
+        two stay consistent without the test having to thread the mesh shape in.
+        """
         if self._variant == ModelVariant.TEXT_ENCODER:
             return shard_text_encoder_specs(model.text_encoder)
         if self._variant == ModelVariant.TRANSFORMER:
-            return shard_transformer_specs(model.transformer)
+            import torch_xla.runtime as xr
+
+            mesh_shape, _ = self.get_mesh_config(xr.global_runtime_device_count())
+            return shard_transformer_specs(model.transformer, two_d=mesh_shape[0] > 1)
         if self._variant == ModelVariant.VAE:
             return None
         raise ValueError(f"Unknown variant: {self._variant}")
