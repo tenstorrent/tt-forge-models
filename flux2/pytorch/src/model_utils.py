@@ -271,33 +271,46 @@ def _add_shard_spec(specs: dict, param: torch.Tensor | None, spec: tuple) -> Non
         specs[param] = spec
 
 
-def shard_text_encoder_specs(encoder) -> dict:
-    """Shard Mistral3 / language-model blocks (column/row parallel).
+def _resolve_text_transformer(encoder):
+    """Descend wrapper modules until reaching the decoder stack that owns `.layers`.
 
-    Mistral3ForConditionalGeneration nests the decoder at
-    ``encoder.model.language_model`` (the ``.layers`` live there), so drill down
-    through the common wrapper attributes until we reach the module holding
-    ``.layers`` rather than assuming a fixed depth — a wrong path leaves every
-    weight replicated and the 24B encoder OOMs the device.
+    Mistral3ForConditionalGeneration nests the actual transformer as
+    ``encoder.model.language_model`` (Mistral3Model wraps a vision tower +
+    language model). The decoder block stack — the module that exposes
+    ``layers``/``embed_tokens`` — lives below those wrappers, so walk through the
+    common wrapper attributes until we find it. Returns the wrapper found last if
+    no `.layers` exists (e.g. a bare decoder passed directly).
+
+    The descent has no fixed depth: it keeps unwrapping until it reaches a module
+    with ``.layers`` or one that exposes none of the known wrapper attributes. A
+    ``visited`` set guards against pathological self-referential modules. Trying
+    ``language_model`` before ``model`` ensures the 24B encoder's decoder is
+    reached (a wrong path leaves every weight replicated and OOMs the device).
     """
-    specs = {}
-    language_model = encoder
-    for _ in range(5):
-        if hasattr(language_model, "layers"):
-            break
-        for attr in ("model", "language_model", "transformer", "decoder"):
-            child = getattr(language_model, attr, None)
-            if child is not None:
-                language_model = child
+    module = encoder
+    visited = {id(module)}
+    while not hasattr(module, "layers"):
+        for attr in ("language_model", "model", "text_model"):
+            inner = getattr(module, attr, None)
+            if inner is not None and id(inner) not in visited:
+                module = inner
+                visited.add(id(module))
                 break
         else:
             break
+    return module
+
+
+def shard_text_encoder_specs(encoder) -> dict:
+    """Shard Mistral3 / language-model blocks (column/row parallel)."""
+    specs = {}
+    language_model = _resolve_text_transformer(encoder)
 
     if hasattr(language_model, "embed_tokens"):
         specs[language_model.embed_tokens.weight] = (None, None)
 
     layers = getattr(language_model, "layers", None)
-    if not layers:
+    if layers is None:
         return specs
 
     for layer in layers:
