@@ -5,9 +5,13 @@
 Gemma4 model loader implementation for causal language modeling.
 
 google/gemma-4-12B is a Gemma4UnifiedForConditionalGeneration (any-to-any:
-text + vision + audio). This loader brings up the *text-only* causal-LM path
-(input_ids + attention_mask only), which is the tractable first target for
-single-device bringup. Vision/audio components are out of scope here.
+text + vision + audio). The default ``12B`` variant brings up the text-only
+causal-LM path (input_ids + attention_mask only). The ``12B-image`` /
+``12B-audio`` / ``12B-video`` variants drive the unified multimodal paths:
+they reuse the same checkpoint and the verified text shard spec, and route
+``load_inputs`` to the matching modality (image / audio / video + text). The
+vision/audio embedder weights are left replicated (out of the shard map) for
+this bring-up.
 """
 
 from typing import Optional
@@ -36,9 +40,16 @@ from ...tools.utils import cast_input_to_type, get_file
 
 
 class ModelVariant(StrEnum):
-    """Available Gemma4 model variants for causal LM."""
+    """Available Gemma4 model variants.
+
+    ``12B`` is the text-only causal-LM path; the ``12B-{image,audio,video}``
+    variants drive the unified multimodal paths on the same checkpoint.
+    """
 
     GEMMA_4_12B = "12B"
+    GEMMA_4_12B_IMAGE = "12B-image"
+    GEMMA_4_12B_AUDIO = "12B-audio"
+    GEMMA_4_12B_VIDEO = "12B-video"
 
 
 class ModelLoader(ForgeModel):
@@ -49,9 +60,39 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="google/gemma-4-12B",
             max_length=256,
         ),
+        ModelVariant.GEMMA_4_12B_IMAGE: LLMModelConfig(
+            pretrained_model_name="google/gemma-4-12B",
+            max_length=256,
+        ),
+        ModelVariant.GEMMA_4_12B_AUDIO: LLMModelConfig(
+            pretrained_model_name="google/gemma-4-12B",
+            max_length=256,
+        ),
+        ModelVariant.GEMMA_4_12B_VIDEO: LLMModelConfig(
+            pretrained_model_name="google/gemma-4-12B",
+            max_length=256,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.GEMMA_4_12B
+
+    # Maps the multimodal variants to the modality their load_inputs drives and
+    # the task reported in model_info. The text variant is absent (text path).
+    _MODALITY_BY_VARIANT = {
+        ModelVariant.GEMMA_4_12B_IMAGE: "image",
+        ModelVariant.GEMMA_4_12B_AUDIO: "audio",
+        ModelVariant.GEMMA_4_12B_VIDEO: "video",
+    }
+    _TASK_BY_VARIANT = {
+        ModelVariant.GEMMA_4_12B_IMAGE: ModelTask.MM_IMAGE_TTT,
+        ModelVariant.GEMMA_4_12B_AUDIO: ModelTask.MM_AUDIO_TTT,
+        ModelVariant.GEMMA_4_12B_VIDEO: ModelTask.MM_VIDEO_TTT,
+    }
+    # Frames in the static video clip when the video variant runs through the
+    # runner (which calls load_inputs without num_frames). 4 frames (~256 video
+    # tokens) is the verified, activation-tractable footprint; the full 32-frame
+    # clip (2048 tokens) is activation-bound. See load_video_inputs.
+    VIDEO_NUM_FRAMES = 4
 
     sample_text = "What is your favorite city?"
     # Used by the optional image+text path of ``load_inputs`` (see ``include_image``).
@@ -80,12 +121,14 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
 
         group = ModelGroup.GENERALITY
+        # Multimodal variants report their modality task; text uses causal_lm.
+        task = cls._TASK_BY_VARIANT.get(variant, ModelTask.NLP_CAUSAL_LM)
 
         return ModelInfo(
             model="Gemma 4",
             variant=variant,
             group=group,
-            task=ModelTask.NLP_CAUSAL_LM,
+            task=task,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
@@ -402,6 +445,19 @@ class ModelLoader(ForgeModel):
             dict: {"input_ids", "attention_mask"} for the text path, or the
             multimodal tensor dict for the selected modality.
         """
+        # Variant-driven dispatch: the runner calls load_inputs with only
+        # dtype_override/batch_size, so the 12B-{image,audio,video} variants
+        # select their modality here (explicit include_* kwargs still win).
+        if not (include_image or include_audio or include_video):
+            modality = self._MODALITY_BY_VARIANT.get(self._variant)
+            if modality == "image":
+                include_image = True
+            elif modality == "audio":
+                include_audio = True
+            elif modality == "video":
+                include_video = True
+                num_frames = self.VIDEO_NUM_FRAMES
+
         if include_image:
             return self.load_image_inputs(
                 dtype_override=dtype_override, prompt=prompt, image_url=image_url
