@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available CohereLabs model variants for causal language modeling."""
 
     Coherelabs_c4ai_command_r_v01 = "Coherelabs_c4ai_command_r_v01"
+    Coherelabs_c4ai_command_r_plus_08_2024 = "Coherelabs_c4ai_command_r_plus_08_2024"
     Coherelabs_aya_expanse_32b = "Coherelabs_aya_expanse_32b"
     Coherelabs_aya_23_35b = "Coherelabs_aya_23_35b"
 
@@ -35,6 +36,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.Coherelabs_c4ai_command_r_v01: LLMModelConfig(
             pretrained_model_name="CohereLabs/c4ai-command-r-v01",
+            max_length=256,
+        ),
+        ModelVariant.Coherelabs_c4ai_command_r_plus_08_2024: LLMModelConfig(
+            pretrained_model_name="CohereLabs/c4ai-command-r-plus-08-2024",
             max_length=256,
         ),
         ModelVariant.Coherelabs_aya_expanse_32b: LLMModelConfig(
@@ -163,18 +168,10 @@ class ModelLoader(ForgeModel):
 
     def get_mesh_config(self, num_devices: int):
         """Return mesh shape and axis names for tensor parallel."""
-        if self.config.num_attention_heads % num_devices == 0:
-            mesh_shape = (1, num_devices)
-        elif (
-            self.config.num_attention_heads % (num_devices // 2) == 0
-            and num_devices % 2 == 0
-        ):
+        if num_devices == 32:  # Galaxy
+            mesh_shape = (4, 8)
+        else:  # wh/bh llmbox
             mesh_shape = (2, num_devices // 2)
-        else:
-            raise ValueError(
-                f"Cannot evenly distribute {self.config.num_attention_heads} heads "
-                f"across {num_devices} devices"
-            )
         return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
