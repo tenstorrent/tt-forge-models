@@ -33,6 +33,7 @@ from ...config import (
     StrEnum,
 )
 from .src.model_utils import load_pipe, srpo_preprocessing
+from .src.shard_specs import build_shard_spec, get_mesh_shape
 
 
 class ModelVariant(StrEnum):
@@ -148,3 +149,30 @@ class ModelLoader(ForgeModel):
             "img_ids": img_ids,
             "joint_attention_kwargs": {},
         }
+
+    def get_mesh_config(self, num_devices: int):
+        """Return ``(mesh_shape, mesh_names)`` for tensor-parallel execution.
+
+        SRPO is a ~12B FLUX DiT that runs out of DRAM on a single chip; it is
+        brought up across multiple chips with Megatron-1D tensor parallelism
+        over a ``(None, "model")`` mesh. See ``src/shard_specs.py``.
+
+        Args:
+            num_devices: Total chip count (``xr.global_runtime_device_count()``).
+
+        Returns:
+            tuple: ``(mesh_shape, mesh_names)`` consumed by the auto-runner.
+        """
+        return get_mesh_shape(num_devices)
+
+    def load_shard_spec(self, model):
+        """Return the tensor -> partition-spec mapping for the SRPO transformer.
+
+        Args:
+            model: the ``FluxTransformer2DModel`` returned by ``load_model``.
+
+        Returns:
+            dict: ``{torch.nn.Parameter: partition_spec}``. Parameters absent
+            from the mapping are replicated across the mesh.
+        """
+        return build_shard_spec(model)
