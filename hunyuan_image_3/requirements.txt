@@ -1,0 +1,2 @@
+diffusers==0.38.0
+einops
