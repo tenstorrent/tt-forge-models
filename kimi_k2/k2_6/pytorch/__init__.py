@@ -2,6 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Kimi K2.5 PyTorch model implementation for Tenstorrent projects.
+Kimi K2.6 PyTorch model implementation for Tenstorrent projects.
 """
 from .loader import ModelLoader

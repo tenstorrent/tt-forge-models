@@ -572,7 +572,7 @@ class MoonViT3dEncoder(nn.Module):
         num_layers: int,
         block_cfg: dict,
         video_attn_type: str = "spatial_temporal",
-        use_deterministic_attn: bool = False,  # Modified: added missing parameter; was referenced but never defined, causing AttributeError
+        use_deterministic_attn: bool = False,
     ) -> None:
         super().__init__()
         self.use_deterministic_attn = use_deterministic_attn  # Modified: set attribute so MoonViTEncoderLayer instances receive it
