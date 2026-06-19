@@ -101,9 +101,57 @@ def load_vision_language_encoder(dtype: torch.dtype = DTYPE):
     ).eval()
 
 
+def _patch_prior_token_drop_scatter():
+    """Rewrite the prior-token-drop masking in GlmImageTransformer2DModel.forward.
+
+    Upstream diffusers zeroes dropped prior embeddings with a boolean masked
+    in-place multiply:
+
+        prior_embedding[prior_token_drop] *= 0.0
+
+    On the TT backend this lowers to a data-dependent ``scatter`` over the
+    4608-long prior sequence, which the scatter workaround explodes into tens of
+    thousands of per-position kernels (compilation never finishes in practice).
+
+    The operation is just "zero the rows where prior_token_drop is True", which
+    is equivalent to an elementwise multiply by the inverted mask -- a single
+    cheap op with no scatter. We patch only that one statement in the method
+    source and rebind it, so the rest of forward (and its annotations) stay
+    exactly as upstream. Idempotent.
+    """
+    import inspect
+    import textwrap
+
+    from diffusers.models.transformers import transformer_glm_image as _mod
+
+    cls = _mod.GlmImageTransformer2DModel
+    if getattr(cls.forward, "_tt_prior_drop_patched", False):
+        return
+
+    old_line = "prior_embedding[prior_token_drop] *= 0.0"
+    new_line = (
+        "prior_embedding = prior_embedding * "
+        "(~prior_token_drop).unsqueeze(-1).to(prior_embedding.dtype)"
+    )
+
+    src = textwrap.dedent(inspect.getsource(cls.forward))
+    if old_line not in src:
+        # Upstream changed this line; skip rather than silently mis-patch.
+        return
+    src = src.replace(old_line, new_line)
+
+    namespace = dict(_mod.__dict__)
+    exec(src, namespace)
+    patched = namespace["forward"]
+    patched._tt_prior_drop_patched = True
+    cls.forward = patched
+
+
 def load_transformer(dtype: torch.dtype = DTYPE):
     """Load GlmImageTransformer2DModel from the transformer subfolder."""
     from diffusers import GlmImageTransformer2DModel
+
+    _patch_prior_token_drop_scatter()
 
     return GlmImageTransformer2DModel.from_pretrained(
         REPO_ID,
@@ -196,8 +244,8 @@ def load_transformer_inputs(dtype: torch.dtype = DTYPE):
         0, PRIOR_VOCAB_SIZE, (1, PRIOR_SEQ_LEN), dtype=torch.long, generator=gen
     )
     prior_token_drop = torch.randint(
-        0, PRIOR_VOCAB_SIZE, (1, PRIOR_SEQ_LEN), dtype=torch.long
-    )
+        0, PRIOR_VOCAB_SIZE, (1, PRIOR_SEQ_LEN), generator=gen
+    ).bool()
     timestep = torch.tensor([TRANSFORMER_TIMESTEP_VALUE])
     target_size = torch.tensor([list(TRANSFORMER_TARGET_SIZE)], dtype=torch.bfloat16)
     crop_coords = torch.tensor([list(TRANSFORMER_CROP_COORDS)], dtype=torch.bfloat16)
