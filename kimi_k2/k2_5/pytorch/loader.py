@@ -29,6 +29,7 @@ from ....config import (
 from tt_torch.sparse_mlp import A2aSparseMLPWithSharedExperts, enable_sparse_mlp
 
 from .configuration_kimi_k25 import KimiK25Config
+from .meta_loading import load_model_from_checkpoint
 from .modified_modeling_deepseek import DeepseekV3ForCausalLM, DeepseekV3MoE
 
 
@@ -48,6 +49,13 @@ class ModelLoader(ForgeModel):
     }
 
     DEFAULT_VARIANT = ModelVariant.KIMI_K2_5_MODIFIED
+
+    # BF16-dequantized weight mirror used by the meta-loader path. The primary
+    # repo (pretrained_model_name) ships quantized weights that a bare
+    # DeepseekV3ForCausalLM cannot consume; the BF16 reupload is already
+    # dequantized and keyed for the text model (model.*/lm_head.*), so weights
+    # load straight through without renaming.
+    _BF16_WEIGHTS_REPO = "ananayarora/Kimi-K2.5-BF16"
 
     def __init__(
         self,
@@ -132,8 +140,10 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load and return the Kimi K2.5 language model.
 
-        Instantiates DeepseekV3ForCausalLM directly from the text_config,
-        bypassing the VLM wrapper (KimiK25ForConditionalGeneration) and vision tower.
+        Builds DeepseekV3ForCausalLM from the text_config on the meta device and
+        populates the first ``num_layers`` from the BF16 weight mirror via the
+        meta-loader, bypassing the VLM wrapper (KimiK25ForConditionalGeneration)
+        and vision tower.
 
         Args:
             dtype_override: Optional torch.dtype to cast the model to after
@@ -142,13 +152,39 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The Kimi K2.5 language model in eval mode.
         """
+        # flush=True so progress is visible immediately even when stdout is
+        # block-buffered behind a pipe (e.g. `pytest ... |& tee log`). The
+        # weight download below can move tens of GB and otherwise looks hung.
+        def _log(msg):
+            print(f"[kimi_k2_5 loader] {msg}", flush=True)
+
+        _log("Loading text config...")
         config = self._load_config(num_layers=self.num_layers)
 
+        _log("Loading tokenizer...")
         self._load_tokenizer()
 
-        model = DeepseekV3ForCausalLM(config)
+        if self.num_layers is None:
+            self.num_layers = config.num_hidden_layers
+
+        # Load the model using the meta-loader to assign weights from the
+        # BF16 checkpoint. The mirror is keyed for the text model
+        # (model.*/lm_head.*), so no key renaming is required.
+        _log(
+            f"Meta-building model and loading weights for {self.num_layers} layer(s) "
+            f"from {self._BF16_WEIGHTS_REPO} "
+            f"(this downloads the relevant safetensors shards; first run may fetch "
+            f"tens of GB and take several minutes)..."
+        )
+        model = load_model_from_checkpoint(
+            lambda: DeepseekV3ForCausalLM(config),
+            self._BF16_WEIGHTS_REPO,
+            n_layers=self.num_layers,
+        )
+        _log("Weights loaded.")
 
         if dtype_override is not None:
+            _log(f"Casting model to {dtype_override}...")
             model = model.to(dtype_override)
 
         model = model.eval()
@@ -158,6 +194,7 @@ class ModelLoader(ForgeModel):
             isinstance(layer.mlp, DeepseekV3MoE) for layer in model.model.layers
         )
         if has_dense_moe:
+            _log("Enabling sparse MLP...")
             num_devices = xr.global_runtime_device_count()
             mesh_shape, _ = self.get_mesh_config(num_devices)
             enable_sparse_mlp(
@@ -166,6 +203,7 @@ class ModelLoader(ForgeModel):
 
         self.model = model
 
+        _log("Model ready.")
         return model
 
     def load_inputs(self, batch_size: int = 1, seq_len: int = 32):

@@ -53,9 +53,9 @@ class ModelLoader(ForgeModel):
     # BF16-dequantized weight mirror used by the meta-loader path. The primary
     # repo (pretrained_model_name) ships int4 pack-quantized (compressed-tensors)
     # expert weights, which a bare DeepseekV3ForCausalLM cannot consume; the
-    # unsloth BF16 reupload is already dequantized and keyed for the text model
+    # BF16 reupload is already dequantized and keyed for the text model
     # (model.*/lm_head.*), so weights load straight through without renaming.
-    _BF16_WEIGHTS_REPO = "unsloth/Kimi-K2-Base-BF16"
+    _BF16_WEIGHTS_REPO = "QuixiAI/Kimi-K2.6-bf16"
 
     def __init__(
         self,
