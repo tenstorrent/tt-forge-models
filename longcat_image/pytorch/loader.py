@@ -22,11 +22,17 @@ loaded -- each component is fetched directly via from_pretrained(..., subfolder=
 NOTE: LongCatImagePipeline requires diffusers >= 0.36 (LongCat classes landed
 in diffusers main, Dec 2025; first released in 0.36.0). See requirements.txt.
 
-NOTE: this is a ~14 B aggregate pipeline. The 6 B transformer and 7.7 B text
-encoder do not fit a single n150 (7 B/chip) device; the VAE does. Components
-are brought up on a single device first (SHARD_SPECS / TT_VISIBLE_DEVICES
-record the tensor-parallel plan for the multi-chip follow-up). Scaffolded
-CPU-only; per-component single-device results recorded in the bringup state.
+NOTE: this is a ~14 B aggregate pipeline. On qb2-blackhole (4x p150, 32 GB/chip)
+every component fits on a single chip: text_encoder ~15 GB (7.7 B bf16),
+transformer ~12 GB (6 B bf16), VAE <1 GB. Each component is therefore brought up
+single-device. SHARD_SPECS / TT_VISIBLE_DEVICES retain the n150 (smaller-chip)
+tensor-parallel plan for reference.
+
+Shapes are pinned to the pipeline's NATIVE default resolution, 1024x1024
+(default_sample_size 128 * vae_scale_factor 8). At 1024x1024 the packed latent
+sequence is (128//2)^2 = 4096 tokens, which equals the scheduler's
+max_image_seq_len -- i.e. the highest supported resolution. The transformer
+therefore sees hidden_states [B, 4096, 64], the VAE decodes [B, 16, 128, 128].
 """
 
 from typing import Optional
@@ -49,7 +55,7 @@ LONGCAT_IMAGE_REPO_ID = "meituan-longcat/LongCat-Image"
 
 DTYPE = torch.bfloat16
 
-# ---- captured I/O spec (256x256, 2 denoise steps, prompt-rewrite off; CPU bf16) ----
+# ---- captured I/O spec (native 1024x1024, prompt-rewrite off; CPU bf16) ----
 _COMPONENT_IO_SPEC = {
     "text_encoder": {
         "class": "Qwen2_5_VLForConditionalGeneration",
@@ -64,7 +70,7 @@ _COMPONENT_IO_SPEC = {
     "transformer": {
         "class": "LongCatImageTransformer2DModel",
         "inputs": {
-            "hidden_states": {"shape": (1, 256, 64), "dtype": "torch.bfloat16"},
+            "hidden_states": {"shape": (1, 4096, 64), "dtype": "torch.bfloat16"},
             "timestep": {"shape": (1,), "dtype": "torch.bfloat16"},
             "encoder_hidden_states": {
                 "shape": (1, 512, 3584),
@@ -72,14 +78,14 @@ _COMPONENT_IO_SPEC = {
             },
             # pinned structural args (reconstructed from prepare_pos_ids):
             "txt_ids": {"shape": (512, 3), "dtype": "torch.float32"},
-            "img_ids": {"shape": (256, 3), "dtype": "torch.float32"},
+            "img_ids": {"shape": (4096, 3), "dtype": "torch.float32"},
             "guidance": None,
         },
-        "output": {"shape": (1, 256, 64), "dtype": "torch.bfloat16"},
+        "output": {"shape": (1, 4096, 64), "dtype": "torch.bfloat16"},
     },
     "vae": {
         "class": "AutoencoderKL",
-        "inputs": {"latent": {"shape": (1, 16, 32, 32), "dtype": "torch.bfloat16"}},
+        "inputs": {"latent": {"shape": (1, 16, 128, 128), "dtype": "torch.bfloat16"}},
         "op": "decode",
     },
 }
@@ -100,16 +106,16 @@ TE_SEQ_LEN = 553
 TE_HIDDEN = 3584
 TE_VOCAB = 152064
 
-TR_LATENT_SEQ = 256  # (256/8/2)^2 = 16*16 packed patch tokens for 256x256
+TR_LATENT_SEQ = 4096  # (1024/8/2)^2 = 64*64 packed patch tokens for 1024x1024
 TR_IN_CHANNELS = 64
 TR_TXT_SEQ = 512  # == tokenizer_max_length
 TR_JOINT_DIM = 3584
-TR_LATENT_PATCH_HW = 16  # latent h//2 == w//2 for 256x256
+TR_LATENT_PATCH_HW = 64  # latent h//2 == w//2 for 1024x1024
 TOKENIZER_MAX_LENGTH = 512  # image-id position offset (pipeline.tokenizer_max_length)
 
 VAE_Z_CHANNELS = 16
-VAE_Z_H = 32  # 256 / vae_scale_factor(8)
-VAE_Z_W = 32
+VAE_Z_H = 128  # 1024 / vae_scale_factor(8)
+VAE_Z_W = 128
 
 
 def _prepare_pos_ids(
