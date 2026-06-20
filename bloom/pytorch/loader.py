@@ -6,52 +6,76 @@ Bloom model loader implementation
 """
 
 
+import torch
+from typing import Optional
+
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+
 from ...config import (
+    ModelConfig,
     ModelInfo,
     ModelGroup,
     ModelTask,
     ModelSource,
     Framework,
+    StrEnum,
 )
 from ...base import ForgeModel
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
-from typing import Optional
+
+
+class ModelVariant(StrEnum):
+    """Available BLOOM model variants."""
+
+    BLOOM_1B1 = "1b1"
+    BLOOM_176B = "176B"
 
 
 class ModelLoader(ForgeModel):
     """Bloom model loader implementation."""
 
+    _VARIANTS = {
+        ModelVariant.BLOOM_1B1: ModelConfig(
+            pretrained_model_name="bigscience/bloom-1b1",
+        ),
+        ModelVariant.BLOOM_176B: ModelConfig(
+            pretrained_model_name="bigscience/bloom",
+        ),
+    }
+
+    DEFAULT_VARIANT = ModelVariant.BLOOM_1B1
+
     def __init__(self, variant=None, num_layers: Optional[int] = None):
         """Initialize ModelLoader with specified variant.
 
         Args:
-            variant: Optional string specifying which variant to use.
+            variant: Optional ModelVariant specifying which variant to use.
                      If None, DEFAULT_VARIANT is used.
             num_layers: Optional number of hidden layers to use. If None, uses the model's default.
         """
         super().__init__(variant)
 
-        # Configuration parameters
-        self.model_name = "bigscience/bloom-1b1"
         self.tokenizer = None
+        self.config = None
+        self.model = None
         self.test_input = "This is a sample text from "
         self.num_layers = num_layers
 
     @classmethod
-    def _get_model_info(cls, variant_name: str = None):
+    def _get_model_info(cls, variant: Optional[ModelVariant] = None):
         """Get model information for dashboard and metrics reporting.
 
         Args:
-            variant_name: Optional variant name string. If None, uses 'base'.
+            variant: Optional ModelVariant specifying which variant to use.
+                     If None, DEFAULT_VARIANT is used.
 
         Returns:
             ModelInfo: Information about the model and variant
         """
-        if variant_name is None:
-            variant_name = "base"
+        if variant is None:
+            variant = cls.DEFAULT_VARIANT
         return ModelInfo(
             model="BLOOM",
-            variant=variant_name,
+            variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
             source=ModelSource.HUGGING_FACE,
@@ -59,30 +83,36 @@ class ModelLoader(ForgeModel):
         )
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Bloom model instance with default settings.
+        """Load and return the Bloom model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
-                           If not provided, the model will use its default dtype (typically float32).
+                           For the 176B variant, defaults to bfloat16.
 
         Returns:
             torch.nn.Module: The Bloom model instance.
         """
-        # Initialize tokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        model_name = self._variant_config.pretrained_model_name
 
-        # Load pre-trained model from HuggingFace
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+
         model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
+        elif self._variant == ModelVariant.BLOOM_176B:
+            model_kwargs["torch_dtype"] = torch.bfloat16
         model_kwargs |= kwargs
 
         if self.num_layers is not None:
-            config = AutoConfig.from_pretrained(self.model_name)
+            config = AutoConfig.from_pretrained(model_name)
             config.num_hidden_layers = self.num_layers
             model_kwargs["config"] = config
 
-        model = AutoModelForCausalLM.from_pretrained(self.model_name, **model_kwargs)
+        model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+        self.config = model.config
+        self.model = model
 
         return model
 
@@ -91,32 +121,34 @@ class ModelLoader(ForgeModel):
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
-                           If not provided, the model will use its default dtype (typically float32).
             batch_size: Optional batch size to override the default batch size of 1.
 
         Returns:
             dict: Input tensors and attention masks that can be fed to the model.
         """
 
-        # Ensure tokenizer is initialized
         if self.tokenizer is None:
-            self.load_model(
-                dtype_override=dtype_override
-            )  # This will initialize the tokenizer
+            self.load_model(dtype_override=dtype_override)
 
-        # Create batch of sample inputs
-        self.test_input = "This is a sample text from "
+        if self._variant == ModelVariant.BLOOM_176B:
+            inputs = self.tokenizer(
+                "This is a sample text to test the BLOOM model.",
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                max_length=256,
+            )
+        else:
+            self.test_input = "This is a sample text from "
+            inputs = self.tokenizer(
+                self.test_input,
+                return_tensors="pt",
+                max_length=32,
+                padding="max_length",
+                add_special_tokens=True,
+                truncation=True,
+            )
 
-        inputs = self.tokenizer(
-            self.test_input,
-            return_tensors="pt",
-            max_length=32,
-            padding="max_length",
-            add_special_tokens=True,
-            truncation=True,
-        )
-
-        # Replicate tensors for batch size
         for key in inputs:
             inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
 
@@ -132,9 +164,57 @@ class ModelLoader(ForgeModel):
             str: Decoded answer text
         """
         if self.tokenizer is None:
-            self.load_model()  # This will initialize the tokenizer
-
-        # Get logits for the last token in each batch
+            self.load_model()
         next_token_logits = outputs.logits[:, -1]
         next_tokens = next_token_logits.softmax(dim=-1).argmax(dim=-1)
         return [self.tokenizer.decode([token.item()]) for token in next_tokens]
+
+    def get_mesh_config(self, num_devices: int):
+        """Return mesh shape and axis names for tensor parallel."""
+        if num_devices == 32:  # Galaxy
+            mesh_shape = (8, 4)
+        elif self.config.num_attention_heads % num_devices == 0:
+            mesh_shape = (1, num_devices)
+        elif (
+            self.config.num_attention_heads % (num_devices // 2) == 0
+            and num_devices % 2 == 0
+        ):
+            mesh_shape = (2, num_devices // 2)
+        else:
+            raise ValueError(
+                f"Cannot evenly distribute {self.config.num_attention_heads} heads "
+                f"across {num_devices} devices"
+            )
+        assert (
+            self.config.num_attention_heads % mesh_shape[1] == 0
+        ), "Attention heads must be divisible by the model axis size"
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        """Return tensor shard specs for the BLOOM architecture."""
+        if self._variant != ModelVariant.BLOOM_176B:
+            return None
+
+        shard_specs = {}
+        for layer in model.transformer.h:
+            shard_specs[layer.mlp.dense_h_to_4h.weight] = ("model", "batch")
+            shard_specs[layer.mlp.dense_h_to_4h.bias] = ("model",)
+            shard_specs[layer.mlp.dense_4h_to_h.weight] = ("batch", "model")
+
+            shard_specs[layer.self_attention.query_key_value.weight] = (
+                "model",
+                "batch",
+            )
+            shard_specs[layer.self_attention.query_key_value.bias] = ("model",)
+            shard_specs[layer.self_attention.dense.weight] = ("batch", "model")
+
+        shard_specs[model.transformer.word_embeddings.weight] = ("model", "batch")
+        shard_specs[model.lm_head.weight] = ("model", "batch")
+        return shard_specs
+
+    def load_config(self):
+        """Load and return the configuration for the model variant."""
+        self.config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name
+        )
+        return self.config
