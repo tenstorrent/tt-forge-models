@@ -6,24 +6,25 @@
 YOLOX model loader implementation
 """
 
-import torch
 import os
 from typing import Optional
 
+import torch
+
 os.environ["TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"] = "1"
 
+from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
-from ...base import ForgeModel
 from ...tools.utils import get_file
-from .src.utils import _forward_patch, _decode_outputs
+from .src.utils import _decode_outputs, _forward_patch
 
 
 class ModelVariant(StrEnum):
@@ -225,11 +226,40 @@ class ModelLoader(ForgeModel):
             batch_size: Optional batch size to override the default batch size of 1.
 
         Returns:
-            torch.Tensor: Sample input tensor that can be fed to the model.
+            dict: ``{"x": image_tensor, "targets": targets_tensor}`` where ``targets`` has
+            shape ``[B, max_labels, 5]`` with each row encoding ``[class_id, cx, cy, w, h]``.
+            ``targets`` is ignored by the model in eval mode and required in train mode.
         """
-        return self.input_preprocess(
+        images = self.input_preprocess(
             dtype_override=dtype_override, batch_size=batch_size
         )
+        # YOLOX requires targets in training mode (ignored in eval). Targets are a
+        # [B, max_labels, 5] tensor with each row [class_id, cx, cy, w, h] in absolute
+        # pixel coords. One synthetic box per image is enough for a gradient-shape check.
+        targets = torch.zeros((batch_size, 1, 5), dtype=images.dtype)
+        targets[:, 0] = torch.tensor(
+            [0.0, 100.0, 100.0, 50.0, 50.0], dtype=images.dtype
+        )
+        return {"x": images, "targets": targets}
+
+    def unpack_forward_output(self, forward_output):
+        """Extract the loss-relevant tensor from YOLOX's training-mode output.
+
+        Forward output structure: bare ``dict`` with keys ``total_loss``,
+        ``iou_loss``, ``l1_loss``, ``conf_loss``, ``cls_loss``, ``num_fg``.
+        ``total_loss`` is a scalar tensor with ``requires_grad=True``; the four
+        ``*_loss`` components are summed into it; ``num_fg`` is a Python float
+        count (not a tensor).
+
+        Selection: ``total_loss``. It is the single scalar that drives the
+        backward pass — gradients flow through all four loss components and back
+        to every model parameter. The component losses are redundant with it,
+        and ``num_fg`` is non-differentiable.
+
+        Why not the registry: the forward output is a bare ``dict`` (no class
+        name to key on), so ``_register_attr`` cannot dispatch on it.
+        """
+        return forward_output["total_loss"]
 
     def post_processing(self, co_out):
         """Post-process the model outputs.
