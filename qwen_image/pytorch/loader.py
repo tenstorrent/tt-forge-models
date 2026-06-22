@@ -269,9 +269,18 @@ class ModelLoader(ForgeModel):
     def get_mesh_config(self, num_devices: int):
         """Return ((batch, model), ("batch", "model")) for Megatron-style TP.
 
-        Only the weight-bound transformer / text encoder are sharded; the VAE
-        replicates (``load_shard_spec`` returns an empty map for it).
+        The two sharded components need different TP degrees:
+          - Transformer is full multi-head attention (24 heads) → shard across
+            all devices (TP = num_devices). TP=8 is also required to fit the
+            joint-attention ttnn.concat in L1; TP=4 overflows it.
+          - Text encoder is Qwen2.5-VL GQA (28 query / 4 KV heads) → TP must
+            divide 28 and stay <= the KV-head count, so it is capped at 4
+            (e.g. (2, 4) on 8 chips); TP>4 makes the head reshape unshardable.
+        VAE replicates (``load_shard_spec`` returns an empty map for it).
         """
+        if self._variant == ModelVariant.QWEN_IMAGE_TRANSFORMER:
+            return (1, num_devices), ("batch", "model")
+
         if num_devices not in self._MESH_SHAPES:
             raise ValueError(
                 f"Unsupported device count: {num_devices}. "
