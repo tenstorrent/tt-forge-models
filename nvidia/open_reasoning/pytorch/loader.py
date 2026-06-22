@@ -2,15 +2,15 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-CohereLabs  causal LM model loader implementation.
+NVIDIA Open Reasoning causal LM model loader implementation.
 """
 
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
-from ...base import ForgeModel
-from ...config import (
+from ....base import ForgeModel
+from ....config import (
     LLMModelConfig,
     ModelInfo,
     ModelGroup,
@@ -22,37 +22,22 @@ from ...config import (
 
 
 class ModelVariant(StrEnum):
-    """Available CohereLabs model variants for causal language modeling."""
+    """Available NVIDIA Open Reasoning model variants for causal language modeling."""
 
-    Coherelabs_c4ai_command_r_v01 = "Coherelabs_c4ai_command_r_v01"
-    Coherelabs_c4ai_command_r_plus_08_2024 = "Coherelabs_c4ai_command_r_plus_08_2024"
-    Coherelabs_aya_expanse_32b = "Coherelabs_aya_expanse_32b"
-    Coherelabs_aya_23_35b = "Coherelabs_aya_23_35b"
+    Nvidia_OpenReasoning_Nemotron_32B = "Nvidia_OpenReasoning_Nemotron_32B"
 
 
 class ModelLoader(ForgeModel):
-    """CohereLabs model loader implementation for causal language modeling tasks."""
+    """NVIDIA Open Reasoning model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.Coherelabs_c4ai_command_r_v01: LLMModelConfig(
-            pretrained_model_name="CohereLabs/c4ai-command-r-v01",
-            max_length=256,
-        ),
-        ModelVariant.Coherelabs_c4ai_command_r_plus_08_2024: LLMModelConfig(
-            pretrained_model_name="CohereLabs/c4ai-command-r-plus-08-2024",
-            max_length=256,
-        ),
-        ModelVariant.Coherelabs_aya_expanse_32b: LLMModelConfig(
-            pretrained_model_name="CohereLabs/aya-expanse-32b",
-            max_length=256,
-        ),
-        ModelVariant.Coherelabs_aya_23_35b: LLMModelConfig(
-            pretrained_model_name="CohereLabs/aya-23-35b",
+        ModelVariant.Nvidia_OpenReasoning_Nemotron_32B: LLMModelConfig(
+            pretrained_model_name="nvidia/OpenReasoning-Nemotron-32B",
             max_length=256,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.Coherelabs_c4ai_command_r_v01
+    DEFAULT_VARIANT = ModelVariant.Nvidia_OpenReasoning_Nemotron_32B
 
     sample_text = "Who are you?"
 
@@ -81,7 +66,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="CohereLabs",
+            model="OpenReasoning-Nemotron",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -108,14 +93,14 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the CohereLabs model instance for this instance's variant.
+        """Load and return the NVIDIA Open Reasoning model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
-            torch.nn.Module: The CohereLabs model for causal language modeling.
+            torch.nn.Module: The NVIDIA Open Reasoning model for causal language modeling.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -136,7 +121,7 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the CohereLabs model with this instance's variant settings.
+        """Load and return sample inputs for the NVIDIA Open Reasoning model with this instance's variant settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
@@ -168,10 +153,18 @@ class ModelLoader(ForgeModel):
 
     def get_mesh_config(self, num_devices: int):
         """Return mesh shape and axis names for tensor parallel."""
-        if num_devices == 32:  # Galaxy
-            mesh_shape = (4, 8)
-        else:  # wh/bh llmbox
+        if self.config.num_attention_heads % num_devices == 0:
+            mesh_shape = (1, num_devices)
+        elif (
+            self.config.num_attention_heads % (num_devices // 2) == 0
+            and num_devices % 2 == 0
+        ):
             mesh_shape = (2, num_devices // 2)
+        else:
+            raise ValueError(
+                f"Cannot evenly distribute {self.config.num_attention_heads} heads "
+                f"across {num_devices} devices"
+            )
         return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):

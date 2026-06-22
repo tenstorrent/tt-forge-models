@@ -2,12 +2,19 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-CohereLabs  causal LM model loader implementation.
+HyperCLOVA X SEED Think causal LM model loader implementation.
 """
 
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
+
+# NOTE: `transformers` is intentionally NOT imported at module top level.
+# HyperCLOVA X SEED Think gained native support in transformers == 4.52.4 (see
+# requirements.txt; model_type "hyperclovax"). The test runner upgrades
+# transformers at test time and purges it from sys.modules. A top-level import
+# would bind the Auto* classes to whatever transformers was loaded during pytest
+# collection, leaving stale class objects whose in-memory code mismatches the
+# pinned files on disk. So the Auto* classes are imported lazily in the methods.
 
 from ...base import ForgeModel
 from ...config import (
@@ -22,37 +29,22 @@ from ...config import (
 
 
 class ModelVariant(StrEnum):
-    """Available CohereLabs model variants for causal language modeling."""
+    """Available HyperCLOVA X model variants for causal language modeling."""
 
-    Coherelabs_c4ai_command_r_v01 = "Coherelabs_c4ai_command_r_v01"
-    Coherelabs_c4ai_command_r_plus_08_2024 = "Coherelabs_c4ai_command_r_plus_08_2024"
-    Coherelabs_aya_expanse_32b = "Coherelabs_aya_expanse_32b"
-    Coherelabs_aya_23_35b = "Coherelabs_aya_23_35b"
+    HyperCLOVAX_SEED_Think_32B = "HyperCLOVAX_SEED_Think_32B"
 
 
 class ModelLoader(ForgeModel):
-    """CohereLabs model loader implementation for causal language modeling tasks."""
+    """HyperCLOVA X model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.Coherelabs_c4ai_command_r_v01: LLMModelConfig(
-            pretrained_model_name="CohereLabs/c4ai-command-r-v01",
-            max_length=256,
-        ),
-        ModelVariant.Coherelabs_c4ai_command_r_plus_08_2024: LLMModelConfig(
-            pretrained_model_name="CohereLabs/c4ai-command-r-plus-08-2024",
-            max_length=256,
-        ),
-        ModelVariant.Coherelabs_aya_expanse_32b: LLMModelConfig(
-            pretrained_model_name="CohereLabs/aya-expanse-32b",
-            max_length=256,
-        ),
-        ModelVariant.Coherelabs_aya_23_35b: LLMModelConfig(
-            pretrained_model_name="CohereLabs/aya-23-35b",
+        ModelVariant.HyperCLOVAX_SEED_Think_32B: LLMModelConfig(
+            pretrained_model_name="naver-hyperclovax/HyperCLOVAX-SEED-Think-32B",
             max_length=256,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.Coherelabs_c4ai_command_r_v01
+    DEFAULT_VARIANT = ModelVariant.HyperCLOVAX_SEED_Think_32B
 
     sample_text = "Who are you?"
 
@@ -81,7 +73,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="CohereLabs",
+            model="HyperCLOVAX-SEED-Think",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -97,7 +89,10 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded tokenizer instance
         """
-        tokenizer_kwargs = {}
+        # Lazy import so it binds to the pinned transformers (see module note).
+        from transformers import AutoTokenizer
+
+        tokenizer_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             tokenizer_kwargs["torch_dtype"] = dtype_override
 
@@ -108,21 +103,24 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the CohereLabs model instance for this instance's variant.
+        """Load and return the HyperCLOVA X model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
-            torch.nn.Module: The CohereLabs model for causal language modeling.
+            torch.nn.Module: The HyperCLOVA X model for causal language modeling.
         """
+        # Lazy import so it binds to the pinned transformers (see module note).
+        from transformers import AutoModelForCausalLM
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
             self._load_tokenizer(dtype_override=dtype_override)
 
-        model_kwargs = {}
+        model_kwargs = {"trust_remote_code": True}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -136,7 +134,7 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the CohereLabs model with this instance's variant settings.
+        """Load and return sample inputs for the HyperCLOVA X model with this instance's variant settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
@@ -168,29 +166,50 @@ class ModelLoader(ForgeModel):
 
     def get_mesh_config(self, num_devices: int):
         """Return mesh shape and axis names for tensor parallel."""
-        if num_devices == 32:  # Galaxy
-            mesh_shape = (4, 8)
-        else:  # wh/bh llmbox
-            mesh_shape = (2, num_devices // 2)
+        mesh_shape = (1, num_devices)
         return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
+        """Tensor-parallel shard spec for the HyperCLOVA X SEED Think model."""
         shard_specs = {}
-        for layer in model.model.layers:
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
 
+        inner = model.model
+        language_model = inner.language_model
+        lm = language_model.model
+
+        # Keep the residual stream replicated (embedding + final norm pinned to
+        # the size-1 "batch" axis) so the compiler inserts the all-reduces after
+        # each row-parallel o_proj/down_proj instead of inferring a
+        # "model"-sharded residual and dropping them (see nvidia/llama).
+        shard_specs[lm.embed_tokens.weight] = (None, "batch")
+        shard_specs[lm.norm.weight] = ("batch",)
+
+        for layer in lm.layers:
+            # Column-parallel q/k/v (GQA: k/v are smaller), row-parallel o.
             shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-        shard_specs[model.lm_head.weight] = ("model", "batch")
+
+            # Column-parallel gate/up, row-parallel down.
+            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+
+            # Layernorms replicated.
+            shard_specs[layer.input_layernorm.weight] = ("batch",)
+            shard_specs[layer.post_attention_layernorm.weight] = ("batch",)
+
+        shard_specs[language_model.lm_head.weight] = ("model", "batch")
+
         return shard_specs
 
     def load_config(self):
         """Load and return the configuration for the model variant."""
+        # Lazy import so it binds to the pinned transformers (see module note).
+        from transformers import AutoConfig
+
         self.config = AutoConfig.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, trust_remote_code=True
         )
         return self.config
