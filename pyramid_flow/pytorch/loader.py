@@ -10,9 +10,14 @@ Repository: https://github.com/jy0205/Pyramid-Flow
 Model: https://huggingface.co/rain1011/pyramid-flow-miniflux
 
 Pyramid Flow has no diffusers integration, so the model code is vendored in
-`src/flux_modules/` (verbatim from upstream, with the `trainer_misc` sequence-
-parallel imports replaced by a local stub). This loader exposes the
-PyramidFluxTransformer DiT for compilation / op-coverage error analysis.
+`src/flux_modules/` and `src/mmdit_modules/` (verbatim from upstream, with the
+`trainer_misc` sequence-parallel imports replaced by a local stub). This loader
+exposes the per-variant DiT denoiser for compilation / op-coverage error
+analysis:
+
+- ``miniFLUX_768p`` — the miniFLUX DiT of ``rain1011/pyramid-flow-miniflux``.
+- ``sd3_768p``      — the SD3 MMDiT (``PyramidDiffusionMMDiT``) of
+  ``rain1011/pyramid-flow-sd3``.
 """
 
 from dataclasses import dataclass
@@ -30,7 +35,12 @@ from ...config import (
     ModelTask,
     StrEnum,
 )
-from .src.utils import load_transformer, load_transformer_inputs
+from .src.utils import (
+    load_mmdit_transformer,
+    load_mmdit_transformer_inputs,
+    load_transformer,
+    load_transformer_inputs,
+)
 
 
 @dataclass
@@ -44,21 +54,26 @@ class ModelVariant(StrEnum):
     """Available Pyramid Flow variants."""
 
     MINIFLUX_768P = "miniFLUX_768p"
+    SD3_768P = "sd3_768p"
 
 
 class ModelLoader(ForgeModel):
     """
-    Loader for Pyramid Flow miniFLUX DiT (768p).
+    Loader for the Pyramid Flow DiT denoisers.
 
-    Loads only the PyramidFluxTransformer with random weights. The full
-    pipeline (text encoder + VAE + scheduler) lives in upstream
+    Loads only the DiT (miniFLUX or SD3 MMDiT) with random weights. The full
+    pipeline (text encoders + causal video VAE + scheduler) lives in upstream
     `pyramid_dit.PyramidDiTForVideoGeneration` and is CUDA-only; the DiT
-    component is the relevant target for tt-xla compilation tests.
+    component is the compute-dominant target for tt-xla compilation tests.
     """
 
     _VARIANTS = {
         ModelVariant.MINIFLUX_768P: PyramidFlowConfig(
             pretrained_model_name="rain1011/pyramid-flow-miniflux",
+            source=ModelSource.HUGGING_FACE,
+        ),
+        ModelVariant.SD3_768P: PyramidFlowConfig(
+            pretrained_model_name="rain1011/pyramid-flow-sd3",
             source=ModelSource.HUGGING_FACE,
         ),
     }
@@ -83,10 +98,14 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         dtype = dtype_override if dtype_override is not None else torch.float32
+        if self._variant == ModelVariant.SD3_768P:
+            return load_mmdit_transformer(dtype)
         return load_transformer(dtype)
 
     def load_inputs(self, dtype_override=None, **kwargs) -> Any:
         dtype = dtype_override if dtype_override is not None else torch.float32
+        if self._variant == ModelVariant.SD3_768P:
+            return load_mmdit_transformer_inputs(dtype)
         return load_transformer_inputs(dtype)
 
     def unpack_forward_output(self, output: Any) -> torch.Tensor:

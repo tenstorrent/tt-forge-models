@@ -9,7 +9,7 @@ from typing import Any, Dict
 import torch
 
 from .flux_modules import PyramidFluxTransformer
-
+from .mmdit_modules import PyramidDiffusionMMDiT
 
 # ============================================================================
 # Architectural constants matching `rain1011/pyramid-flow-miniflux`
@@ -92,6 +92,108 @@ def load_transformer_inputs(dtype: torch.dtype) -> Dict[str, Any]:
                 _SMOKE_TEMP,
                 _SMOKE_HEIGHT,
                 _SMOKE_WIDTH,
+                dtype=dtype,
+            )
+        ]
+    ]
+    encoder_hidden_states = torch.randn(
+        batch_size, seq_len, cfg["joint_attention_dim"], dtype=dtype
+    )
+    encoder_attention_mask = torch.ones(batch_size, seq_len, dtype=torch.long)
+    pooled_projections = torch.randn(
+        batch_size, cfg["pooled_projection_dim"], dtype=dtype
+    )
+    timestep_ratio = torch.tensor([500.0], dtype=dtype)
+
+    return {
+        "sample": sample,
+        "encoder_hidden_states": encoder_hidden_states,
+        "encoder_attention_mask": encoder_attention_mask,
+        "pooled_projections": pooled_projections,
+        "timestep_ratio": timestep_ratio,
+    }
+
+
+# ============================================================================
+# Pyramid Flow SD3 (MMDiT) — `rain1011/pyramid-flow-sd3`
+# ============================================================================
+#
+# Architectural constants matching the SD3-based MMDiT denoiser
+# (PyramidDiffusionMMDiT, see
+#  https://huggingface.co/rain1011/pyramid-flow-sd3/blob/main/diffusion_transformer_768p/config.json).
+# The non-config kwargs (use_t5_mask / add_temp_pos_embed / temp_pos_embed_type /
+# use_temporal_causal / interp_condition_pos) mirror the verbatim values upstream
+# `build_pyramid_dit` passes when assembling the `pyramid_mmdit` model, so the DiT
+# is exercised on its real (temporal-RoPE) code path rather than a default one.
+
+MMDIT_CONFIG = dict(
+    sample_size=128,
+    patch_size=2,
+    in_channels=16,
+    num_layers=24,
+    attention_head_dim=64,
+    num_attention_heads=24,
+    caption_projection_dim=1536,
+    pooled_projection_dim=2048,
+    pos_embed_max_size=192,
+    max_num_frames=200,
+    qk_norm="rms_norm",
+    pos_embed_type="sincos",
+    temp_pos_embed_type="rope",
+    joint_attention_dim=4096,
+    use_gradient_checkpointing=False,
+    use_flash_attn=False,
+    use_temporal_causal=True,
+    use_t5_mask=True,
+    add_temp_pos_embed=True,
+    interp_condition_pos=True,
+)
+
+
+# Smoke-test latent shape (single pyramid stage, single clip).
+_MMDIT_SMOKE_TEMP = 1
+_MMDIT_SMOKE_HEIGHT = 16
+_MMDIT_SMOKE_WIDTH = 16
+_MMDIT_SMOKE_TEXT_SEQ_LEN = 16
+_MMDIT_SMOKE_BATCH = 1
+
+
+def load_mmdit_transformer(dtype: torch.dtype) -> PyramidDiffusionMMDiT:
+    """
+    Instantiate the PyramidDiffusionMMDiT (SD3) DiT with random weights.
+
+    Pyramid Flow has no diffusers integration; we vendor the model code locally
+    and instantiate from scratch. Weights are random — sufficient for
+    compilation / op-coverage error analysis, not for accuracy.
+    """
+    model = PyramidDiffusionMMDiT(**MMDIT_CONFIG)
+    model = model.to(dtype=dtype).eval()
+    return model
+
+
+def load_mmdit_transformer_inputs(dtype: torch.dtype) -> Dict[str, Any]:
+    """
+    Build synthetic inputs for a single-stage Pyramid Flow SD3 DiT forward pass.
+
+    Mirrors `PyramidDiffusionMMDiT.forward`. The `sample` field is the upstream
+    pyramid-stage structure `[stage_0_clips, stage_1_clips, ...]` where each clip
+    is a `[B, C_latent, T, H, W]` tensor; we use a single stage with a single
+    clip for the smoke variant. `C_latent` is the DiT `in_channels` (the SD3
+    PatchEmbed3D conv consumes the latent channels directly).
+    """
+    cfg = MMDIT_CONFIG
+    batch_size = _MMDIT_SMOKE_BATCH
+    latent_channels = cfg["in_channels"]
+    seq_len = _MMDIT_SMOKE_TEXT_SEQ_LEN
+
+    sample = [
+        [
+            torch.randn(
+                batch_size,
+                latent_channels,
+                _MMDIT_SMOKE_TEMP,
+                _MMDIT_SMOKE_HEIGHT,
+                _MMDIT_SMOKE_WIDTH,
                 dtype=dtype,
             )
         ]
