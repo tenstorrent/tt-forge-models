@@ -257,13 +257,27 @@ class ModelLoader(ForgeModel):
         return output
 
     # ── Multichip tensor-parallel plan (Megatron 1D on the model axis) ──────
+    # (batch, model) mesh by device count. The model (TP) axis is capped at 4:
+    # the Qwen2.5-VL text encoder has 28 query heads and 4 KV heads, so the TP
+    # degree must divide 28 and stay <= the KV-head count — TP>4 makes the
+    # attention reshape (B, S, heads*head_dim) -> (B, S, heads, head_dim)
+    # unshardable and tt-mlir fails with "Could not apply propagated tensor
+    # shardings". TP=4 maps 7 query + 1 KV head per device; the transformer's
+    # 24 heads / 4 = 6 also divide cleanly, so both components share the mesh.
+    _MESH_SHAPES = {1: (1, 1), 2: (1, 2), 4: (1, 4), 8: (2, 4), 32: (8, 4)}
+
     def get_mesh_config(self, num_devices: int):
-        """Return ((1, num_devices), ("batch", "model")) for Megatron-style TP.
+        """Return ((batch, model), ("batch", "model")) for Megatron-style TP.
 
         Only the weight-bound transformer / text encoder are sharded; the VAE
         replicates (``load_shard_spec`` returns an empty map for it).
         """
-        return (1, num_devices), ("batch", "model")
+        if num_devices not in self._MESH_SHAPES:
+            raise ValueError(
+                f"Unsupported device count: {num_devices}. "
+                f"Expected one of {sorted(self._MESH_SHAPES)}."
+            )
+        return self._MESH_SHAPES[num_devices], ("batch", "model")
 
     @staticmethod
     def _shard_transformer(model):
