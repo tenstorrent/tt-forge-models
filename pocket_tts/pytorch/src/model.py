@@ -29,7 +29,7 @@ def forward(
     model_state: dict,
     text_to_generate: str,
     frames_after_eos=None,
-    copy_state=True,
+    copy_state=False,
 ):
     """
     Runs full Pocket-TTS inference.
@@ -40,6 +40,9 @@ def forward(
 
     Returns:
         latents: [1, T, ldim]
+
+    ``copy_state`` defaults to False for tt-xla: ``copy.deepcopy(model_state)``
+    under ``torch.compile`` conflicts with the global ``TorchFunctionMode``.
     """
 
     collected_latents = []

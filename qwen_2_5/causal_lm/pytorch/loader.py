@@ -10,7 +10,7 @@ import torch
 from transformers import AutoTokenizer, Qwen2ForCausalLM, AutoConfig
 from typing import Optional
 
-from ....base import ForgeModel
+from ....base import ForgeModel, ForgePrefillModel
 from ....config import (
     LLMModelConfig,
     ModelInfo,
@@ -42,6 +42,7 @@ class ModelVariant(StrEnum):
     QWEN_2_5_72B_INSTRUCT = "72B_Instruct"
     QWEN_2_5_72B = "72B"
     QWEN_2_5_MATH_7B = "Math_7B"
+    QWEN_2_5_MATH_72B_INSTRUCT = "Math_72B_Instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -113,6 +114,10 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="Qwen/Qwen2.5-Math-7B",
             max_length=128,
         ),
+        ModelVariant.QWEN_2_5_MATH_72B_INSTRUCT: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen2.5-Math-72B-Instruct",
+            max_length=128,
+        ),
     }
 
     # Default variant to use
@@ -135,6 +140,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self.config = None
         self.num_layers = num_layers
+        self.seq_len = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -170,13 +176,17 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self):
+    def _load_tokenizer(self, dtype_override=None):
         """Load tokenizer for the current variant.
         Returns:
             The loaded tokenizer instance
         """
+        tokenizer_kwargs = {}
+        if dtype_override is not None:
+            tokenizer_kwargs["torch_dtype"] = dtype_override
+
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name
+            self._variant_config.pretrained_model_name, **tokenizer_kwargs
         )
 
         return self.tokenizer
@@ -270,7 +280,11 @@ class ModelLoader(ForgeModel):
         return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
+        """Default shard spec on a ("batch", "model") mesh."""
         shard_specs = {}
+        # Shard the embedding only for the Math-72B variant
+        if self._variant == ModelVariant.QWEN_2_5_MATH_72B_INSTRUCT:
+            shard_specs[model.model.embed_tokens.weight] = ("model", "batch")
         for layer in model.model.layers:
             shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
@@ -318,4 +332,21 @@ class ModelLoader(ForgeModel):
             batch_size=batch_size,
             max_cache_len=max_cache_len,
             dtype=dtype_override,
+        )
+
+
+class ModelLoaderPrefill(ModelLoader, ForgePrefillModel):
+    """Prefill-focused loader for Qwen 2.5 variants on which we test prefill
+    extensively with various meshes, strategies, batches and sequence lengths.
+    """
+
+    _VARIANTS = {
+        ModelVariant.QWEN_2_5_1_5B: ModelLoader._VARIANTS[ModelVariant.QWEN_2_5_1_5B],
+    }
+    DEFAULT_VARIANT = ModelVariant.QWEN_2_5_1_5B
+
+    def load_shard_spec(self, model, strategy="fsdp", batch_axis="batch"):
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement load_shard_spec; "
+            "no TP/FSDP sharding is defined for this prefill loader."
         )

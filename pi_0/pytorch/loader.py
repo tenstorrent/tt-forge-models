@@ -5,6 +5,7 @@
 Pi-0 model loader implementation for action prediction tasks
 """
 import torch
+from dataclasses import dataclass
 from typing import Optional, Dict, Any
 from ...base import ForgeModel
 from ...config import (
@@ -16,6 +17,13 @@ from ...config import (
     Framework,
     StrEnum,
 )
+
+
+@dataclass
+class Pi0ModelConfig(ModelConfig):
+    """Pi-0 config with an optional pinned HF Hub revision."""
+
+    revision: Optional[str] = None
 
 
 class ModelVariant(StrEnum):
@@ -30,11 +38,14 @@ class ModelLoader(ForgeModel):
 
     # Dictionary of available model variants
     _VARIANTS = {
-        ModelVariant.LIBERO_BASE: ModelConfig(
+        ModelVariant.LIBERO_BASE: Pi0ModelConfig(
             pretrained_model_name="lerobot/pi0_libero_base",
         ),
-        ModelVariant.BASE: ModelConfig(
+        # Pin to the last revision compatible with lerobot==0.4.3; newer
+        # revisions add a processor step the pinned library can't load.
+        ModelVariant.BASE: Pi0ModelConfig(
             pretrained_model_name="lerobot/pi0_base",
+            revision="26b99b9439acb1e352439e34ee9c67af0d76efa3",
         ),
     }
 
@@ -81,7 +92,20 @@ class ModelLoader(ForgeModel):
 
         from .src.model import get_custom_pi0_policy
 
-        self.pretrained_model_name = self._variant_config.pretrained_model_name
+        # When a revision is pinned, snapshot the repo locally and load weights
+        # and processor config from that path (make_pre_post_processors can't
+        # take a revision directly).
+        revision = getattr(self._variant_config, "revision", None)
+        if revision is not None:
+            from huggingface_hub import snapshot_download
+
+            self.pretrained_model_name = snapshot_download(
+                repo_id=self._variant_config.pretrained_model_name,
+                revision=revision,
+            )
+        else:
+            self.pretrained_model_name = self._variant_config.pretrained_model_name
+
         self.pi_0 = get_custom_pi0_policy(self.pretrained_model_name)
         self.pi_0.eval()
         return self.pi_0

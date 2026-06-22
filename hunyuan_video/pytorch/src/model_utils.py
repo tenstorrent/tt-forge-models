@@ -25,14 +25,15 @@ DTYPE = torch.bfloat16
 # Inference shape constants
 #
 # VAE: temporal_compression=4, spatial_compression=8.
-#   latent_frames = (5 - 1) // 4 + 1 = 2
-#   latent_h/w    = 128 // 8 = 16
+#   latent_frames = (1 - 1) // 4 + 1 = 1
+#   latent_h     = 320 // 8 = 40
+#   latent_w     = 512 // 8 = 64
 # ---------------------------------------------------------------------------
 
-NUM_FRAMES = 5
-NUM_LATENT_FRAMES = 2
-LATENT_H = 16
-LATENT_W = 16
+NUM_FRAMES = 1
+NUM_LATENT_FRAMES = 1
+LATENT_H = 40
+LATENT_W = 64
 
 NUM_CHANNELS_LATENTS = 16  # VAE latent channels
 TRANSFORMER_IN_CHANNELS = 16  # transformer in_channels (= latent channels)
@@ -40,7 +41,7 @@ TRANSFORMER_IN_CHANNELS = 16  # transformer in_channels (= latent channels)
 TEXT_EMBED_DIM = 4096  # LLaMA-3 hidden_state dim
 TEXT_EMBED_2_DIM = 768  # CLIP text_encoder pooled projection dim
 
-TEXT_TOKEN_MAX_LEN = 256  # LLaMA tokenized prompt length
+TEXT_TOKEN_MAX_LEN = 351  # LLaMA tokenized prompt length
 TEXT_TOKEN_2_MAX_LEN = 77  # CLIP tokenizer max length
 TRANSFORMER_TEXT_SEQ = 256  # encoder_hidden_states seq dim into transformer
 
@@ -116,19 +117,18 @@ def load_text_encoder_inputs(dtype: torch.dtype = DTYPE):
 
 
 def load_text_encoder_2_inputs(dtype: torch.dtype = DTYPE):
-    """Synthetic inputs for the CLIP text encoder: [input_ids, attention_mask]."""
+    """Synthetic inputs for the CLIP text encoder: [input_ids]."""
     input_ids = torch.randint(
         0, CLIP_VOCAB_SIZE, (1, TEXT_TOKEN_2_MAX_LEN), dtype=torch.long
     )
-    attention_mask = torch.ones(1, TEXT_TOKEN_2_MAX_LEN, dtype=torch.long)
-    return [input_ids, attention_mask]
+    return [input_ids]
 
 
 def load_transformer_inputs(dtype: torch.dtype = DTYPE):
     """Synthetic inputs for HunyuanVideoTransformer3DModel.
 
     Returns [hidden_states, timestep, encoder_hidden_states,
-             encoder_attention_mask, pooled_projections].
+             encoder_attention_mask, pooled_projections, guidance].
     """
     hidden_states = torch.randn(
         1,
@@ -138,23 +138,25 @@ def load_transformer_inputs(dtype: torch.dtype = DTYPE):
         LATENT_W,
         dtype=dtype,
     )
-    timestep = torch.tensor([1000.0], dtype=dtype)
+    timestep = torch.tensor([1000.0])
     encoder_hidden_states = torch.randn(
         1, TRANSFORMER_TEXT_SEQ, TEXT_EMBED_DIM, dtype=dtype
     )
     encoder_attention_mask = torch.ones(1, TRANSFORMER_TEXT_SEQ, dtype=dtype)
     pooled_projections = torch.randn(1, TEXT_EMBED_2_DIM, dtype=dtype)
+    guidance = torch.tensor([6016.0], dtype=dtype)
     return [
         hidden_states,
         timestep,
         encoder_hidden_states,
         encoder_attention_mask,
         pooled_projections,
+        guidance,
     ]
 
 
 def load_vae_inputs(dtype: torch.dtype = DTYPE):
-    """Synthetic latent input for VAEDecoderWrapper: [z (1,16,2,16,16)]."""
+    """Synthetic latent input for VAEDecoderWrapper: [z (1,16,1,40,64)]."""
     z = torch.randn(
         1,
         NUM_CHANNELS_LATENTS,
@@ -196,6 +198,7 @@ class HunyuanVideoTransformerWrapper(torch.nn.Module):
         encoder_hidden_states,
         encoder_attention_mask,
         pooled_projections,
+        guidance,
     ):
         return self.transformer(
             hidden_states=hidden_states,
@@ -203,6 +206,7 @@ class HunyuanVideoTransformerWrapper(torch.nn.Module):
             encoder_hidden_states=encoder_hidden_states,
             encoder_attention_mask=encoder_attention_mask,
             pooled_projections=pooled_projections,
+            guidance=guidance,
             return_dict=False,
         )[0]
 
@@ -465,14 +469,21 @@ def shard_transformer_specs(transformer) -> dict:
             specs[transformer.x_embedder.proj.bias] = ("batch",)
 
     for block in transformer.transformer_blocks:
+        # AdaLayerNorm modulation linears (norm1 / norm1_context). Their output
+        # (6*inner_dim) is immediately chunk-sliced into the six modulation
+        # params, so sharding the OUTPUT dim makes chunk boundaries straddle
+        # shards -> sdy.collective_permute (verifier failure / tt-mlir #3370).
+        # But fully replicating them is also bad: the weight is large and gets
+        # upcast to f32 for the matmul, blowing the per-device DRAM budget.
+        # Instead shard the CONTRACTING (input) dim by "model": row-parallel, so
+        # the weight shrinks 4x, the output stays replicated (chunk-slices are
+        # local, no reshard), and the matmul just needs an all-reduce.
         for norm_name in ("norm1", "norm1_context"):
             if hasattr(block, norm_name) and hasattr(
                 getattr(block, norm_name), "linear"
             ):
                 lin = getattr(block, norm_name).linear
-                specs[lin.weight] = ("model", "batch")
-                if lin.bias is not None:
-                    specs[lin.bias] = ("model",)
+                specs[lin.weight] = (None, "model")
 
         if hasattr(block, "attn"):
             attn = block.attn
@@ -511,6 +522,53 @@ def shard_transformer_specs(transformer) -> dict:
                 specs[ff.net[2].weight] = ("batch", "model")
                 if ff.net[2].bias is not None:
                     specs[ff.net[2].bias] = ("batch",)
+
+    # Single-stream blocks (HunyuanVideoSingleTransformerBlock). These must be
+    # sharded with the SAME column-/row-parallel scheme as the dual blocks --
+    # leaving them unspecified lets Shardy infer layouts that conflict with the
+    # dual blocks, and the reshard between them is materialized as a gather
+    # ttnn.concat whose per-core page exceeds L1 (OOM at runtime). The attn here
+    # is pre_only=True (no to_out); proj_out fuses the output projection of
+    # concat([attn(hidden), mlp(mlp_dim)]) -> hidden, so:
+    #   QKV + proj_mlp : column-parallel ("model", "batch")
+    #   proj_out       : row-parallel    ("batch", "model")
+    #   norm.linear    : replicated (modulation output is chunk-sliced; see above)
+    for block in getattr(transformer, "single_transformer_blocks", []):
+        # Modulation linear (norm.linear): shard contracting dim, see dual-block
+        # note above (output is chunk-sliced; replicating it OOMs in f32).
+        if hasattr(block, "norm") and hasattr(block.norm, "linear"):
+            specs[block.norm.linear.weight] = (None, "model")
+
+        if hasattr(block, "attn"):
+            attn = block.attn
+            for proj_name in (
+                "to_q",
+                "to_k",
+                "to_v",
+                "add_q_proj",
+                "add_k_proj",
+                "add_v_proj",
+            ):
+                proj = getattr(attn, proj_name, None)
+                if proj is not None:
+                    specs[proj.weight] = ("model", "batch")
+                    if proj.bias is not None:
+                        specs[proj.bias] = ("model",)
+
+        if hasattr(block, "proj_mlp"):
+            specs[block.proj_mlp.weight] = ("model", "batch")
+            if block.proj_mlp.bias is not None:
+                specs[block.proj_mlp.bias] = ("model",)
+
+        if hasattr(block, "proj_out"):
+            specs[block.proj_out.weight] = ("batch", "model")
+            if block.proj_out.bias is not None:
+                specs[block.proj_out.bias] = ("batch",)
+
+    # Final AdaLayerNormContinuous modulation (norm_out.linear, 2*inner_dim out,
+    # chunk-sliced into scale/shift). Same contracting-dim sharding as above.
+    if hasattr(transformer, "norm_out") and hasattr(transformer.norm_out, "linear"):
+        specs[transformer.norm_out.linear.weight] = (None, "model")
 
     if hasattr(transformer, "proj_out"):
         specs[transformer.proj_out.weight] = (None, "batch")
