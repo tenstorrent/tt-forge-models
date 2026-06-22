@@ -22,11 +22,16 @@ loaded -- each component is fetched directly via from_pretrained(..., subfolder=
 NOTE: LongCatImagePipeline requires diffusers >= 0.36 (LongCat classes landed
 in diffusers main, Dec 2025; first released in 0.36.0). See requirements.txt.
 
-NOTE: this is a ~14 B aggregate pipeline. The 6 B transformer and 7.7 B text
-encoder do not fit a single n150 (7 B/chip) device; the VAE does. Components
-are brought up on a single device first (SHARD_SPECS / TT_VISIBLE_DEVICES
-record the tensor-parallel plan for the multi-chip follow-up). Scaffolded
-CPU-only; per-component single-device results recorded in the bringup state.
+NOTE: this is a ~14 B aggregate pipeline brought up at the model's native
+1024x1024 resolution (pipeline default_sample_size 128 * vae_scale_factor 8).
+At that resolution the packed-latent sequence is (1024/16)^2 = 4096 tokens
+(== scheduler max_image_seq_len) and the text-conditioning sequence is the
+tokenizer_max_length of 512. The 6 B transformer and 7.7 B text encoder each
+exceed a single Wormhole chip's 12 GB DRAM once activations are added, so on
+n300 (2x Wormhole, 24 GB) they are sharded tensor-parallel across both chips;
+the tiny VAE fits a single chip. SHARD_SPECS / TT_VISIBLE_DEVICES record that
+plan. The full pipeline is never traced as one graph -- the scheduler /
+denoising loop stays in host Python (Step-7 composite-component approach).
 """
 
 from typing import Optional
@@ -49,7 +54,7 @@ LONGCAT_IMAGE_REPO_ID = "meituan-longcat/LongCat-Image"
 
 DTYPE = torch.bfloat16
 
-# ---- captured I/O spec (256x256, 2 denoise steps, prompt-rewrite off; CPU bf16) ----
+# ---- I/O spec at native 1024x1024 (prompt-rewrite off; CPU bf16) ------------
 _COMPONENT_IO_SPEC = {
     "text_encoder": {
         "class": "Qwen2_5_VLForConditionalGeneration",
@@ -64,7 +69,7 @@ _COMPONENT_IO_SPEC = {
     "transformer": {
         "class": "LongCatImageTransformer2DModel",
         "inputs": {
-            "hidden_states": {"shape": (1, 256, 64), "dtype": "torch.bfloat16"},
+            "hidden_states": {"shape": (1, 4096, 64), "dtype": "torch.bfloat16"},
             "timestep": {"shape": (1,), "dtype": "torch.bfloat16"},
             "encoder_hidden_states": {
                 "shape": (1, 512, 3584),
@@ -72,44 +77,44 @@ _COMPONENT_IO_SPEC = {
             },
             # pinned structural args (reconstructed from prepare_pos_ids):
             "txt_ids": {"shape": (512, 3), "dtype": "torch.float32"},
-            "img_ids": {"shape": (256, 3), "dtype": "torch.float32"},
+            "img_ids": {"shape": (4096, 3), "dtype": "torch.float32"},
             "guidance": None,
         },
-        "output": {"shape": (1, 256, 64), "dtype": "torch.bfloat16"},
+        "output": {"shape": (1, 4096, 64), "dtype": "torch.bfloat16"},
     },
     "vae": {
         "class": "AutoencoderKL",
-        "inputs": {"latent": {"shape": (1, 16, 32, 32), "dtype": "torch.bfloat16"}},
+        "inputs": {"latent": {"shape": (1, 16, 128, 128), "dtype": "torch.bfloat16"}},
         "op": "decode",
     },
 }
 
-# ---- shard plan (uniform chip count across the pipeline) --------------------
-# n150 (7B/chip cap): transformer needs 1 (6B fits), text_encoder 2, vae 1 -> uniform 2.
-# p150 (12B/chip cap): every component fits 1 -> uniform 1 (single device).
-# Default reflects the requested --arch n150 target.
-TT_VISIBLE_DEVICES = "0,1"  # n150 x2; use "0" for p150 single device
+# ---- shard plan (n300 = 2x Wormhole, 12 GB/chip) ----------------------------
+# At native 1024x1024 (4096-token latent seq), the 6 B transformer and 7.7 B
+# text encoder each exceed one chip's 12 GB DRAM once activations/KV are added,
+# so both are tensor-parallel across the 2 chips; the ~0.08 B VAE stays on one.
+TT_VISIBLE_DEVICES = "0,1"  # n300 -> 2 Wormhole chips
 SHARD_SPECS = {
     "text_encoder": {"strategy": "tensor_parallel", "mesh": [1, 2]},
     "transformer": {"strategy": "tensor_parallel", "mesh": [1, 2]},
     "vae": {"strategy": "data_parallel"},
 }
 
-# ---- shape constants (from captured spec) ----------------------------------
-TE_SEQ_LEN = 553
+# ---- shape constants (native 1024x1024) ------------------------------------
+TE_SEQ_LEN = 553  # prefix + tokenizer_max_length(512) + suffix; resolution-independent
 TE_HIDDEN = 3584
 TE_VOCAB = 152064
 
-TR_LATENT_SEQ = 256  # (256/8/2)^2 = 16*16 packed patch tokens for 256x256
+TR_LATENT_SEQ = 4096  # (1024/16)^2 == 64*64 packed patch tokens for 1024x1024
 TR_IN_CHANNELS = 64
 TR_TXT_SEQ = 512  # == tokenizer_max_length
 TR_JOINT_DIM = 3584
-TR_LATENT_PATCH_HW = 16  # latent h//2 == w//2 for 256x256
+TR_LATENT_PATCH_HW = 64  # latent h//2 == w//2 for 1024x1024
 TOKENIZER_MAX_LENGTH = 512  # image-id position offset (pipeline.tokenizer_max_length)
 
 VAE_Z_CHANNELS = 16
-VAE_Z_H = 32  # 256 / vae_scale_factor(8)
-VAE_Z_W = 32
+VAE_Z_H = 128  # 1024 / vae_scale_factor(8)
+VAE_Z_W = 128
 
 
 def _prepare_pos_ids(
@@ -203,6 +208,55 @@ class _LongCatVAEDecoderWrapper(torch.nn.Module):
 
     def forward(self, latent):
         return self.vae.decode(latent, return_dict=False)[0]
+
+
+def _shard_transformer_specs(transformer) -> dict:
+    """Megatron tensor-parallel spec for LongCatImageTransformer2DModel.
+
+    Flux-style MMDiT (hidden 3072 = 24 heads x 128). Within each block:
+      Q/K/V (and the text-stream add_*_proj): column-parallel  ("model", None),
+        bias ("model",) -- shards the head dimension across chips.
+      output projections (to_out.0, to_add_out): row-parallel (None, "model"),
+        bias replicated (None,) -- the post-matmul all-reduce yields the full
+        output on every chip, so the bias is added once, replicated.
+      FeedForward net.0.proj: column-parallel; net.2: row-parallel.
+    Single blocks fuse attention + MLP: to_q/k/v and proj_mlp are column, and
+    proj_out (Linear over the concatenated [attn|mlp] feature) is row-parallel.
+    AdaLN modulation (norm*.linear), embedders and proj_out stay replicated.
+    """
+    specs = {}
+
+    def col(linear):
+        specs[linear.weight] = ("model", None)
+        if linear.bias is not None:
+            specs[linear.bias] = ("model",)
+
+    def row(linear):
+        specs[linear.weight] = (None, "model")
+        if linear.bias is not None:
+            specs[linear.bias] = (None,)
+
+    for block in transformer.transformer_blocks:
+        attn = block.attn
+        for lin in (attn.to_q, attn.to_k, attn.to_v):
+            col(lin)
+        row(attn.to_out[0])
+        for lin in (attn.add_q_proj, attn.add_k_proj, attn.add_v_proj):
+            col(lin)
+        row(attn.to_add_out)
+        col(block.ff.net[0].proj)
+        row(block.ff.net[2])
+        col(block.ff_context.net[0].proj)
+        row(block.ff_context.net[2])
+
+    for block in transformer.single_transformer_blocks:
+        attn = block.attn
+        for lin in (attn.to_q, attn.to_k, attn.to_v):
+            col(lin)
+        col(block.proj_mlp)
+        row(block.proj_out)
+
+    return specs
 
 
 class ModelVariant(StrEnum):
@@ -306,3 +360,34 @@ class ModelLoader(ForgeModel):
             return [latent]
 
         raise ValueError(f"Unknown variant: {self._variant}")
+
+    # ---- multi-chip sharding (Megatron tensor-parallel) --------------------
+    # Mesh shapes by total device count: (batch, model). n300 -> (1, 2). The
+    # repo's get_mesh_shape_for_device_count helper only covers >=8 chips, so
+    # n300's 2-chip shape is provided here (mirrors the Mochi loader pattern).
+    MESH_NAMES = ("batch", "model")
+    MESH_SHAPES = {
+        2: (1, 2),  # n300
+        8: (1, 8),  # n300-llmbox / WH QuietBox
+        32: (4, 8),  # WH galaxy
+    }
+
+    def get_mesh_config(self, num_devices: int):
+        """Return ((batch, model) mesh shape, mesh names) for the active component."""
+        if num_devices not in self.MESH_SHAPES:
+            raise ValueError(
+                f"Unsupported device count: {num_devices}. "
+                f"Expected one of {sorted(self.MESH_SHAPES)}."
+            )
+        return self.MESH_SHAPES[num_devices], self.MESH_NAMES
+
+    def load_shard_spec(self, model):
+        """Return {tensor: partition_spec} for the active component.
+
+        The transformer is sharded Megatron tensor-parallel on the "model" axis;
+        the text encoder and VAE are returned unsharded here (the VAE's conv
+        bottleneck needs a different scheme; the TE is a separate sub-problem).
+        """
+        if self._variant == ModelVariant.TRANSFORMER:
+            return _shard_transformer_specs(model.transformer)
+        return None
