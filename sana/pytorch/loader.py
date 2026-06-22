@@ -34,6 +34,7 @@ class ModelVariant(StrEnum):
     """Available Sana model variants."""
 
     SANA_1600M_1024PX = "1600M_1024px"
+    SANA_1600M_1024PX_DIFFUSERS = "1600M_1024px_diffusers"
 
 
 class ModelLoader(ForgeModel):
@@ -42,6 +43,12 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.SANA_1600M_1024PX: ModelConfig(
             pretrained_model_name="Efficient-Large-Model/Sana_1600M_1024px_BF16_diffusers",
+        ),
+        # Standard (non-BF16) diffusers release. Same SanaTransformer2DModel
+        # architecture; weights are distributed in fp32 (with an fp16 variant)
+        # rather than bf16. Cast to the requested device dtype at load time.
+        ModelVariant.SANA_1600M_1024PX_DIFFUSERS: ModelConfig(
+            pretrained_model_name="Efficient-Large-Model/Sana_1600M_1024px_diffusers",
         ),
     }
 
