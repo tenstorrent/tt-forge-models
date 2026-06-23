@@ -2,194 +2,240 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Helper functions for FIBO (briaai/FIBO) loading and preprocessing.
+Helper functions for FIBO (briaai/FIBO) loading, input construction and
+tensor-parallel sharding.
 
-FIBO is BRIA AI's 8B-parameter DiT-based, flow-matching text-to-image model.
-It uses ``SmolLM3-3B`` as the text encoder, ``Wan 2.2`` as the VAE, and a
-``DimFusion`` conditioning architecture trained on structured JSON captions.
-The full pipeline is exposed as ``BriaFiboPipeline`` in upstream diffusers
-(git-main; not yet in the 0.37.x line).
+FIBO is BRIA AI's ~8B-parameter DiT-based, flow-matching text-to-image model.
+It uses ``SmolLM3-3B`` as the text encoder, a ``Wan`` VAE, and a Flux-style
+MMDiT denoiser (``BriaFiboTransformer2DModel``) with a novel "DimFusion"
+conditioning scheme that injects one SmolLM3 hidden-state layer into each
+transformer block. The full pipeline is exposed as ``BriaFiboPipeline`` in
+diffusers (>= 0.38).
 
-The FIBO transformer's exact positional signature evolves with diffusers
-revisions, so this loader follows the same pattern as ``bria_2_3``: it loads
-the full pipeline, then drives one short ``pipe(prompt=...)`` call with a
-monkey-patched ``transformer.forward`` to capture the exact positional
-tensors the transformer consumes. This makes the loader robust to schema
-drift in upstream diffusers without us pinning to one specific version.
+Bringup focuses on the **denoiser** (``BriaFiboTransformer2DModel``) — the
+compute-dominant component that must run on device. The denoiser alone is
+~16.5 GB in bf16, which does not fit a single Wormhole chip (12 GB), so on
+n300 it is sharded tensor-parallel across both chips (see ``fibo_shard_specs``).
 
-Reference: https://huggingface.co/briaai/FIBO
+``load_inputs`` builds synthetic denoiser inputs at FIBO's native 1024x1024
+resolution (latent sequence length 64*64 = 4096) with correct shapes/dtypes,
+mirroring exactly what ``BriaFiboPipeline.__call__`` feeds the transformer at
+one denoising step. This keeps the per-component bringup memory-bounded to the
+transformer only (the 3B text encoder is not loaded for the denoiser test) and
+avoids pinning to a brittle captured call signature.
+
+Reference: https://huggingface.co/briaai/FIBO  (arXiv:2511.06876)
 """
 
-from typing import Any, Dict, Optional, Tuple
+import os
+from typing import Any, Dict, List, Optional
 
 import torch
 
-# Minimal JSON-style prompt — FIBO is trained on structured JSON captions but
-# also accepts plain text via VLM expansion. For a single bringup forward we
-# use a stub structured prompt; the model's __call__ will tokenize it through
-# SmolLM3 the same way regardless of whether the JSON is meaningful or not.
-BRINGUP_PROMPT = (
-    '{"subject":"a hyper-detailed, ultra-fluffy owl in moonlit trees",'
-    '"style_medium":"photograph","camera":"85mm prime, shallow depth of field",'
-    '"lighting":"cool moonlight with subtle silver highlights"}'
-)
+# FIBO denoiser config (transformer/config.json on briaai/FIBO).
+IN_CHANNELS = 48  # latent channels fed to the transformer (do_patching=False)
+NUM_ATTENTION_HEADS = 24
+ATTENTION_HEAD_DIM = 128
+INNER_DIM = NUM_ATTENTION_HEADS * ATTENTION_HEAD_DIM  # 3072
+JOINT_ATTENTION_DIM = 4096  # encoder_hidden_states feature dim
+TEXT_ENCODER_DIM = 2048  # per-layer SmolLM3 hidden size
+NUM_LAYERS = 8  # dual-stream MMDiT blocks
+NUM_SINGLE_LAYERS = 38  # single-stream blocks
+TOTAL_BLOCKS = NUM_LAYERS + NUM_SINGLE_LAYERS  # 46 text-encoder layers consumed
 
-# Default inference hyperparameters lifted from the FIBO model card's Generate
-# example — see https://huggingface.co/briaai/FIBO#generate.
-DEFAULT_NUM_INFERENCE_STEPS = 50
-DEFAULT_GUIDANCE_SCALE = 5.0
+# Native generation geometry: default_sample_size (64) * vae_scale_factor (16)
+# = 1024px. do_patching=False => latent grid is 1024/16 = 64 per side.
+NATIVE_RESOLUTION = 1024
+VAE_SCALE_FACTOR = 16
+LATENT_GRID = NATIVE_RESOLUTION // VAE_SCALE_FACTOR  # 64
+LATENT_SEQ_LEN = LATENT_GRID * LATENT_GRID  # 4096
 
-
-class _ShortCircuit(Exception):
-    """Raised inside the patched transformer to abort the pipeline after step 0."""
-
-
-def load_pipe(pretrained_model_name: str, dtype_override=None):
-    """Load the FIBO pipeline.
-
-    Args:
-        pretrained_model_name: HuggingFace repo id, e.g. ``"briaai/FIBO"``.
-            Note: this repo is gated — accept the bria-fibo license on HF and
-            authenticate via ``HF_TOKEN`` before calling this.
-        dtype_override: Optional ``torch.dtype`` cast applied to the pipeline.
-            ``torch.bfloat16`` matches the model card's reference settings.
-
-    Returns:
-        diffusers.DiffusionPipeline: FIBO pipeline on CPU, ``eval()`` mode,
-        ``requires_grad`` disabled.
-    """
-    try:
-        from diffusers import BriaFiboPipeline  # type: ignore
-    except ImportError:
-        # Fall back to the auto-resolver; this works if a newer diffusers is
-        # available (model_index.json in briaai/FIBO declares the class).
-        from diffusers import DiffusionPipeline as BriaFiboPipeline  # type: ignore
-
-    pipe_kwargs: Dict[str, Any] = {}
-    if dtype_override is not None:
-        pipe_kwargs["torch_dtype"] = dtype_override
-
-    pipe = BriaFiboPipeline.from_pretrained(pretrained_model_name, **pipe_kwargs)
-
-    pipe.to("cpu")
-
-    for attr in ("text_encoder", "transformer", "vae"):
-        module = getattr(pipe, attr, None)
-        if module is None:
-            continue
-        module.eval()
-        for param in module.parameters():
-            if param.requires_grad:
-                param.requires_grad = False
-
-    return pipe
+# Prompt sequence length used for the synthetic encoder/caption tensors. FIBO
+# pads to the longest tokenized structured-JSON caption; 128 is a representative
+# length that keeps the joint attention sequence (128 + 4096) tractable.
+PROMPT_SEQ_LEN = 128
 
 
-def capture_transformer_inputs(
-    pipe,
-    prompt: str = BRINGUP_PROMPT,
-    *,
-    negative_prompt: Optional[str] = None,
-    num_inference_steps: int = DEFAULT_NUM_INFERENCE_STEPS,
-    guidance_scale: float = DEFAULT_GUIDANCE_SCALE,
-    seed: int = 42,
+def build_fibo_inputs(
+    dtype: torch.dtype = torch.bfloat16,
+    batch_size: int = 1,
 ) -> Dict[str, Any]:
-    """Drive ``pipe(prompt=...)`` for one transformer step and capture inputs.
+    """Construct synthetic denoiser inputs at FIBO's native 1024x1024 resolution.
 
-    Monkey-patches the FIBO transformer's ``forward`` to record the exact
-    positional args + kwargs it's invoked with, then short-circuits the
-    denoising loop. This avoids hardcoding a signature that may change as
-    upstream diffusers evolves.
+    Shapes mirror one ``BriaFiboPipeline`` denoising step (without classifier-
+    free-guidance batch doubling — a single forward pass is sufficient for
+    component bringup; resolution, not CFG batch, is what must stay native).
 
-    Returns:
-        dict: ``{"args": tuple, "kwargs": dict}`` of the first forward call.
+    Returns a kwargs dict the runner feeds as ``model(**inputs)``. ``return_dict``
+    is False so the transformer returns a plain ``(sample,)`` tuple the comparison
+    harness can tree-map over.
     """
-    if not hasattr(pipe, "transformer"):
-        raise RuntimeError(
-            "FIBO pipeline does not expose a .transformer attribute. "
-            "Upstream diffusers may have renamed it; inspect pipe.components."
-        )
+    # Native geometry by default. FIBO_LATENT_GRID / FIBO_PROMPT_SEQ_LEN env
+    # overrides exist only to smoke-test the device sharding/compile path at
+    # reduced cost; the committed default is full 1024x1024 (grid 64).
+    grid = int(os.environ.get("FIBO_LATENT_GRID", LATENT_GRID))
+    latent_seq = grid * grid
+    prompt_seq = int(os.environ.get("FIBO_PROMPT_SEQ_LEN", PROMPT_SEQ_LEN))
 
-    capture: Dict[str, Any] = {}
-    original_forward = pipe.transformer.forward
+    g = torch.Generator().manual_seed(0)
 
-    def patched_forward(*args, **kwargs):
-        capture["args"] = args
-        capture["kwargs"] = kwargs
-        out = original_forward(*args, **kwargs)
-        capture["output"] = out
-        raise _ShortCircuit()
+    def randn(*shape):
+        return torch.randn(*shape, generator=g).to(dtype)
 
-    pipe.transformer.forward = patched_forward
-    try:
-        generator = torch.Generator(device="cpu").manual_seed(seed)
+    hidden_states = randn(batch_size, latent_seq, IN_CHANNELS)
+    encoder_hidden_states = randn(batch_size, prompt_seq, JOINT_ATTENTION_DIM)
+    text_encoder_layers: List[torch.Tensor] = [
+        randn(batch_size, prompt_seq, TEXT_ENCODER_DIM) for _ in range(TOTAL_BLOCKS)
+    ]
+
+    # Rotary position ids: [seq, 3] (time, height, width axes -> axes_dims_rope).
+    txt_ids = torch.zeros(prompt_seq, 3, dtype=dtype)
+    img_ids = torch.zeros(latent_seq, 3, dtype=dtype)
+    row = torch.arange(grid)
+    img_ids[:, 1] = row[:, None].expand(grid, grid).reshape(-1).to(dtype)
+    img_ids[:, 2] = row[None, :].expand(grid, grid).reshape(-1).to(dtype)
+
+    # Mid-trajectory timestep (num_train_timesteps=1000).
+    timestep = torch.full((batch_size,), 500.0, dtype=dtype)
+
+    return {
+        "hidden_states": hidden_states,
+        "encoder_hidden_states": encoder_hidden_states,
+        "text_encoder_layers": text_encoder_layers,
+        "timestep": timestep,
+        "img_ids": img_ids,
+        "txt_ids": txt_ids,
+        # guidance_embeds=False on this checkpoint -> no guidance tensor.
+        "guidance": None,
+        # No padding in the synthetic prompt => an all-valid additive mask is a
+        # no-op, so omit it (numerically identical to the pipeline's mask) and
+        # save a [seq, seq] device tensor.
+        "joint_attention_kwargs": {},
+        "return_dict": False,
+    }
+
+
+def _patched_single_block_forward(self, hidden_states, temb, image_rotary_emb=None,
+                                   joint_attention_kwargs=None):
+    """Single-block forward that avoids the wide ``cat([attn, mlp])`` concat.
+
+    The stock ``BriaFiboSingleTransformerBlock`` computes
+    ``proj_out(cat([attn_output(3072), mlp_hidden(12288)], dim=-1))`` — a
+    15360-wide concat whose ttnn CB page (~2.27 MB) exceeds Wormhole per-core
+    L1 (~1.33 MB) and cannot lower (TT_FATAL in concat_program_factory). Since
+    ``proj_out`` is linear, ``proj_out(cat([a, m])) == proj_out_a(a) + proj_out_m(m)``
+    where ``proj_out_a``/``proj_out_m`` are the column slices of ``proj_out``
+    (the +bias kept on the mlp half). This is numerically identical and removes
+    the concat entirely, so the op fits L1. ``apply_single_block_rewrite``
+    installs the split projections this method consumes.
+    """
+    import torch.nn.functional as F
+
+    residual = hidden_states
+    norm_hidden_states, gate = self.norm(hidden_states, emb=temb)
+    mlp_hidden_states = self.act_mlp(self.proj_mlp(norm_hidden_states))
+    joint_attention_kwargs = joint_attention_kwargs or {}
+    attn_output = self.attn(
+        hidden_states=norm_hidden_states,
+        image_rotary_emb=image_rotary_emb,
+        **joint_attention_kwargs,
+    )
+    proj = F.linear(attn_output, self.proj_out_attn.weight) + F.linear(
+        mlp_hidden_states, self.proj_out_mlp.weight, self.proj_out_mlp.bias
+    )
+    hidden_states = residual + gate.unsqueeze(1) * proj
+    if hidden_states.dtype == torch.float16:
+        hidden_states = hidden_states.clip(-65504, 65504)
+    return hidden_states
+
+
+def apply_single_block_rewrite(model: torch.nn.Module) -> int:
+    """Split each single block's ``proj_out`` into attn/mlp halves and install
+    the concat-free forward. Returns the number of blocks rewritten.
+
+    ``proj_out`` maps ``[attn_dim + mlp_hidden] -> dim``; its weight columns
+    ``[:, :attn_dim]`` act on the attention output and ``[:, attn_dim:]`` on the
+    mlp hidden, so two ``nn.Linear`` layers reproduce it exactly.
+    """
+    import types
+
+    from torch import nn
+
+    count = 0
+    for blk in model.single_transformer_blocks:
+        if hasattr(blk, "proj_out_attn"):
+            continue
+        W = blk.proj_out.weight  # [dim, attn_dim + mlp_hidden]
+        b = blk.proj_out.bias
+        out_dim, in_dim = W.shape
+        attn_dim = blk.attn.out_dim  # inner_dim (3072)
+        mlp_dim = in_dim - attn_dim
+
+        proj_out_attn = nn.Linear(attn_dim, out_dim, bias=False)
+        proj_out_mlp = nn.Linear(mlp_dim, out_dim, bias=b is not None)
         with torch.no_grad():
-            try:
-                pipe(
-                    prompt=prompt,
-                    negative_prompt=negative_prompt,
-                    num_inference_steps=num_inference_steps,
-                    guidance_scale=guidance_scale,
-                    generator=generator,
-                    output_type="latent",
-                )
-            except _ShortCircuit:
-                pass
-    finally:
-        pipe.transformer.forward = original_forward
+            proj_out_attn.weight.copy_(W[:, :attn_dim])
+            proj_out_mlp.weight.copy_(W[:, attn_dim:])
+            if b is not None:
+                proj_out_mlp.bias.copy_(b)
+        proj_out_attn = proj_out_attn.to(W.dtype)
+        proj_out_mlp = proj_out_mlp.to(W.dtype)
+        for p in proj_out_attn.parameters():
+            p.requires_grad = False
+        for p in proj_out_mlp.parameters():
+            p.requires_grad = False
 
-    if "args" not in capture:
-        raise RuntimeError(
-            "FIBO pipeline never invoked the patched transformer — "
-            "capture is empty. Check the pipeline class and prompt format."
-        )
-    return capture
+        blk.proj_out_attn = proj_out_attn
+        blk.proj_out_mlp = proj_out_mlp
+        del blk.proj_out  # drop the fused projection so its weight isn't resident
+        blk.forward = types.MethodType(_patched_single_block_forward, blk)
+        count += 1
+    return count
 
 
-def positional_inputs_from_capture(capture: Dict[str, Any]) -> Tuple[Any, ...]:
-    """Flatten a captured (args, kwargs) call into a positional tuple.
+def fibo_shard_specs(model: torch.nn.Module, model_axis: str = "model") -> Dict:
+    """Megatron-style tensor-parallel shard specs for the FIBO denoiser.
 
-    The order is ``args`` first (positional in the original call), then the
-    kwargs in their iteration order. Non-tensor values are kept as-is so the
-    auto-runner can decide how to handle them; the wrapper below normalizes
-    common cases (e.g. ``dict`` → kept as keyword on replay).
+    Column-parallel on every attention/MLP input projection (shard output
+    features along ``model_axis``), row-parallel on every output projection
+    (shard input features), on a ("batch", model_axis) mesh. Heads (24) are
+    divisible by 2, so this maps cleanly onto n300's two Wormhole chips.
+
+    Only ``.weight`` tensors are annotated; GSPMD/Shardy propagation infers the
+    matching sharding for biases, RMSNorm scales and the elementwise adds.
     """
-    flat = list(capture["args"])
-    for key, value in capture["kwargs"].items():
-        flat.append(value)
-    return tuple(flat)
+    col = (model_axis, None)  # shard output dim (dim 0 of [out, in] weight)
+    row = (None, model_axis)  # shard input dim (dim 1)
+    specs: Dict[torch.Tensor, tuple] = {}
 
+    # Dual-stream MMDiT blocks: joint image+text attention with added KV proj.
+    for blk in model.transformer_blocks:
+        attn = blk.attn
+        specs[attn.to_q.weight] = col
+        specs[attn.to_k.weight] = col
+        specs[attn.to_v.weight] = col
+        specs[attn.to_out[0].weight] = row
+        specs[attn.add_q_proj.weight] = col
+        specs[attn.add_k_proj.weight] = col
+        specs[attn.add_v_proj.weight] = col
+        specs[attn.to_add_out.weight] = row
+        # FeedForward: net[0] is GELU(proj), net[2] is the output Linear.
+        specs[blk.ff.net[0].proj.weight] = col
+        specs[blk.ff.net[2].weight] = row
+        specs[blk.ff_context.net[0].proj.weight] = col
+        specs[blk.ff_context.net[2].weight] = row
 
-class FiboTransformerWrapper(torch.nn.Module):
-    """Wrap the FIBO transformer so it accepts the captured positional inputs.
+    # Single-stream blocks: pre_only attention (no to_out) + fused mlp/proj_out.
+    for blk in model.single_transformer_blocks:
+        attn = blk.attn
+        specs[attn.to_q.weight] = col
+        specs[attn.to_k.weight] = col
+        specs[attn.to_v.weight] = col
+        specs[blk.proj_mlp.weight] = col
+        # proj_out is split into attn/mlp halves (see apply_single_block_rewrite)
+        # to avoid the wide concat; both halves are row-parallel (their input
+        # feature dim is sharded along model_axis -> one all-reduce on the sum).
+        specs[blk.proj_out_attn.weight] = row
+        specs[blk.proj_out_mlp.weight] = row
 
-    The auto-runner (``DynamicTorchModelTester``) calls ``model(*inputs)``
-    positionally. The FIBO transformer's native ``forward`` mixes positional
-    and keyword arguments; we capture both at construction time and replay
-    them with the same call shape.
-
-    On forward, ``inputs`` are split back into ``args + kwargs`` using the
-    captured signature, then forwarded to the underlying transformer.
-    """
-
-    def __init__(self, transformer: torch.nn.Module, capture: Dict[str, Any]) -> None:
-        super().__init__()
-        self.transformer = transformer
-        self._num_args = len(capture["args"])
-        self._kwarg_keys: Tuple[str, ...] = tuple(capture["kwargs"].keys())
-
-    def forward(self, *inputs):
-        if len(inputs) != self._num_args + len(self._kwarg_keys):
-            raise ValueError(
-                f"FiboTransformerWrapper expected "
-                f"{self._num_args + len(self._kwarg_keys)} positional inputs "
-                f"(got {len(inputs)})."
-            )
-        args = inputs[: self._num_args]
-        kwargs = dict(zip(self._kwarg_keys, inputs[self._num_args :]))
-        out = self.transformer(*args, **kwargs)
-        if isinstance(out, (list, tuple)):
-            return out[0]
-        if hasattr(out, "sample"):
-            return out.sample
-        return out
+    return specs

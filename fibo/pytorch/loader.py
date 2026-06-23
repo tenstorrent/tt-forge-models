@@ -4,23 +4,22 @@
 """
 FIBO (briaai/FIBO) model loader implementation.
 
-FIBO is BRIA AI's 8B-parameter DiT-based flow-matching text-to-image model.
-It uses SmolLM3-3B as the text encoder, Wan 2.2 as the VAE, and a novel
-DimFusion conditioning architecture (paper: arXiv 2511.06876).
+FIBO is BRIA AI's ~8B-parameter DiT-based flow-matching text-to-image model.
+It uses SmolLM3-3B as the text encoder, a Wan VAE, and a Flux-style MMDiT
+denoiser (``BriaFiboTransformer2DModel``) with a "DimFusion" conditioning
+architecture (paper: arXiv:2511.06876).
 
-Rather than treating FIBO as a variant of some existing loader, this
-introduces a dedicated ``fibo`` loader package. Layout mirrors
-``stable_diffusion_3``, ``bria_2_3``, and ``hidream_i1`` — its preprocessing
-tweaks, license-gated weight fetch (the FIBO repo on Hugging Face is gated
-under the ``bria-fibo`` license), and bringup state can evolve independently
-of any other model.
+Diffusion pipelines are brought up by composite component, not as one graph.
+This loader targets the **denoiser** — the compute-dominant ``BriaFiboTransformer2DModel``
+that must run on device. ``load_model`` loads only the transformer (the 3B text
+encoder and VAE are not needed for the denoiser forward, keeping host memory
+bounded), and ``load_inputs`` builds synthetic inputs at FIBO's native
+1024x1024 resolution (latent sequence length 4096).
 
-``load_model`` returns the FIBO transformer wrapped so it accepts the
-positional tensor inputs the auto-runner expects. ``load_inputs`` returns
-those positional tensors, captured by driving one short ``pipe(prompt=...)``
-call and intercepting the first transformer forward — making the loader
-robust to schema drift in upstream diffusers (``BriaFiboPipeline`` only lives
-on diffusers git-main today).
+The denoiser alone is ~16.5 GB in bf16 and does not fit one Wormhole chip
+(12 GB), so on multi-chip parts it is sharded tensor-parallel; ``get_mesh_config``
+and ``load_shard_spec`` provide a Megatron-style layout (see
+``src/model_utils.fibo_shard_specs``).
 
 Reference: https://huggingface.co/briaai/FIBO
 """
@@ -40,11 +39,9 @@ from ...config import (
     StrEnum,
 )
 from .src.model_utils import (
-    BRINGUP_PROMPT,
-    FiboTransformerWrapper,
-    capture_transformer_inputs,
-    load_pipe,
-    positional_inputs_from_capture,
+    apply_single_block_rewrite,
+    build_fibo_inputs,
+    fibo_shard_specs,
 )
 
 
@@ -55,7 +52,7 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """FIBO model loader."""
+    """FIBO denoiser (``BriaFiboTransformer2DModel``) loader."""
 
     _VARIANTS = {
         ModelVariant.BASE: ModelConfig(
@@ -65,10 +62,6 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.BASE
 
-    # Stub structured-JSON prompt used during input capture. FIBO is trained
-    # on structured captions but the pipeline tokenizes via SmolLM3 either way.
-    prompt = BRINGUP_PROMPT
-
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize the loader for the given FIBO variant.
 
@@ -76,10 +69,7 @@ class ModelLoader(ForgeModel):
             variant: Optional ``ModelVariant`` — defaults to ``BASE``.
         """
         super().__init__(variant)
-        self.pipe = None
-        self._capture = None
-        # FIBO inherits guidance_scale=5.0 from the model card's Generate example.
-        self.guidance_scale = 5.0
+        self.model = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -94,66 +84,64 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_pipeline(self, dtype_override=None):
-        """Load (and cache) the FIBO pipeline."""
-        if self.pipe is None:
-            self.pipe = load_pipe(
-                self._variant_config.pretrained_model_name,
-                dtype_override=dtype_override,
-            )
-        return self.pipe
-
-    def _ensure_capture(self, dtype_override=None):
-        """Capture transformer inputs once and cache the result."""
-        if self._capture is not None:
-            return self._capture
-        self._load_pipeline(dtype_override=dtype_override)
-        self._capture = capture_transformer_inputs(
-            self.pipe,
-            prompt=self.prompt,
-            guidance_scale=self.guidance_scale,
-        )
-        return self._capture
-
-    def load_model(self, *, dtype_override=None, **kwargs):
-        """Return the wrapped FIBO transformer.
+    def load_model(self, dtype_override=None):
+        """Load and return the FIBO denoiser (transformer) module.
 
         Args:
-            dtype_override: Optional ``torch.dtype`` to cast the pipeline to.
+            dtype_override: Optional ``torch.dtype``. Defaults to ``bfloat16``
+                (the checkpoint's native format and the device test dtype).
 
         Returns:
-            torch.nn.Module: ``FiboTransformerWrapper`` around the FIBO DiT,
-            ready to accept the positional tensors returned by ``load_inputs``.
+            torch.nn.Module: ``BriaFiboTransformer2DModel`` in eval mode.
         """
-        self._ensure_capture(dtype_override=dtype_override)
-        if dtype_override is not None:
-            self.pipe.transformer = self.pipe.transformer.to(dtype_override)
-        return FiboTransformerWrapper(self.pipe.transformer, self._capture)
+        from diffusers import BriaFiboTransformer2DModel
+
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        model = BriaFiboTransformer2DModel.from_pretrained(
+            self._variant_config.pretrained_model_name,
+            subfolder="transformer",
+            torch_dtype=dtype,
+        )
+        model.eval()
+        for p in model.parameters():
+            p.requires_grad = False
+        # Split each single block's fused proj_out into attn/mlp halves to avoid
+        # a 15360-wide concat that exceeds Wormhole L1 (numerically identical).
+        apply_single_block_rewrite(model)
+        self.model = model
+        return model
 
     def load_inputs(self, dtype_override=None, batch_size: int = 1):
-        """Return positional tensor inputs for the FIBO transformer.
+        """Return synthetic denoiser inputs at FIBO's native 1024x1024 resolution.
 
         Args:
-            dtype_override: Optional ``torch.dtype`` for tensor inputs.
-                Non-tensor inputs (e.g. ``joint_attention_kwargs``) are passed
-                through unchanged.
-            batch_size: Ignored for now — the pipeline call always produces
-                ``batch_size=1`` * CFG (2 effective). Retained for the
-                signature the auto-runner expects.
+            dtype_override: Optional ``torch.dtype`` for the float tensors.
+            batch_size: Base batch size (default 1 — a single denoising forward).
 
         Returns:
-            tuple: Positional inputs matching ``FiboTransformerWrapper.forward``.
+            dict: kwargs for ``BriaFiboTransformer2DModel.forward`` (the runner
+            invokes ``model(**inputs)``).
         """
-        capture = self._ensure_capture(dtype_override=dtype_override)
-        inputs = positional_inputs_from_capture(capture)
+        dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        return build_fibo_inputs(dtype=dtype, batch_size=batch_size)
 
-        if dtype_override is None:
-            return inputs
+    def unpack_forward_output(self, fwd_output):
+        """Return the predicted-noise ``sample`` tensor from the denoiser output.
 
-        cast = []
-        for value in inputs:
-            if torch.is_tensor(value) and value.is_floating_point():
-                cast.append(value.to(dtype_override))
-            else:
-                cast.append(value)
-        return tuple(cast)
+        With ``return_dict=False`` the transformer returns a ``(sample,)`` tuple.
+        """
+        if isinstance(fwd_output, (tuple, list)):
+            return fwd_output[0]
+        if hasattr(fwd_output, "sample"):
+            return fwd_output.sample
+        return fwd_output
+
+    # --- Tensor-parallel support (denoiser is too large for a single chip) ---
+
+    def get_mesh_config(self, num_devices: int):
+        """1xN tensor-parallel mesh over ``num_devices`` (e.g. (1, 2) on n300)."""
+        return (1, num_devices), ("batch", "model")
+
+    def load_shard_spec(self, model):
+        """Megatron-style TP shard specs for the FIBO denoiser weights."""
+        return fibo_shard_specs(model, model_axis="model")
