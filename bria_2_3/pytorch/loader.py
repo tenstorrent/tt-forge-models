@@ -98,9 +98,7 @@ class ModelLoader(ForgeModel):
         # Run preprocessing once to capture the added_cond_kwargs dict that
         # the SDXL UNet needs at every step. This avoids the wrapper needing
         # to know anything about prompt encoding.
-        _, _, _, added_cond_kwargs = bria_2_3_preprocessing(
-            self.pipeline, self.prompt
-        )
+        _, _, _, added_cond_kwargs = bria_2_3_preprocessing(self.pipeline, self.prompt)
         return Bria23UNetWrapper(self.pipeline.unet, added_cond_kwargs)
 
     def load_inputs(self, dtype_override=None):
