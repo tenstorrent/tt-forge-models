@@ -9,10 +9,17 @@ Pyramid Flow is an autoregressive video generation model based on flow matching.
 Repository: https://github.com/jy0205/Pyramid-Flow
 Model: https://huggingface.co/rain1011/pyramid-flow-miniflux
 
-Pyramid Flow has no diffusers integration, so the model code is vendored in
-`src/flux_modules/` (verbatim from upstream, with the `trainer_misc` sequence-
-parallel imports replaced by a local stub). This loader exposes the
-PyramidFluxTransformer DiT for compilation / op-coverage error analysis.
+Pyramid Flow has no diffusers integration, so the model code is vendored under
+`src/` (verbatim from upstream, with the `trainer_misc` sequence-parallel
+imports replaced by a local stub):
+  * `src/flux_modules/` — the miniFLUX DiT (`rain1011/pyramid-flow-miniflux`)
+  * `src/mmdit_modules/` — the SD3 MMDiT (`rain1011/pyramid-flow-sd3`)
+
+This loader exposes the denoiser DiT for each variant for compilation /
+op-coverage error analysis. The full Pyramid Flow pipeline (CLIP-L + CLIP-G +
+T5-XXL text encoders, causal-video VAE, scheduler / denoising loop) lives in
+upstream `pyramid_dit.PyramidDiTForVideoGeneration` and is CUDA-only; the DiT
+denoiser is the compute-dominant, gating component for tt-xla bringup.
 """
 
 from dataclasses import dataclass
@@ -30,7 +37,12 @@ from ...config import (
     ModelTask,
     StrEnum,
 )
-from .src.utils import load_transformer, load_transformer_inputs
+from .src.utils import (
+    load_transformer,
+    load_transformer_inputs,
+    load_mmdit_transformer,
+    load_mmdit_inputs,
+)
 
 
 @dataclass
@@ -44,21 +56,29 @@ class ModelVariant(StrEnum):
     """Available Pyramid Flow variants."""
 
     MINIFLUX_768P = "miniFLUX_768p"
+    SD3_768P = "SD3_768p"
 
 
 class ModelLoader(ForgeModel):
     """
-    Loader for Pyramid Flow miniFLUX DiT (768p).
+    Loader for the Pyramid Flow denoiser DiT, by variant:
 
-    Loads only the PyramidFluxTransformer with random weights. The full
-    pipeline (text encoder + VAE + scheduler) lives in upstream
+      * ``MINIFLUX_768P`` — PyramidFluxTransformer (`rain1011/pyramid-flow-miniflux`)
+      * ``SD3_768P``      — PyramidDiffusionMMDiT  (`rain1011/pyramid-flow-sd3`)
+
+    Loads only the denoiser with random weights. The full pipeline
+    (text encoders + VAE + scheduler) lives in upstream
     `pyramid_dit.PyramidDiTForVideoGeneration` and is CUDA-only; the DiT
-    component is the relevant target for tt-xla compilation tests.
+    denoiser is the relevant target for tt-xla compilation tests.
     """
 
     _VARIANTS = {
         ModelVariant.MINIFLUX_768P: PyramidFlowConfig(
             pretrained_model_name="rain1011/pyramid-flow-miniflux",
+            source=ModelSource.HUGGING_FACE,
+        ),
+        ModelVariant.SD3_768P: PyramidFlowConfig(
+            pretrained_model_name="rain1011/pyramid-flow-sd3",
             source=ModelSource.HUGGING_FACE,
         ),
     }
@@ -83,10 +103,14 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         dtype = dtype_override if dtype_override is not None else torch.float32
+        if self._variant == ModelVariant.SD3_768P:
+            return load_mmdit_transformer(dtype)
         return load_transformer(dtype)
 
     def load_inputs(self, dtype_override=None, **kwargs) -> Any:
         dtype = dtype_override if dtype_override is not None else torch.float32
+        if self._variant == ModelVariant.SD3_768P:
+            return load_mmdit_inputs(dtype)
         return load_transformer_inputs(dtype)
 
     def unpack_forward_output(self, output: Any) -> torch.Tensor:
