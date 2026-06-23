@@ -166,6 +166,11 @@ class BagelTextBackbone(torch.nn.Module):
 
     @torch.no_grad()
     def forward(self, input_ids: torch.LongTensor) -> torch.Tensor:
+        # decoder_layer / self_attn dispatch on module.training: train -> forward_train (sdpa);
+        # eval -> forward_inference (flash_attn + KV cache). Force the backbone subtree into
+        # train mode every call so an external ``model.eval()`` (the standard test harness does
+        # this) cannot route us onto the flash_attn path. dropout=0.0 => numerically equivalent.
+        self.backbone.train()
         ids = input_ids.reshape(-1).to(torch.long)
         S = ids.shape[0]
         emb = self.backbone.embed_tokens(ids)  # (S, hidden)
