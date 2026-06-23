@@ -30,7 +30,12 @@ from ...config import (
     ModelTask,
     StrEnum,
 )
-from .src.utils import load_transformer, load_transformer_inputs
+from .src.utils import (
+    load_transformer,
+    load_transformer_inputs,
+    load_mmdit_transformer,
+    load_mmdit_transformer_inputs,
+)
 
 
 @dataclass
@@ -44,6 +49,8 @@ class ModelVariant(StrEnum):
     """Available Pyramid Flow variants."""
 
     MINIFLUX_768P = "miniFLUX_768p"
+    SD3_384P = "sd3_384p"
+    SD3_768P = "sd3_768p"
 
 
 class ModelLoader(ForgeModel):
@@ -61,9 +68,20 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="rain1011/pyramid-flow-miniflux",
             source=ModelSource.HUGGING_FACE,
         ),
+        ModelVariant.SD3_384P: PyramidFlowConfig(
+            pretrained_model_name="rain1011/pyramid-flow-sd3",
+            source=ModelSource.HUGGING_FACE,
+        ),
+        ModelVariant.SD3_768P: PyramidFlowConfig(
+            pretrained_model_name="rain1011/pyramid-flow-sd3",
+            source=ModelSource.HUGGING_FACE,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.MINIFLUX_768P
+
+    # Variants backed by the SD3 / MMDiT architecture (PyramidDiffusionMMDiT).
+    _MMDIT_VARIANTS = {ModelVariant.SD3_384P, ModelVariant.SD3_768P}
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -83,10 +101,14 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         dtype = dtype_override if dtype_override is not None else torch.float32
+        if self._variant in self._MMDIT_VARIANTS:
+            return load_mmdit_transformer(dtype)
         return load_transformer(dtype)
 
     def load_inputs(self, dtype_override=None, **kwargs) -> Any:
         dtype = dtype_override if dtype_override is not None else torch.float32
+        if self._variant in self._MMDIT_VARIANTS:
+            return load_mmdit_transformer_inputs(dtype)
         return load_transformer_inputs(dtype)
 
     def unpack_forward_output(self, output: Any) -> torch.Tensor:
