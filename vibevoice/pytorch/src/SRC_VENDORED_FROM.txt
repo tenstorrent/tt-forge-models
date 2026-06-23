@@ -1,0 +1,21 @@
+Source repo : https://github.com/microsoft/VibeVoice
+Ref         : 303b2833e01cff4578ec278bbfe536da54bd19fe
+Ref kind    : sha (default branch HEAD)
+Fetched     : 2026-06-22
+Entry       : vibevoice.modular.modeling_vibevoice:VibeVoiceForConditionalGeneration
+HF weights  : microsoft/VibeVoice-1.5B (config-only; bringup uses random weights)
+
+Files (model-code subset, transitively closed from the entry class):
+  - vibevoice/modular/modeling_vibevoice.py
+  - vibevoice/modular/modular_vibevoice_tokenizer.py
+  - vibevoice/modular/modular_vibevoice_diffusion_head.py
+  - vibevoice/modular/configuration_vibevoice.py
+  - vibevoice/schedule/dpm_solver.py
+  - vibevoice/{,modular,schedule}/__init__.py  (emptied; upstream inits pull in
+    streaming/processor modules + gradio/av/aiortc deps not needed for bringup)
+
+Local compat edits (transformers>=5; upstream pins transformers<5.0.0):
+  - modeling_vibevoice.py: tie_weights(self) -> tie_weights(self, *args, **kwargs)
+    (transformers>=5 init_weights passes recompute_mapping=). Marked [tt-xla bringup].
+  - AutoModel/AutoModelForCausalLM.register made idempotent (exist_ok=True) via a
+    shim in loader.py before import (transformers>=5 pre-registers the configs).
