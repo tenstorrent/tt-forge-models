@@ -84,16 +84,143 @@ _COMPONENT_IO_SPEC = {
     },
 }
 
-# ---- shard plan (uniform chip count across the pipeline) --------------------
-# n150 (7B/chip cap): transformer needs 1 (6B fits), text_encoder 2, vae 1 -> uniform 2.
-# p150 (12B/chip cap): every component fits 1 -> uniform 1 (single device).
-# Default reflects the requested --arch n150 target.
-TT_VISIBLE_DEVICES = "0,1"  # n150 x2; use "0" for p150 single device
-SHARD_SPECS = {
-    "text_encoder": {"strategy": "tensor_parallel", "mesh": [1, 2]},
-    "transformer": {"strategy": "tensor_parallel", "mesh": [1, 2]},
-    "vae": {"strategy": "data_parallel"},
-}
+# ---- tensor-parallel shard plan ---------------------------------------------
+# The transformer (~6.3 B) and text encoder (~7.7 B) do not fit a single 12 GB
+# Wormhole chip (n300 = 2 chips). They are sharded Megatron-style across the
+# "model" mesh axis: column-parallel on QKV / FFN-up (out_features split),
+# row-parallel on the output / FFN-down projections (in_features split), with an
+# all-reduce at each row-parallel output. Norms, modulation (adaLN) linears, and
+# the small in/out embedders stay replicated. The VAE (~0.08 B) fits one chip.
+#
+# Mesh axes are ("batch", "model"); for n300 the active shape is (1, 2).
+MESH_NAMES = ("batch", "model")
+MESH_SHAPES = {32: (8, 4), 8: (2, 4), 4: (1, 4), 2: (1, 2), 1: (1, 1)}
+
+
+def _add_spec(specs: dict, param: Optional[torch.Tensor], spec: tuple) -> None:
+    """Register a partition spec only for real (non-None) parameters."""
+    if param is not None:
+        specs[param] = spec
+
+
+def _shard_linear_col(specs: dict, lin) -> None:
+    """Column-parallel: split out_features across the model axis."""
+    _add_spec(specs, lin.weight, ("model", None))
+    _add_spec(specs, getattr(lin, "bias", None), ("model",))
+
+
+def _shard_linear_row(specs: dict, lin) -> None:
+    """Row-parallel: split in_features; output is all-reduced (bias replicated)."""
+    _add_spec(specs, lin.weight, (None, "model"))
+    _add_spec(specs, getattr(lin, "bias", None), (None,))
+
+
+def _replicate_norm(specs: dict, norm) -> None:
+    if norm is not None and getattr(norm, "weight", None) is not None:
+        _add_spec(specs, norm.weight, (None,))
+        _add_spec(specs, getattr(norm, "bias", None), (None,))
+
+
+def _shard_longcat_attention(attn, specs: dict) -> None:
+    """LongCatImageAttention: joint image/text MMDiT attention.
+
+    Heads are split across the model axis: image QKV (to_q/k/v) and text QKV
+    (add_*_proj) are column-parallel; the output projections (to_out[0],
+    to_add_out) are row-parallel. Per-head RMSNorms are replicated. Single-stream
+    blocks reuse the same attention module but omit to_out / the text projections
+    (their output projection lives at block level in proj_out).
+    """
+    for name in ("to_q", "to_k", "to_v", "add_q_proj", "add_k_proj", "add_v_proj"):
+        proj = getattr(attn, name, None)
+        if proj is not None:
+            _shard_linear_col(specs, proj)
+
+    to_out = getattr(attn, "to_out", None)
+    if to_out is not None:
+        out_proj = (
+            to_out[0]
+            if isinstance(to_out, (torch.nn.ModuleList, torch.nn.Sequential))
+            else to_out
+        )
+        _shard_linear_row(specs, out_proj)
+
+    if getattr(attn, "to_add_out", None) is not None:
+        _shard_linear_row(specs, attn.to_add_out)
+
+    for norm_name in ("norm_q", "norm_k", "norm_added_q", "norm_added_k"):
+        _replicate_norm(specs, getattr(attn, norm_name, None))
+
+
+def shard_transformer_specs(transformer) -> dict:
+    """Megatron-style tensor-parallel specs for LongCatImageTransformer2DModel."""
+    specs: dict = {}
+
+    # In/out embedders and final projection: small, replicated.
+    _add_spec(specs, transformer.x_embedder.weight, (None, None))
+    _add_spec(specs, getattr(transformer.x_embedder, "bias", None), (None,))
+    _add_spec(specs, transformer.context_embedder.weight, (None, None))
+    _add_spec(specs, getattr(transformer.context_embedder, "bias", None), (None,))
+    _add_spec(specs, transformer.proj_out.weight, (None, None))
+    _add_spec(specs, getattr(transformer.proj_out, "bias", None), (None,))
+
+    # Dual-stream blocks.
+    for block in transformer.transformer_blocks:
+        # adaLN modulation linears (norm1 / norm1_context) -> replicated.
+        _add_spec(specs, block.norm1.linear.weight, (None, None))
+        _add_spec(specs, getattr(block.norm1.linear, "bias", None), (None,))
+        _add_spec(specs, block.norm1_context.linear.weight, (None, None))
+        _add_spec(specs, getattr(block.norm1_context.linear, "bias", None), (None,))
+
+        _shard_longcat_attention(block.attn, specs)
+
+        # FeedForward: net[0] is GELU(proj=up Linear), net[2] is down Linear.
+        for ff in (block.ff, block.ff_context):
+            _shard_linear_col(specs, ff.net[0].proj)
+            _shard_linear_row(specs, ff.net[2])
+
+    # Single-stream blocks (fused attention + MLP).
+    for block in transformer.single_transformer_blocks:
+        _add_spec(specs, block.norm.linear.weight, (None, None))
+        _add_spec(specs, getattr(block.norm.linear, "bias", None), (None,))
+        _shard_longcat_attention(block.attn, specs)
+        # MLP up-projection (column) and the fused [attn|mlp] -> dim out (row).
+        _shard_linear_col(specs, block.proj_mlp)
+        _shard_linear_row(specs, block.proj_out)
+
+    return specs
+
+
+def shard_text_encoder_specs(text_encoder) -> dict:
+    """Megatron-style specs for the Qwen2.5-VL language-model decoder layers.
+
+    The vision tower is unused for text-only prompt encoding and stays replicated.
+    """
+    specs: dict = {}
+    lm = text_encoder
+    for attr in ("model", "language_model"):
+        if hasattr(lm, attr):
+            lm = getattr(lm, attr)
+
+    layers = getattr(lm, "layers", None)
+    if layers is None:
+        return specs
+
+    for layer in layers:
+        sa = layer.self_attn
+        for proj_name in ("q_proj", "k_proj", "v_proj"):
+            _shard_linear_col(specs, getattr(sa, proj_name))
+        _shard_linear_row(specs, sa.o_proj)
+
+        mlp = layer.mlp
+        _shard_linear_col(specs, mlp.gate_proj)
+        _shard_linear_col(specs, mlp.up_proj)
+        _shard_linear_row(specs, mlp.down_proj)
+
+        _replicate_norm(specs, getattr(layer, "input_layernorm", None))
+        _replicate_norm(specs, getattr(layer, "post_attention_layernorm", None))
+
+    _replicate_norm(specs, getattr(lm, "norm", None))
+    return specs
 
 # ---- shape constants (from captured spec) ----------------------------------
 TE_SEQ_LEN = 553
@@ -250,6 +377,34 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def get_mesh_config(self, num_devices: int):
+        """Return (mesh_shape, mesh_names) for a ("batch", "model") 2D mesh.
+
+        The VAE fits a single chip, so it maps to (1, 1) regardless of device
+        count. The transformer and text encoder shard across the model axis.
+        """
+        if self._variant == ModelVariant.VAE:
+            return (1, 1), MESH_NAMES
+        if num_devices not in MESH_SHAPES:
+            raise ValueError(
+                f"Unsupported device count: {num_devices}. "
+                f"Expected one of {sorted(MESH_SHAPES)}."
+            )
+        return MESH_SHAPES[num_devices], MESH_NAMES
+
+    def load_shard_spec(self, model):
+        """Return {parameter -> partition_spec} for tensor-parallel execution.
+
+        ``model`` is the wrapper returned by ``load_model``; the underlying
+        component is reached via ``.transformer`` / ``.text_encoder``.
+        Unlisted parameters default to replicated.
+        """
+        if self._variant == ModelVariant.TRANSFORMER:
+            return shard_transformer_specs(model.transformer)
+        if self._variant == ModelVariant.TEXT_ENCODER:
+            return shard_text_encoder_specs(model.text_encoder)
+        return None
+
     def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
         dtype = dtype_override if dtype_override is not None else DTYPE
         repo = self._variant_config.pretrained_model_name
@@ -273,7 +428,14 @@ class ModelLoader(ForgeModel):
         if self._variant == ModelVariant.VAE:
             from diffusers import AutoencoderKL
 
-            vae = AutoencoderKL.from_pretrained(repo, **_component_kwargs(dtype, "vae"))
+            # This AutoencoderKL ships force_upcast=True: diffusers always runs it
+            # in float32 even inside a bf16 pipeline. bf16 conv2d also has no
+            # optimized CPU kernel (a single decode does not finish in minutes, so
+            # the runner's CPU golden hangs), so pin the VAE to float32 on both the
+            # CPU reference and the device. dtype_override is intentionally ignored.
+            vae = AutoencoderKL.from_pretrained(
+                repo, **_component_kwargs(torch.float32, "vae")
+            )
             return _LongCatVAEDecoderWrapper(vae.eval())
 
         raise ValueError(f"Unknown variant: {self._variant}")
@@ -302,7 +464,11 @@ class ModelLoader(ForgeModel):
             return [hidden_states, timestep, encoder_hidden_states]
 
         if self._variant == ModelVariant.VAE:
-            latent = torch.randn(B, VAE_Z_CHANNELS, VAE_Z_H, VAE_Z_W, dtype=dtype)
+            # VAE is pinned to float32 (force_upcast=True; bf16 conv2d is
+            # unusably slow on CPU). Match the model dtype regardless of override.
+            latent = torch.randn(
+                B, VAE_Z_CHANNELS, VAE_Z_H, VAE_Z_W, dtype=torch.float32
+            )
             return [latent]
 
         raise ValueError(f"Unknown variant: {self._variant}")
