@@ -2,9 +2,11 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Component loaders and wrappers for HiDream-I1-Fast.
+Component loaders and wrappers for HiDream-I1-Full.
 
-Model: HiDream-ai/HiDream-I1-Fast (Sparse-MoE MM-DiT, guidance- + step-distilled)
+Model: HiDream-ai/HiDream-I1-Full (Sparse-MoE MM-DiT, full guidance / multi-step;
+the non-distilled sibling of HiDream-I1-Fast — identical architecture, sampled
+with classifier-free guidance over ~50 UniPC steps instead of 16 distilled steps)
 Components:
   - text_encoder    : CLIPTextModelWithProjection (CLIP ViT-L/14, ~0.123 B)
   - text_encoder_2  : CLIPTextModelWithProjection (OpenCLIP ViT-bigG/14, ~0.695 B)
@@ -20,12 +22,12 @@ import torch
 # Model identity
 # ---------------------------------------------------------------------------
 
-HIDREAM_REPO_ID = "HiDream-ai/HiDream-I1-Fast"
+HIDREAM_REPO_ID = "HiDream-ai/HiDream-I1-Full"
 LLAMA_REPO_ID = "meta-llama/Meta-Llama-3.1-8B-Instruct"
 DTYPE = torch.float32
 
 # ---------------------------------------------------------------------------
-# Inference shape constants (HiDream-I1-Fast @ 1024x1024)
+# Inference shape constants (HiDream-I1-Full @ 1024x1024)
 # ---------------------------------------------------------------------------
 
 HEIGHT = 1024

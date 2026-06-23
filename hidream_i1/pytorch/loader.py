@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-HiDream-I1-Fast component loader.
+HiDream-I1-Full component loader.
 
 Each variant corresponds to one independently loadable component:
   - TextEncoder    → CLIPTextModelWithProjection (CLIP ViT-L/14)         params=0.123 B
@@ -63,7 +63,7 @@ from .src.model_utils import (
 
 
 class ModelVariant(StrEnum):
-    """Loadable components of the HiDream-I1-Fast pipeline."""
+    """Loadable components of the HiDream-I1-Full pipeline."""
 
     TEXT_ENCODER = "TextEncoder"
     TEXT_ENCODER_2 = "TextEncoder2"
@@ -74,10 +74,10 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """Load individual HiDream-I1-Fast components without pulling the full pipeline.
+    """Load individual HiDream-I1-Full components without pulling the full pipeline.
 
     text_encoder, text_encoder_2, text_encoder_3, transformer, and vae weights
-    come from HiDream-ai/HiDream-I1-Fast. text_encoder_4 (Llama-3.1-8B) is loaded
+    come from HiDream-ai/HiDream-I1-Full. text_encoder_4 (Llama-3.1-8B) is loaded
     separately from the Meta repo (HiDream snapshot does not ship Llama).
     """
 
@@ -107,7 +107,7 @@ class ModelLoader(ForgeModel):
             else ModelTask.CONDITIONAL_GENERATION
         )
         return ModelInfo(
-            model="HiDreamI1Fast",
+            model="HiDreamI1Full",
             variant=variant,
             group=ModelGroup.RED,
             task=task,
