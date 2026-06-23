@@ -167,9 +167,16 @@ class ModelLoader(ForgeModel):
         if self.num_layers is None:
             self.num_layers = config.num_hidden_layers
 
-        # Load the model using the meta-loader to assign weights from the
-        # BF16 checkpoint. The unsloth mirror is keyed for the text model
-        # (model.*/lm_head.*), so no key renaming is required.
+        # The current BF16 checkpoint is a full VLM mirror, so strip the
+        # ``language_model.`` text prefix and drop vision keys to match the
+        # text-only model (revisit if the weights repo changes).
+        def _rename_key(key):
+            if key.startswith(("vision_tower.", "mm_projector.")):
+                return None
+            if key.startswith("language_model."):
+                return key[len("language_model.") :]
+            return key
+
         _log(
             f"Meta-building model and loading weights for {self.num_layers} layer(s) "
             f"from {self._BF16_WEIGHTS_REPO} "
@@ -180,6 +187,9 @@ class ModelLoader(ForgeModel):
             lambda: DeepseekV3ForCausalLM(config),
             self._BF16_WEIGHTS_REPO,
             n_layers=self.num_layers,
+            rename_key=_rename_key,
+            # Skip downloading the vision-tower / projector shards entirely.
+            drop_key_prefixes=("mtp.", "vision_tower.", "mm_projector."),
         )
         _log("Weights loaded.")
 
