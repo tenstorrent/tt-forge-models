@@ -195,9 +195,14 @@ def load_transformer_inputs(dtype: torch.dtype = DTYPE):
     prior_token_id = torch.randint(
         0, PRIOR_VOCAB_SIZE, (1, PRIOR_SEQ_LEN), dtype=torch.long, generator=gen
     )
-    prior_token_drop = torch.randint(
-        0, PRIOR_VOCAB_SIZE, (1, PRIOR_SEQ_LEN), dtype=torch.long
-    )
+    # prior_token_drop is a boolean mask consumed as `prior_embedding[prior_token_drop] *= 0`
+    # inside GlmImageTransformer2DModel.forward (the classifier-free-guidance drop of the
+    # prior conditioning). It must be a bool tensor of the same [B, seq] shape, all-False
+    # for the conditional branch -- matching the pipeline's
+    # `torch.full_like(prior_token_ids, False, dtype=torch.bool)`. An int64 tensor here is
+    # interpreted as advanced indexing into the batch dim (values up to PRIOR_VOCAB_SIZE)
+    # and raises IndexError.
+    prior_token_drop = torch.zeros(1, PRIOR_SEQ_LEN, dtype=torch.bool)
     timestep = torch.tensor([TRANSFORMER_TIMESTEP_VALUE])
     target_size = torch.tensor([list(TRANSFORMER_TARGET_SIZE)], dtype=torch.bfloat16)
     crop_coords = torch.tensor([list(TRANSFORMER_CROP_COORDS)], dtype=torch.bfloat16)
