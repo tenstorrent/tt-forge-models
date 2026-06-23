@@ -18,6 +18,7 @@ from ....config import (
     Framework,
     StrEnum,
 )
+from .src.model import Wrapper, patch_visual_dtype
 
 
 class ModelVariant(StrEnum):
@@ -132,7 +133,17 @@ class ModelLoader(ForgeModel):
             pretrained_model_name, **model_kwargs
         )
         self.config = model.config
+        # Disable KV cache so the traced graph is a single forward pass (matches
+        # the qwen_2_5_vl bringup; avoids dynamo tracing issues in this arch).
+        if hasattr(model.config, "text_config"):
+            model.config.text_config.use_cache = False
+        model.config.use_cache = False
         model.eval()
+        # Avoid the un-traceable `self.visual.dtype` property in get_image_features.
+        model = patch_visual_dtype(model)
+        # Wrap to return logits only (Qwen2.5-VL output object is not a single
+        # tensor, which the runner's output comparison requires).
+        model = Wrapper(model)
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
@@ -173,6 +184,10 @@ class ModelLoader(ForgeModel):
         for key in inputs:
             if torch.is_tensor(inputs[key]):
                 inputs[key] = inputs[key].repeat_interleave(batch_size, dim=0)
+        # Convert pixel_values to the requested dtype so it matches the model's
+        # vision tower weights (the processor returns float32 by default).
+        if dtype_override is not None and "pixel_values" in inputs:
+            inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
         return inputs
 
     def get_mesh_config(self, num_devices: int):
