@@ -2,24 +2,26 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Stable Diffusion 1.5 model loader implementation.
+Stable Diffusion 1.5 component loader.
 
-SD1.4 (``CompVis/stable-diffusion-v1-4``) and SD1.5
-(``stable-diffusion-v1-5/stable-diffusion-v1-5``) share the same
-``UNet2DConditionModel`` architecture, ``LMSDiscreteScheduler`` and CLIP
-text encoder; they only differ in pretrained weights. We still ship them
-as separate loader packages so each bringup can advance independently and
-each can carry its own ModelInfo / dashboards / status in the test runner.
+Stable Diffusion 1.5 (``stable-diffusion-v1-5/stable-diffusion-v1-5``) is a
+latent-diffusion text-to-image pipeline. It is not a single forward pass — it
+decomposes into independently compilable neural components plus host-Python
+glue (PNDM scheduler + denoising loop). Each variant here corresponds to one
+independently loadable component:
 
-``load_model`` returns the SD1.5 UNet (an ``nn.Module``) — the format the
-tt-xla model tester expects.
+  - TextEncoder → CLIPTextModel            params=0.123B
+  - Unet        → UNet2DConditionModel     params=0.860B   (denoiser)
+  - Vae         → AutoencoderKL (decoder)  params=0.084B
+
+``load_model`` returns the selected component as an ``nn.Module`` (the format
+the tt-xla model tester / composite pipeline expects). The composite pipeline
+test wires the components together with the scheduler in host Python.
 """
 
 from typing import Optional
 
 import torch
-from diffusers import LMSDiscreteScheduler, UNet2DConditionModel
-from transformers import CLIPTextModel, CLIPTokenizer
 
 from ...base import ForgeModel
 from ...config import (
@@ -31,24 +33,47 @@ from ...config import (
     ModelTask,
     StrEnum,
 )
+from .src.model_utils import (
+    CLIP_VOCAB_SIZE,
+    CROSS_ATTN_DIM,
+    DTYPE,
+    LATENT_CHANNELS,
+    LATENT_H,
+    LATENT_W,
+    SD15_REPO_ID,
+    TEXT_SEQ_LEN,
+    TextEncoderWrapper,
+    UNet2DConditionWrapper,
+    VAEDecoderWrapper,
+    load_text_encoder,
+    load_unet,
+    load_vae,
+)
 
 
 class ModelVariant(StrEnum):
-    """Available Stable Diffusion 1.5 model variants."""
+    """Loadable components of the Stable Diffusion 1.5 pipeline."""
 
-    BASE = "Base"
+    TEXT_ENCODER = "TextEncoder"
+    UNET = "Unet"
+    VAE = "Vae"
 
 
 class ModelLoader(ForgeModel):
-    """Stable Diffusion 1.5 model loader implementation."""
+    """Load individual Stable Diffusion 1.5 components without pulling the full pipeline.
+
+    All component weights come from
+    ``stable-diffusion-v1-5/stable-diffusion-v1-5`` (text_encoder / unet / vae
+    subfolders).
+    """
 
     _VARIANTS = {
-        ModelVariant.BASE: ModelConfig(
-            pretrained_model_name="stable-diffusion-v1-5/stable-diffusion-v1-5",
-        ),
+        ModelVariant.TEXT_ENCODER: ModelConfig(pretrained_model_name=SD15_REPO_ID),
+        ModelVariant.UNET: ModelConfig(pretrained_model_name=SD15_REPO_ID),
+        ModelVariant.VAE: ModelConfig(pretrained_model_name=SD15_REPO_ID),
     }
 
-    DEFAULT_VARIANT = ModelVariant.BASE
+    DEFAULT_VARIANT = ModelVariant.UNET
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with the requested variant.
@@ -60,74 +85,67 @@ class ModelLoader(ForgeModel):
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
+        if variant is None:
+            variant = cls.DEFAULT_VARIANT
+        task = (
+            ModelTask.NLP_EMBED_GEN
+            if variant == ModelVariant.TEXT_ENCODER
+            else ModelTask.CONDITIONAL_GENERATION
+        )
         return ModelInfo(
             model="Stable Diffusion 1.5",
             variant=variant,
             group=ModelGroup.GENERALITY,
-            task=ModelTask.CONDITIONAL_GENERATION,
+            task=task,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the SD1.5 UNet.
-
-        Args:
-            dtype_override: Optional ``torch.dtype`` for the UNet weights;
-                defaults to ``torch.bfloat16`` to match TT execution.
+    def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
+        """Load and return the component for this variant as a ``torch.nn.Module``.
 
         Returns:
-            torch.nn.Module: The ``UNet2DConditionModel`` instance for SD1.5.
+            TEXT_ENCODER → TextEncoderWrapper       (returns last_hidden_state)
+            UNET         → UNet2DConditionWrapper   (returns noise_pred)
+            VAE          → VAEDecoderWrapper         (returns decoded image)
         """
-        dtype = dtype_override or torch.bfloat16
+        model_name = self._variant_config.pretrained_model_name
+        dtype = dtype_override if dtype_override is not None else DTYPE
 
-        self.tokenizer = CLIPTokenizer.from_pretrained(
-            "openai/clip-vit-large-patch14", **kwargs
-        )
-        self.text_encoder = CLIPTextModel.from_pretrained(
-            "openai/clip-vit-large-patch14", **kwargs
-        )
-        unet = UNet2DConditionModel.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            subfolder="unet",
-            torch_dtype=dtype,
-            **kwargs,
-        )
-        self.scheduler = LMSDiscreteScheduler.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            subfolder="scheduler",
-            **kwargs,
-        )
+        if self._variant == ModelVariant.TEXT_ENCODER:
+            return TextEncoderWrapper(load_text_encoder(model_name, dtype))
+        if self._variant == ModelVariant.UNET:
+            return UNet2DConditionWrapper(load_unet(model_name, dtype))
+        if self._variant == ModelVariant.VAE:
+            return VAEDecoderWrapper(load_vae(model_name, dtype))
 
-        self.in_channels = unet.in_channels
-        return unet
+        raise ValueError(f"Unknown variant: {self._variant}")
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
-        """Return a single-step UNet sample input batch for SD1.5.
+    def load_inputs(self, dtype_override: Optional[torch.dtype] = None, **kwargs):
+        """Return a list of synthetic input tensors for the active component.
 
-        Args:
-            dtype_override: Optional ``torch.dtype``; defaults to ``torch.bfloat16``.
-            batch_size: Repetition factor for the prompt.
-
-        Returns:
-            dict: ``{"sample": …, "timestep": 0, "encoder_hidden_states": …}``.
+        TEXT_ENCODER → [input_ids (1,77) int64]
+        UNET         → [sample (1,4,64,64), timestep scalar, encoder_hidden_states (1,77,768)]
+        VAE          → [z (1,4,64,64)]
         """
-        dtype = dtype_override or torch.bfloat16
+        dtype = dtype_override if dtype_override is not None else DTYPE
 
-        prompt = ["A fantasy landscape with mountains and rivers"] * batch_size
-        text_input = self.tokenizer(prompt, return_tensors="pt")
-        text_embeddings = self.text_encoder(text_input.input_ids)[0]
+        if self._variant == ModelVariant.TEXT_ENCODER:
+            input_ids = torch.randint(
+                0, CLIP_VOCAB_SIZE, (1, TEXT_SEQ_LEN), dtype=torch.long
+            )
+            return [input_ids]
 
-        height, width = 512, 512
-        latents = torch.randn((batch_size, self.in_channels, height // 8, width // 8))
+        if self._variant == ModelVariant.UNET:
+            sample = torch.randn(1, LATENT_CHANNELS, LATENT_H, LATENT_W, dtype=dtype)
+            timestep = torch.tensor(1.0, dtype=dtype)
+            encoder_hidden_states = torch.randn(
+                1, TEXT_SEQ_LEN, CROSS_ATTN_DIM, dtype=dtype
+            )
+            return [sample, timestep, encoder_hidden_states]
 
-        num_inference_steps = 1
-        self.scheduler.set_timesteps(num_inference_steps)
-        latents = latents * self.scheduler.init_noise_sigma
-        latent_model_input = self.scheduler.scale_model_input(latents, 0)
+        if self._variant == ModelVariant.VAE:
+            z = torch.randn(1, LATENT_CHANNELS, LATENT_H, LATENT_W, dtype=dtype)
+            return [z]
 
-        return {
-            "sample": latent_model_input.to(dtype),
-            "timestep": 0,
-            "encoder_hidden_states": text_embeddings.to(dtype),
-        }
+        raise ValueError(f"Unknown variant: {self._variant}")
