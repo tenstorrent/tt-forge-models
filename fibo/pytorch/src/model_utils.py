@@ -92,6 +92,8 @@ def capture_transformer_inputs(
     negative_prompt: Optional[str] = None,
     num_inference_steps: int = DEFAULT_NUM_INFERENCE_STEPS,
     guidance_scale: float = DEFAULT_GUIDANCE_SCALE,
+    height: Optional[int] = None,
+    width: Optional[int] = None,
     seed: int = 42,
 ) -> Dict[str, Any]:
     """Drive ``pipe(prompt=...)`` for one transformer step and capture inputs.
@@ -114,10 +116,11 @@ def capture_transformer_inputs(
     original_forward = pipe.transformer.forward
 
     def patched_forward(*args, **kwargs):
+        # Capture inputs and abort *before* running the (expensive) denoiser
+        # forward — only the args/kwargs are needed to build loader inputs, and
+        # running the real CPU forward at native resolution costs many minutes.
         capture["args"] = args
         capture["kwargs"] = kwargs
-        out = original_forward(*args, **kwargs)
-        capture["output"] = out
         raise _ShortCircuit()
 
     pipe.transformer.forward = patched_forward
@@ -125,7 +128,7 @@ def capture_transformer_inputs(
         generator = torch.Generator(device="cpu").manual_seed(seed)
         with torch.no_grad():
             try:
-                pipe(
+                pipe_kwargs = dict(
                     prompt=prompt,
                     negative_prompt=negative_prompt,
                     num_inference_steps=num_inference_steps,
@@ -133,6 +136,11 @@ def capture_transformer_inputs(
                     generator=generator,
                     output_type="latent",
                 )
+                if height is not None:
+                    pipe_kwargs["height"] = height
+                if width is not None:
+                    pipe_kwargs["width"] = width
+                pipe(**pipe_kwargs)
             except _ShortCircuit:
                 pass
     finally:

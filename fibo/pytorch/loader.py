@@ -69,6 +69,15 @@ class ModelLoader(ForgeModel):
     # on structured captions but the pipeline tokenizes via SmolLM3 either way.
     prompt = BRINGUP_PROMPT
 
+    # Resolution used when capturing the denoiser inputs for the on-device
+    # component test. FIBO's native resolution is 1024x1024 (4096 image
+    # tokens); a full native-resolution forward of the 8.3B DiT is impractical
+    # to compile and PCC-check on a single chip within a CI wall clock, so the
+    # component test uses a smaller-but-representative resolution (mirroring the
+    # flux loader, which tests its denoiser at 128x128). The composite pipeline
+    # generation runs at the true native 1024x1024.
+    capture_image_size = 512
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize the loader for the given FIBO variant.
 
@@ -78,8 +87,12 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.pipe = None
         self._capture = None
-        # FIBO inherits guidance_scale=5.0 from the model card's Generate example.
-        self.guidance_scale = 5.0
+        # The model card's Generate example uses guidance_scale=5.0 (classifier-
+        # free guidance), which doubles the transformer batch to 2. For a single-
+        # component device bringup we capture with guidance_scale=1.0 so the
+        # denoiser runs at batch 1, halving activation memory on a single chip.
+        # The composite generation still uses guidance_scale=5.0.
+        self.guidance_scale = 1.0
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -112,6 +125,8 @@ class ModelLoader(ForgeModel):
             self.pipe,
             prompt=self.prompt,
             guidance_scale=self.guidance_scale,
+            height=self.capture_image_size,
+            width=self.capture_image_size,
         )
         return self._capture
 
