@@ -45,8 +45,16 @@ LATENT_PACKED_SEQ = LATENT_GRID_H * LATENT_GRID_W
 # Packed latent channels before VAE decode (num_latents_channels * 4)
 VAE_LATENT_C = TRANSFORMER_IN_CHANNELS
 
-# (batch, model) mesh shapes by device count
-MESH_SHAPES = {32: (8, 4), 8: (2, 4), 4: (1, 4), 2: (1, 2), 1: (1, 1)}
+# (batch, model) mesh shapes by device count.
+#
+# The shard specs below partition weights only along the "model" axis, and the
+# component tests run a single sample (batch == 1). A non-trivial "batch" axis
+# therefore shards nothing and merely replicates the full model across that axis,
+# which caps effective model-parallelism and OOMs large encoders/transformers
+# (e.g. (2, 4) gives only 4-way weight sharding on 8 chips → the ~47 GB bf16
+# text encoder needs ~14 GB/device and runs out of DRAM). Put every device on
+# the "model" axis so weights shard across all of them.
+MESH_SHAPES = {32: (1, 32), 8: (1, 8), 4: (1, 4), 2: (1, 2), 1: (1, 1)}
 MESH_NAMES = ("batch", "model")
 
 
@@ -251,14 +259,38 @@ def _add_shard_spec(specs: dict, param: torch.Tensor | None, spec: tuple) -> Non
         specs[param] = spec
 
 
+def _resolve_text_transformer(encoder):
+    """Descend wrapper modules until reaching the decoder stack that owns `.layers`.
+
+    Mistral3ForConditionalGeneration nests the actual transformer as
+    ``encoder.model.language_model`` (Mistral3Model wraps a vision tower +
+    language model). The decoder block stack — the module that exposes
+    ``layers``/``embed_tokens`` — lives below those wrappers, so walk through the
+    common wrapper attributes until we find it. Returns the wrapper found last if
+    no `.layers` exists (e.g. a bare decoder passed directly).
+
+    The descent has no fixed depth: it keeps unwrapping until it reaches a module
+    with ``.layers`` or one that exposes none of the known wrapper attributes. A
+    ``visited`` set guards against pathological self-referential modules.
+    """
+    module = encoder
+    visited = {id(module)}
+    while not hasattr(module, "layers"):
+        for attr in ("language_model", "model", "text_model"):
+            inner = getattr(module, attr, None)
+            if inner is not None and id(inner) not in visited:
+                module = inner
+                visited.add(id(module))
+                break
+        else:
+            break
+    return module
+
+
 def shard_text_encoder_specs(encoder) -> dict:
     """Shard Mistral3 / language-model blocks (column/row parallel)."""
     specs = {}
-    language_model = encoder
-    if hasattr(language_model, "language_model"):
-        language_model = language_model.language_model
-    if hasattr(language_model, "model"):
-        language_model = language_model.model
+    language_model = _resolve_text_transformer(encoder)
 
     if hasattr(language_model, "embed_tokens"):
         specs[language_model.embed_tokens.weight] = (None, None)
