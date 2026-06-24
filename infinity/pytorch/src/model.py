@@ -3039,7 +3039,11 @@ class Infinity(nn.Module):
                 label_B_or_BLT=label_B_or_BLT, scale_schedule=scale_schedule, **kwargs
             )
 
-        _model_dtype = next(self.parameters()).dtype
+        # NOTE: `next(self.parameters()).dtype` breaks TorchDynamo tracing
+        # (InternalTorchDynamoError on the parameters() generator). Read the
+        # dtype from a concrete always-present parameter instead -- equivalent
+        # value, but a plain attribute access that traces cleanly.
+        _model_dtype = self.word_embed.weight.dtype
         x_BLC_wo_prefix = x_BLC_wo_prefix.to(_model_dtype)
         B = x_BLC_wo_prefix.shape[0]
         with torch.amp.autocast("cuda", enabled=False):
