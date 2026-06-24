@@ -31,6 +31,7 @@ class ModelVariant(StrEnum):
     """Available Gemma4 model variants for causal LM."""
 
     GEMMA_4_12B = "12B"
+    GEMMA_4_26B_A4B_IT = "26B-A4B-it"
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +40,16 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GEMMA_4_12B: LLMModelConfig(
             pretrained_model_name="google/gemma-4-12B",
+            max_length=256,
+        ),
+        # google/gemma-4-26B-A4B-it is a Gemma4ForConditionalGeneration
+        # (image-text-to-text) instruct checkpoint. Its text decoder is a
+        # sparse MoE (128 experts, top-8, ~4B active of 26B total) with the
+        # 5:1 sliding/full attention pattern shared by the Gemma 4 family.
+        # As with the 12B variant we bring up only the text-only causal-LM
+        # path (input_ids + attention_mask); the vision tower is out of scope.
+        ModelVariant.GEMMA_4_26B_A4B_IT: LLMModelConfig(
+            pretrained_model_name="google/gemma-4-26B-A4B-it",
             max_length=256,
         ),
     }
