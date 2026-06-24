@@ -5,7 +5,12 @@
 Qwen 2.5 VL model loader implementation for vision-language tasks.
 """
 import torch
-from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, AwqConfig
+from transformers import (
+    Qwen2_5_VLForConditionalGeneration,
+    AutoProcessor,
+    AutoConfig,
+    AwqConfig,
+)
 from typing import Optional
 
 
@@ -71,9 +76,9 @@ class ModelLoader(ForgeModel):
         }
     ]
 
-    # Vision processing parameters
+    # Vision processing parameters.
     min_pixels = 56 * 56
-    max_pixels = 13 * 28 * 1280
+    max_pixels = 25 * 28 * 28
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
@@ -84,6 +89,7 @@ class ModelLoader(ForgeModel):
         """
         super().__init__(variant)
         self.processor = None
+        self.config = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -204,3 +210,61 @@ class ModelLoader(ForgeModel):
             inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
 
         return inputs
+
+    def load_config(self):
+        """Load and return the Qwen 2.5 VL config for the current variant.
+
+        Returns:
+            The Qwen2_5_VLConfig (has nested ``text_config`` / ``vision_config``).
+        """
+        self.config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name
+        )
+        return self.config
+
+    def get_mesh_config(self, num_devices: int):
+        """Mesh shape for tensor-parallel runs (shards the language model).
+
+        Mirrors the text-only qwen_2_5 loader but reads the head count from the
+        nested ``text_config`` of the VL config.
+        """
+        if self.config is None:
+            self.load_config()
+        num_heads = self.config.text_config.num_attention_heads
+
+        # Prefer (1, N) when heads divide N, otherwise try (2, N/2).
+        if num_devices == 32:  # Galaxy
+            mesh_shape = (8, 4)
+        elif num_heads % num_devices == 0:
+            mesh_shape = (1, num_devices)
+        elif num_heads % (num_devices // 2) == 0 and num_devices % 2 == 0:
+            mesh_shape = (2, num_devices // 2)
+        else:
+            raise ValueError(
+                f"Cannot evenly distribute {num_heads} heads across {num_devices} devices"
+            )
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        """Tensor-parallel shard spec on a ("batch", "model") mesh."""
+        # Unwrap Wrapper -> Qwen2_5_VLForConditionalGeneration -> Qwen2_5_VLModel.
+        hf = getattr(model, "model", model)
+        inner = getattr(hf, "model", hf)
+        text_model = getattr(inner, "language_model", inner)
+
+        shard_specs = {}
+        for layer in text_model.layers:
+            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+
+            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.q_proj.bias] = ("model",)
+            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.k_proj.bias] = ("model",)
+            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.v_proj.bias] = ("model",)
+            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+        shard_specs[hf.lm_head.weight] = ("model", "batch")
+
+        return shard_specs
