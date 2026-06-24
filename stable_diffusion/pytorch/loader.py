@@ -21,18 +21,22 @@ from .src.model_utils import load_pipe, stable_diffusion_preprocessing_v35
 
 
 class ModelVariant(StrEnum):
-    """Available Stable Diffusion v3.5 model variants."""
+    """Available Stable Diffusion v3.x model variants."""
 
+    STABLE_DIFFUSION_3_MEDIUM = "3_Medium"
     STABLE_DIFFUSION_3_5_MEDIUM = "3.5_Medium"
     STABLE_DIFFUSION_3_5_LARGE = "3.5_Large"
     STABLE_DIFFUSION_3_5_LARGE_TURBO = "3.5_Large_Turbo"
 
 
 class ModelLoader(ForgeModel):
-    """Stable Diffusion v3.5 model loader implementation."""
+    """Stable Diffusion v3.x model loader implementation."""
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
+        ModelVariant.STABLE_DIFFUSION_3_MEDIUM: ModelConfig(
+            pretrained_model_name="stable-diffusion-3-medium-diffusers",
+        ),
         ModelVariant.STABLE_DIFFUSION_3_5_MEDIUM: ModelConfig(
             pretrained_model_name="stable-diffusion-3.5-medium",
         ),
@@ -95,12 +99,13 @@ class ModelLoader(ForgeModel):
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        # Load the pipeline
-        self.pipeline = load_pipe(pretrained_model_name)
-
-        # Apply dtype conversion if specified
+        # Load the pipeline. When a dtype override is given, load the weights
+        # directly in that dtype so peak host RAM stays low enough to hold the
+        # full pipeline (the T5-XXL text encoder alone is ~4.7B params).
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            self.pipeline = load_pipe(pretrained_model_name, torch_dtype=dtype_override)
+        else:
+            self.pipeline = load_pipe(pretrained_model_name)
 
         return self.pipeline
 
