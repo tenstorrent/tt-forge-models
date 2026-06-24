@@ -229,7 +229,6 @@ class ModelLoader(ForgeModel):
             ModelVariant.FALCON_7B,
             ModelVariant.FALCON_10B,
             ModelVariant.FALCON_40B_INSTRUCT,
-            ModelVariant.FALCON_180B_CHAT,
         ]
         if shard_attention:
             assert (
