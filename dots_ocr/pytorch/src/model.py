@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
+"""
+dots.ocr model wrapper for extracting logits from model outputs.
+
+The runner feeds the loader's ``load_inputs`` dict to the model as keyword
+arguments and expects a single tensor back, so this wrapper maps the
+processor's outputs onto ``DotsOCRForCausalLM.forward`` and returns the logits.
+See https://github.com/tenstorrent/tt-xla/issues/1661.
+"""
+
+import torch
+
+
+class Wrapper(torch.nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(
+        self,
+        input_ids,
+        attention_mask,
+        pixel_values,
+        image_grid_thw,
+    ):
+        outputs = self.model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            pixel_values=pixel_values,
+            image_grid_thw=image_grid_thw,
+            use_cache=False,
+        )
+        return outputs.logits
