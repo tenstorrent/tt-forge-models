@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available SeamlessM4T model variants."""
 
     LARGE = "Large"
+    LARGE_V2 = "Large_v2"
 
 
 class ModelLoader(ForgeModel):
@@ -35,10 +36,18 @@ class ModelLoader(ForgeModel):
         ModelVariant.LARGE: ModelConfig(
             pretrained_model_name="facebook/hf-seamless-m4t-large",
         ),
+        ModelVariant.LARGE_V2: ModelConfig(
+            pretrained_model_name="facebook/seamless-m4t-v2-large",
+        ),
     }
 
     # Default variant to use
     DEFAULT_VARIANT = ModelVariant.LARGE
+
+    @property
+    def _is_v2(self) -> bool:
+        """Whether the current variant is a SeamlessM4T v2 checkpoint."""
+        return self._variant == ModelVariant.LARGE_V2
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
@@ -78,12 +87,17 @@ class ModelLoader(ForgeModel):
         Returns:
             tuple: (processor, config) instances
         """
-        from transformers import AutoProcessor, SeamlessM4TConfig
+        from transformers import (
+            AutoProcessor,
+            SeamlessM4TConfig,
+            SeamlessM4Tv2Config,
+        )
 
         model_name = self._variant_config.pretrained_model_name
+        config_cls = SeamlessM4Tv2Config if self._is_v2 else SeamlessM4TConfig
 
         # Load config and processor
-        self.config = SeamlessM4TConfig.from_pretrained(model_name)
+        self.config = config_cls.from_pretrained(model_name)
         self.processor = AutoProcessor.from_pretrained(model_name)
 
         return self.processor, self.config
@@ -98,17 +112,18 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The SeamlessM4T text decoder submodule.
         """
-        from transformers import SeamlessM4TModel
+        from transformers import SeamlessM4TModel, SeamlessM4Tv2Model
 
         # Get the pretrained model name from the instance's variant config
         model_name = self._variant_config.pretrained_model_name
+        model_cls = SeamlessM4Tv2Model if self._is_v2 else SeamlessM4TModel
 
         # Ensure processor and config are loaded
         if self.processor is None or self.config is None:
             self._load_processor_and_config()
 
         # Load full model
-        self.full_model = SeamlessM4TModel.from_pretrained(
+        self.full_model = model_cls.from_pretrained(
             model_name, config=self.config, **kwargs
         )
 
@@ -127,6 +142,8 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input arguments that can be fed to the text decoder.
         """
+        import wave
+        import numpy as np
         import torchaudio
 
         # Ensure processor and full model are loaded
@@ -135,20 +152,30 @@ class ModelLoader(ForgeModel):
                 "Model and processor must be loaded before loading inputs"
             )
 
-        # Load and format audio input
+        # Load and format audio input. Decode the PCM WAV with the stdlib `wave`
+        # module rather than `torchaudio.load`, which in newer torchaudio routes
+        # through torchcodec/FFmpeg shared libraries that may be absent.
         url = "https://courses.cs.duke.edu/cps001/spring06/class/06_Sound/sounds/preamble.wav"
         with urllib.request.urlopen(url) as response:
             audio_data = response.read()
-        audio_buffer = io.BytesIO(audio_data)
-        audio, orig_freq = torchaudio.load(audio_buffer)
+        with wave.open(io.BytesIO(audio_data), "rb") as wav:
+            orig_freq = wav.getframerate()
+            n_channels = wav.getnchannels()
+            frames = wav.readframes(wav.getnframes())
+        # 16-bit signed PCM -> float32 in [-1, 1], shape [channels, samples]
+        samples = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+        samples = samples.reshape(-1, n_channels).T
+        audio = torch.from_numpy(samples.copy())
 
-        # Resample audio
+        # Resample audio (torchaudio.functional.resample is pure-torch)
         audio = torchaudio.functional.resample(
             audio, orig_freq=orig_freq, new_freq=16_000
         )
 
         # Process audio
-        audio_inputs = self.processor(audios=audio, return_tensors="pt")
+        audio_inputs = self.processor(
+            audio=audio, sampling_rate=16_000, return_tensors="pt"
+        )
 
         # Run encoder to get encoder_hidden_states
         encoder_outputs = self.full_model.speech_encoder(
