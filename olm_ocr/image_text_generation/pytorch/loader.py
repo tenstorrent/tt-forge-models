@@ -177,61 +177,76 @@ class ModelLoader(ForgeModel):
 
     def get_mesh_config(self, num_devices: int):
 
+        # Qwen2.5-VL based variants (e.g. olmOCR-2) nest the language-model
+        # attention head count under config.text_config rather than exposing it
+        # at the top level, so fall back to the text sub-config when needed.
+        num_attention_heads = getattr(self.config, "num_attention_heads", None)
+        if num_attention_heads is None:
+            text_config = getattr(self.config, "text_config", None)
+            num_attention_heads = getattr(text_config, "num_attention_heads", None)
+        if num_attention_heads is None:
+            raise ValueError("Could not determine num_attention_heads from config")
+
         # Prefer (1, N) when heads divide N, otherwise try (2, N/2)
-        if self.config.num_attention_heads % num_devices == 0:
+        if num_attention_heads % num_devices == 0:
             mesh_shape = (1, num_devices)
-        elif (
-            self.config.num_attention_heads % (num_devices // 2) == 0
-            and num_devices % 2 == 0
-        ):
+        elif num_attention_heads % (num_devices // 2) == 0 and num_devices % 2 == 0:
             mesh_shape = (2, num_devices // 2)
         else:
             raise ValueError(
-                f"Cannot evenly distribute {self.config.num_attention_heads} heads across {num_devices} devices"
+                f"Cannot evenly distribute {num_attention_heads} heads across {num_devices} devices"
             )
         return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
         shard_specs = {}
+
+        def add(tensor, spec):
+            # Some projections (e.g. the language model's o_proj and lm_head, and
+            # the SwiGLU MLP) are bias-free, so the corresponding attribute is
+            # None. Skip those so we never hand a None tensor to mark_sharding.
+            if tensor is not None:
+                shard_specs[tensor] = spec
+
         if self._variant == ModelVariant.OLM_OCR_7B_0225_Preview:
             for layer in model.model.visual.blocks:
-                shard_specs[layer.attn.qkv.weight] = ("model", "batch")
-                shard_specs[layer.attn.qkv.bias] = ("model",)
-                shard_specs[layer.attn.proj.weight] = ("model", "batch")
-                shard_specs[layer.attn.proj.bias] = ("model",)
+                add(layer.attn.qkv.weight, ("model", "batch"))
+                add(layer.attn.qkv.bias, ("model",))
+                add(layer.attn.proj.weight, ("model", "batch"))
+                add(layer.attn.proj.bias, ("model",))
 
-                shard_specs[layer.mlp.fc1.weight] = ("model", "batch")
-                shard_specs[layer.mlp.fc1.bias] = ("model",)
-                shard_specs[layer.mlp.fc2.weight] = ("model", "batch")
-                shard_specs[layer.mlp.fc2.bias] = ("model",)
+                add(layer.mlp.fc1.weight, ("model", "batch"))
+                add(layer.mlp.fc1.bias, ("model",))
+                add(layer.mlp.fc2.weight, ("model", "batch"))
+                add(layer.mlp.fc2.bias, ("model",))
         else:
             for layer in model.model.visual.blocks:
-                shard_specs[layer.attn.qkv.weight] = ("model", "batch")
-                shard_specs[layer.attn.qkv.bias] = ("model",)
-                shard_specs[layer.attn.proj.weight] = ("model", "batch")
-                shard_specs[layer.attn.proj.bias] = ("model",)
+                add(layer.attn.qkv.weight, ("model", "batch"))
+                add(layer.attn.qkv.bias, ("model",))
+                add(layer.attn.proj.weight, ("model", "batch"))
+                add(layer.attn.proj.bias, ("model",))
 
-                shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-                shard_specs[layer.mlp.gate_proj.bias] = ("model",)
-                shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-                shard_specs[layer.mlp.up_proj.bias] = ("model",)
-                shard_specs[layer.mlp.down_proj.weight] = ("model", "batch")
-                shard_specs[layer.mlp.down_proj.bias] = ("model",)
+                add(layer.mlp.gate_proj.weight, ("model", "batch"))
+                add(layer.mlp.gate_proj.bias, ("model",))
+                add(layer.mlp.up_proj.weight, ("model", "batch"))
+                add(layer.mlp.up_proj.bias, ("model",))
+                add(layer.mlp.down_proj.weight, ("model", "batch"))
+                add(layer.mlp.down_proj.bias, ("model",))
 
         for layer in model.model.language_model.layers:
-            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.q_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.k_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
-            shard_specs[layer.self_attn.v_proj.bias] = ("model",)
-            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
-            shard_specs[layer.self_attn.o_proj.bias] = ("model",)
+            add(layer.self_attn.q_proj.weight, ("model", "batch"))
+            add(layer.self_attn.q_proj.bias, ("model",))
+            add(layer.self_attn.k_proj.weight, ("model", "batch"))
+            add(layer.self_attn.k_proj.bias, ("model",))
+            add(layer.self_attn.v_proj.weight, ("model", "batch"))
+            add(layer.self_attn.v_proj.bias, ("model",))
+            add(layer.self_attn.o_proj.weight, ("batch", "model"))
+            add(layer.self_attn.o_proj.bias, ("model",))
 
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
-        shard_specs[model.lm_head.weight] = ("model", "batch")
+            add(layer.mlp.up_proj.weight, ("model", "batch"))
+            add(layer.mlp.gate_proj.weight, ("model", "batch"))
+            add(layer.mlp.down_proj.weight, ("batch", "model"))
+        add(model.lm_head.weight, ("model", "batch"))
 
         return shard_specs
 
