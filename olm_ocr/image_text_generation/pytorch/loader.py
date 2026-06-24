@@ -9,6 +9,7 @@ from transformers import AutoProcessor, AutoModelForImageTextToText, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
+from .utils import _install_dynamo_safe_param_props
 from ....config import (
     LLMModelConfig,
     ModelInfo,
@@ -133,6 +134,11 @@ class ModelLoader(ForgeModel):
         )
         self.config = model.config
         model.eval()
+        # torch 2.10 Dynamo's wrap_values() crashes when tracing .parameters();
+        # Qwen2.5-VL's forward reads self.visual.dtype (a property over
+        # .parameters()) to cast pixel_values. Route dtype/device through
+        # named_parameters() so the trace succeeds. See utils.py.
+        model = _install_dynamo_safe_param_props(model)
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
