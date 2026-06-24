@@ -3,20 +3,24 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Pyramid Flow model loader for tt_forge_models.
+Pyramid Flow SD3 (text-to-video) component loader.
 
-Pyramid Flow is an autoregressive video generation model based on flow matching.
-Repository: https://github.com/jy0205/Pyramid-Flow
-Model: https://huggingface.co/rain1011/pyramid-flow-miniflux
+`rain1011/pyramid-flow-sd3` is an autoregressive flow-matching video model with
+the Stable-Diffusion-3 component layout. Each variant corresponds to one
+independently-compilable component of the pipeline:
 
-Pyramid Flow has no diffusers integration, so the model code is vendored in
-`src/flux_modules/` (verbatim from upstream, with the `trainer_misc` sequence-
-parallel imports replaced by a local stub). This loader exposes the
-PyramidFluxTransformer DiT for compilation / op-coverage error analysis.
+  - TextEncoder    -> CLIP-L  (CLIPTextModelWithProjection)   params=0.12B
+  - TextEncoder2   -> CLIP-G  (CLIPTextModelWithProjection)   params=0.69B
+  - TextEncoder3   -> T5-XXL  (T5EncoderModel)                params=4.76B
+  - Transformer    -> PyramidDiffusionMMDiT (SD3 MMDiT)       params=0.84B
+  - Vae            -> CausalVideoVAE (decoder)                params=0.39B
+
+The MMDiT denoiser is the heavy compute target and must run on device. Its
+model code is vendored under `src/mmdit_modules/`; real pretrained weights are
+loaded for every component.
 """
 
-from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Optional
 
 import torch
 
@@ -30,40 +34,43 @@ from ...config import (
     ModelTask,
     StrEnum,
 )
-from .src.utils import load_transformer, load_transformer_inputs
+from .src.utils import (
+    REPO_ID,
+    load_text_encoder,
+    load_text_encoder_2,
+    load_text_encoder_3,
+    load_text_encoder_inputs,
+    load_text_encoder_2_inputs,
+    load_text_encoder_3_inputs,
+    load_transformer,
+    load_transformer_inputs,
+)
 
-
-@dataclass
-class PyramidFlowConfig(ModelConfig):
-    """Configuration for Pyramid Flow variants."""
-
-    source: ModelSource
+# Device default precision for this pipeline.
+DTYPE = torch.bfloat16
 
 
 class ModelVariant(StrEnum):
-    """Available Pyramid Flow variants."""
+    """Loadable components of the Pyramid Flow SD3 pipeline."""
 
-    MINIFLUX_768P = "miniFLUX_768p"
+    TEXT_ENCODER = "TextEncoder"
+    TEXT_ENCODER_2 = "TextEncoder2"
+    TEXT_ENCODER_3 = "TextEncoder3"
+    TRANSFORMER = "Transformer"
+    VAE = "Vae"
 
 
 class ModelLoader(ForgeModel):
-    """
-    Loader for Pyramid Flow miniFLUX DiT (768p).
-
-    Loads only the PyramidFluxTransformer with random weights. The full
-    pipeline (text encoder + VAE + scheduler) lives in upstream
-    `pyramid_dit.PyramidDiTForVideoGeneration` and is CUDA-only; the DiT
-    component is the relevant target for tt-xla compilation tests.
-    """
+    """Load individual Pyramid Flow SD3 components without the full pipeline."""
 
     _VARIANTS = {
-        ModelVariant.MINIFLUX_768P: PyramidFlowConfig(
-            pretrained_model_name="rain1011/pyramid-flow-miniflux",
-            source=ModelSource.HUGGING_FACE,
-        ),
+        ModelVariant.TEXT_ENCODER: ModelConfig(pretrained_model_name=REPO_ID),
+        ModelVariant.TEXT_ENCODER_2: ModelConfig(pretrained_model_name=REPO_ID),
+        ModelVariant.TEXT_ENCODER_3: ModelConfig(pretrained_model_name=REPO_ID),
+        ModelVariant.TRANSFORMER: ModelConfig(pretrained_model_name=REPO_ID),
+        ModelVariant.VAE: ModelConfig(pretrained_model_name=REPO_ID),
     }
-
-    DEFAULT_VARIANT = ModelVariant.MINIFLUX_768P
+    DEFAULT_VARIANT = ModelVariant.TRANSFORMER
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -72,30 +79,75 @@ class ModelLoader(ForgeModel):
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         if variant is None:
             variant = cls.DEFAULT_VARIANT
+        task = (
+            ModelTask.NLP_EMBED_GEN
+            if variant
+            in (
+                ModelVariant.TEXT_ENCODER,
+                ModelVariant.TEXT_ENCODER_2,
+                ModelVariant.TEXT_ENCODER_3,
+            )
+            else ModelTask.MM_VIDEO_TTT
+        )
         return ModelInfo(
-            model="PyramidFlow",
+            model="PyramidFlowSD3",
             variant=variant,
-            group=ModelGroup.PRIORITY,
-            task=ModelTask.MM_VIDEO_TTT,
-            source=cls._VARIANTS[variant].source,
+            group=ModelGroup.GENERALITY,
+            task=task,
+            source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
-        dtype = dtype_override if dtype_override is not None else torch.float32
-        return load_transformer(dtype)
+    def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
+        """Load and return the component for this variant as a torch.nn.Module."""
+        dtype = dtype_override if dtype_override is not None else DTYPE
 
-    def load_inputs(self, dtype_override=None, **kwargs) -> Any:
-        dtype = dtype_override if dtype_override is not None else torch.float32
-        return load_transformer_inputs(dtype)
+        if self._variant == ModelVariant.TEXT_ENCODER:
+            return load_text_encoder(dtype)
+        if self._variant == ModelVariant.TEXT_ENCODER_2:
+            return load_text_encoder_2(dtype)
+        if self._variant == ModelVariant.TEXT_ENCODER_3:
+            return load_text_encoder_3(dtype)
+        if self._variant == ModelVariant.TRANSFORMER:
+            return load_transformer(dtype)
+        if self._variant == ModelVariant.VAE:
+            from .src.vae_utils import load_vae
 
-    def unpack_forward_output(self, output: Any) -> torch.Tensor:
-        # PyramidFluxTransformer returns a list of per-stage tensors; expose
-        # the first stage so the comparison harness sees a single tensor.
-        if isinstance(output, list):
-            return output[0]
+            return load_vae(dtype)
+
+        raise ValueError(f"Unknown variant: {self._variant}")
+
+    def load_inputs(self, dtype_override: Optional[torch.dtype] = None, **kwargs):
+        """Return a dict of synthetic inputs for the active component."""
+        dtype = dtype_override if dtype_override is not None else DTYPE
+
+        if self._variant == ModelVariant.TEXT_ENCODER:
+            return load_text_encoder_inputs(dtype)
+        if self._variant == ModelVariant.TEXT_ENCODER_2:
+            return load_text_encoder_2_inputs(dtype)
+        if self._variant == ModelVariant.TEXT_ENCODER_3:
+            return load_text_encoder_3_inputs(dtype)
+        if self._variant == ModelVariant.TRANSFORMER:
+            return load_transformer_inputs(dtype)
+        if self._variant == ModelVariant.VAE:
+            from .src.vae_utils import load_vae_inputs
+
+            return load_vae_inputs(dtype)
+
+        raise ValueError(f"Unknown variant: {self._variant}")
+
+    def unpack_forward_output(self, output, dtype_override=None):
+        """Normalize component outputs to a single tensor for comparison."""
+        if self._variant == ModelVariant.TRANSFORMER:
+            # PyramidDiffusionMMDiT returns a list of per-stage tensors.
+            if isinstance(output, list):
+                return output[0]
         if hasattr(output, "sample"):
             return output.sample
-        if isinstance(output, tuple):
+        if hasattr(output, "text_embeds"):
+            return output.text_embeds
+        if hasattr(output, "last_hidden_state"):
+            return output.last_hidden_state
+        if isinstance(output, (list, tuple)):
             return output[0]
         return output

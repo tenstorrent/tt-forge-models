@@ -5,10 +5,10 @@
 """
 No-op stubs for the upstream `trainer_misc` sequence-parallel helpers.
 
-The vendored Pyramid Flow model code references `is_sequence_parallel_initialized`
+The vendored Pyramid Flow MMDiT code references `is_sequence_parallel_initialized`
 and a few related helpers from the upstream `trainer_misc` package. tt-xla runs
 single-process inference (no sequence parallelism), so we replace these with
-stubs that always report SP-disabled and never get exercised.
+stubs that always report SP-disabled; the `all_to_all` path is never exercised.
 """
 
 
