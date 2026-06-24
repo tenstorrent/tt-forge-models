@@ -4,10 +4,14 @@
 """
 Gemma4 model loader implementation for causal language modeling.
 
-google/gemma-4-12B is a Gemma4UnifiedForConditionalGeneration (any-to-any:
-text + vision + audio). This loader brings up the *text-only* causal-LM path
-(input_ids + attention_mask only), which is the tractable first target for
-single-device bringup. Vision/audio components are out of scope here.
+The Gemma4 checkpoints are Gemma4(Unified)ForConditionalGeneration models
+(any-to-any: text + vision + audio). This loader brings up the *text-only*
+causal-LM path (input_ids + attention_mask only), which is the tractable first
+target for bringup. Vision/audio components are out of scope here.
+
+Variants:
+  - ``12B``    -> google/gemma-4-12B  (base checkpoint, no chat template)
+  - ``31B-it`` -> google/gemma-4-31B-it (instruct checkpoint, has chat template)
 """
 
 from typing import Optional
@@ -31,6 +35,7 @@ class ModelVariant(StrEnum):
     """Available Gemma4 model variants for causal LM."""
 
     GEMMA_4_12B = "12B"
+    GEMMA_4_31B_IT = "31B-it"
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +44,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GEMMA_4_12B: LLMModelConfig(
             pretrained_model_name="google/gemma-4-12B",
+            max_length=256,
+        ),
+        ModelVariant.GEMMA_4_31B_IT: LLMModelConfig(
+            pretrained_model_name="google/gemma-4-31B-it",
             max_length=256,
         ),
     }
