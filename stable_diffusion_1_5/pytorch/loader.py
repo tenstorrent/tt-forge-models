@@ -99,7 +99,7 @@ class ModelLoader(ForgeModel):
             **kwargs,
         )
 
-        self.in_channels = unet.in_channels
+        self.in_channels = unet.config.in_channels
         return unet
 
     def load_inputs(self, dtype_override=None, batch_size=1):
