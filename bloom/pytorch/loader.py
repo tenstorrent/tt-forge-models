@@ -133,14 +133,13 @@ class ModelLoader(ForgeModel):
 
         if self._variant == ModelVariant.BLOOM_176B:
             inputs = self.tokenizer(
-                "This is a sample text to test the BLOOM model.",
+                self.test_input,
                 return_tensors="pt",
                 padding=True,
                 truncation=True,
                 max_length=256,
             )
         else:
-            self.test_input = "This is a sample text from "
             inputs = self.tokenizer(
                 self.test_input,
                 return_tensors="pt",
@@ -173,7 +172,7 @@ class ModelLoader(ForgeModel):
     def get_mesh_config(self, num_devices: int):
         """Return mesh shape and axis names for tensor parallel."""
         if num_devices == 32:  # Galaxy
-            mesh_shape = (8, 4)
+            mesh_shape = (4, 8)
         elif self.config.num_attention_heads % num_devices == 0:
             mesh_shape = (1, num_devices)
         elif (
