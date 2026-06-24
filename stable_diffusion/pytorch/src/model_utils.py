@@ -13,17 +13,20 @@ from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
 )
 
 
-def load_pipe(variant):
-    """Load Stable Diffusion v3.5 pipeline.
+def load_pipe(variant, torch_dtype=torch.float32):
+    """Load Stable Diffusion v3 / v3.5 pipeline.
 
     Args:
         variant: Model variant name
+        torch_dtype: dtype to load the pipeline weights in (default: float32).
+            Loading directly in the target dtype avoids materializing a large
+            float32 copy of the (T5-XXL heavy) pipeline in host memory.
 
     Returns:
         StableDiffusion3Pipeline: Loaded pipeline with components set to eval mode
     """
     pipe = StableDiffusion3Pipeline.from_pretrained(
-        f"stabilityai/{variant}", torch_dtype=torch.float32
+        f"stabilityai/{variant}", torch_dtype=torch_dtype
     )
     modules = [
         pipe.text_encoder,
