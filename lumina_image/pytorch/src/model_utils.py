@@ -239,45 +239,63 @@ def shard_text_encoder_specs(encoder) -> dict:
 def _shard_lumina_block(block, specs: dict, has_adaln: bool) -> None:
     """Add shard specs for a single Lumina2TransformerBlock in-place.
 
-    has_adaln distinguishes blocks that include the adaptive-norm path
-    (noise_refiner / layers) from context_refiner blocks where norm1 is a
-    plain RMSNorm without a learned modulation linear.
+    Single-axis Megatron tensor parallelism on the "model" axis only. Each
+    block is two column->row pairs (attention Q/K/V -> O, FFN gate/up -> down),
+    so it emits exactly two all-reduces and never a reshard. The block's input
+    and output stay replicated (post-all-reduce), which lets the next block's
+    column-parallel ops consume them directly.
+
+    We deliberately do NOT shard on the "batch" axis. The earlier 2-D scheme
+    (("model","batch") column, ("batch","model") row) alternated axis order, so
+    a row output feeding the next column op had to swap its sharded dim from the
+    "model" axis to the "batch" axis -- an axis-swap reshard that Shardy lowers
+    to sdy.collective_permute, which tt-mlir cannot lower yet (tt-mlir #3370).
+    Single-axis "model" keeps every contraction dim on the same axis, so only
+    all-reduce is emitted. Mirrors shard_vae_specs and examples/pytorch/llama.py.
+
+    has_adaln only documents which blocks carry the AdaLN modulation linear
+    (noise_refiner / layers); that linear is left replicated (see below), so the
+    flag no longer changes the specs.
     """
     attn = block.attn
-    specs[attn.to_q.weight] = ("model", "batch")
-    specs[attn.to_k.weight] = ("model", "batch")
-    specs[attn.to_v.weight] = ("model", "batch")
-    specs[attn.to_out[0].weight] = ("batch", "model")
+    # Column-parallel: shard output (head) dim. GQA-safe (24 q-heads, 8 kv-heads
+    # both divide by the model-axis size); to_q/k/v take a replicated input.
+    specs[attn.to_q.weight] = ("model", None)
+    specs[attn.to_k.weight] = ("model", None)
+    specs[attn.to_v.weight] = ("model", None)
+    # Row-parallel: shard contraction dim -> one all-reduce, replicated output.
+    specs[attn.to_out[0].weight] = (None, "model")
 
     ff = block.feed_forward
-    specs[ff.linear_1.weight] = ("model", "batch")
-    specs[ff.linear_3.weight] = ("model", "batch")
-    specs[ff.linear_2.weight] = ("batch", "model")
+    # SwiGLU column->row pair: gate/up column-parallel, down row-parallel.
+    specs[ff.linear_1.weight] = ("model", None)
+    specs[ff.linear_3.weight] = ("model", None)
+    specs[ff.linear_2.weight] = (None, "model")
 
-    if has_adaln:
-        specs[block.norm1.linear.weight] = ("model", "batch")
-        specs[block.norm1.linear.bias] = ("model",)
+    # block.norm1.linear (AdaLN modulation) is intentionally left replicated:
+    # its chunked scale/gate vectors multiply a replicated normalized activation,
+    # so sharding it would force a reshard. Likewise all RMSNorm weights
+    # (norm1.norm, norm2, ffn_norm1, ffn_norm2, norm_q, norm_k) stay replicated
+    # because they act on replicated activations / the unsharded head_dim.
 
 
 def shard_transformer_specs(transformer) -> dict:
     """Shard specs for Lumina2Transformer2DModel.
 
-    Mesh axes: ("batch", "model")
-    Column-parallel (Q, K, V, FFN up/gate): ("model", "batch")
-    Row-parallel   (O, FFN down):           ("batch", "model")
-    """
-    specs = {
-        transformer.x_embedder.weight: ("model", "batch"),
-        transformer.x_embedder.bias: ("model",),
-    }
+    Mesh axes: ("batch", "model"). Strategy: single-axis Megatron tensor
+    parallelism on "model" for the 30 transformer blocks; everything else
+    replicated.
+      Column-parallel (Q, K, V, FFN up/gate): ("model", None)
+      Row-parallel    (O, FFN down):          (None, "model")
 
-    tce = transformer.time_caption_embed
-    specs[tce.timestep_embedder.linear_1.weight] = ("model", "batch")
-    specs[tce.timestep_embedder.linear_1.bias] = ("model",)
-    specs[tce.timestep_embedder.linear_2.weight] = ("batch", "model")
-    specs[tce.timestep_embedder.linear_2.bias] = ("batch",)
-    specs[tce.caption_embedder[1].weight] = ("model", "batch")
-    specs[tce.caption_embedder[1].bias] = ("model",)
+    Embedders and the output projection (x_embedder, time_caption_embed,
+    norm_out) are replicated: they sit at graph boundaries, are tiny relative to
+    the blocks, and replicating them keeps block inputs/outputs replicated so no
+    boundary reshard or final all-gather is needed. CCL budget: 60 all-reduces
+    (2 per block x 30), 0 collective_permute, 0 all-gather. See
+    sharding_analysis.md.
+    """
+    specs: dict = {}
 
     for block in transformer.noise_refiner:
         _shard_lumina_block(block, specs, has_adaln=True)
@@ -285,11 +303,6 @@ def shard_transformer_specs(transformer) -> dict:
         _shard_lumina_block(block, specs, has_adaln=False)
     for block in transformer.layers:
         _shard_lumina_block(block, specs, has_adaln=True)
-
-    specs[transformer.norm_out.linear_1.weight] = ("model", "batch")
-    specs[transformer.norm_out.linear_1.bias] = ("model",)
-    specs[transformer.norm_out.linear_2.weight] = ("batch", "model")
-    specs[transformer.norm_out.linear_2.bias] = ("batch",)
 
     return specs
 
