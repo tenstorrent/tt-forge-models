@@ -6,8 +6,10 @@ InternLM2 chat causal LM model loader implementation.
 """
 
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
+
+# transformers is imported inside the methods so it binds to the pinned 4.46.3
+# after RequirementsManager swaps it in, not the repo default at collection time.
 
 from ...base import ForgeModel
 from ...config import (
