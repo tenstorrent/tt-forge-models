@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-FLUX.1-dev component loader (128x128 bringup resolution).
+FLUX.1-dev component loader (1024x1024 native resolution).
 
 Components:
   - ClipTextEncoder → CLIPTextModel          (pooled text embedding)
@@ -107,7 +107,7 @@ class ModelLoader(ForgeModel):
         raise ValueError(f"Unknown variant: {self._variant}")
 
     def load_inputs(self, dtype_override: Optional[torch.dtype] = None, **kwargs):
-        """Return synthetic inputs for the active component at 128x128."""
+        """Return synthetic inputs for the active component at 1024x1024."""
         dtype = dtype_override if dtype_override is not None else DTYPE
 
         if self._variant == ModelVariant.CLIP_TEXT_ENCODER:
