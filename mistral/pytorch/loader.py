@@ -4,6 +4,7 @@
 """
 Mistral model loader implementation for causal language modeling
 """
+
 import torch
 from transformers import (
     AutoTokenizer,
@@ -52,10 +53,13 @@ class ModelLoader(ForgeModel):
         ModelVariant.DEVSTRAL_SMALL_2505,
         ModelVariant.MAGISTRAL_SMALL_2506,
     }
-    _USE_MistralForCausalLM = {
-        ModelVariant.MISTRAL_SMALL_3_1_24B_INSTRUCT_2503,
-    }
+    _USE_MistralForCausalLM = set()
+    # Mistral-Small-3.1/3.2 ship as Mistral3ForConditionalGeneration checkpoints:
+    # the text weights live under language_model.* / vision_tower.*, so loading
+    # them with MistralForCausalLM leaves every parameter randomly initialized.
+    # Load the full multimodal class and run it text-only.
     _USE_Mistral3ForConditionalGeneration_VARIANTS = {
+        ModelVariant.MISTRAL_SMALL_3_1_24B_INSTRUCT_2503,
         ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_2506,
     }
     # Ministral-8B uses sliding window attention and needs StaticCache + overrides.
