@@ -154,7 +154,7 @@ class ModelLoader(ForgeModel):
                                    images_per_sample (1,) int64, cache_position (394,) int64,
                                    logits_to_keep scalar int64]
         TRANSFORMER             → [hidden_states (1,16,128,144), encoder_hidden_states (1,376,1472),
-                                   prior_token_id (1,4608) int64, prior_token_drop (1,4608) int64,
+                                   prior_token_id (1,4608) int64, prior_token_drop (1,4608) bool,
                                    timestep ([999.]), target_size ([[1024.,1152.]] bf16),
                                    crop_coords ([[0.,0.]] bf16)]
         VAE                     → [z (1,16,128,144) dtype]
