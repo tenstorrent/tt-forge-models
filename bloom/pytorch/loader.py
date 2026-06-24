@@ -111,6 +111,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["config"] = config
 
         model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+        model.eval()
         self.config = model.config
         self.model = model
 
