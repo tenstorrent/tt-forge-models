@@ -1,0 +1,6 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+# Pin torchaudio to the CPU wheel that matches the torch in the tt-xla venv
+# (torch 2.10.0+cpu). An unpinned / older torchaudio (e.g. 2.9.0) force-downgrades
+# torch and breaks the torch-xla device path; the default index also resolves a
+# CUDA build whose libtorchaudio.so fails to load against CPU torch.
+torchaudio==2.10.0+cpu
