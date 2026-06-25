@@ -1,0 +1,3 @@
+# Voxtral-4B-TTS-2603 ships in Mistral-native format (tekken.json tokenizer +
+# consolidated.safetensors), loaded via mistral-common rather than transformers.
+mistral-common>=1.10.0
