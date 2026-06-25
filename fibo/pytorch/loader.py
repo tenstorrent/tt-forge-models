@@ -2,25 +2,23 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-FIBO (briaai/FIBO) model loader implementation.
+FIBO (briaai/FIBO) component loader.
 
-FIBO is BRIA AI's 8B-parameter DiT-based flow-matching text-to-image model.
-It uses SmolLM3-3B as the text encoder, Wan 2.2 as the VAE, and a novel
-DimFusion conditioning architecture (paper: arXiv 2511.06876).
+FIBO is BRIA AI's gated, 8B-parameter DiT flow-matching text-to-image model
+(custom ``BriaFiboPipeline``; paper arXiv:2511.06876). It is a multi-component
+pipeline, so — mirroring ``omnigen`` — each independently compilable component
+is exposed as its own ``ModelVariant`` rather than one whole-pipeline graph:
 
-Rather than treating FIBO as a variant of some existing loader, this
-introduces a dedicated ``fibo`` loader package. Layout mirrors
-``stable_diffusion_3``, ``bria_2_3``, and ``hidream_i1`` — its preprocessing
-tweaks, license-gated weight fetch (the FIBO repo on Hugging Face is gated
-under the ``bria-fibo`` license), and bringup state can evolve independently
-of any other model.
+  - TextEncoder → SmolLM3ForCausalLM (prompt → 4096-dim encoder hidden states)
+  - Transformer → BriaFiboTransformer2DModel (Flux-style MMDiT denoiser — the
+                  heavy per-step compute and the bringup's primary target)
+  - VaeDecoder  → AutoencoderKLWan decoder (latent → image)
 
-``load_model`` returns the FIBO transformer wrapped so it accepts the
-positional tensor inputs the auto-runner expects. ``load_inputs`` returns
-those positional tensors, captured by driving one short ``pipe(prompt=...)``
-call and intercepting the first transformer forward — making the loader
-robust to schema drift in upstream diffusers (``BriaFiboPipeline`` only lives
-on diffusers git-main today).
+The scheduler / denoising loop / latent glue stay in host Python (the composite
+generation step), matching the diffusion bringup pattern.
+
+The HF repo is license-gated (``bria-fibo``); accept the license and
+authenticate via ``HF_TOKEN`` before loading.
 
 Reference: https://huggingface.co/briaai/FIBO
 """
@@ -40,46 +38,40 @@ from ...config import (
     StrEnum,
 )
 from .src.model_utils import (
-    BRINGUP_PROMPT,
-    FiboTransformerWrapper,
-    capture_transformer_inputs,
-    load_pipe,
-    positional_inputs_from_capture,
+    DTYPE,
+    REPO_ID,
+    TextEncoderWrapper,
+    TransformerWrapper,
+    VAEDecoderWrapper,
+    load_text_encoder,
+    load_text_encoder_inputs,
+    load_transformer,
+    load_transformer_inputs,
+    load_vae,
+    load_vae_decoder_inputs,
 )
 
 
 class ModelVariant(StrEnum):
-    """Available FIBO model variants."""
+    """Independently loadable components of the FIBO pipeline."""
 
-    BASE = "Base"
+    TEXT_ENCODER = "TextEncoder"
+    TRANSFORMER = "Transformer"
+    VAE_DECODER = "VaeDecoder"
 
 
 class ModelLoader(ForgeModel):
-    """FIBO model loader."""
+    """Load individual FIBO components without driving the full pipeline."""
 
     _VARIANTS = {
-        ModelVariant.BASE: ModelConfig(
-            pretrained_model_name="briaai/FIBO",
-        ),
+        ModelVariant.TEXT_ENCODER: ModelConfig(pretrained_model_name=REPO_ID),
+        ModelVariant.TRANSFORMER: ModelConfig(pretrained_model_name=REPO_ID),
+        ModelVariant.VAE_DECODER: ModelConfig(pretrained_model_name=REPO_ID),
     }
 
-    DEFAULT_VARIANT = ModelVariant.BASE
-
-    # Stub structured-JSON prompt used during input capture. FIBO is trained
-    # on structured captions but the pipeline tokenizes via SmolLM3 either way.
-    prompt = BRINGUP_PROMPT
-
-    def __init__(self, variant: Optional[ModelVariant] = None):
-        """Initialize the loader for the given FIBO variant.
-
-        Args:
-            variant: Optional ``ModelVariant`` — defaults to ``BASE``.
-        """
-        super().__init__(variant)
-        self.pipe = None
-        self._capture = None
-        # FIBO inherits guidance_scale=5.0 from the model card's Generate example.
-        self.guidance_scale = 5.0
+    # The denoiser is the heavy compute and the component that *must* run on
+    # device, so it is the default variant.
+    DEFAULT_VARIANT = ModelVariant.TRANSFORMER
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -94,66 +86,40 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_pipeline(self, dtype_override=None):
-        """Load (and cache) the FIBO pipeline."""
-        if self.pipe is None:
-            self.pipe = load_pipe(
-                self._variant_config.pretrained_model_name,
-                dtype_override=dtype_override,
-            )
-        return self.pipe
-
-    def _ensure_capture(self, dtype_override=None):
-        """Capture transformer inputs once and cache the result."""
-        if self._capture is not None:
-            return self._capture
-        self._load_pipeline(dtype_override=dtype_override)
-        self._capture = capture_transformer_inputs(
-            self.pipe,
-            prompt=self.prompt,
-            guidance_scale=self.guidance_scale,
-        )
-        return self._capture
-
-    def load_model(self, *, dtype_override=None, **kwargs):
-        """Return the wrapped FIBO transformer.
-
-        Args:
-            dtype_override: Optional ``torch.dtype`` to cast the pipeline to.
+    def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
+        """Load and return the wrapped component for this variant.
 
         Returns:
-            torch.nn.Module: ``FiboTransformerWrapper`` around the FIBO DiT,
-            ready to accept the positional tensors returned by ``load_inputs``.
+            TEXT_ENCODER → TextEncoderWrapper (SmolLM3, last-2 hidden states cat)
+            TRANSFORMER  → TransformerWrapper (BriaFiboTransformer2DModel)
+            VAE_DECODER  → VAEDecoderWrapper (AutoencoderKLWan decoder)
         """
-        self._ensure_capture(dtype_override=dtype_override)
-        if dtype_override is not None:
-            self.pipe.transformer = self.pipe.transformer.to(dtype_override)
-        return FiboTransformerWrapper(self.pipe.transformer, self._capture)
+        dtype = dtype_override if dtype_override is not None else DTYPE
 
-    def load_inputs(self, dtype_override=None, batch_size: int = 1):
-        """Return positional tensor inputs for the FIBO transformer.
+        if self._variant == ModelVariant.TEXT_ENCODER:
+            return TextEncoderWrapper(load_text_encoder(dtype)).eval()
+        if self._variant == ModelVariant.TRANSFORMER:
+            return TransformerWrapper(load_transformer(dtype)).eval()
+        if self._variant == ModelVariant.VAE_DECODER:
+            return VAEDecoderWrapper(load_vae(dtype)).eval()
 
-        Args:
-            dtype_override: Optional ``torch.dtype`` for tensor inputs.
-                Non-tensor inputs (e.g. ``joint_attention_kwargs``) are passed
-                through unchanged.
-            batch_size: Ignored for now — the pipeline call always produces
-                ``batch_size=1`` * CFG (2 effective). Retained for the
-                signature the auto-runner expects.
+        raise ValueError(f"Unknown variant: {self._variant}")
 
-        Returns:
-            tuple: Positional inputs matching ``FiboTransformerWrapper.forward``.
+    def load_inputs(self, dtype_override: Optional[torch.dtype] = None, **kwargs):
+        """Return a list of synthetic native-resolution inputs for this variant.
+
+        TEXT_ENCODER → [input_ids, attention_mask]
+        TRANSFORMER  → [hidden_states, timestep, encoder_hidden_states,
+                        layers_stacked, txt_ids, img_ids, attention_mask]
+        VAE_DECODER  → [z (1, 48, 1, 64, 64)]
         """
-        capture = self._ensure_capture(dtype_override=dtype_override)
-        inputs = positional_inputs_from_capture(capture)
+        dtype = dtype_override if dtype_override is not None else DTYPE
 
-        if dtype_override is None:
-            return inputs
+        if self._variant == ModelVariant.TEXT_ENCODER:
+            return load_text_encoder_inputs(dtype)
+        if self._variant == ModelVariant.TRANSFORMER:
+            return load_transformer_inputs(dtype)
+        if self._variant == ModelVariant.VAE_DECODER:
+            return load_vae_decoder_inputs(dtype)
 
-        cast = []
-        for value in inputs:
-            if torch.is_tensor(value) and value.is_floating_point():
-                cast.append(value.to(dtype_override))
-            else:
-                cast.append(value)
-        return tuple(cast)
+        raise ValueError(f"Unknown variant: {self._variant}")

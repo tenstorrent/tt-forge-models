@@ -1,0 +1,14 @@
+# FIBO (briaai/FIBO) component loaders.
+#
+# BriaFiboPipeline / BriaFiboTransformer2DModel and AutoencoderKLWan live in
+# diffusers >= 0.38 (the model card recommends diffusers from git-main).
+# SmolLM3ForCausalLM lives in transformers >= 4.53.
+#
+# Do NOT let these pull/upgrade torch, torchvision or torchaudio — the tt-xla
+# venv pins torch 2.10.0 against the torch-xla device path; install with
+# --no-deps style care if a fresh provisioning is needed.
+diffusers>=0.38.0
+transformers>=5.0.0
+accelerate>=1.0.0
+sentencepiece
+# FIBO weights are gated under the bria-fibo license — accept on HF and set HF_TOKEN.
