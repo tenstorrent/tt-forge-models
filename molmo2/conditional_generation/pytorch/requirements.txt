@@ -1,0 +1,5 @@
+# Molmo2-8B ships custom modeling/processing code (trust_remote_code) authored
+# against transformers 4.57.x. Newer transformers (5.x) remove APIs it relies on
+# (ROPE_INIT_FUNCTIONS["default"], processor optional attributes), so this pin is
+# required. tokenizers/torch are left to the base environment.
+transformers==4.57.1
