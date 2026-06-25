@@ -133,6 +133,22 @@ class ModelLoader(ForgeModel):
         )
         self.config = model.config
         model.eval()
+
+        # torch.compile/Dynamo workaround: transformers >=5.5 implements
+        # PreTrainedModel.dtype as `next(p.dtype for p in self.parameters()
+        # if p.is_floating_point())`. Dynamo cannot trace this generator over
+        # self.parameters() (fails with "cannot access free variable
+        # 'named_children'"), which breaks the Qwen2.5-VL vision path the moment
+        # it evaluates `pixel_values.type(self.visual.dtype)` in
+        # get_image_features. Cache the (uniform) dtype eagerly here so the
+        # traced forward returns a constant instead of re-deriving it.
+        from transformers.modeling_utils import PreTrainedModel
+
+        _cached_dtype = next(
+            p.dtype for p in model.parameters() if p.is_floating_point()
+        )
+        PreTrainedModel.dtype = property(lambda self: _cached_dtype)
+
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
