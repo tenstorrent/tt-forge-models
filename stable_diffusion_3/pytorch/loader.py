@@ -13,6 +13,8 @@ having to dig into the pipeline.
 """
 from typing import Optional
 
+import torch
+
 from ...base import ForgeModel
 from ...config import (
     ModelConfig,
@@ -74,9 +76,11 @@ class ModelLoader(ForgeModel):
         is intentionally not returned from :meth:`load_model`.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
-        self.pipeline = load_pipe(pretrained_model_name)
-        if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+        # Materialise the weights directly at the requested dtype rather than
+        # loading fp32 and casting down -- the fp32 peak (~30 GB for the full
+        # SD3 pipeline incl. T5-XXL) OOMs a 32 GB host.
+        dtype = dtype_override if dtype_override is not None else torch.float32
+        self.pipeline = load_pipe(pretrained_model_name, dtype=dtype)
         return self.pipeline
 
     def load_model(self, *, dtype_override=None, **kwargs):
