@@ -44,21 +44,32 @@ class ModelVariant(StrEnum):
     """Available Pyramid Flow variants."""
 
     MINIFLUX_768P = "miniFLUX_768p"
+    SD3_384P = "sd3_384p"
 
 
 class ModelLoader(ForgeModel):
     """
-    Loader for Pyramid Flow miniFLUX DiT (768p).
+    Loader for the Pyramid Flow video-generation denoiser (DiT).
 
-    Loads only the PyramidFluxTransformer with random weights. The full
-    pipeline (text encoder + VAE + scheduler) lives in upstream
-    `pyramid_dit.PyramidDiTForVideoGeneration` and is CUDA-only; the DiT
-    component is the relevant target for tt-xla compilation tests.
+    Two denoiser architectures are exposed as variants:
+      * ``miniFLUX_768p`` — the PyramidFluxTransformer DiT
+        (``rain1011/pyramid-flow-miniflux``), random weights.
+      * ``sd3_384p`` — the PyramidDiffusionMMDiT (SD3-style joint MMDiT)
+        denoiser of ``rain1011/pyramid-flow-sd3``, real pretrained weights so
+        the on-device PCC comparison is meaningful.
+
+    Only the DiT denoiser (the heavy per-step compute, and the sharding target)
+    is exposed here; the surrounding pipeline (text encoders + causal video VAE
+    + scheduler) lives in the sibling component loaders / host Python.
     """
 
     _VARIANTS = {
         ModelVariant.MINIFLUX_768P: PyramidFlowConfig(
             pretrained_model_name="rain1011/pyramid-flow-miniflux",
+            source=ModelSource.HUGGING_FACE,
+        ),
+        ModelVariant.SD3_384P: PyramidFlowConfig(
+            pretrained_model_name="rain1011/pyramid-flow-sd3",
             source=ModelSource.HUGGING_FACE,
         ),
     }
@@ -83,10 +94,18 @@ class ModelLoader(ForgeModel):
 
     def load_model(self, *, dtype_override=None, **kwargs):
         dtype = dtype_override if dtype_override is not None else torch.float32
+        if self._variant == ModelVariant.SD3_384P:
+            from .src.mmdit_utils import load_transformer as load_mmdit
+
+            return load_mmdit(dtype)
         return load_transformer(dtype)
 
     def load_inputs(self, dtype_override=None, **kwargs) -> Any:
         dtype = dtype_override if dtype_override is not None else torch.float32
+        if self._variant == ModelVariant.SD3_384P:
+            from .src.mmdit_utils import load_transformer_inputs as load_mmdit_inputs
+
+            return load_mmdit_inputs(dtype)
         return load_transformer_inputs(dtype)
 
     def unpack_forward_output(self, output: Any) -> torch.Tensor:
