@@ -13,6 +13,8 @@ having to dig into the pipeline.
 """
 from typing import Optional
 
+import torch
+
 from ...base import ForgeModel
 from ...config import (
     ModelConfig,
@@ -74,9 +76,12 @@ class ModelLoader(ForgeModel):
         is intentionally not returned from :meth:`load_model`.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
-        self.pipeline = load_pipe(pretrained_model_name)
-        if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+        # Materialize the weights directly in the requested dtype. Loading the
+        # full pipeline in float32 and casting afterwards peaks at ~30 GB of
+        # host RAM (T5-XXL alone is ~19 GB in fp32) and OOMs a 32 GB host; the
+        # device path runs bfloat16 anyway.
+        load_dtype = dtype_override if dtype_override is not None else torch.float32
+        self.pipeline = load_pipe(pretrained_model_name, torch_dtype=load_dtype)
         return self.pipeline
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -102,9 +107,13 @@ class ModelLoader(ForgeModel):
             dtype_override: Optional ``torch.dtype`` for the returned tensors.
 
         Returns:
-            list[torch.Tensor]: ``[latent_model_input, timestep, prompt_embeds,
-            pooled_prompt_embeds]`` — the positional args expected by the
-            wrapper around ``SD3Transformer2DModel.forward``.
+            dict[str, torch.Tensor]: keyword arguments for
+            ``SD3Transformer2DModel.forward`` — ``hidden_states``,
+            ``encoder_hidden_states``, ``pooled_projections`` and ``timestep``.
+            Returning a dict (rather than a positional list) keeps the
+            arguments bound to the right parameters; the model tester feeds a
+            dict straight through as ``model(**inputs)``, matching the FLUX
+            transformer loader convention.
         """
         if self.pipeline is None:
             self._load_pipeline(dtype_override=dtype_override)
@@ -122,4 +131,9 @@ class ModelLoader(ForgeModel):
             prompt_embeds = prompt_embeds.to(dtype_override)
             pooled_prompt_embeds = pooled_prompt_embeds.to(dtype_override)
 
-        return [latent_model_input, timestep, prompt_embeds, pooled_prompt_embeds]
+        return {
+            "hidden_states": latent_model_input,
+            "encoder_hidden_states": prompt_embeds,
+            "pooled_projections": pooled_prompt_embeds,
+            "timestep": timestep,
+        }
