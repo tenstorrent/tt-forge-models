@@ -11,6 +11,7 @@ matches the convention used by other loaders in tt_forge_models (e.g. FLUX)
 and lets the tt-xla model tester compile the transformer without first
 having to dig into the pipeline.
 """
+import gc
 from typing import Optional
 
 from ...base import ForgeModel
@@ -74,9 +75,16 @@ class ModelLoader(ForgeModel):
         is intentionally not returned from :meth:`load_model`.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
-        self.pipeline = load_pipe(pretrained_model_name)
+        # Thread the device dtype straight into from_pretrained so the weights
+        # materialize directly in (typically) bf16. Loading the full pipeline in
+        # fp32 (T5-XXL alone is ~19 GB) then casting OOM-kills the ~32 GB bringup
+        # host before the cast ever runs.
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            self.pipeline = load_pipe(
+                pretrained_model_name, torch_dtype=dtype_override
+            )
+        else:
+            self.pipeline = load_pipe(pretrained_model_name)
         return self.pipeline
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -98,13 +106,20 @@ class ModelLoader(ForgeModel):
     def load_inputs(self, dtype_override=None):
         """Return sample inputs for the SD3 transformer.
 
+        Returns a dict keyed by ``SD3Transformer2DModel.forward``'s parameter
+        names (the FLUX loader convention). The tt-xla model tester feeds a list
+        positionally as ``model(*inputs)``; SD3's forward signature is
+        ``(hidden_states, encoder_hidden_states, pooled_projections, timestep)``,
+        so a positional ``[latent, timestep, prompt_embeds, pooled]`` list
+        misaligns ``timestep`` onto ``encoder_hidden_states`` and fails with
+        "Timesteps should be a 1d-array". A dict binds each tensor by name.
+
         Args:
             dtype_override: Optional ``torch.dtype`` for the returned tensors.
 
         Returns:
-            list[torch.Tensor]: ``[latent_model_input, timestep, prompt_embeds,
-            pooled_prompt_embeds]`` — the positional args expected by the
-            wrapper around ``SD3Transformer2DModel.forward``.
+            dict[str, torch.Tensor]: keyed by ``hidden_states``,
+            ``encoder_hidden_states``, ``pooled_projections``, ``timestep``.
         """
         if self.pipeline is None:
             self._load_pipeline(dtype_override=dtype_override)
@@ -122,4 +137,22 @@ class ModelLoader(ForgeModel):
             prompt_embeds = prompt_embeds.to(dtype_override)
             pooled_prompt_embeds = pooled_prompt_embeds.to(dtype_override)
 
-        return [latent_model_input, timestep, prompt_embeds, pooled_prompt_embeds]
+        # Prompt encoding is done, so free the heavy text encoders + VAE. They
+        # are not needed for the transformer (denoiser) forward, and keeping
+        # T5-XXL (~9.4 GB bf16) resident OOM-kills the ~22 GB bringup host during
+        # the CPU golden forward that the model tester runs before the device
+        # compile. The transformer returned by ``load_model`` is referenced
+        # independently, so dropping the other components here is safe.
+        if self.pipeline is not None:
+            self.pipeline.text_encoder = None
+            self.pipeline.text_encoder_2 = None
+            self.pipeline.text_encoder_3 = None
+            self.pipeline.vae = None
+            gc.collect()
+
+        return {
+            "hidden_states": latent_model_input,
+            "encoder_hidden_states": prompt_embeds,
+            "pooled_projections": pooled_prompt_embeds,
+            "timestep": timestep,
+        }
