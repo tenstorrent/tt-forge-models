@@ -27,6 +27,8 @@ from ...config import (
 from .src.model_utils import (
     REPO_ID,
     DTYPE,
+    MESH_NAMES,
+    MESH_SHAPES,
     CogVideoXTransformerWrapper,
     VAEDecoderWrapper,
     load_text_encoder,
@@ -35,6 +37,9 @@ from .src.model_utils import (
     load_transformer_inputs,
     load_vae,
     load_vae_inputs,
+    shard_text_encoder_specs,
+    shard_transformer_specs,
+    shard_vae_specs,
 )
 
 
@@ -92,6 +97,35 @@ class ModelLoader(ForgeModel):
             return VAEDecoderWrapper(load_vae(dtype)).eval()
 
         raise ValueError(f"Unknown variant: {self._variant}")
+
+    def get_mesh_config(self, num_devices: int):
+        """Return (mesh_shape, mesh_names) for a ("batch", "model") 2D mesh.
+
+        Supported device counts: 1, 2, 4, 8, 32. All three components are
+        sharded so that the full pipeline can run on a single mesh.
+        """
+        if num_devices not in MESH_SHAPES:
+            raise ValueError(
+                f"Unsupported device count: {num_devices}. "
+                f"Expected one of {sorted(MESH_SHAPES)}."
+            )
+        return MESH_SHAPES[num_devices], MESH_NAMES
+
+    def load_shard_spec(self, model):
+        """Return tensor → partition_spec dict for the active component.
+
+        Expects the same model object returned by load_model():
+          TEXT_ENCODER → T5 v1.1-XXL encoder
+          TRANSFORMER  → CogVideoXTransformerWrapper (specs from .transformer)
+          VAE          → VAEDecoderWrapper (specs from .vae)
+        """
+        if self._variant == ModelVariant.TEXT_ENCODER:
+            return shard_text_encoder_specs(model)
+        if self._variant == ModelVariant.TRANSFORMER:
+            return shard_transformer_specs(model.transformer)
+        if self._variant == ModelVariant.VAE:
+            return shard_vae_specs(model.vae)
+        return None
 
     def load_inputs(self, dtype_override: Optional[torch.dtype] = None, **kwargs):
         """Return a list of synthetic input tensors for the active component.

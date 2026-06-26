@@ -24,6 +24,7 @@ from ....tools.utils import cast_input_to_type
 class ModelVariant(StrEnum):
     MINI_128K = "Mini_128K_Instruct"
     MINI_4K = "Mini_4K_Instruct"
+    MEDIUM_4K = "Medium_4K_Instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.MINI_4K: ModelConfig(
             pretrained_model_name="microsoft/Phi-3-mini-4k-instruct"
+        ),
+        ModelVariant.MEDIUM_4K: ModelConfig(
+            pretrained_model_name="microsoft/Phi-3-medium-4k-instruct"
         ),
     }
 
@@ -56,10 +60,15 @@ class ModelLoader(ForgeModel):
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         if variant is None:
             variant = cls.DEFAULT_VARIANT
+        group = (
+            ModelGroup.GENERALITY
+            if variant == ModelVariant.MEDIUM_4K
+            else ModelGroup.RED
+        )
         return ModelInfo(
             model="Phi-3",
             variant=variant,
-            group=ModelGroup.RED,
+            group=group,
             task=ModelTask.NLP_CAUSAL_LM,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
@@ -90,6 +99,10 @@ class ModelLoader(ForgeModel):
         )
         if dtype_override is not None:
             model = model.to(dtype_override)
+        self.config = model.config
+
+        self.model = model
+
         return model
 
     def load_inputs(self, dtype_override=None, prompt: Optional[str] = None):
@@ -117,3 +130,30 @@ class ModelLoader(ForgeModel):
             attn_mask = cast_input_to_type(attn_mask, dtype_override)
 
         return [input_ids, attn_mask]
+
+    def get_mesh_config(self, num_devices: int):
+        """Return mesh shape and axis names for tensor parallel."""
+        if self.config.num_attention_heads % num_devices == 0:
+            mesh_shape = (1, num_devices)
+        elif (
+            self.config.num_attention_heads % (num_devices // 2) == 0
+            and num_devices % 2 == 0
+        ):
+            mesh_shape = (2, num_devices // 2)
+        else:
+            raise ValueError(
+                f"Cannot evenly distribute {self.config.num_attention_heads} heads "
+                f"across {num_devices} devices"
+            )
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        shard_specs = {}
+        for layer in model.model.layers:
+            shard_specs[layer.mlp.gate_up_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.down_proj.weight] = ("model", "batch")
+
+            shard_specs[layer.self_attn.o_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.qkv_proj.weight] = ("model", "batch")
+        shard_specs[model.lm_head.weight] = ("model", "batch")
+        return shard_specs

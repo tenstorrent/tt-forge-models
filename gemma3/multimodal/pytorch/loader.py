@@ -8,6 +8,7 @@ Gemma3 model loader implementation for multimodal modeling.
 from typing import Optional, Any
 
 from transformers import (
+    AutoConfig,
     AutoProcessor,
     Gemma3ForConditionalGeneration,
 )
@@ -37,15 +38,24 @@ class ModelVariant(StrEnum):
 class ModelLoader(ForgeModel):
     """Gemma3 model loader implementation for multimodal modeling tasks."""
 
+    _SLIDING_WINDOW_VARIANTS = {
+        ModelVariant.GEMMA_3_4B_IT,
+        ModelVariant.GEMMA_3_12B_IT,
+        ModelVariant.GEMMA_3_27B_IT,
+    }
+
     _VARIANTS = {
         ModelVariant.GEMMA_3_4B_IT: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_3_4B_IT),
+            max_length=512,
         ),
         ModelVariant.GEMMA_3_12B_IT: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_3_12B_IT),
+            max_length=512,
         ),
         ModelVariant.GEMMA_3_27B_IT: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_3_27B_IT),
+            max_length=512,
         ),
     }
 
@@ -57,6 +67,11 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.processor = None
+
+    @property
+    def requires_model_rewrites(self) -> bool:
+        """Sliding-window variants need the TT causal-mask rewrite applied."""
+        return self._variant in self._SLIDING_WINDOW_VARIANTS
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -105,6 +120,7 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
+
         model = Gemma3ForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
@@ -119,6 +135,7 @@ class ModelLoader(ForgeModel):
         dtype_override=None,
         prompt: Optional[str] = None,
         image_url: Optional[str] = None,
+        batch_size: int = 1,
     ):
         """Load and return sample inputs for the Gemma3 multimodal model with default settings.
 
@@ -155,6 +172,30 @@ class ModelLoader(ForgeModel):
                 inputs["pixel_values"], dtype_override
             )
 
+        # Non-sliding variants: return standard tokenizer output
+        if self._variant not in self._SLIDING_WINDOW_VARIANTS:
+            return inputs
+
+        from tools.utils import prepare_inputs_for_sliding_window_attention
+
+        # The shared helper only forwards the text-side keys (input_ids,
+        # attention_mask, cache, ...). Preserve the multimodal inputs so the
+        # vision tower still receives the image and the image/text token
+        # boundaries are kept.
+        multimodal_inputs = {
+            key: inputs[key]
+            for key in ("pixel_values", "token_type_ids")
+            if key in inputs
+        }
+
+        inputs = prepare_inputs_for_sliding_window_attention(
+            inputs,
+            batch_size=batch_size,
+            max_cache_len=self._variant_config.max_length,
+            dtype_override=dtype_override,
+            config=self.config,
+        )
+        inputs.update(multimodal_inputs)
         return inputs
 
     def get_mesh_config(self, num_devices: int):
@@ -192,7 +233,9 @@ class ModelLoader(ForgeModel):
 
         shard_specs = {}
 
-        for layer in model.vision_tower.vision_model.encoder.layers:
+        base = getattr(model, "model", model)
+
+        for layer in base.vision_tower.vision_model.encoder.layers:
             shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
@@ -201,7 +244,7 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.mlp.fc1.weight] = ("model", "batch")
             shard_specs[layer.mlp.fc2.weight] = ("batch", "model")
 
-        for layer in model.language_model.layers:
+        for layer in base.language_model.layers:
             shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
@@ -210,5 +253,8 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
+
+        shard_specs[model.model.language_model.embed_tokens.weight] = ("model", "batch")
+        shard_specs[model.lm_head.weight] = ("model", "batch")
 
         return shard_specs

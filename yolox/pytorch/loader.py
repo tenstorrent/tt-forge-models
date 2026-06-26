@@ -6,24 +6,25 @@
 YOLOX model loader implementation
 """
 
-import torch
 import os
 from typing import Optional
 
+import torch
+
 os.environ["TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"] = "1"
 
+from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
 )
-from ...base import ForgeModel
 from ...tools.utils import get_file
-from .src.utils import _forward_patch, _decode_outputs
+from .src.utils import _decode_outputs, _forward_patch
 
 
 class ModelVariant(StrEnum):
@@ -100,7 +101,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def load_model(self, *, dtype_override=None, **kwargs):
+    def load_model(self, dtype_override=None, **kwargs):
         """Load and return the YOLOX model instance with default settings.
 
         Args:
@@ -142,6 +143,80 @@ class ModelLoader(ForgeModel):
 
         return model
 
+    def input_preprocess(self, dtype_override=None, batch_size=1, image=None):
+        """Preprocess an input image and return a model-ready tensor.
+
+        Args:
+            dtype_override: Optional torch.dtype override (default: float32).
+            batch_size: Batch size (default: 1).
+            image: PIL Image or None. If None, loads a default image from HuggingFace.
+
+        Returns:
+            torch.Tensor: Preprocessed input tensor.
+        """
+        import numpy as np
+        from yolox.data.data_augment import preproc as preprocess
+
+        model_name = self._variant_config.pretrained_model_name
+        input_shape = (
+            (416, 416) if model_name in ["yolox_nano", "yolox_tiny"] else (640, 640)
+        )
+
+        if image is None:
+            from datasets import load_dataset
+
+            ds = load_dataset("mpnikhil/kitchen-classifier", split="train").with_format(
+                "np"
+            )
+            img = ds[200]["image"]
+        else:
+            img = np.array(image)
+
+        img_tensor, ratio = preprocess(img, input_shape)
+        self.ratio = ratio
+        self.input_shape = input_shape
+
+        batch_tensor = (
+            torch.from_numpy(img_tensor)
+            .unsqueeze(0)
+            .repeat_interleave(batch_size, dim=0)
+        )
+
+        if dtype_override is not None:
+            batch_tensor = batch_tensor.to(dtype_override)
+
+        return batch_tensor
+
+    def output_postprocess(self, output, top_k=None):
+        """Post-process raw model output into structured detection results.
+
+        Returns a dict with keys "labels", "probabilities", and "indices" (sorted by
+        descending confidence), compatible with ForgeRunner's _postprocess_model_output.
+
+        Args:
+            output: Model output tensor [batch, n_anchors, 85] or list/tuple thereof.
+            top_k: Maximum number of detections to return. None returns all.
+
+        Returns:
+            dict: {"labels": [...], "probabilities": [...], "indices": [...]}
+        """
+        from .src.utils import get_detections
+
+        if isinstance(output, (list, tuple)):
+            out_np = output[0].cpu().detach().float().numpy()
+        else:
+            out_np = output.cpu().detach().float().numpy()
+
+        detections = get_detections(out_np, self.ratio, self.input_shape)
+        if top_k is not None:
+            detections = detections[:top_k]
+
+        return {
+            "labels": [d["class_name"] for d in detections],
+            "probabilities": [f"{d['score'] * 100:.4f}%" for d in detections],
+            "indices": [d["cls_ind"] for d in detections],
+        }
+
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the YOLOX model with default settings.
 
@@ -151,37 +226,40 @@ class ModelLoader(ForgeModel):
             batch_size: Optional batch size to override the default batch size of 1.
 
         Returns:
-            torch.Tensor: Sample input tensor that can be fed to the model.
+            dict: ``{"x": image_tensor, "targets": targets_tensor}`` where ``targets`` has
+            shape ``[B, max_labels, 5]`` with each row encoding ``[class_id, cx, cy, w, h]``.
+            ``targets`` is ignored by the model in eval mode and required in train mode.
         """
-        # Deter imports so not required at model discovery time
-        from datasets import load_dataset
-        from yolox.data.data_augment import preproc as preprocess
+        images = self.input_preprocess(
+            dtype_override=dtype_override, batch_size=batch_size
+        )
+        # YOLOX requires targets in training mode (ignored in eval). Targets are a
+        # [B, max_labels, 5] tensor with each row [class_id, cx, cy, w, h] in absolute
+        # pixel coords. One synthetic box per image is enough for a gradient-shape check.
+        targets = torch.zeros((batch_size, 1, 5), dtype=images.dtype)
+        targets[:, 0] = torch.tensor(
+            [0.0, 100.0, 100.0, 50.0, 50.0], dtype=images.dtype
+        )
+        return {"x": images, "targets": targets}
 
-        # Determine input shape based on model variant
-        model_name = self._variant_config.pretrained_model_name
-        if model_name in ["yolox_nano", "yolox_tiny"]:
-            input_shape = (416, 416)
-        else:
-            input_shape = (640, 640)
+    def unpack_forward_output(self, forward_output):
+        """Extract the loss-relevant tensor from YOLOX's training-mode output.
 
-        ds = load_dataset("mpnikhil/kitchen-classifier", split="train").with_format(
-            "np"
-        )  # to get the image as an numpy array
-        img = ds[200]["image"]
-        img_tensor, ratio = preprocess(img, input_shape)
-        self.ratio = ratio
-        self.input_shape = input_shape  # Store for post_processing
-        img_tensor = torch.from_numpy(img_tensor)
-        batch_tensor = img_tensor.unsqueeze(0)
+        Forward output structure: bare ``dict`` with keys ``total_loss``,
+        ``iou_loss``, ``l1_loss``, ``conf_loss``, ``cls_loss``, ``num_fg``.
+        ``total_loss`` is a scalar tensor with ``requires_grad=True``; the four
+        ``*_loss`` components are summed into it; ``num_fg`` is a Python float
+        count (not a tensor).
 
-        # Replicate tensors for batch size
-        batch_tensor = batch_tensor.repeat_interleave(batch_size, dim=0)
+        Selection: ``total_loss``. It is the single scalar that drives the
+        backward pass — gradients flow through all four loss components and back
+        to every model parameter. The component losses are redundant with it,
+        and ``num_fg`` is non-differentiable.
 
-        # Only convert dtype if explicitly requested
-        if dtype_override is not None:
-            batch_tensor = batch_tensor.to(dtype_override)
-
-        return batch_tensor
+        Why not the registry: the forward output is a bare ``dict`` (no class
+        name to key on), so ``_register_attr`` cannot dispatch on it.
+        """
+        return forward_output["total_loss"]
 
     def post_processing(self, co_out):
         """Post-process the model outputs.
@@ -192,6 +270,14 @@ class ModelLoader(ForgeModel):
         Returns:
             None: Prints the detection results
         """
-        from .src.utils import print_detection_results
+        from .src.utils import get_detections
 
-        print_detection_results(co_out, self.ratio, self.input_shape)
+        for i in range(len(co_out)):
+            co_out[i] = co_out[i].detach().float().numpy()
+
+        for det in get_detections(co_out[0], self.ratio, self.input_shape):
+            x_min, y_min, x_max, y_max = det["bbox"]
+            print(
+                f"Class: {det['class_name']}, Confidence: {det['score']}, "
+                f"Coordinates: ({x_min}, {y_min}, {x_max}, {y_max})"
+            )

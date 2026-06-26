@@ -56,7 +56,41 @@ def apply_janus_load_patches() -> None:
     were first observed when tt-xla moved to transformers 5.x; the patches remain
     valid for whatever transformers version the forge env provides.
     """
+    apply_janus_config_dataclass_compat()
     apply_multimodality_post_init_patch()
+
+
+def apply_janus_config_dataclass_compat() -> None:
+    """
+    Skip HF ``@dataclass`` wrapping for ``janus.*`` config subclasses.
+
+    Transformers 5.5+ applies ``dataclass(kw_only=True)`` to every ``PretrainedConfig``
+    subclass inside ``__init_subclass__``. Janus configs declare ``params: AttrDict = {}``,
+    which raises::
+
+        ValueError: mutable default <class 'dict'> for field params is not allowed
+
+    before ``MultiModalityCausalLM`` can load.
+    """
+    import transformers.configuration_utils as config_utils
+    from transformers.configuration_utils import PretrainedConfig
+
+    if getattr(PretrainedConfig, "_janus_dataclass_compat_patched", False):
+        return
+
+    _orig_dataclass = config_utils.dataclass
+
+    def _dataclass(cls=None, /, **kwargs):
+        if cls is not None and isinstance(cls, type):
+            module = getattr(cls, "__module__", "") or ""
+            if module.startswith("janus."):
+                return cls
+        if cls is None:
+            return lambda c: _dataclass(c, **kwargs)
+        return _orig_dataclass(cls, **kwargs)
+
+    config_utils.dataclass = _dataclass
+    PretrainedConfig._janus_dataclass_compat_patched = True
 
 
 @contextmanager
@@ -112,6 +146,9 @@ def model_from_pretrained_kwargs() -> dict:
 
 
 def load_processor(repo_id: str):
+    # Patch must run before importing janus.models (transformers 5.5+ compat).
+    apply_janus_config_dataclass_compat()
+
     from janus.models import VLChatProcessor
 
     if repo_id not in _processor_cache:

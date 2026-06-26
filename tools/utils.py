@@ -15,9 +15,6 @@ from typing import Optional, Union, List, Callable, Any
 from PIL import Image
 from torchvision import models, transforms
 from transformers import AutoImageProcessor
-import timm
-from timm.data import resolve_data_config
-from timm.data.transforms_factory import create_transform
 
 
 def get_file(path):
@@ -501,6 +498,11 @@ class VisionPreprocessor:
         Returns:
             torch.Tensor: Preprocessed tensor with batch dimension
         """
+
+        import timm
+        from timm.data import resolve_data_config
+        from timm.data.transforms_factory import create_transform
+
         # Use provided model, cached model, or load one
         if model_for_config is None:
             if self._cached_model is not None:
@@ -1236,3 +1238,80 @@ def export_torch_model_to_onnx(
     model = onnx.load(onnx_path)
     onnx.checker.check_model(model)
     return model
+
+
+### input preparation for sliding window attention
+def prepare_inputs_for_sliding_window_attention(
+    inputs,
+    batch_size=1,
+    max_cache_len=128,
+    dtype_override=None,
+    config=None,
+):
+    """Build the model input dict for sliding-window-attention variants.
+
+    Wraps the tokenized inputs in a ``StaticCache`` whose sliding-window
+    layers are replaced with the TT-friendly always-roll variant, and pads
+    the attention mask out to ``max_cache_len`` so the graph shape is
+    static across decode steps.
+
+    The returned dict contains only real model kwargs. The signal that a
+    model needs TT-friendly rewrites (e.g. the sliding-window mask patch) is
+    exposed separately via the loader's ``requires_model_rewrites`` property,
+    which tt-xla consumers (e.g. ``DynamicTorchModelTester``) query before
+    compilation — so this dict can be forwarded straight to ``model(**inputs)``.
+
+    Args:
+        inputs: Tokenizer output with ``input_ids`` and ``attention_mask``.
+        batch_size: Batch size of the request.
+        max_cache_len: Fixed KV-cache length; attention mask is padded to
+            this size to avoid recompilation / implicit padding by HF.
+        dtype_override: Optional dtype for the KV cache (default bfloat16).
+        config: HuggingFace ``PretrainedConfig`` for the model.
+
+    Returns:
+        dict: Kwargs ready to pass to ``model(**input_args)``
+    """
+    from transformers.cache_utils import StaticCache
+
+    from tt_torch.transformers_overrides import override_cache_sliding_window_layers
+
+    seq_len = inputs.input_ids.shape[1]
+
+    static_cache = StaticCache(
+        config=config,
+        max_cache_len=max_cache_len,
+    )
+
+    text_config = config.get_text_config(decoder=True)
+    head_dim = getattr(text_config, "head_dim", None) or (
+        text_config.hidden_size // text_config.num_attention_heads
+    )
+    cache_dtype = dtype_override if dtype_override is not None else torch.bfloat16
+    static_cache.early_initialization(
+        batch_size=batch_size,
+        num_heads=text_config.num_key_value_heads,
+        head_dim=head_dim,
+        dtype=cache_dtype,
+        device="cpu",
+    )
+
+    sliding_window = getattr(text_config, "sliding_window", max_cache_len)
+    override_cache_sliding_window_layers(static_cache, max_cache_len, sliding_window)
+
+    # Attention mask must match max_cache_len to prevent recompilation or
+    # implicit padding by transformers, which can cause degenerate output.
+    full_attention_mask = torch.ones(
+        (batch_size, max_cache_len), dtype=inputs.attention_mask.dtype
+    )
+    full_attention_mask[:, :seq_len] = inputs.attention_mask
+
+    cache_position = torch.arange(0, seq_len)
+
+    return {
+        "input_ids": inputs.input_ids,
+        "past_key_values": static_cache,
+        "cache_position": cache_position,
+        "use_cache": True,
+        "attention_mask": full_attention_mask,
+    }

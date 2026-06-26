@@ -138,3 +138,23 @@ class ModelLoader(ForgeModel):
             input_batch = input_batch.to(dtype_override)
 
         return input_batch
+
+    def unpack_forward_output(self, fwd_output):
+        """Unpack forward pass output to extract a differentiable tensor.
+
+        Forward output structure:
+            tuple of (locs, confs) where
+              locs:  Tensor of shape (B, 4,  num_anchors=8732) — per-anchor box regressions
+              confs: Tensor of shape (B, 81, num_anchors=8732) — per-anchor class logits
+
+        What is selected and why:
+            Both tensors are summed to a scalar. SSD's MultiBoxLoss consumes
+            locs (smooth-L1 localization loss) and confs (cross-entropy classification
+            loss); both are gradient sources during training and neither is auxiliary.
+
+        Why a registry entry was not sufficient:
+            Forward output is a bare tuple — the global registry in training_utils.py
+            keys on output class name and cannot dispatch on plain Python tuples.
+        """
+        locs, confs = fwd_output
+        return locs.sum() + confs.sum()
