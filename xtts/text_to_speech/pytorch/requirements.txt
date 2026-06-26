@@ -1,0 +1,10 @@
+# Coqui XTTS-v2 requires the coqui-tts library to build the model.
+# coqui-tts 0.27.5 imports transformers.pytorch_utils.isin_mps_friendly, which was
+# removed in transformers 5.x; the loader installs a vendored shim for it at runtime
+# (see _apply_transformers_compat_shims in loader.py), so no transformers pin is needed.
+coqui-tts==0.27.5
+
+# torchaudio MUST match the installed torch build (2.10.0+cpu). The generic
+# torchaudio wheel is a CUDA build and fails to load (libtorch_cuda.so missing)
+# against torch 2.10.0+cpu, so pin the +cpu variant from the PyTorch CPU index.
+torchaudio==2.10.0+cpu
