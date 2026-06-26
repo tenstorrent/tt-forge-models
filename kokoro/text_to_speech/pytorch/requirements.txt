@@ -1,0 +1,6 @@
+# Kokoro-82M loader dependencies.
+# kokoro pulls in transformers + misaki; it does NOT pin/downgrade torch
+# (verified torch 2.10.0 stays intact after install), so no torch pin is needed.
+# The loader skips the misaki/espeak-ng G2P front-end (it feeds phoneme token ids
+# directly), so espeak-ng is not required for load/inference here.
+kokoro>=0.9.2
