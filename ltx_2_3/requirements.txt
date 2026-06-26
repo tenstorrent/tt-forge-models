@@ -1,0 +1,6 @@
+# LTX-2.3 is not yet supported by diffusers; components are built from the
+# LTX-2 codebase package. Install WITHOUT deps to avoid touching the tt-xla
+# torch stack (ltx-core declares torch~=2.7 which torch 2.10 satisfies, but a
+# plain `pip install` may try to resolve torchvision/transformers):
+#   pip install --no-deps ltx-core==1.0.0
+ltx-core==1.0.0
