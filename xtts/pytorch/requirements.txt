@@ -1,0 +1,14 @@
+# Coqui XTTS-v2 loader dependencies.
+#
+# coqui-tts is the maintained (idiap) fork of the original deprecated `TTS`
+# package; 0.27.5 resolves cleanly against torch==2.10.0 / transformers==5.5.1
+# (no torch-stack downgrade). It still imports `isin_mps_friendly`, removed in
+# transformers>=5 -- the loader injects a shim (see src/xtts_backbone.py).
+coqui-tts==0.27.5
+
+# torchaudio is imported at TTS module load. It MUST match the installed torch
+# build: torch is 2.10.0+cpu here, so the CPU torchaudio build is required.
+# Install the +cpu wheel explicitly (a bare `torchaudio==2.10.0` resolves to the
+# CUDA build, which fails to load libtorch_cuda.so and breaks the import):
+#   uv pip install "torchaudio==2.10.0+cpu" --index-url https://download.pytorch.org/whl/cpu
+torchaudio==2.10.0+cpu
