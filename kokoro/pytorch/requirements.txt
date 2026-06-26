@@ -1,0 +1,5 @@
+# Kokoro-82M TTS loader dependencies.
+# kokoro pulls in misaki (G2P), spacy, phonemizer-fork, espeakng-loader, etc.
+# torch is intentionally NOT pinned here so it does not downgrade the tt-xla
+# torch/torch-xla stack; kokoro 0.9.4 is compatible with torch 2.10.
+kokoro>=0.9.4
