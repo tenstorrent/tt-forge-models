@@ -54,9 +54,7 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.BASE
 
     # Prompt taken from the SRPO Hugging Face model card.
-    prompt = (
-        "Astronaut in a jungle, cold color palette, muted colors, detailed, 8k"
-    )
+    prompt = "Astronaut in a jungle, cold color palette, muted colors, detailed, 8k"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize the loader for the given SRPO variant.
