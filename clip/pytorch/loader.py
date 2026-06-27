@@ -113,7 +113,7 @@ class ModelLoader(ForgeModel):
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        model_kwargs = {"return_dict": False}
+        model_kwargs = {}
 
         # Load the model with dtype override if specified
         # Skip bf16 for Large_Patch14_336 - accumulated BF16 precision error across encoder
@@ -179,6 +179,15 @@ class ModelLoader(ForgeModel):
             print(
                 "NOTE: dtype_override ignored for Large_Patch14_336 - BF16 precision error amplified by QuickGELU"
             )
+
+        # Request a tuple output as a forward-call kwarg rather than via the model
+        # config. Setting config.return_dict=False would also propagate into the
+        # internal get_image_features/get_text_features calls (both decorated with
+        # @can_return_tuple in transformers>=5.9), making them return tuples and
+        # breaking the model's own `vision_outputs.pooler_output` access. Passing it
+        # here keeps the top-level output a tuple while leaving the internal calls
+        # returning ModelOutput objects.
+        inputs["return_dict"] = False
 
         return inputs
 
