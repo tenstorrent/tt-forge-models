@@ -23,7 +23,13 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from .src.model_utils import load_pipe, stable_diffusion_preprocessing_v3
+from .src.model_utils import (
+    MESH_NAMES,
+    MESH_SHAPES,
+    load_pipe,
+    shard_transformer_specs,
+    stable_diffusion_preprocessing_v3,
+)
 
 
 class ModelVariant(StrEnum):
@@ -74,9 +80,14 @@ class ModelLoader(ForgeModel):
         is intentionally not returned from :meth:`load_model`.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
-        self.pipeline = load_pipe(pretrained_model_name)
-        if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+        # Load directly at the requested dtype. Loading fp32 first and casting
+        # afterwards materializes the full ~30 GB fp32 pipeline and OOMs a 32 GB
+        # host (the T5-XXL text encoder alone is ~19 GB fp32 / ~9.5 GB bf16).
+        load_dtype = dtype_override if dtype_override is not None else None
+        if load_dtype is not None:
+            self.pipeline = load_pipe(pretrained_model_name, dtype=load_dtype)
+        else:
+            self.pipeline = load_pipe(pretrained_model_name)
         return self.pipeline
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -123,3 +134,26 @@ class ModelLoader(ForgeModel):
             pooled_prompt_embeds = pooled_prompt_embeds.to(dtype_override)
 
         return [latent_model_input, timestep, prompt_embeds, pooled_prompt_embeds]
+
+    def get_mesh_config(self, num_devices: int):
+        """Return ``((batch, model) mesh shape, mesh names)`` for the MMDiT.
+
+        Tensor-parallel baseline for the denoiser: the model axis carries the
+        Megatron column→row sharding (24 attention heads divide 2/4/8). The
+        batch axis stays data-parallel / replicated.
+        """
+        if num_devices not in MESH_SHAPES:
+            raise ValueError(
+                f"Unsupported device count: {num_devices}. "
+                f"Expected one of {sorted(MESH_SHAPES)}."
+            )
+        return MESH_SHAPES[num_devices], MESH_NAMES
+
+    def load_shard_spec(self, model):
+        """Return ``{param_tensor: partition_spec}`` for the MMDiT denoiser.
+
+        ``model`` is the ``SD3Transformer2DModel`` (optionally wrapped); the
+        wrapper exposes the underlying transformer at ``.model``.
+        """
+        transformer = getattr(model, "model", model)
+        return shard_transformer_specs(transformer)

@@ -16,18 +16,25 @@ from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
 )
 
 
-def load_pipe(pretrained_model_name: str) -> StableDiffusion3Pipeline:
+def load_pipe(
+    pretrained_model_name: str, dtype: torch.dtype = torch.float32
+) -> StableDiffusion3Pipeline:
     """Load a Stable Diffusion v3 pipeline.
 
     Args:
         pretrained_model_name: The HuggingFace repo name (under ``stabilityai/``).
+        dtype: ``torch.dtype`` to load the pipeline weights in. Defaults to
+            ``torch.float32``. Pass ``torch.bfloat16`` to load the weights
+            directly in bf16 — the full fp32 pipeline (~30 GB, dominated by the
+            T5-XXL text encoder) does not fit a 32 GB host, so loading at the
+            target dtype avoids materializing the fp32 copy first.
 
     Returns:
         StableDiffusion3Pipeline: Loaded pipeline with all sub-modules set to
         eval mode and requires_grad disabled.
     """
     pipe = StableDiffusion3Pipeline.from_pretrained(
-        f"stabilityai/{pretrained_model_name}", torch_dtype=torch.float32
+        f"stabilityai/{pretrained_model_name}", torch_dtype=dtype
     )
 
     pipe.to("cpu")
@@ -175,3 +182,70 @@ def stable_diffusion_preprocessing_v3(
     timestep = timesteps[0].expand(latent_model_input.shape[0])
 
     return latent_model_input, timestep, prompt_embeds, pooled_prompt_embeds
+
+
+# ============================================================================
+# SPMD shard specifications (MMDiT denoiser — SD3Transformer2DModel)
+# ============================================================================
+
+# (batch, model) mesh shapes by device count. Only the "model" axis is used as a
+# real shard axis; "batch" stays data-parallel / replicated.
+MESH_SHAPES = {1: (1, 1), 2: (1, 2), 4: (1, 4), 8: (1, 8), 32: (8, 4)}
+MESH_NAMES = (None, "model")
+
+
+def shard_transformer_specs(transformer) -> dict:
+    """Build tensor -> partition_spec dict for ``SD3Transformer2DModel``.
+
+    Megatron-style tensor parallelism across the ``"model"`` mesh axis. SD3's
+    MMDiT uses joint attention (an image stream + a text/context stream) per
+    ``JointTransformerBlock``, mirroring Mochi's DiT, so the same column→row
+    pairing applies. Heads (24) divide the model axis (2/4/8).
+
+    Column-parallel (Q/K/V, FF up):  weight ("model", None), bias ("model",)
+    Row-parallel    (out, FF down):  weight (None, "model"), bias replicated (None,)
+    patch_embed / proj_out / norms / time & text embedders: replicated.
+    """
+    specs: dict = {}
+
+    def col(linear):
+        # Column-parallel: shard out-features (dim 0); bias is sharded too.
+        specs[linear.weight] = ("model", None)
+        if getattr(linear, "bias", None) is not None:
+            specs[linear.bias] = ("model",)
+
+    def row(linear):
+        # Row-parallel: shard in-features (dim 1); bias replicated (added after
+        # the implicit all-reduce that follows the row-parallel matmul).
+        specs[linear.weight] = (None, "model")
+        if getattr(linear, "bias", None) is not None:
+            specs[linear.bias] = (None,)
+
+    for block in transformer.transformer_blocks:
+        attn = block.attn
+
+        # Image-stream Q/K/V (column-parallel).
+        col(attn.to_q)
+        col(attn.to_k)
+        col(attn.to_v)
+
+        # Text/context-stream Q/K/V (column-parallel).
+        if getattr(attn, "add_q_proj", None) is not None:
+            col(attn.add_q_proj)
+            col(attn.add_k_proj)
+            col(attn.add_v_proj)
+
+        # Output projections (row-parallel).
+        row(attn.to_out[0])
+        if getattr(attn, "to_add_out", None) is not None:
+            row(attn.to_add_out)
+
+        # FeedForward (GELU): net[0].proj is Linear(dim, inner) -> column-parallel,
+        # net[2] is Linear(inner, dim) -> row-parallel.
+        col(block.ff.net[0].proj)
+        row(block.ff.net[2])
+        if getattr(block, "ff_context", None) is not None:
+            col(block.ff_context.net[0].proj)
+            row(block.ff_context.net[2])
+
+    return specs
