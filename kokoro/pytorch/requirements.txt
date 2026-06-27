@@ -1,0 +1,5 @@
+kokoro==0.9.4
+# misaki provides the G2P frontend used to produce the phoneme string baked
+# into the loader. It is only needed to synthesize *arbitrary* text; the
+# loader's DEFAULT_PHONEMES are precomputed so inference needs no G2P.
+misaki[en]==0.9.4
