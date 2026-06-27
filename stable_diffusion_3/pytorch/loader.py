@@ -24,6 +24,7 @@ from ...config import (
     StrEnum,
 )
 from .src.model_utils import load_pipe, stable_diffusion_preprocessing_v3
+from .src.shard_specs import build_shard_spec, get_mesh_shape
 
 
 class ModelVariant(StrEnum):
@@ -74,9 +75,10 @@ class ModelLoader(ForgeModel):
         is intentionally not returned from :meth:`load_model`.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
-        self.pipeline = load_pipe(pretrained_model_name)
-        if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+        # Load directly in the requested dtype. Loading fp32 first and then
+        # downcasting OOMs a 32 GB host (the full pipeline is ~30 GB in fp32,
+        # ~15 GB in bf16), so the dtype must reach ``from_pretrained``.
+        self.pipeline = load_pipe(pretrained_model_name, dtype=dtype_override)
         return self.pipeline
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -123,3 +125,30 @@ class ModelLoader(ForgeModel):
             pooled_prompt_embeds = pooled_prompt_embeds.to(dtype_override)
 
         return [latent_model_input, timestep, prompt_embeds, pooled_prompt_embeds]
+
+    def get_mesh_config(self, num_devices: int):
+        """Return ``(mesh_shape, mesh_names)`` for tensor-parallel execution.
+
+        SD3 Medium is brought up across multiple chips with Megatron-1D tensor
+        parallelism over a ``(None, "model")`` mesh. See ``src/shard_specs.py``.
+
+        Args:
+            num_devices: Total chip count (``xr.global_runtime_device_count()``).
+
+        Returns:
+            tuple: ``(mesh_shape, mesh_names)`` consumed by the auto-runner.
+        """
+        return get_mesh_shape(num_devices)
+
+    def load_shard_spec(self, model):
+        """Return the tensor -> partition-spec mapping for the SD3 MMDiT.
+
+        Args:
+            model: the model returned by :meth:`load_model` (the
+                ``SD3Transformer2DModel``) or a wrapper around it.
+
+        Returns:
+            dict: ``{torch.nn.Parameter: partition_spec}``. Parameters absent
+            from the mapping are replicated across the mesh.
+        """
+        return build_shard_spec(model)
