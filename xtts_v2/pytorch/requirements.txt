@@ -1,0 +1,19 @@
+# XTTS-v2 (coqui/XTTS-v2) GPT-core bringup deps.
+#
+# coqui-tts is the maintained idiap fork of the original Coqui TTS. Its base
+# install requires only transformers>=4.57 and does NOT pin torch (torch lives
+# in its optional [cpu]/[cuda] extras), so it slots into the existing tt-forge
+# torch stack without disturbing it. Install it with the torch stack pinned
+# (constraints) so the resolver cannot bump torch/transformers.
+coqui-tts==0.27.5
+
+# coqui-tts 0.27.x still imports isin_mps_friendly from transformers.pytorch_utils,
+# which was removed in transformers>=5. The loader shims it at import time, so the
+# harness transformers (5.x) is kept; do NOT downgrade transformers below.
+transformers==5.5.1
+
+# torchaudio MUST be the +cpu build: the default PyPI wheel links libtorch_cuda and
+# fails to load against torch==2.10.0+cpu (OSError: libtorch_cuda.so). Install from
+# the CPU index. Pinned to match torch.
+# pip install --extra-index-url https://download.pytorch.org/whl/cpu torchaudio==2.10.0+cpu
+torchaudio==2.10.0+cpu
