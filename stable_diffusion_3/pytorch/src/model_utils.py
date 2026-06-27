@@ -16,18 +16,24 @@ from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
 )
 
 
-def load_pipe(pretrained_model_name: str) -> StableDiffusion3Pipeline:
+def load_pipe(
+    pretrained_model_name: str, dtype: torch.dtype = torch.float32
+) -> StableDiffusion3Pipeline:
     """Load a Stable Diffusion v3 pipeline.
 
     Args:
         pretrained_model_name: The HuggingFace repo name (under ``stabilityai/``).
+        dtype: ``torch_dtype`` passed to ``from_pretrained`` so the weights are
+            materialized directly at the target dtype. SD3-medium is ~30 GB in
+            fp32 vs ~15 GB in bf16; loading fp32 first and casting afterwards
+            OOM-kills a 31 GB host, so callers should pass ``torch.bfloat16``.
 
     Returns:
         StableDiffusion3Pipeline: Loaded pipeline with all sub-modules set to
         eval mode and requires_grad disabled.
     """
     pipe = StableDiffusion3Pipeline.from_pretrained(
-        f"stabilityai/{pretrained_model_name}", torch_dtype=torch.float32
+        f"stabilityai/{pretrained_model_name}", torch_dtype=dtype
     )
 
     pipe.to("cpu")
