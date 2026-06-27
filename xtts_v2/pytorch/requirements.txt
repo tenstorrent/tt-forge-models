@@ -1,0 +1,8 @@
+# coqui-tts (idiap maintained fork) provides the XTTS-v2 model definition.
+# Its base deps only require transformers>=4.57 and do NOT pin torch, so this
+# installs cleanly on top of the tt-xla torch==2.10.0+cpu / transformers==5.5.1 stack.
+--extra-index-url https://download.pytorch.org/whl/cpu
+coqui-tts==0.27.5
+# torchaudio must be the +cpu wheel: the default PyPI wheel links libtorch_cuda
+# and fails to load against torch==2.10.0+cpu (OSError: libtorch_cuda.so).
+torchaudio==2.10.0+cpu
