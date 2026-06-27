@@ -1,0 +1,10 @@
+# XTTS-v2 is a coqui-library model; the maintained idiap fork ("coqui-tts")
+# provides the Xtts architecture. 0.27.5 supports transformers>=4.57 (it still
+# references the removed `isin_mps_friendly`, which the loader shims at runtime).
+#
+# torchaudio must match the CPU torch build (the default PyPI torchaudio wheel
+# links libtorch_cuda and fails to load against torch==2.10.0+cpu); pin the +cpu
+# build from the PyTorch CPU index.
+--extra-index-url https://download.pytorch.org/whl/cpu
+coqui-tts==0.27.5
+torchaudio==2.10.0+cpu
