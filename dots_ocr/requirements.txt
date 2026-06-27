@@ -1,0 +1,12 @@
+# dots.ocr (rednote-hilab/dots.ocr) provisioning notes.
+#
+# The model ships as custom Hub code (trust_remote_code=True), pinned to revision
+# c0111ce6bc07803dbc267932ffef0ae3a51dc951 in the loaders. The custom modeling
+# code targets transformers 5.5.x (config transformers_version: 5.5.1); the
+# tt-xla venv already provides a compatible transformers and torch stack, so no
+# extra packages are required.
+#
+# The vision tower optionally imports flash_attn / torch_npu and falls back to
+# eager attention when they are absent (the device/CPU bringup uses the eager
+# path), so neither is required.
+transformers>=5.5.0
