@@ -1,0 +1,7 @@
+# Molmo2 (allenai/Molmo2-8B) ships custom remote code that targets the
+# transformers 4.57.x API (old RoPE path: ROPE_INIT_FUNCTIONS['default']).
+# transformers >= 5.5 removed that key, so the remote code raises KeyError.
+# Pin to the model-card-recommended version. This downgrade only affects
+# transformers + huggingface_hub; it does not touch the torch / torch-xla stack.
+transformers==4.57.1
+einops
