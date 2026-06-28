@@ -235,7 +235,7 @@ class ModelLoader(ForgeModel):
 
         base = getattr(model, "model", model)
 
-        for layer in base.vision_tower.vision_model.encoder.layers:
+        for layer in base.vision_tower.encoder.layers:
             shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
             shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
