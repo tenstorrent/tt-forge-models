@@ -16,18 +16,24 @@ from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import (
 )
 
 
-def load_pipe(pretrained_model_name: str) -> StableDiffusion3Pipeline:
+def load_pipe(
+    pretrained_model_name: str, dtype: torch.dtype = torch.float32
+) -> StableDiffusion3Pipeline:
     """Load a Stable Diffusion v3 pipeline.
 
     Args:
         pretrained_model_name: The HuggingFace repo name (under ``stabilityai/``).
+        dtype: Torch dtype to load the weights in directly. Loading directly at
+            ``bfloat16`` (rather than loading fp32 then casting) is required to
+            stay under the host RAM wall (~31 GB) — the full SD3-medium pipeline
+            is ~30 GB at fp32 vs ~15 GB at bf16, and the fp32 load OOM-kills.
 
     Returns:
         StableDiffusion3Pipeline: Loaded pipeline with all sub-modules set to
         eval mode and requires_grad disabled.
     """
     pipe = StableDiffusion3Pipeline.from_pretrained(
-        f"stabilityai/{pretrained_model_name}", torch_dtype=torch.float32
+        f"stabilityai/{pretrained_model_name}", torch_dtype=dtype
     )
 
     pipe.to("cpu")

@@ -24,6 +24,11 @@ from ...config import (
     StrEnum,
 )
 from .src.model_utils import load_pipe, stable_diffusion_preprocessing_v3
+from .src.shard_specs import shard_transformer_specs
+
+# Supported (batch, model) mesh shapes per device count for tensor-parallel.
+_MESH_SHAPES = {2: (1, 2), 4: (1, 4), 8: (1, 8), 32: (1, 32)}
+_MESH_NAMES = ("batch", "model")
 
 
 class ModelVariant(StrEnum):
@@ -74,9 +79,13 @@ class ModelLoader(ForgeModel):
         is intentionally not returned from :meth:`load_model`.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
-        self.pipeline = load_pipe(pretrained_model_name)
+        # Load directly at the target dtype rather than loading fp32 then
+        # casting — the fp32 pipeline (~30 GB) OOM-kills on a 31 GB host; the
+        # bf16 pipeline (~15 GB) fits.
         if dtype_override is not None:
-            self.pipeline = self.pipeline.to(dtype_override)
+            self.pipeline = load_pipe(pretrained_model_name, dtype=dtype_override)
+        else:
+            self.pipeline = load_pipe(pretrained_model_name)
         return self.pipeline
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -123,3 +132,22 @@ class ModelLoader(ForgeModel):
             pooled_prompt_embeds = pooled_prompt_embeds.to(dtype_override)
 
         return [latent_model_input, timestep, prompt_embeds, pooled_prompt_embeds]
+
+    def get_mesh_config(self, num_devices: int):
+        """Return ``((batch, model) mesh shape, mesh names)`` for tensor-parallel.
+
+        The MMDiT shards its 24 attention heads across the ``"model"`` axis, so
+        the model axis must divide 24 (true for 2/4/8 chips).
+        """
+        if num_devices not in _MESH_SHAPES:
+            raise ValueError(
+                f"Unsupported device count: {num_devices}. "
+                f"Expected one of {sorted(_MESH_SHAPES)}."
+            )
+        return _MESH_SHAPES[num_devices], _MESH_NAMES
+
+    def load_shard_spec(self, model):
+        """Return the ``{tensor: partition_spec}`` Megatron col->row plan for the
+        SD3 MMDiT (``SD3Transformer2DModel``). ``model`` must already be on device.
+        """
+        return shard_transformer_specs(model)
