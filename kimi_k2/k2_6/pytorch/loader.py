@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Kimi K2.5 model loader implementation (text-only).
+Kimi K2.6 model loader implementation (text-only).
 
 Uses a locally modified DeepSeek V3-based model (modeling_deepseek.py) instead of
 loading directly from HuggingFace. Only the language model component of
@@ -34,28 +34,28 @@ from .modified_modeling_deepseek import DeepseekV3ForCausalLM, DeepseekV3MoE
 
 
 class ModelVariant(StrEnum):
-    """Available Kimi K2.5 model variants."""
+    """Available Kimi K2.6 model variants."""
 
-    KIMI_K2_5_MODIFIED = "kimi_k2_5_modified"
+    KIMI_K2_6_MODIFIED = "kimi_k2_6_modified"
 
 
 class ModelLoader(ForgeModel):
-    """Kimi K2.5 model loader using the locally modified DeepSeek V3-based Transformer."""
+    """Kimi K2.6 model loader using the locally modified DeepSeek V3-based Transformer."""
 
     _VARIANTS = {
-        ModelVariant.KIMI_K2_5_MODIFIED: LLMModelConfig(
-            pretrained_model_name="moonshotai/Kimi-K2.5",
+        ModelVariant.KIMI_K2_6_MODIFIED: LLMModelConfig(
+            pretrained_model_name="moonshotai/Kimi-K2.6",
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.KIMI_K2_5_MODIFIED
+    DEFAULT_VARIANT = ModelVariant.KIMI_K2_6_MODIFIED
 
     # BF16-dequantized weight mirror used by the meta-loader path. The primary
-    # repo (pretrained_model_name) ships quantized weights that a bare
-    # DeepseekV3ForCausalLM cannot consume; the BF16 reupload is already
-    # dequantized and keyed for the text model (model.*/lm_head.*), so weights
-    # load straight through without renaming.
-    _BF16_WEIGHTS_REPO = "ananayarora/Kimi-K2.5-BF16"
+    # repo (pretrained_model_name) ships int4 pack-quantized (compressed-tensors)
+    # expert weights, which a bare DeepseekV3ForCausalLM cannot consume; the
+    # BF16 reupload is already dequantized and keyed for the text model
+    # (model.*/lm_head.*), so weights load straight through without renaming.
+    _BF16_WEIGHTS_REPO = "QuixiAI/Kimi-K2.6-bf16"
 
     def __init__(
         self,
@@ -88,7 +88,7 @@ class ModelLoader(ForgeModel):
         if variant_name is None:
             variant_name = "base"
         return ModelInfo(
-            model="Kimi-K2.5",
+            model="Kimi-K2.6",
             variant=variant_name,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -138,7 +138,7 @@ class ModelLoader(ForgeModel):
         return None
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Kimi K2.5 language model.
+        """Load and return the Kimi K2.6 language model.
 
         Builds DeepseekV3ForCausalLM from the text_config on the meta device and
         populates the first ``num_layers`` from the BF16 weight mirror via the
@@ -150,7 +150,7 @@ class ModelLoader(ForgeModel):
                             construction (e.g. torch.bfloat16).
 
         Returns:
-            torch.nn.Module: The Kimi K2.5 language model in eval mode.
+            torch.nn.Module: The Kimi K2.6 language model in eval mode.
         """
         config = self._load_config(num_layers=self.num_layers)
 
@@ -236,7 +236,7 @@ class ModelLoader(ForgeModel):
         elif num_devices == 8:  # llmbox
             mesh_shape = (2, 4)
         else:
-            raise ValueError("Kimi K2.5 is only supported on llmbox and galaxy")
+            raise ValueError("Kimi K2.6 is only supported on llmbox and galaxy")
 
         return mesh_shape, ("batch", "model")
 
@@ -244,7 +244,7 @@ class ModelLoader(ForgeModel):
         """Load shard specifications for tensor parallelism.
 
         Args:
-            model: The Kimi K2.5 language model instance (DeepseekV3ForCausalLM).
+            model: The Kimi K2.6 language model instance (DeepseekV3ForCausalLM).
 
         Returns:
             Dictionary mapping model parameters to their shard specifications,
