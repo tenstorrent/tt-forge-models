@@ -1,0 +1,6 @@
+# ACE-Step 1.5 model-specific requirements.
+# The custom_code DiT modeling file imports ResidualFSQ at module scope, so this
+# is required even though the denoiser loader bypasses the FSQ audio tokenizer.
+# Pure-leaf package (no torch-stack interaction); safe to install directly.
+vector_quantize_pytorch
+einops
