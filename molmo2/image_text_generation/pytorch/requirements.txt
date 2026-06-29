@@ -1,0 +1,7 @@
+# Molmo2-8B is custom_code and is written against transformers 4.57.1.
+# The model card mandates this exact version; transformers 5.x rejects the
+# processor's `image_use_col_tokens` kwarg and breaks the custom modeling code.
+# Pinned because an unpinned bump silently breaks loading (and a major bump can
+# perturb the torch/torch-xla device path).
+transformers==4.57.1
+einops
