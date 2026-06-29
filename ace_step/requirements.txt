@@ -1,0 +1,6 @@
+# ACE-Step 1.5 custom-code (trust_remote_code) DiT denoiser dependencies.
+# The acestep-v15-turbo modeling module imports these directly.
+vector_quantize_pytorch
+einops
+# diffusers is required for the VAE component (AutoencoderOobleck).
+diffusers
