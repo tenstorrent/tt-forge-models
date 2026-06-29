@@ -41,6 +41,7 @@ class ModelVariant(StrEnum):
     MAGISTRAL_SMALL_2506 = "Magistral_Small_2506"
     MISTRAL_SMALL_3_1_24B_INSTRUCT_2503 = "mistral_small_3.1_24b_instruct_2503"  # Untested in Transformers; for full testing, please refer to VLLM.
     MISTRAL_SMALL_3_2_24B_INSTRUCT_2506 = "mistral_small_3.2_24b_instruct_2506"
+    MISTRAL_SMALL_4_119B_2603 = "mistral_small_4_119b_2603"  # Mistral3 wrapper over a mistral4 (MoE, 128 experts/4) text backbone + Pixtral vision tower; fp8-quantized weights.
 
 
 class ModelLoader(ForgeModel):
@@ -57,6 +58,7 @@ class ModelLoader(ForgeModel):
     }
     _USE_Mistral3ForConditionalGeneration_VARIANTS = {
         ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_2506,
+        ModelVariant.MISTRAL_SMALL_4_119B_2603,
     }
     # Ministral-8B uses sliding window attention and needs StaticCache + overrides.
     _SLIDING_WINDOW_VARIANTS = {
@@ -98,6 +100,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.MISTRAL_SMALL_3_2_24B_INSTRUCT_2506: ModelConfig(
             pretrained_model_name="mistralai/Mistral-Small-3.2-24B-Instruct-2506",
+        ),
+        ModelVariant.MISTRAL_SMALL_4_119B_2603: ModelConfig(
+            pretrained_model_name="mistralai/Mistral-Small-4-119B-2603",
         ),
     }
 
@@ -392,6 +397,20 @@ class ModelLoader(ForgeModel):
             ModelVariant.MINISTRAL_3B,
         ]:
             return None
+        if self._variant == ModelVariant.MISTRAL_SMALL_4_119B_2603:
+            # The text backbone of this variant is a mistral4 MoE (128 experts, 4/tok),
+            # whose layers expose a router + per-expert weights rather than the dense
+            # up/gate/down_proj used by the Mistral3 (dense) branch below. A correct
+            # tensor-parallel spec for an MoE backbone (expert/tensor parallelism, plus
+            # the fp8 expert weights) differs from the dense Megatron column->row plan
+            # and was NOT validatable on this run (galaxy fabric was unhealthy). Derive
+            # it with the `sharding-model-analysis` skill before enabling TP rather than
+            # shipping an unverified dense-MLP spec that would mis-shard the experts.
+            raise NotImplementedError(
+                "Tensor-parallel shard spec for the mistral4 MoE backbone of "
+                "Mistral-Small-4-119B-2603 is not yet implemented; derive it via "
+                "sharding-model-analysis (expert + tensor parallelism)."
+            )
         shard_specs = {}
         if self._variant in self._USE_Mistral3ForConditionalGeneration_VARIANTS:
             for layer in model.model.vision_tower.transformer.layers:
