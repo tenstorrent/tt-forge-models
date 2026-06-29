@@ -31,6 +31,7 @@ class ModelVariant(StrEnum):
     """Available Gemma4 model variants for causal LM."""
 
     GEMMA_4_12B = "12B"
+    GEMMA_4_31B_IT = "31B-it"
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +40,18 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GEMMA_4_12B: LLMModelConfig(
             pretrained_model_name="google/gemma-4-12B",
+            max_length=256,
+        ),
+        # google/gemma-4-31B-it is a Gemma4ForConditionalGeneration VLM
+        # (image-text-to-text). This loader brings up the *text-only* causal-LM
+        # path; the vision tower is replicated and idle on this path (see
+        # load_inputs — only input_ids/attention_mask are supplied so
+        # pixel_values stays None). Unlike the 12B unified checkpoint, the 31B
+        # text decoder is standard GQA (32 q heads : 16 kv heads, v_proj
+        # present), so query heads shard cleanly across the model axis while KV
+        # is replicated (the standard GQA-TP fallback — see load_shard_spec).
+        ModelVariant.GEMMA_4_31B_IT: LLMModelConfig(
+            pretrained_model_name="google/gemma-4-31B-it",
             max_length=256,
         ),
     }
