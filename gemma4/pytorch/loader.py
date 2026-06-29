@@ -8,6 +8,15 @@ google/gemma-4-12B is a Gemma4UnifiedForConditionalGeneration (any-to-any:
 text + vision + audio). This loader brings up the *text-only* causal-LM path
 (input_ids + attention_mask only), which is the tractable first target for
 single-device bringup. Vision/audio components are out of scope here.
+
+google/gemma-4-26B-A4B-it is a Gemma4ForConditionalGeneration (image-text-to-text)
+whose text decoder is a sparse mixture-of-experts (128 experts, top-8, plus a
+dense shared MLP per layer) — 26B total parameters, ~4B active per token. This
+loader also drives that model's *text-only* causal-LM path; the vision tower is
+brought up separately (gemma4/vision). At 26B / bf16 the text decoder does not
+fit a single 32 GB Blackhole chip, so it is sharded across the mesh: the 128
+experts are split on the expert dimension (expert parallelism) and attention /
+dense-MLP follow Megatron column→row. See ``load_shard_spec``.
 """
 
 from typing import Optional
@@ -31,6 +40,7 @@ class ModelVariant(StrEnum):
     """Available Gemma4 model variants for causal LM."""
 
     GEMMA_4_12B = "12B"
+    GEMMA_4_26B_A4B_IT = "26B-A4B-it"
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +49,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GEMMA_4_12B: LLMModelConfig(
             pretrained_model_name="google/gemma-4-12B",
+            max_length=256,
+        ),
+        ModelVariant.GEMMA_4_26B_A4B_IT: LLMModelConfig(
+            pretrained_model_name="google/gemma-4-26B-A4B-it",
             max_length=256,
         ),
     }
@@ -153,6 +167,13 @@ class ModelLoader(ForgeModel):
         assert (
             n_heads % mesh_shape[1] == 0
         ), "Attention heads must be divisible by the model axis size"
+        # MoE variants shard the experts on the expert dimension; the expert
+        # count must divide the model axis so each chip holds whole experts.
+        n_experts = getattr(text_cfg, "num_experts", None)
+        if getattr(text_cfg, "enable_moe_block", False) and n_experts:
+            assert (
+                n_experts % mesh_shape[1] == 0
+            ), "Number of experts must be divisible by the model axis size"
         return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
@@ -176,9 +197,23 @@ class ModelLoader(ForgeModel):
         """
         shard_specs = {}
         for layer in model.model.language_model.layers:
+            # Dense (shared) MLP — Megatron column→row, present in every layer.
             shard_specs[layer.mlp.gate_proj.weight] = ("model", None)
             shard_specs[layer.mlp.up_proj.weight] = ("model", None)
             shard_specs[layer.mlp.down_proj.weight] = (None, "model")
+
+            # Sparse MoE experts (26B-A4B): shard on the *expert* dimension
+            # (expert parallelism) rather than the intermediate dim. The expert
+            # weights are fused gate||up tensors of shape
+            # [num_experts, 2*moe_intermediate, hidden]; splitting the fused
+            # intermediate would cut across the gate/up boundary and corrupt
+            # SwiGLU, so each chip instead holds whole experts (128 / mesh).
+            experts = getattr(layer, "experts", None)
+            if experts is not None:
+                if hasattr(experts, "gate_up_proj"):
+                    shard_specs[experts.gate_up_proj] = ("model", None, None)
+                if hasattr(experts, "down_proj"):
+                    shard_specs[experts.down_proj] = ("model", None, None)
 
             attn = layer.self_attn
             shard_specs[attn.q_proj.weight] = ("model", None)
