@@ -7,6 +7,8 @@ Gemma3 model loader implementation for multimodal modeling.
 
 from typing import Optional, Any
 
+import torch
+
 from transformers import (
     AutoConfig,
     AutoProcessor,
@@ -112,6 +114,10 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The Gemma3 model instance for multimodal modeling.
         """
+        # DIAGNOSTIC: force whole model to fp32 to test whether the multimodal
+        # PCC drop is bf16 precision accumulation in the vision tower.
+        dtype_override = torch.float32
+
         pretrained_model_name = self._variant_config.pretrained_model_name
         if self.processor is None:
             self._load_processor(dtype_override)
@@ -126,8 +132,10 @@ class ModelLoader(ForgeModel):
         )
 
         model.eval()
+
         self.model = model
         self.config = model.config
+        print("model", model)
         return model
 
     def load_inputs(
@@ -142,6 +150,9 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors and attention masks that can be fed to the model.
         """
+        # DIAGNOSTIC: match the fp32 model override so pixel_values are fp32 too.
+        dtype_override = torch.float32
+
         if self.processor is None:
             self._load_processor(dtype_override)
 
@@ -196,6 +207,8 @@ class ModelLoader(ForgeModel):
             config=self.config,
         )
         inputs.update(multimodal_inputs)
+        print("inputs", inputs)
+        # torch.save(inputs, "inputs.pt")
         return inputs
 
     def get_mesh_config(self, num_devices: int):
