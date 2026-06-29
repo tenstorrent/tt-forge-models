@@ -282,3 +282,127 @@ def make_prompt_embeds(dtype: torch.dtype = DTYPE) -> torch.Tensor:
 def make_vae_decoder_input(dtype: torch.dtype = DTYPE) -> torch.Tensor:
     """Packed latents [1, seq, 64] feeding the VAE decoder component."""
     return make_packed_latents(dtype)
+
+
+# Tensor-parallel partition specs (mesh axes "batch", "model"):
+#   column-parallel (shard output / Cout): ("model", None), bias ("model",)
+#   row-parallel    (shard input  / Cin):  (None, "model"), bias (None,)
+
+MESH_SHAPES = {8: (2, 4), 4: (1, 4), 2: (1, 2), 1: (1, 1)}
+MESH_NAMES = ("batch", "model")
+
+
+def _add_shard_spec(specs: dict, param, spec: tuple) -> None:
+    """Register a partition spec only for real parameters (skip None weights/biases)."""
+    if param is not None:
+        specs[param] = spec
+
+
+def _shard_linear(specs: dict, linear, spec: tuple) -> None:
+    """Shard a linear's weight per `spec`; bias along the same first axis (or replicated)."""
+    if linear is None:
+        return
+    _add_shard_spec(specs, linear.weight, spec)
+    bias_spec = ("model",) if spec[0] == "model" else (None,)
+    _add_shard_spec(specs, getattr(linear, "bias", None), bias_spec)
+
+
+def _shard_timestep_embedder(specs: dict, embedder) -> None:
+    """TimestepEmbedding / PixArtAlphaTextProjection: linear_1 column, linear_2 row."""
+    if embedder is None:
+        return
+    _shard_linear(specs, getattr(embedder, "linear_1", None), ("model", None))
+    _shard_linear(specs, getattr(embedder, "linear_2", None), (None, "model"))
+
+
+def _shard_feed_forward(specs: dict, ff) -> None:
+    """diffusers FeedForward: net[0].proj (up) column, net[2] (down) row."""
+    if ff is None:
+        return
+    _shard_linear(specs, ff.net[0].proj, ("model", None))
+    _shard_linear(specs, ff.net[2], (None, "model"))
+
+
+def _shard_modulation_linear(specs: dict, linear) -> None:
+    """Shard an AdaLayerNorm modulation linear ROW-parallel: (None, "model").
+
+    The output (dim -> 6*dim / 3*dim / 2*dim) is immediately chunk()-ed into
+    shift/scale/gate. Column-sharding the output dim scrambles those chunks (the
+    partitioner does not all-gather before the chunk -> wrong shift/scale/gate).
+    Row-parallel instead shards the *input* dim and all-reduces, so the full
+    output is materialized before the chunk (chunk-safe) while the (large) weight
+    still splits 4-way -- replicating it instead overflows DRAM.
+    """
+    _shard_linear(specs, linear, (None, "model"))
+
+
+def shard_transformer_specs(transformer) -> dict:
+    """Tensor-parallel shard specs for FluxTransformer2DModel (FLUX.1-dev).
+
+    Dual-stream `transformer_blocks` + single-stream `single_transformer_blocks`,
+    Megatron column->row on attention QKV/out and the FFNs. Per-head RMSNorm
+    weights (head_dim) and the final proj_out stay replicated.
+    """
+    specs: dict = {}
+
+    # Entry-point embedders -> column.
+    _shard_linear(specs, transformer.x_embedder, ("model", None))
+    _shard_linear(specs, transformer.context_embedder, ("model", None))
+
+    # Time / guidance / text conditioning embedders.
+    tte = transformer.time_text_embed
+    _shard_timestep_embedder(specs, getattr(tte, "timestep_embedder", None))
+    _shard_timestep_embedder(specs, getattr(tte, "guidance_embedder", None))
+    _shard_timestep_embedder(specs, getattr(tte, "text_embedder", None))
+
+    for block in transformer.transformer_blocks:
+        # AdaLayerNormZero modulation linears (dim -> 6*dim): replicate (chunk-safe).
+        _shard_modulation_linear(specs, block.norm1.linear)
+        _shard_modulation_linear(specs, block.norm1_context.linear)
+
+        attn = block.attn
+        for proj_name in (
+            "to_q",
+            "to_k",
+            "to_v",
+            "add_q_proj",
+            "add_k_proj",
+            "add_v_proj",
+        ):
+            _shard_linear(specs, getattr(attn, proj_name, None), ("model", None))
+        # to_out is a ModuleList([Linear, Dropout]); to_add_out is a Linear. Row.
+        _shard_linear(specs, attn.to_out[0], (None, "model"))
+        _shard_linear(specs, getattr(attn, "to_add_out", None), (None, "model"))
+        # Per-head RMSNorm weights (head_dim) are replicated (heads, not head_dim, are sharded).
+        for norm_name in ("norm_q", "norm_k", "norm_added_q", "norm_added_k"):
+            norm = getattr(attn, norm_name, None)
+            if norm is not None:
+                _add_shard_spec(specs, getattr(norm, "weight", None), (None,))
+
+        _shard_feed_forward(specs, block.ff)
+        _shard_feed_forward(specs, getattr(block, "ff_context", None))
+
+    for block in transformer.single_transformer_blocks:
+        # AdaLayerNormZeroSingle modulation (dim -> 3*dim): replicate (chunk-safe).
+        _shard_modulation_linear(specs, block.norm.linear)
+
+        attn = block.attn  # single-stream attn has only to_q/to_k/to_v (no to_out).
+        for proj_name in ("to_q", "to_k", "to_v"):
+            _shard_linear(specs, getattr(attn, proj_name, None), ("model", None))
+        for norm_name in ("norm_q", "norm_k"):
+            norm = getattr(attn, norm_name, None)
+            if norm is not None:
+                _add_shard_spec(specs, getattr(norm, "weight", None), (None,))
+
+        # proj_mlp (up) column; proj_out input is cat([attn_out, mlp]) (both
+        # column-sharded) -> row.
+        _shard_linear(specs, block.proj_mlp, ("model", None))
+        _shard_linear(specs, block.proj_out, (None, "model"))
+
+    # Final AdaLayerNormContinuous modulation: replicate (chunk-safe); proj_out replicated.
+    if hasattr(transformer.norm_out, "linear"):
+        _shard_modulation_linear(specs, transformer.norm_out.linear)
+    _add_shard_spec(specs, transformer.proj_out.weight, (None, None))
+    _add_shard_spec(specs, getattr(transformer.proj_out, "bias", None), (None,))
+
+    return specs

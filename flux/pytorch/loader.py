@@ -31,6 +31,8 @@ from .src.model_utils import (
     LATENT_GRID_H,
     LATENT_GRID_W,
     MAX_SEQUENCE_LENGTH,
+    MESH_NAMES,
+    MESH_SHAPES,
     REPO_ID,
     ClipTextEncoderWrapper,
     FluxTransformerWrapper,
@@ -46,6 +48,7 @@ from .src.model_utils import (
     make_vae_decoder_input,
     prepare_latent_image_ids,
     prepare_text_ids,
+    shard_transformer_specs,
     tokenize_clip,
     tokenize_t5,
 )
@@ -105,6 +108,29 @@ class ModelLoader(ForgeModel):
             return FluxVAEDecoderWrapper(load_vae(dtype)).eval()
 
         raise ValueError(f"Unknown variant: {self._variant}")
+
+    def get_mesh_config(self, num_devices: int):
+        """Return (mesh_shape, mesh_names) for a ("batch", "model") 2D mesh.
+
+        Supported device counts: 1, 2, 4, 8. The transformer is sharded
+        tensor-parallel along the "model" axis.
+        """
+        if num_devices not in MESH_SHAPES:
+            raise ValueError(
+                f"Unsupported device count: {num_devices}. "
+                f"Expected one of {sorted(MESH_SHAPES)}."
+            )
+        return MESH_SHAPES[num_devices], MESH_NAMES
+
+    def load_shard_spec(self, model):
+        """Return tensor -> partition_spec dict for the active component.
+
+        Expects the same wrapper object returned by load_model(). Only the
+        TRANSFORMER variant is sharded today (the others fit a single chip).
+        """
+        if self._variant == ModelVariant.TRANSFORMER:
+            return shard_transformer_specs(model.transformer)
+        return None
 
     def load_inputs(self, dtype_override: Optional[torch.dtype] = None, **kwargs):
         """Return synthetic inputs for the active component at 1024x1024."""
