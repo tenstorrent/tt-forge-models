@@ -31,6 +31,7 @@ class ModelVariant(StrEnum):
     """Available Gemma4 model variants for causal LM."""
 
     GEMMA_4_12B = "12B"
+    GEMMA_4_26B_A4B_IT = "26B-A4B-it"
 
 
 class ModelLoader(ForgeModel):
@@ -41,9 +42,20 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="google/gemma-4-12B",
             max_length=256,
         ),
+        # google/gemma-4-26B-A4B-it is a Gemma4ForConditionalGeneration
+        # (any-to-any: text + vision + audio) sparse Mixture-of-Experts
+        # instruct checkpoint: 26B total / ~4B active params, 128 experts with
+        # top-8 routing per text decoder layer (``enable_moe_block=True``).
+        # This entry brings up the *text-only* causal-LM path; the vision tower
+        # is brought up separately (see gemma4/image_text_to_text). 30 decoder
+        # layers, hidden 2816, GQA 16:8, head_dim 256, sliding+full attention.
+        ModelVariant.GEMMA_4_26B_A4B_IT: LLMModelConfig(
+            pretrained_model_name="google/gemma-4-26B-A4B-it",
+            max_length=256,
+        ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.GEMMA_4_12B
+    DEFAULT_VARIANT = ModelVariant.GEMMA_4_26B_A4B_IT
 
     sample_text = "What is your favorite city?"
 
