@@ -1,0 +1,5 @@
+# LongCat-Video (meituan-longcat/LongCat-Video) component bringup deps.
+# einops is used by the vendored DiT modeling code (rope_3d / attention / dit).
+einops>=0.8.0
+# diffusers ships AutoencoderKLWan; transformers ships UMT5EncoderModel.
+# (No flash-attn / triton: the vendored DiT uses an SDPA attention fallback.)
