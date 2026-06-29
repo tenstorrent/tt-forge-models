@@ -1,0 +1,8 @@
+# SeamlessM4T v2 requires audio I/O + sentencepiece tokenizer.
+# torchaudio MUST match the installed torch and be the CPU build (+cpu) — an
+# unpinned torchaudio pulls a CUDA build whose libtorchaudio.so fails to load
+# against torch 2.10.0+cpu (and an unpinned bump can force-downgrade torch and
+# break the torch-xla device path). Install from the PyTorch CPU index:
+#   pip install --index-url https://download.pytorch.org/whl/cpu torchaudio==2.10.0
+torchaudio==2.10.0
+sentencepiece
