@@ -314,9 +314,9 @@ class ModelLoader(ForgeModel):
             if isinstance(mlp, A2aSparseMLPWithSharedExperts):
                 inner = mlp.mlp  # A2aSparseMLP
                 shard_specs[inner.router.gate.weight] = (None, "model")
-                shard_specs[inner.experts.gate_proj] = (("model", "batch"), None, None)
-                shard_specs[inner.experts.up_proj] = (("model", "batch"), None, None)
-                shard_specs[inner.experts.down_proj] = (("model", "batch"), None, None)
+                shard_specs[inner.experts.gate_proj] = (("batch", "model"), None, None)
+                shard_specs[inner.experts.up_proj] = (("batch", "model"), None, None)
+                shard_specs[inner.experts.down_proj] = (("batch", "model"), None, None)
                 shared = getattr(mlp, "shared_experts", None)
                 if shared is not None:
                     shard_specs[shared.gate_proj.weight] = (None, "model")

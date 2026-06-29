@@ -215,24 +215,24 @@ class ModelLoader(ForgeModel):
                 inner = mlp.mlp if hasattr(mlp, "mlp") else mlp
                 shard_specs[inner.router.gate.weight] = (None, "model")
                 shard_specs[inner.experts.gate_proj] = (
-                    ("model", "batch"),
+                    ("batch", "model"),
                     None,
                     None,
                 )
                 shard_specs[inner.experts.up_proj] = (
-                    ("model", "batch"),
+                    ("batch", "model"),
                     None,
                     None,
                 )
                 shard_specs[inner.experts.down_proj] = (
-                    ("model", "batch"),
+                    ("batch", "model"),
                     None,
                     None,
                 )
                 for bias_name in ("gate_proj_bias", "up_proj_bias", "down_proj_bias"):
                     b = getattr(inner.experts, bias_name, None)
                     if b is not None:
-                        shard_specs[b] = (("model", "batch"), None)
+                        shard_specs[b] = (("batch", "model"), None)
 
                 shared = getattr(mlp, "shared_experts", None)
                 if shared is not None:
