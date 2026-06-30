@@ -114,24 +114,19 @@ class ModelLoader(ForgeModel):
         return list(base.encoder.language_model.layers) + list(base.decoder.layers)
 
     def get_mesh_config(self, num_devices: int):
-        """((1, num_devices), ("batch", "model")); model axis carries query heads
-        and the expert axis, so both must divide it (KV is replicated)."""
+        """((1, num_devices), ("batch", "model")); attention is replicated, so
+        only the expert axis rides the model axis and must divide it."""
         mesh_shape = (1, num_devices)
         text_cfg = getattr(self.config, "text_config", self.config)
-        assert text_cfg.num_attention_heads % mesh_shape[1] == 0
         assert text_cfg.num_experts % mesh_shape[1] == 0
         return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
-        """Megatron TP (q col / o row, dense MLP col->row) + expert-parallel MoE
-        (3D expert tensors sharded on the expert axis). K/V replicated: the
-        full-attention layers carry only 2 global KV heads (unsharddable)."""
+        """Shard the dense MLP (col->row) and expert-parallel MoE. Attention is
+        replicated: the global layers' 2 KV heads can't shard the model axis,
+        and head-sharding Q crashes the repeat_kv reshard."""
         shard_specs = {}
         for layer in self._text_layers(model):
-            attn = layer.self_attn
-            shard_specs[attn.q_proj.weight] = ("model", None)
-            shard_specs[attn.o_proj.weight] = (None, "model")
-
             shard_specs[layer.mlp.gate_proj.weight] = ("model", None)
             shard_specs[layer.mlp.up_proj.weight] = ("model", None)
             shard_specs[layer.mlp.down_proj.weight] = (None, "model")
