@@ -78,7 +78,9 @@ DEFAULT_JSON_CAPTION = json.dumps(
 )
 
 
-def _load_sharded_state_dict(repo_id: str, index_filename: str) -> Dict[str, torch.Tensor]:
+def _load_sharded_state_dict(
+    repo_id: str, index_filename: str
+) -> Dict[str, torch.Tensor]:
     index_path = hf_hub_download(repo_id=repo_id, filename=index_filename)
     with open(index_path) as f:
         index = json.load(f)
@@ -160,9 +162,7 @@ def build_synthetic_transformer_inputs(
     batch_size: int = 1, dtype: torch.dtype = DTYPE
 ) -> dict[str, torch.Tensor]:
     """Synthetic packed-sequence inputs at 512x512 resolution."""
-    llm_features = torch.randn(
-        batch_size, TOTAL_SEQ_LEN, LLM_FEATURES_DIM, dtype=dtype
-    )
+    llm_features = torch.randn(batch_size, TOTAL_SEQ_LEN, LLM_FEATURES_DIM, dtype=dtype)
     x = torch.randn(batch_size, TOTAL_SEQ_LEN, IN_CHANNELS, dtype=dtype)
     t = torch.full((batch_size,), 0.5, dtype=dtype)
 
