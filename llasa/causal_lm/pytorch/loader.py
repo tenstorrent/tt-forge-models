@@ -180,9 +180,7 @@ class ModelLoader(ForgeModel):
             attention_mask = torch.ones_like(input_ids)
         else:
             input_ids = encoded["input_ids"]
-            attention_mask = encoded.get(
-                "attention_mask", torch.ones_like(input_ids)
-            )
+            attention_mask = encoded.get("attention_mask", torch.ones_like(input_ids))
 
         inputs = {"input_ids": input_ids, "attention_mask": attention_mask}
 
