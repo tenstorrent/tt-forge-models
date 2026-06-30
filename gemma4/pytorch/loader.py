@@ -31,15 +31,35 @@ class ModelVariant(StrEnum):
     """Available Gemma4 model variants for causal LM."""
 
     GEMMA_4_12B = "12B"
+    GEMMA_4_26B_A4B_IT = "26B-A4B-it"
 
 
 class ModelLoader(ForgeModel):
-    """Gemma4 model loader implementation for causal language modeling tasks."""
+    """Gemma4 model loader implementation for causal language modeling tasks.
+
+    Two variants are supported, both driven through the text-only causal-LM
+    path of the unified Gemma4 model:
+
+    * ``12B`` (``google/gemma-4-12B``) — dense decoder, a single ``mlp`` per
+      layer.
+    * ``26B-A4B-it`` (``google/gemma-4-26B-A4B-it``) — a sparse mixture-of-
+      experts decoder (128 experts, top-8 routing, ~4B active of 26B total),
+      where each layer runs **both** a dense ``mlp`` and a ``Gemma4TextExperts``
+      MoE block (see ``Gemma4TextDecoderLayer`` with ``enable_moe_block``). The
+      shard hooks below cover the dense path; the MoE expert weights are large
+      enough that single-device bringup of this variant does not fit on one
+      32 GB Blackhole chip and the expert dispatch (``one_hot`` →
+      ``nonzero`` → per-expert Python loop → ``index_add_``) is data-dependent.
+    """
 
     _VARIANTS = {
         ModelVariant.GEMMA_4_12B: LLMModelConfig(
             pretrained_model_name="google/gemma-4-12B",
             max_length=256,
+        ),
+        ModelVariant.GEMMA_4_26B_A4B_IT: LLMModelConfig(
+            pretrained_model_name="google/gemma-4-26B-A4B-it",
+            max_length=64,
         ),
     }
 
