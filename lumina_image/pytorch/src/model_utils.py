@@ -133,6 +133,31 @@ def load_vae_inputs(dtype: torch.dtype):
 # ---------------------------------------------------------------------------
 
 
+class Gemma2TextEncoderWrapper(torch.nn.Module):
+    """Run Gemma2Model as a stateless text encoder returning a plain tensor.
+
+    Pins use_cache=False so no KV cache is built. With a cache, Gemma-2's
+    sliding-window layer slices the value states with
+    full_value_states[:, :, -sliding_window + 1 :, :] (sliding_window=4096),
+    producing slice index -4095 which exceeds the tt-mlir slice bound of
+    [-256, 255] (tenstorrent/tt-xla#4900). A single encode pass needs no
+    cache, so disabling it removes the offending slice entirely. Also pins
+    return_dict=False so graph capture sees a pure tensor (last_hidden_state).
+    """
+
+    def __init__(self, encoder):
+        super().__init__()
+        self.encoder = encoder
+
+    def forward(self, input_ids, attention_mask):
+        return self.encoder(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            use_cache=False,
+            return_dict=False,
+        )[0]
+
+
 class Lumina2TransformerWrapper(torch.nn.Module):
     """Simplify Lumina2Transformer2DModel forward to return a plain tensor.
 

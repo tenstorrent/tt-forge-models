@@ -146,6 +146,9 @@ def model_from_pretrained_kwargs() -> dict:
 
 
 def load_processor(repo_id: str):
+    # Patch must run before importing janus.models (transformers 5.5+ compat).
+    apply_janus_config_dataclass_compat()
+
     from janus.models import VLChatProcessor
 
     if repo_id not in _processor_cache:

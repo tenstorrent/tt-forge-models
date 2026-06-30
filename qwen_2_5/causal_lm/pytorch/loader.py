@@ -42,6 +42,7 @@ class ModelVariant(StrEnum):
     QWEN_2_5_72B_INSTRUCT = "72B_Instruct"
     QWEN_2_5_72B = "72B"
     QWEN_2_5_MATH_7B = "Math_7B"
+    QWEN_2_5_MATH_72B_INSTRUCT = "Math_72B_Instruct"
 
 
 class ModelLoader(ForgeModel):
@@ -111,6 +112,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_2_5_MATH_7B: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen2.5-Math-7B",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_2_5_MATH_72B_INSTRUCT: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen2.5-Math-72B-Instruct",
             max_length=128,
         ),
     }
@@ -277,6 +282,9 @@ class ModelLoader(ForgeModel):
     def load_shard_spec(self, model):
         """Default shard spec on a ("batch", "model") mesh."""
         shard_specs = {}
+        # Shard the embedding only for the Math-72B variant
+        if self._variant == ModelVariant.QWEN_2_5_MATH_72B_INSTRUCT:
+            shard_specs[model.model.embed_tokens.weight] = ("model", "batch")
         for layer in model.model.layers:
             shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
