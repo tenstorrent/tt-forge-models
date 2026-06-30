@@ -1,0 +1,3 @@
+# ACE-Step 1.5 denoiser custom modeling code imports these at import time.
+einops
+vector_quantize_pytorch
