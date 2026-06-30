@@ -1,0 +1,1 @@
+ideogram-4 @ git+https://github.com/ideogram-oss/ideogram4.git
