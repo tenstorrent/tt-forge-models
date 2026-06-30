@@ -5,9 +5,13 @@
 Gemma4 model loader implementation for causal language modeling.
 
 google/gemma-4-12B is a Gemma4UnifiedForConditionalGeneration (any-to-any:
-text + vision + audio). This loader brings up the *text-only* causal-LM path
-(input_ids + attention_mask only), which is the tractable first target for
-single-device bringup. Vision/audio components are out of scope here.
+text + vision + audio). google/gemma-4-31B-it is a Gemma4ForConditionalGeneration
+(image-text-to-text: vision + text decoder, instruction-tuned). This loader brings
+up the *text-only* causal-LM path (input_ids + attention_mask only) for both, which
+is the tractable first target for single-device bringup. Vision/audio components are
+out of scope here. ``Gemma4Config`` is registered in transformers'
+``MODEL_FOR_CAUSAL_LM_MAPPING``, so ``AutoModelForCausalLM`` drives the text decoder
+directly.
 """
 
 from typing import Optional
@@ -31,6 +35,7 @@ class ModelVariant(StrEnum):
     """Available Gemma4 model variants for causal LM."""
 
     GEMMA_4_12B = "12B"
+    GEMMA_4_31B_IT = "31B-it"
 
 
 class ModelLoader(ForgeModel):
@@ -39,6 +44,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.GEMMA_4_12B: LLMModelConfig(
             pretrained_model_name="google/gemma-4-12B",
+            max_length=256,
+        ),
+        ModelVariant.GEMMA_4_31B_IT: LLMModelConfig(
+            pretrained_model_name="google/gemma-4-31B-it",
             max_length=256,
         ),
     }
