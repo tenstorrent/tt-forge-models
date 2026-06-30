@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# SeamlessM4T v2 large bringup requirements.
+#
+# No torchaudio: audio inputs are synthesized with numpy and turned into mel
+# features by the HuggingFace SeamlessM4TFeatureExtractor. Pulling in torchaudio
+# (the v1 SeamlessM4T loader pins 2.9.0) force-downgrades torch off the 2.10
+# stack the torch-xla device path requires, so it is deliberately avoided here.
+#
+# transformers >= 5 provides SeamlessM4Tv2Model / SeamlessM4Tv2Config and the
+# `audio=` processor kwarg used by this loader.
+transformers>=5.0.0
+numpy
