@@ -1,0 +1,15 @@
+# LongCat-Video (meituan-longcat/LongCat-Video) per-component loader deps.
+#
+# The modeling code is NOT on HF and NOT pip-installable -- the loader
+# shallow-clones github.com/meituan-longcat/LongCat-Video on first use and puts
+# it on sys.path (see _ensure_longcat_repo in loader.py). `git` must be present.
+#
+# Runtime imports pulled in by the repo's dit / vae / attention modules. torch,
+# transformers, diffusers, safetensors, numpy ship with the tt-xla venv already;
+# pinned here only for the deps the repo adds.
+einops>=0.8.0
+loguru>=0.7.2
+# triton is imported at module-load time by block_sparse_attention (even though
+# the block-sparse path itself is unused on this backend); ships with torch.
+# The repo also lists flash-attn (CUDA-only) -- NOT required: the loader
+# monkeypatches attention to torch.nn.functional.scaled_dot_product_attention.
