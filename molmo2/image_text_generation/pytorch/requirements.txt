@@ -1,0 +1,7 @@
+# Molmo2-8B ships custom modeling/processing code (trust_remote_code) authored
+# against transformers 4.57.x. Under transformers 5.x the custom Molmo2Processor
+# fails in ProcessorMixin.__init__ ("Unexpected keyword argument
+# image_use_col_tokens"), so this pin is required to load the model at all.
+# It only downgrades transformers + huggingface-hub and does NOT touch the
+# torch / torch-xla stack (verified: on-device sanity still passes).
+transformers==4.57.1
