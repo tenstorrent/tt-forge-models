@@ -1,0 +1,11 @@
+# PI0.5 (Pi05) is distributed through the lerobot library; the `[pi]` extra
+# pulls the PaliGemma/Gemma transformers dependencies needed by the policy.
+#
+# IMPORTANT: install with the torch stack pinned so lerobot's resolver does not
+# downgrade torch / torchvision / torchaudio and break the torch-xla device
+# path, e.g.:
+#   uv pip install -c <(printf 'torch==2.10.0+cpu\ntorchvision==0.25.0+cpu\ntorchaudio==2.10.0\n') \
+#       "lerobot[pi]@git+https://github.com/huggingface/lerobot.git"
+#
+# Validated with lerobot 0.5.2 (git 8414188) against torch 2.10.0 / transformers 5.5.1.
+lerobot[pi] @ git+https://github.com/huggingface/lerobot.git
