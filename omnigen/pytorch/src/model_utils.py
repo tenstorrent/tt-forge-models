@@ -429,8 +429,12 @@ def shard_vae_encoder_specs(vae) -> dict:
 def shard_transformer_specs(transformer) -> dict:
     """Shard specs for OmniGenTransformer2DModel.
 
-    Column-parallel (Q, K, V, gate_up_proj): ("model", "batch")
-    Row-parallel   (attn out, down_proj):    ("batch", "model")
+    Column-parallel (Q, K, V, gate_up_proj, down_proj): ("model", "batch")
+    Row-parallel    (attn out):                         ("batch", "model")
+
+    down_proj is column-parallel (not row-parallel) on purpose: the fused
+    gate_up_proj + chunk pattern mis-lowers when down_proj shards its
+    contraction dim. See the note at the down_proj spec below.
     """
     specs = {}
 
@@ -470,9 +474,19 @@ def shard_transformer_specs(transformer) -> dict:
         specs[mlp.gate_up_proj.weight] = ("model", "batch")
         if mlp.gate_up_proj.bias is not None:
             specs[mlp.gate_up_proj.bias] = ("model",)
-        specs[mlp.down_proj.weight] = ("batch", "model")
+        # down_proj is column-parallel (output sharded), NOT row-parallel.
+        # OmniGenFeedForward fuses gate+up into one Linear, so sharding
+        # gate_up_proj's output dim puts the whole gate half on one device and
+        # the whole up half on another. The subsequent `up * silu(gate)` then
+        # needs a cross-device gather. A row-parallel ("batch","model") down_proj
+        # (contraction dim sharded) forces that gather to reshard back to a
+        # model-sharded layout, which the compiler lowers incorrectly and
+        # collapses PCC (~0.1). Keeping down_proj column-parallel lets the gather
+        # resolve to a replicated intermediate — the same layout phi3 (identical
+        # fused-MLP + chunk) uses successfully.
+        specs[mlp.down_proj.weight] = ("model", "batch")
         if mlp.down_proj.bias is not None:
-            specs[mlp.down_proj.bias] = ("batch",)
+            specs[mlp.down_proj.bias] = ("model",)
 
         specs[block.input_layernorm.weight] = (None,)
         specs[block.post_attention_layernorm.weight] = (None,)
