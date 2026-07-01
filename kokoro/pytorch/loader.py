@@ -5,12 +5,16 @@
 Kokoro-82M model loader implementation for text-to-speech tasks.
 
 Kokoro is a StyleTTS2-derived TTS model (PL-BERT prosody encoder + duration
-predictor + iSTFTNet decoder). The architecture is vendored under ``src/`` from
-the ``kokoro`` package (Apache-2.0). The loader builds the model from
-``config.json`` with random-initialized weights (no multi-GB checkpoint
-download) and exposes a clean tensors-in / tensor-out forward suitable for
-compile bringup and PCC comparison.
+predictor + iSTFTNet decoder). The architecture is used directly from the
+upstream ``kokoro`` package (Apache-2.0) — installed via this model's
+``requirements.nodeps.txt`` rather than copy-pasted — and the small set of
+edits needed for TT compilation / deterministic PCC is applied as runtime
+monkey-patches in ``tt_patches.py`` (see that module for the exact deltas). The
+loader builds the model from ``config.json``, loads the trained checkpoint, and
+exposes a clean tensors-in / tensor-out forward suitable for compile bringup and
+PCC comparison.
 """
+
 import json
 from typing import Optional
 
@@ -27,7 +31,7 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from .src.model import KModel
+from .tt_patches import apply_tt_patches
 
 
 class ModelVariant(StrEnum):
@@ -44,7 +48,7 @@ class _KokoroWrapper(torch.nn.Module):
     returns the audio waveform tensor.
     """
 
-    def __init__(self, kmodel: KModel, speed: float = 1.0):
+    def __init__(self, kmodel, speed: float = 1.0):
         super().__init__()
         self.kmodel = kmodel
         self.speed = speed
@@ -103,14 +107,18 @@ class ModelLoader(ForgeModel):
     def load_model(self, dtype_override=None):
         """Build Kokoro from config and load the trained checkpoint.
 
-        ``load_weights=True`` downloads + loads ``kokoro-v1_0.pth``. Trained
-        weights are required for meaningful PCC: with random init the iSTFTNet
-        vocoder's AdaIN ``InstanceNorm`` sees a near-constant activation
-        (per-channel variance ~5e-8) whose bf16 variance catastrophically
-        cancels on device -> ``rsqrt`` -> inf, exploding the output to FLT_MAX
-        and collapsing PCC. Trained ``noise_convs`` carry real variance
-        (~3e-3), so the normalization (and the downstream ``torch.exp``) is
-        well conditioned.
+        Upstream ``KModel.__init__`` downloads + loads ``kokoro-v1_0.pth``.
+        Trained weights are required for meaningful PCC: with random init the
+        iSTFTNet vocoder's AdaIN ``InstanceNorm`` sees a near-constant
+        activation (per-channel variance ~5e-8) whose bf16 variance
+        catastrophically cancels on device -> ``rsqrt`` -> inf, exploding the
+        output to FLT_MAX and collapsing PCC. Trained ``noise_convs`` carry
+        real variance (~3e-3), so the normalization (and the downstream
+        ``torch.exp``) is well conditioned.
+
+        ``apply_tt_patches()`` imports the upstream acoustic model and applies
+        the TT-specific deltas (see ``tt_patches.py``); it returns the patched
+        ``KModel`` class.
 
         ``disable_complex=True`` selects the conv-based CustomSTFT path (no
         complex tensor ops), which is friendlier to the TT compiler.
@@ -122,11 +130,11 @@ class ModelLoader(ForgeModel):
         ``dtype_override`` from the runner is intentionally ignored here.
         """
         config = self._load_config()
+        KModel = apply_tt_patches()
         kmodel = KModel(
             repo_id=self._variant_config.pretrained_model_name,
             config=config,
             disable_complex=True,
-            load_weights=True,
         )
         model = _KokoroWrapper(kmodel).eval()
         # Pin fp32 (see docstring); only honor a non-bf16 explicit override.
