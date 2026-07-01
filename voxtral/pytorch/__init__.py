@@ -2,6 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Stable Diffusion 3 Medium PyTorch pipeline implementation for Tenstorrent projects.
+Voxtral PyTorch model implementation for Tenstorrent projects.
 """
 from .loader import ModelLoader, ModelVariant
