@@ -2,6 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-BRIA 2.3 PyTorch pipeline implementation for Tenstorrent projects.
+Llasa (Llama3-8B TTS) Causal LM PyTorch model implementation for Tenstorrent projects.
 """
 from .loader import ModelLoader, ModelVariant
