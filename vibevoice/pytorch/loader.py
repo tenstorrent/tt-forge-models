@@ -6,9 +6,12 @@ VibeVoice model loader implementation.
 
 VibeVoice (microsoft/VibeVoice-1.5B) is a long-form, generation-based
 text-to-speech model. The HuggingFace repo ships weights only; the model
-code lives in the standalone https://github.com/microsoft/VibeVoice repo
-and is vendored (port mode) under ``src/`` here. See
-``src/SRC_VENDORED_FROM.txt`` for provenance and the local compat edits.
+code lives in the standalone https://github.com/microsoft/VibeVoice repo,
+which is vendored as a pinned git submodule under
+``third_party/VibeVoice/`` (rather than copy-pasting the source). The two
+compat needs — a ``tie_weights`` signature widened for transformers>=5 and an
+idempotent ``AutoModel.register`` — are applied as runtime patches here so the
+upstream files are used unmodified.
 
 The entry class ``VibeVoiceForConditionalGeneration`` is built from the real
 1.5B ``config.json`` (vendored alongside this loader) with random weights —
@@ -21,8 +24,9 @@ backbone only; the acoustic/semantic VAE tokenizers, diffusion head and
 connectors add the rest).
 """
 
+import importlib
 import os
-import sys
+import types
 from typing import Optional
 
 import torch
@@ -38,13 +42,84 @@ from ...config import (
     StrEnum,
 )
 
-# --- vendored source on sys.path -------------------------------------------
-# The ported code uses absolute imports (``from vibevoice.schedule...``), so we
-# put the vendored ``src/`` dir on sys.path and import the package by its
-# original name rather than rewriting every internal import.
-_SRC_DIR = os.path.join(os.path.dirname(__file__), "src")
-if _SRC_DIR not in sys.path:
-    sys.path.insert(0, _SRC_DIR)
+
+def _vibevoice_pkg_dir():
+    """Absolute path to the upstream ``vibevoice`` package in the submodule.
+
+    Resolved from this file's location: the loader lives at
+    ``<repo>/vibevoice/pytorch/loader.py`` and the submodule at
+    ``<repo>/third_party/VibeVoice``. Returns ``None`` if the submodule has
+    not been checked out.
+    """
+    repo_root = os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    )
+    pkg = os.path.join(repo_root, "third_party", "VibeVoice", "vibevoice")
+    return pkg if os.path.isdir(pkg) else None
+
+
+def _register_bare_package(name, path):
+    """Register a bare package at ``path`` in ``sys.modules`` (no ``__init__``).
+
+    Upstream ``vibevoice/__init__.py`` and ``vibevoice/modular/__init__.py``
+    eagerly import the streaming/processor stack (gradio/av/aiortc) that this
+    bringup does not need, so we point ``__path__`` straight at the submodule
+    dirs and skip those ``__init__`` files. Setting ``__path__`` explicitly also
+    shadows the same-named tt-forge-models ``vibevoice/`` model package that is
+    on ``sys.path`` (avoids resolving ``import vibevoice.*`` to this loader's
+    own package).
+    """
+    import sys
+
+    existing = sys.modules.get(name)
+    if existing is None or list(getattr(existing, "__path__", []) or [])[:1] != [path]:
+        mod = types.ModuleType(name)
+        mod.__path__ = [path]
+        sys.modules[name] = mod
+
+
+def _patch_tie_weights(cls):
+    """Widen ``tie_weights`` to accept transformers>=5's ``recompute_mapping``.
+
+    transformers>=5 calls ``tie_weights(recompute_mapping=...)`` from
+    ``init_weights``; upstream (pinned transformers<5.0.0) declares
+    ``tie_weights(self)``. Wrap the original so extra args are ignored — keeps
+    the upstream method body untouched.
+    """
+    orig = cls.__dict__.get("tie_weights")
+    if orig is None or getattr(orig, "_tt_widened", False):
+        return
+
+    def tie_weights(self, *args, **kwargs):
+        return orig(self)
+
+    tie_weights._tt_widened = True
+    cls.tie_weights = tie_weights
+
+
+def _import_vibevoice():
+    """Import the VibeVoice entry class + config from the pinned submodule.
+
+    Returns ``(VibeVoiceForConditionalGeneration, VibeVoiceConfig)``.
+    """
+    pkg_dir = _vibevoice_pkg_dir()
+    if pkg_dir is None:
+        raise ImportError(
+            "The VibeVoice submodule is not checked out. Run:\n"
+            "  git submodule update --init third_party/VibeVoice"
+        )
+
+    importlib.invalidate_caches()
+    _register_bare_package("vibevoice", pkg_dir)
+    _register_bare_package("vibevoice.modular", os.path.join(pkg_dir, "modular"))
+    _register_bare_package("vibevoice.schedule", os.path.join(pkg_dir, "schedule"))
+
+    _patch_idempotent_register()
+    from vibevoice.modular import modeling_vibevoice as _modeling
+    from vibevoice.modular.configuration_vibevoice import VibeVoiceConfig
+
+    _patch_tie_weights(_modeling.VibeVoiceForConditionalGeneration)
+    return _modeling.VibeVoiceForConditionalGeneration, VibeVoiceConfig
 
 
 def _patch_idempotent_register():
@@ -148,9 +223,7 @@ class ModelLoader(ForgeModel):
 
     def _load_config(self):
         """Build the real 1.5B VibeVoiceConfig from the vendored config.json."""
-        _patch_idempotent_register()
-        from vibevoice.modular.configuration_vibevoice import VibeVoiceConfig
-
+        _, VibeVoiceConfig = _import_vibevoice()
         self.config = VibeVoiceConfig.from_pretrained(os.path.dirname(__file__))
         return self.config
 
@@ -167,10 +240,7 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The VibeVoice model instance.
         """
-        _patch_idempotent_register()
-        from vibevoice.modular.modeling_vibevoice import (
-            VibeVoiceForConditionalGeneration,
-        )
+        VibeVoiceForConditionalGeneration, _ = _import_vibevoice()
 
         config = self._load_config()
         model = VibeVoiceForConditionalGeneration(config)
