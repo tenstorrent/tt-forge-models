@@ -13,7 +13,7 @@ dynamic-length ``gpt.generate`` loop with the traceable compute). Instead of
 monkey-patching a fused forward, we expose each underlying ``nn.Module`` through
 a thin wrapper with a clean tensor-in / tensor-out signature:
 
-    SpeakerEncoderWrapper   16 kHz waveform            -> speaker embedding
+    SpeakerEncoderWrapper   mel spectrogram (CPU STFT) -> speaker embedding
     ConditioningWrapper     reference mel-spectrogram  -> GPT conditioning latents
     GptPrefillWrapper       [prefix, start] tokens     -> first-step audio logits
     GptLatentsWrapper       text + audio-code sequence -> GPT latents
@@ -38,18 +38,25 @@ if not hasattr(_pu, "isin_mps_friendly"):
 
 
 class SpeakerEncoderWrapper(nn.Module):
-    """ResNet-SE speaker encoder: 16 kHz waveform ``(b, n)`` -> embedding ``(b, 512)``.
+    """ResNet-SE speaker encoder trunk: mel spectrogram ``(b, 64, T)`` -> embedding ``(b, 512)``.
 
-    The mel front-end (``torch_spec``) is parameter-free DSP run inside the
-    encoder, so the raw waveform is the only input.
+    The encoder's mel front-end (``torch_spec``) runs ``torch.stft``, a complex
+    FFT that lowers to an unsupported ``XLAComplexFloatType`` on device. STFT/mel
+    is fixed DSP preprocessing (problem #5216 keeps pre/post-processing on CPU),
+    so the loader computes the mel spectrogram on CPU and this wrapper runs only
+    the learned trunk (instance norm + ResNet + attentive pooling + fc) on device.
+    ``use_torch_spec`` is disabled so ``forward`` consumes the precomputed mel
+    directly; feeding the mel back this way is numerically identical to the full
+    waveform path (verified bit-exact on CPU).
     """
 
     def __init__(self, xtts):
         super().__init__()
         self.speaker_encoder = xtts.hifigan_decoder.speaker_encoder
+        self.speaker_encoder.use_torch_spec = False
 
-    def forward(self, audio_16k):
-        return self.speaker_encoder(audio_16k, l2_norm=True)
+    def forward(self, mel_spec):
+        return self.speaker_encoder(mel_spec, l2_norm=True)
 
 
 class ConditioningWrapper(nn.Module):
