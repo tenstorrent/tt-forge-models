@@ -1,0 +1,39 @@
+repo_url:  https://github.com/Lightricks/LTX-2
+ref:       780984275fd47128b02bef9b5c085404276866ee
+ref_kind:  sha
+fetched:   2026-06-28
+entry:     ltx_core.model.transformer.model:LTXModel
+configurator: ltx_core.model.transformer.model_configurator:LTXModelConfigurator
+
+Source root in the upstream repo:
+    packages/ltx-core/src/ltx_core/
+
+Vendored files (relative to src/ltx_core/, preserving the upstream subtree):
+    guidance/perturbations.py
+    model/model_protocol.py
+    model/transformer/adaln.py
+    model/transformer/attention.py
+    model/transformer/feed_forward.py
+    model/transformer/gelu_approx.py
+    model/transformer/modality.py
+    model/transformer/model.py
+    model/transformer/model_configurator.py
+    model/transformer/ops.py
+    model/transformer/rope.py
+    model/transformer/text_projection.py
+    model/transformer/timestep_embedding.py
+    model/transformer/transformer.py
+    model/transformer/transformer_args.py
+    utils.py
+    loader/sd_ops.py
+
+Empty __init__.py files were added at each package directory so the full
+ltx_core.* module paths resolve. The vendored .py files are UNMODIFIED from
+upstream: every internal import is an absolute ltx_core.* path and every
+external dependency (torch, einops, numpy, stdlib) is present in the venv.
+Optional accelerators (xformers / flash_attn) are imported behind try/except
+in attention.py and degrade gracefully to the PyTorch SDPA backend.
+
+The import closure was confirmed complete: no vendored file imports any
+ltx_core.* module outside the 17 files above. No files beyond the original 17
+were required.
