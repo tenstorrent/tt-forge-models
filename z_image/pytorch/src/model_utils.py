@@ -10,12 +10,14 @@ import torch
 REPO_ID = "Tongyi-MAI/Z-Image"
 DTYPE = torch.bfloat16
 
-# ZImagePipeline inference defaults
+# ZImagePipeline inference defaults (Tongyi-MAI/Z-Image official example:
+# num_inference_steps=50, guidance_scale=4, 1280x720, cfg_normalization=False).
+# Z-Image is the non-distilled foundation model and uses full CFG (not Turbo).
 PROMPT = "A red cube on a white table, studio lighting, sharp focus."
-NEGATIVE_PROMPT = "blurry, text, watermark"
+NEGATIVE_PROMPT = ""  # Source example uses an empty negative prompt with CFG.
 HEIGHT = 1280
 WIDTH = 720
-NUM_INFERENCE_STEPS = 4
+NUM_INFERENCE_STEPS = 50
 GUIDANCE_SCALE = 4.0
 SEED = 42
 CFG_NORMALIZATION = False
