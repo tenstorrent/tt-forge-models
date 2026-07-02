@@ -1,0 +1,4 @@
+# ACE-Step 1.5 turbo modeling (trust_remote_code) imports these.
+# Pin-free: neither pulls the torch stack, so they cannot downgrade torch/torch-xla.
+vector_quantize_pytorch
+einops
