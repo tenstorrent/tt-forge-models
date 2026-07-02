@@ -677,10 +677,16 @@ def shard_transformer_specs(transformer) -> dict:
     if hasattr(transformer, "image_projector") and hasattr(
         transformer.image_projector, "proj"
     ):
+        # Single linear (no row-parallel second layer), so it must shard its
+        # output feature dim (Cout) on "batch" to match the prior/glyph
+        # projectors and the transformer blocks' expected residual sharding.
+        # Replicate the tiny Cin (64). Using ("model", ...) here would land the
+        # output on "model" and force a cross-axis reshard at the residual add
+        # (collective_permute type mismatch). See add.3248.
         proj = transformer.image_projector.proj
-        specs[proj.weight] = ("model", "batch")
+        specs[proj.weight] = ("batch", None)
         if proj.bias is not None:
-            specs[proj.bias] = ("model",)
+            specs[proj.bias] = ("batch",)
 
     if hasattr(transformer, "glyph_projector"):
         gp = transformer.glyph_projector
@@ -725,10 +731,18 @@ def shard_transformer_specs(transformer) -> dict:
         for norm_name in ("norm1", "norm1_context"):
             mod = getattr(block, norm_name, None)
             if mod is not None and hasattr(mod, "linear"):
+                # AdaLN modulation: output is 12 concatenated copies of the
+                # feature dim (shift/scale/gate ×2 norms). Sharding Cout on
+                # "model" makes each sliced 4096 chunk land on "model", which
+                # conflicts with the "batch"-sharded residual stream it
+                # modulates (collective_permute type mismatch at the chunk
+                # slices, e.g. slice.3338). Replicate Cout; the replicated→
+                # "batch" reshard at the modulation is a free local slice.
+                # Keep Cin on "batch" to match the conditioning input.
                 lin = mod.linear
-                specs[lin.weight] = ("model", "batch")
+                specs[lin.weight] = (None, "batch")
                 if lin.bias is not None:
-                    specs[lin.bias] = ("model",)
+                    specs[lin.bias] = (None,)
 
         if hasattr(block, "attn1"):
             attn = block.attn1
@@ -760,10 +774,13 @@ def shard_transformer_specs(transformer) -> dict:
                 specs[ff.net[2].bias] = ("batch",)
 
     if hasattr(transformer, "norm_out") and hasattr(transformer.norm_out, "linear"):
+        # Final AdaLN modulation (shift/scale chunks of the feature dim) — same
+        # reasoning as the per-block norm1 linears: replicate Cout so the
+        # sliced chunks reshard to the "batch"-sharded hidden states for free.
         lin = transformer.norm_out.linear
-        specs[lin.weight] = ("model", "batch")
+        specs[lin.weight] = (None, "batch")
         if lin.bias is not None:
-            specs[lin.bias] = ("model",)
+            specs[lin.bias] = (None,)
 
     if hasattr(transformer, "proj_out"):
         specs[transformer.proj_out.weight] = (None, "batch")
