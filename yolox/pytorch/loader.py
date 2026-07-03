@@ -137,6 +137,12 @@ class ModelLoader(ForgeModel):
         model.load_state_dict(ckpt["model"])
         model.eval()
 
+        # Return raw (undecoded) head outputs. The box decode (grids + exp on
+        # w/h) is done once on the host by get_detections -> demo_postprocess.
+        # Leaving this True double-decodes the boxes (exp applied twice) and
+        # overflows to inf/NaN coordinates, so keep it False.
+        model.head.decode_in_inference = False
+
         # Only convert dtype if explicitly requested
         if dtype_override is not None:
             model = model.to(dtype_override)
