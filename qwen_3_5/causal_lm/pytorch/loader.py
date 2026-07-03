@@ -3,6 +3,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Qwen 3.5 model loader implementation for causal language modeling.
+
+Qwen 3.5 uses a hybrid architecture interleaving Gated DeltaNet (linear
+attention with causal conv1d + chunked delta rule) and standard full
+attention layers. Dense variants follow the layout
+(3x linear_attention + 1x full_attention) repeated.
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -21,7 +26,7 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Qwen 3.5 model variants for causal language modeling."""
+    """Available Qwen 3.5 dense model variants for causal language modeling."""
 
     QWEN_3_5_0_8B = "0_8B"
     QWEN_3_5_2B = "2B"
@@ -30,7 +35,7 @@ class ModelVariant(StrEnum):
     QWEN_3_5_27B = "27B"
 
 
-# Variants promoted to the RED model group (larger dense / MoE).
+# Variants promoted to the RED model group.
 _RED_VARIANTS = {
     ModelVariant.QWEN_3_5_27B,
 }
@@ -228,3 +233,19 @@ class ModelLoader(ForgeModel):
             shard_specs[model.lm_head.weight] = ("model", "batch")
 
         return shard_specs
+
+    def load_activation_shard_spec(self, model):
+        """Sharding constraints for intermediate ACTIVATIONS (not weights).
+
+        The gated-delta block's fused ``in_proj_qkv`` is sharded contiguously on
+        the "model" axis; the subsequent ``torch.split`` into [Q, K, V] cuts that
+        sharded axis at points that don't align with the per-device boundaries,
+        which miscompiles under Shardy and scrambles q/k/v before the recurrence
+        (full-model PCC collapses). Replicating the conv output before the split
+        makes the split run on correct data.
+        """
+        constraints = {}
+        for layer in model.model.layers:
+            if layer.layer_type == "linear_attention":
+                constraints[layer.linear_attn.conv1d] = None
+        return constraints
