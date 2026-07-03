@@ -187,18 +187,24 @@ class ModelLoader(ForgeModel):
 
         return batch_tensor
 
-    def output_postprocess(self, output, top_k=None):
+    def output_postprocess(self, output, top_k=None, score_thr=0.01):
         """Post-process raw model output into structured detection results.
 
-        Returns a dict with keys "labels", "probabilities", and "indices" (sorted by
-        descending confidence), compatible with ForgeRunner's _postprocess_model_output.
+        Returns a dict with keys "labels", "probabilities", "indices",
+        "boxes", and "scores" (sorted by descending confidence), compatible
+        with ForgeRunner's _postprocess_model_output. Boxes ([x1,y1,x2,y2] in
+        original-image coordinates) and numeric scores are included so callers
+        (e.g. a COCO mAP eval) can consume detections directly.
 
         Args:
             output: Model output tensor [batch, n_anchors, 85] or list/tuple thereof.
             top_k: Maximum number of detections to return. None returns all.
+            score_thr: NMS confidence threshold. Defaults to 0.01 so low-confidence
+                detections are retained (needed for COCO mAP); the classification
+                response path filters further by ``min_confidence`` downstream.
 
         Returns:
-            dict: {"labels": [...], "probabilities": [...], "indices": [...]}
+            dict: {"labels", "probabilities", "indices", "boxes", "scores"}
         """
         from .src.utils import get_detections
 
@@ -207,7 +213,9 @@ class ModelLoader(ForgeModel):
         else:
             out_np = output.cpu().detach().float().numpy()
 
-        detections = get_detections(out_np, self.ratio, self.input_shape)
+        detections = get_detections(
+            out_np, self.ratio, self.input_shape, score_thr=score_thr
+        )
         if top_k is not None:
             detections = detections[:top_k]
 
@@ -215,6 +223,8 @@ class ModelLoader(ForgeModel):
             "labels": [d["class_name"] for d in detections],
             "probabilities": [f"{d['score'] * 100:.4f}%" for d in detections],
             "indices": [d["cls_ind"] for d in detections],
+            "boxes": [list(d["bbox"]) for d in detections],
+            "scores": [float(d["score"]) for d in detections],
         }
 
     def load_inputs(self, dtype_override=None, batch_size=1):
