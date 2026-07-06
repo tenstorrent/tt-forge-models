@@ -92,12 +92,8 @@ class ModelLoader(ForgeModel):
         # Lazy import so it binds to the pinned transformers (see module note).
         from transformers import AutoTokenizer
 
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name
         )
 
         return self.tokenizer

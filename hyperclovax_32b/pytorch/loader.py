@@ -9,7 +9,7 @@ import torch
 from typing import Optional
 
 # NOTE: `transformers` is intentionally NOT imported at module top level.
-# HyperCLOVA X SEED Think gained native support in transformers == 4.52.4 (see
+# HyperCLOVA X SEED Think gained native support in transformers >= 5.9.0 (see
 # requirements.txt; model_type "hyperclovax"). The test runner upgrades
 # transformers at test time and purges it from sys.modules. A top-level import
 # would bind the Auto* classes to whatever transformers was loaded during pytest
@@ -93,8 +93,6 @@ class ModelLoader(ForgeModel):
         from transformers import AutoTokenizer
 
         tokenizer_kwargs = {"trust_remote_code": True}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs

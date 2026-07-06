@@ -85,8 +85,6 @@ class ModelLoader(ForgeModel):
         """
         # EXAONE 3.5 ships a custom tokenizer; trust_remote_code is required.
         tokenizer_kwargs = {"trust_remote_code": True}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name, **tokenizer_kwargs
