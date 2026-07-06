@@ -79,8 +79,15 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self.pipe = None
         self._capture = None
-        # FIBO inherits guidance_scale=5.0 from the model card's Generate example.
-        self.guidance_scale = 5.0
+        # Batch-size-one bringup: run the DiT forward at batch=1.
+        #
+        # FIBO uses real classifier-free guidance (``BriaFiboPipeline`` doubles
+        # the transformer batch to 2 whenever ``guidance_scale > 1`` — it cats
+        # ``[negative, positive]`` prompt embeds and ``[latents] * 2``). Setting
+        # ``guidance_scale = 1.0`` disables CFG, so the pipeline never doubles
+        # the batch and the DiT runs at batch=1 (the model card's Generate
+        # example uses 5.0, which is the batch=2 / CFG-on configuration).
+        self.guidance_scale = 1.0
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -138,9 +145,10 @@ class ModelLoader(ForgeModel):
             dtype_override: Optional ``torch.dtype`` for tensor inputs.
                 Non-tensor inputs (e.g. ``joint_attention_kwargs``) are passed
                 through unchanged.
-            batch_size: Ignored for now — the pipeline call always produces
-                ``batch_size=1`` * CFG (2 effective). Retained for the
-                signature the auto-runner expects.
+            batch_size: Ignored — the pipeline drives the capture itself. With
+                ``guidance_scale = 1.0`` (CFG disabled, see ``__init__``) the
+                captured transformer inputs have a leading batch dim of 1.
+                Retained for the signature the auto-runner expects.
 
         Returns:
             tuple: Positional inputs matching ``FiboTransformerWrapper.forward``.

@@ -46,8 +46,11 @@ from .loader import ModelLoader, ModelVariant
 MODEL_ID = "briaai/FIBO"
 HEIGHT = 1024
 WIDTH = 1024
-# FIBO's model-card Generate example: guidance_scale=5.0.
-GUIDANCE_SCALE = 5.0
+# Batch-size-one bringup: guidance_scale=1.0 disables classifier-free guidance
+# so the DiT runs at batch=1 (the model card's Generate example uses 5.0, the
+# CFG-on / batch=2 config). ``generate()`` reads the scale from the loader
+# (single source of truth); this constant documents the intended default.
+GUIDANCE_SCALE = 1.0
 
 
 def _enable_spmd() -> None:
