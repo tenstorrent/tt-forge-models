@@ -15,12 +15,17 @@ single-forward graph that can be PCC-compared against CPU:
                        STFT/mel front-end stays on CPU, see the wrapper)
     CONDITIONING     - GPT conditioning encoder + perceiver (mel -> cond latents)
     GPT_PREFILL      - GPT2 trunk + audio lm_head, prefill step (no KV cache)
+    GPT_DECODE       - GPT2 trunk + audio lm_head, one KV-cached decode step
+                       over a static cache prefilled on CPU (the graph the
+                       autoregressive loop reuses every step)
     GPT_LATENTS      - full-sequence GPT forward (codes -> GPT latents)
     HIFIGAN_DECODER  - HiFi-GAN vocoder (latents + speaker emb -> waveform)
 
-The incremental KV-cached decode step uses the same GPT2 module as
-GPT_PREFILL/GPT_LATENTS but is a stateful loop graph (static cache), so it is
-brought up with the end-to-end pipeline, not as a standalone forward.
+The incremental KV-cached decode step is stateful (a static cache), so GPT_DECODE
+keeps its forward pure: the cache is prefilled on CPU and handed in as plain
+input tensors, and each call rebuilds a fresh cache from clones (see
+``GptDecodeWrapper``). This makes the loop's per-step decode graph PCC-checkable
+in isolation, in addition to running inside the end-to-end pipeline.
 
 Every component is fed the real tensors it would receive during end-to-end
 inference: all inputs are derived from a real reference speech clip run through
@@ -54,6 +59,7 @@ class ModelVariant(StrEnum):
     SPEAKER_ENCODER = "speaker_encoder"
     CONDITIONING = "conditioning"
     GPT_PREFILL = "gpt_prefill"
+    GPT_DECODE = "gpt_decode"
     GPT_LATENTS = "gpt_latents"
     HIFIGAN_DECODER = "hifigan_decoder"
 
@@ -65,6 +71,7 @@ class ModelLoader(ForgeModel):
         ModelVariant.SPEAKER_ENCODER: ModelConfig(pretrained_model_name=_PRETRAINED),
         ModelVariant.CONDITIONING: ModelConfig(pretrained_model_name=_PRETRAINED),
         ModelVariant.GPT_PREFILL: ModelConfig(pretrained_model_name=_PRETRAINED),
+        ModelVariant.GPT_DECODE: ModelConfig(pretrained_model_name=_PRETRAINED),
         ModelVariant.GPT_LATENTS: ModelConfig(pretrained_model_name=_PRETRAINED),
         ModelVariant.HIFIGAN_DECODER: ModelConfig(pretrained_model_name=_PRETRAINED),
     }
@@ -93,6 +100,7 @@ class ModelLoader(ForgeModel):
         super().__init__(variant)
         self._xtts = None  # the full Xtts model (built once, shared by helpers)
         self._prefill_inputs = None  # cached GPT_PREFILL inputs (built with model)
+        self._decode_state = None  # cached GPT_DECODE inputs + cache metadata
         self._cache = {}  # memoized real intermediate tensors (see _real helpers)
 
     @classmethod
@@ -224,6 +232,92 @@ class ModelLoader(ForgeModel):
                 )
         return self._cache["gpt_latents"]
 
+    def _build_decode_state(self):
+        """Prefill ``[prefix, START]`` on CPU into a StaticCache and capture the
+        inputs for one decode step (the graph the autoregressive loop reuses).
+
+        Mirrors ``examples/pytorch/xtts_pipeline.py``: build + populate the cache
+        on CPU (the on-device static-cache allocation issue, tt-xla#1645), then
+        hand the cache to the wrapper as plain input tensors so the runner moves
+        them to device. The step under test decodes the first generated token at
+        audio position 1, exactly as loop iteration 1 does.
+
+        Returns ``(decode_inputs, valid_len, max_cache_len)`` where ``valid_len``
+        is the number of slots the prefill wrote (= ``cumulative_length`` the
+        decode step starts from) and ``max_cache_len`` sizes the static buffers.
+        """
+        if self._decode_state is not None:
+            return self._decode_state
+
+        from transformers import StaticCache
+
+        gpt = self._xtts.gpt
+        gpt2 = gpt.gpt  # HF GPT2Model
+
+        # Prefix embedding (cond latents + [START]text[STOP]); stored on
+        # gpt_inference by compute_embeddings, same as the GPT_PREFILL path.
+        gpt_cond_latent = self._gpt_cond_latent()
+        text_tokens = self._text_tokens()
+        with torch.no_grad():
+            gpt.compute_embeddings(gpt_cond_latent, text_tokens)
+        prefix_emb = gpt.gpt_inference.cached_prefix_emb.clone()  # [1, P, 1024]
+        prefix_len = prefix_emb.shape[1]
+
+        cfg = gpt2.config
+        n_head = cfg.num_attention_heads
+        head_dim = cfg.hidden_size // n_head
+        # Prefill writes prefix_len + 1 slots ([prefix, START]); the decode step
+        # writes one more, so the static cache needs prefix_len + 2 slots.
+        max_cache_len = prefix_len + 2
+
+        cache = StaticCache(config=cfg, max_cache_len=max_cache_len)
+        cache.early_initialization(
+            batch_size=1,
+            num_heads=n_head,
+            head_dim=head_dim,
+            dtype=torch.float32,
+            device="cpu",
+        )
+
+        def mask(valid):  # [1, max_cache_len]; 1s for written cache slots
+            m = torch.zeros((1, max_cache_len), dtype=torch.long)
+            m[:, :valid] = 1
+            return m
+
+        with torch.no_grad():
+            # --- Prefill: [prefix, START(audio pos 0)] -> first audio token ---
+            start_ids = torch.tensor([[gpt.start_audio_token]], dtype=torch.long)
+            pos0 = torch.tensor([0], dtype=torch.long)
+            emb = gpt.mel_embedding(start_ids)
+            emb = emb + gpt.mel_pos_embedding.emb(pos0).unsqueeze(0)
+            emb = torch.cat([prefix_emb.to(emb.dtype), emb], dim=1)
+            out = gpt2(
+                inputs_embeds=emb,
+                attention_mask=mask(prefix_len + 1),
+                past_key_values=cache,
+                use_cache=True,
+                return_dict=True,
+            )
+            logits = gpt.mel_head(gpt.final_norm(out.last_hidden_state))
+            first_token = int(logits[:, -1, :].argmax(dim=-1).item())
+
+        valid_len = prefix_len + 1  # cumulative_length written by the prefill
+        cache_keys = torch.stack([layer.keys for layer in cache.layers])
+        cache_values = torch.stack([layer.values for layer in cache.layers])
+
+        decode_inputs = {
+            "audio_ids": torch.tensor([[first_token]], dtype=torch.long),
+            "positions": torch.tensor([1], dtype=torch.long),
+            "attention_mask": mask(valid_len + 1),
+            # cumulative_length the decode step starts from, as an input tensor
+            # so the wrapper never creates a device-placed tensor inside forward.
+            "cache_len": torch.tensor([valid_len], dtype=torch.long),
+            "cache_keys": cache_keys,  # [n_layer, 1, n_head, max_cache_len, head_dim]
+            "cache_values": cache_values,
+        }
+        self._decode_state = (decode_inputs, valid_len, max_cache_len)
+        return self._decode_state
+
     # ------------------------------------------------------------------ #
     # NOTE: dtype_override is intentionally ignored. XTTS submodules do not
     # cast uniformly to bf16 (some internal tensors stay float32), which
@@ -233,6 +327,7 @@ class ModelLoader(ForgeModel):
     def load_model(self, dtype_override=None):
         from .src.model import (
             ConditioningWrapper,
+            GptDecodeWrapper,
             GptLatentsWrapper,
             GptPrefillWrapper,
             HifiganDecoderWrapper,
@@ -247,6 +342,9 @@ class ModelLoader(ForgeModel):
             return ConditioningWrapper(xtts)
         if self._variant == ModelVariant.GPT_LATENTS:
             return GptLatentsWrapper(xtts)
+        if self._variant == ModelVariant.GPT_DECODE:
+            _, valid_len, max_cache_len = self._build_decode_state()
+            return GptDecodeWrapper(xtts, valid_len, max_cache_len)
         if self._variant == ModelVariant.HIFIGAN_DECODER:
             return HifiganDecoderWrapper(xtts)
         if self._variant == ModelVariant.GPT_PREFILL:
@@ -313,6 +411,10 @@ class ModelLoader(ForgeModel):
             if self._prefill_inputs is None:
                 self.load_model(dtype_override=dtype_override)
             return self._prefill_inputs
+
+        if self._variant == ModelVariant.GPT_DECODE:
+            decode_inputs, _, _ = self._build_decode_state()
+            return decode_inputs
 
         if self._variant == ModelVariant.GPT_LATENTS:
             gpt_codes = self._gpt_codes()

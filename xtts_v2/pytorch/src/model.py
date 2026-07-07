@@ -16,12 +16,14 @@ a thin wrapper with a clean tensor-in / tensor-out signature:
     SpeakerEncoderWrapper   mel spectrogram (CPU STFT) -> speaker embedding
     ConditioningWrapper     reference mel-spectrogram  -> GPT conditioning latents
     GptPrefillWrapper       [prefix, start] tokens     -> first-step audio logits
+    GptDecodeWrapper        one token + static KV cache-> next-step audio logits
     GptLatentsWrapper       text + audio-code sequence -> GPT latents
     HifiganDecoderWrapper   GPT latents + speaker emb  -> 24 kHz waveform
 
 The distinct nn.Modules are the speaker encoder, the conditioning encoder +
-perceiver, the shared GPT2 transformer trunk (exercised here in two input
-modes: prefill logits and full-sequence latents) and the HiFi-GAN vocoder.
+perceiver, the shared GPT2 transformer trunk (exercised here in three input
+modes: prefill logits, a single KV-cached decode step, and full-sequence
+latents) and the HiFi-GAN vocoder.
 """
 
 import torch
@@ -107,6 +109,98 @@ class GptPrefillWrapper(nn.Module):
             return_dict=True,
         )
         return out.logits
+
+
+class GptDecodeWrapper(nn.Module):
+    """One KV-cached GPT2 decode step over a pre-filled static cache.
+
+    This is the incremental step of the autoregressive audio-token loop that the
+    end-to-end pipeline runs (``GptCachedStep`` in
+    ``examples/pytorch/xtts_pipeline.py``): given a static KV cache already
+    populated by the ``[prefix, START]`` prefill, embed a single audio token,
+    run the shared GPT2 trunk with ``use_cache=True``, and project to audio
+    logits. Exposing it as a standalone component pins down the decode graph
+    (the one reused every step of the loop) so it is PCC-checked against CPU in
+    isolation, not only inside the pipeline.
+
+    The forward is deliberately *pure*: the loader supplies the prefilled cache
+    as ordinary ``cache_keys``/``cache_values`` input tensors (built + cache-
+    initialized on CPU, then moved to device by the runner -- the same
+    build-on-CPU / move-to-device pattern the pipeline uses to dodge the
+    on-device static-cache allocation issue, tt-xla#1645). Each call rebuilds a
+    fresh ``StaticCache`` from *clones* of those inputs, so the shared model
+    instance the tester runs on CPU then TT (plus perf-warmup reruns) never
+    carries state between calls and every invocation is bit-for-bit repeatable.
+
+    XTTS's GPT2 has a null ``wpe`` (positions come from ``mel_pos_embedding``)
+    and does not pass ``cache_position``; HF's ``StaticLayer`` self-manages its
+    write index via ``cumulative_length`` + ``index_copy_``, so the decode step
+    is a single fixed-shape graph -- see the pipeline docstring for why that is
+    what keeps the loop from recompiling per token.
+    """
+
+    def __init__(self, xtts, valid_len, max_cache_len):
+        super().__init__()
+        from transformers import StaticCache
+
+        gpt = xtts.gpt
+        self.gpt2 = gpt.gpt  # HF GPT2Model (wpe is null; positions are external)
+        self.mel_embedding = gpt.mel_embedding
+        self.mel_pos_embedding = gpt.mel_pos_embedding
+        self.final_norm = gpt.final_norm
+        self.mel_head = gpt.mel_head
+        # Cache slots already written by the prefill (= cumulative_length): the
+        # decode token is written at this index and attends over [0, valid_len].
+        self._valid_len = int(valid_len)
+        self._max_cache_len = int(max_cache_len)
+        # Build the StaticCache skeleton ONCE, on CPU, outside forward -- the same
+        # build-outside-the-graph pattern the pipeline uses. No cache object is
+        # constructed inside the compiled graph (which trips device-kwarg tensor
+        # creation on the TT trace path); forward only swaps in cloned tensors.
+        self._cache = StaticCache(config=gpt.gpt.config, max_cache_len=max_cache_len)
+
+    def _load_cache(self, cache_len, cache_keys, cache_values):
+        """Point the persistent StaticCache at clones of the input K/V.
+
+        Everything here is a clone or an attribute assignment, so the inputs are
+        never mutated and the forward is pure across the tester's repeated
+        CPU/TT/perf-warmup calls (each call resets the cache to the prefill
+        state before the decode step writes its one token).
+        """
+        # cache_keys/values are stacked over layers: [n_layer, b, n_head, L, d].
+        for i, layer in enumerate(self._cache.layers):
+            lk = cache_keys[i].clone()
+            lv = cache_values[i].clone()
+            layer.keys = lk
+            layer.values = lv
+            # clone: StaticLayer.update() does an in-place add_ on this tensor.
+            layer.cumulative_length = cache_len.clone()
+            # Mark the layer initialized so update() skips lazy allocation and
+            # writes straight in at cumulative_length (matches StaticLayer state).
+            layer.is_initialized = True
+            layer.dtype = lk.dtype
+            layer.device = lk.device
+            layer.max_batch_size = lk.shape[0]
+            layer.num_heads = lk.shape[1]
+            layer.k_head_dim = lk.shape[-1]
+            layer.v_head_dim = lv.shape[-1]
+        return self._cache
+
+    def forward(
+        self, audio_ids, positions, attention_mask, cache_len, cache_keys, cache_values
+    ):
+        cache = self._load_cache(cache_len, cache_keys, cache_values)
+        emb = self.mel_embedding(audio_ids)
+        emb = emb + self.mel_pos_embedding.emb(positions).unsqueeze(0)
+        out = self.gpt2(
+            inputs_embeds=emb,
+            attention_mask=attention_mask,
+            past_key_values=cache,
+            use_cache=True,
+            return_dict=True,
+        )
+        hidden = self.final_norm(out.last_hidden_state)
+        return self.mel_head(hidden)
 
 
 class GptLatentsWrapper(nn.Module):
