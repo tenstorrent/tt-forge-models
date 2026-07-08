@@ -15,6 +15,8 @@ LlamaTokenizer, but those have no learnable weights and are not exposed
 as variants here.
 """
 
+import os
+
 import torch
 
 # ---------------------------------------------------------------------------
@@ -23,6 +25,22 @@ import torch
 
 REPO_ID = "Shitao/OmniGen-v1-diffusers"
 DTYPE = torch.bfloat16
+
+# ---------------------------------------------------------------------------
+# Diagnostic toggles (env-gated; unset => no effect on normal runs).
+#
+#   OMNIGEN_NUM_LAYERS=<N>   truncate transformer to first N blocks (isolate
+#                            per-op vs cumulative-depth precision loss).
+#   OMNIGEN_ATTN_FP32=1      run each block's self-attention in fp32.
+#   OMNIGEN_MLP_FP32=1       run each block's MLP in fp32.
+#   OMNIGEN_NORM_FP32=1      run RMSNorms in fp32.
+#   OMNIGEN_RESIDUAL_FP32=1  keep the whole block stack + residual in fp32.
+#   OMNIGEN_EAGER_ATTN=1     replace fused SDPA with manual softmax attention.
+#   OMNIGEN_FP16_MODEL=1     run the whole model (weights+inputs) in fp16.
+#   OMNIGEN_RELU_MLP=1       replace SiLU with ReLU (exact) in the MLP.
+#   OMNIGEN_SILU_FP32=1      run SiLU in fp32 (typecast-wrapped).
+#   OMNIGEN_SILU_EXP=1       decompose SiLU as x/(1+exp(-x)) (no sigmoid op).
+# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # Inference shape constants
@@ -75,15 +93,272 @@ CFG_BATCH = 2
 
 
 def load_transformer(dtype: torch.dtype = DTYPE):
-    """Load OmniGenTransformer2DModel from the transformer subfolder."""
+    """Load OmniGenTransformer2DModel from the transformer subfolder.
+
+    The fused ``gate_up_proj`` of every block is split into separate
+    ``gate_proj`` / ``up_proj`` linears (see ``_SplitGateUpFeedForward``) so the
+    MLP can use the standard column->row Megatron pattern under tensor
+    parallelism. This is a numerically-identical rewrite on CPU, so the golden
+    (CPU) result is unchanged.
+    """
     from diffusers import OmniGenTransformer2DModel
 
-    return OmniGenTransformer2DModel.from_pretrained(
+    # Diagnostic: run the entire model in fp16 (weights + activations). fp16 has
+    # 10 mantissa bits vs bf16's 7, so if the PCC drop is mantissa precision
+    # accumulating over depth, fp16 recovers most of it at the same 16-bit width.
+    if os.environ.get("OMNIGEN_FP16_MODEL") == "1":
+        dtype = torch.float16
+
+    transformer = OmniGenTransformer2DModel.from_pretrained(
         REPO_ID,
         subfolder="transformer",
         torch_dtype=dtype,
         device_map="cpu",
     ).eval()
+
+    for block in transformer.layers:
+        block.mlp = _SplitGateUpFeedForward(block.mlp)
+
+    _apply_diagnostic_toggles(transformer, dtype)
+
+    return transformer
+
+
+def _apply_diagnostic_toggles(transformer, dtype):
+    """Apply env-gated precision/isolation toggles (see module header)."""
+    num_layers = os.environ.get("OMNIGEN_NUM_LAYERS")
+    if num_layers:
+        n = int(num_layers)
+        transformer.layers = transformer.layers[:n]
+
+    attn_fp32 = os.environ.get("OMNIGEN_ATTN_FP32") == "1"
+    mlp_fp32 = os.environ.get("OMNIGEN_MLP_FP32") == "1"
+    norm_fp32 = os.environ.get("OMNIGEN_NORM_FP32") == "1"
+    residual_fp32 = os.environ.get("OMNIGEN_RESIDUAL_FP32") == "1"
+    eager_attn = os.environ.get("OMNIGEN_EAGER_ATTN") == "1"
+    relu_mlp = os.environ.get("OMNIGEN_RELU_MLP") == "1"
+    silu_fp32 = os.environ.get("OMNIGEN_SILU_FP32") == "1"
+
+    if relu_mlp:
+        # Replace SiLU (x*sigmoid(x), SFPU transcendental) with ReLU (exact,
+        # max(x,0)). If PCC jumps, the sigmoid SFPU approximation is the culprit.
+        for block in transformer.layers:
+            block.mlp.activation_fn = torch.nn.ReLU()
+
+    if silu_fp32:
+        # Run only the SiLU in fp32 (typecast bf16->f32 -> silu -> f32->bf16).
+        # This mirrors the proposed tt-mlir fix: forcing fp32 makes tt-metal's
+        # unary_impl set fp32_dest_acc_en=true, selecting the accurate sigmoid
+        # (accurate exp + 2-iter reciprocal) instead of the coarse bf16 path.
+        for block in transformer.layers:
+            block.mlp.activation_fn = _Fp32Activation(block.mlp.activation_fn, dtype)
+
+    if os.environ.get("OMNIGEN_SILU_EXP") == "1":
+        # Decompose SiLU as x / (1 + exp(-x)) using explicit exp + reciprocal
+        # instead of the fused sigmoid SFPU op. If PCC jumps, the sigmoid op
+        # itself is inaccurate and decomposing it in tt-mlir is the fix.
+        for block in transformer.layers:
+            block.mlp.activation_fn = _ExpSiLU()
+
+    if eager_attn:
+        # Replace fused F.scaled_dot_product_attention with manual
+        # matmul -> softmax -> matmul, which lowers to ttnn.softmax (no
+        # exp-approx) instead of the fused SDPA kernel's approximate exp.
+        for block in transformer.layers:
+            block.self_attn.set_processor(_EagerOmniGenAttnProcessor())
+
+    for block in transformer.layers:
+        if attn_fp32:
+            block.self_attn = _Fp32Module(block.self_attn, dtype)
+        if mlp_fp32:
+            block.mlp = _Fp32Module(block.mlp, dtype)
+        if norm_fp32:
+            block.input_layernorm = _Fp32Module(block.input_layernorm, dtype)
+            block.post_attention_layernorm = _Fp32Module(
+                block.post_attention_layernorm, dtype
+            )
+
+    if residual_fp32:
+        # Keep the whole block stack (incl. the residual adds) in fp32 by
+        # chaining fp32 blocks without downcasting between them. Isolates the
+        # bf16 residual-accumulation error from per-op compute precision.
+        transformer.layers = torch.nn.ModuleList(
+            [_Fp32ChainBlock(b) for b in transformer.layers]
+        )
+
+
+class _Fp32Module(torch.nn.Module):
+    """Diagnostic wrapper: run `mod` in fp32, cast inputs up / outputs back.
+
+    Upcasts floating-point tensor args/kwargs to fp32, runs the fp32-weighted
+    module, then downcasts floating-point outputs to `out_dtype`. Used to test
+    whether a given component's bf16 precision is what caps PCC.
+    """
+
+    def __init__(self, mod, out_dtype):
+        super().__init__()
+        self.mod = mod.float()
+        self._out_dtype = out_dtype
+
+    @staticmethod
+    def _map(x, cast):
+        if torch.is_tensor(x):
+            return cast(x) if x.is_floating_point() else x
+        if isinstance(x, (list, tuple)):
+            return type(x)(_Fp32Module._map(i, cast) for i in x)
+        if isinstance(x, dict):
+            return {k: _Fp32Module._map(v, cast) for k, v in x.items()}
+        return x
+
+    def forward(self, *args, **kwargs):
+        up = lambda x: x.float()
+        args = tuple(self._map(a, up) for a in args)
+        kwargs = {k: self._map(v, up) for k, v in kwargs.items()}
+        out = self.mod(*args, **kwargs)
+        return self._map(out, lambda x: x.to(self._out_dtype))
+
+
+class _Fp32ChainBlock(torch.nn.Module):
+    """Diagnostic: run a transformer block in fp32 WITHOUT downcasting output.
+
+    Upcasts all floating inputs to fp32 and returns fp32, so chaining these
+    across every block keeps the residual stream (and its adds) in fp32 the
+    whole way through the stack — unlike `_Fp32Module`, which downcasts at each
+    boundary and leaves the residual in bf16.
+    """
+
+    def __init__(self, block):
+        super().__init__()
+        self.block = block.float()
+
+    def forward(self, *args, **kwargs):
+        up = lambda x: x.float()
+        args = tuple(_Fp32Module._map(a, up) for a in args)
+        kwargs = {k: _Fp32Module._map(v, up) for k, v in kwargs.items()}
+        return self.block(*args, **kwargs)
+
+
+class _ExpSiLU(torch.nn.Module):
+    """SiLU decomposed as x / (1 + exp(-x)) — avoids the fused sigmoid op."""
+
+    def forward(self, x):
+        return x * torch.reciprocal(1.0 + torch.exp(-x))
+
+
+class _Fp32Activation(torch.nn.Module):
+    """Run an elementwise activation in fp32: cast input up, act, cast back.
+
+    Mirrors a tt-mlir typecast-wrapped activation so the op runs with
+    fp32_dest_acc_en=true (accurate SFPU path).
+    """
+
+    def __init__(self, act, out_dtype):
+        super().__init__()
+        self.act = act
+        self._out_dtype = out_dtype
+
+    def forward(self, x):
+        return self.act(x.float()).to(self._out_dtype)
+
+
+class _EagerOmniGenAttnProcessor:
+    """Diagnostic attention processor: manual matmul -> softmax -> matmul.
+
+    Mirrors diffusers' OmniGenAttnProcessor2_0 exactly, except it replaces the
+    fused ``F.scaled_dot_product_attention`` with an explicit implementation so
+    the softmax lowers to ``ttnn.softmax`` (numerically stable, no exp-approx)
+    rather than the fused SDPA kernel's approximate exp.
+    """
+
+    def __call__(
+        self,
+        attn,
+        hidden_states,
+        encoder_hidden_states,
+        attention_mask=None,
+        image_rotary_emb=None,
+    ):
+        import math
+
+        from diffusers.models.embeddings import apply_rotary_emb
+
+        bsz, q_len, _ = hidden_states.shape
+        query = attn.to_q(hidden_states)
+        key = attn.to_k(encoder_hidden_states)
+        value = attn.to_v(encoder_hidden_states)
+
+        query_dim = query.shape[-1]
+        head_dim = query_dim // attn.heads
+        kv_heads = key.shape[-1] // head_dim
+
+        query = query.view(bsz, -1, attn.heads, head_dim).transpose(1, 2)
+        key = key.view(bsz, -1, kv_heads, head_dim).transpose(1, 2)
+        value = value.view(bsz, -1, kv_heads, head_dim).transpose(1, 2)
+
+        if image_rotary_emb is not None:
+            query = apply_rotary_emb(query, image_rotary_emb, use_real_unbind_dim=-2)
+            key = apply_rotary_emb(key, image_rotary_emb, use_real_unbind_dim=-2)
+
+        scores = torch.matmul(query, key.transpose(-1, -2)) / math.sqrt(head_dim)
+        if attention_mask is not None:
+            # F.sdpa adds a floating attn_mask to the scores; match that.
+            scores = scores + attention_mask
+        attn_weights = torch.softmax(scores, dim=-1)
+        hidden_states = torch.matmul(attn_weights, value)
+
+        hidden_states = hidden_states.transpose(1, 2).type_as(query)
+        hidden_states = hidden_states.reshape(bsz, q_len, attn.out_dim)
+        hidden_states = attn.to_out[0](hidden_states)
+        return hidden_states
+
+
+class _SplitGateUpFeedForward(torch.nn.Module):
+    """OmniGenFeedForward with the fused ``gate_up_proj`` split in two.
+
+    diffusers' ``OmniGenFeedForward`` runs a single fused projection and then
+    ``gate, up = up_states.chunk(2, dim=-1)``. Column-sharding that fused output
+    scrambles the chunk (the partitioner does not all-gather before the chunk),
+    which forces the projection to be row-parallel and adds an extra all-reduce
+    per block. Splitting into two independent linears lets each be
+    column-parallel, so the MLP follows the standard column->row pattern with a
+    single all-reduce (in ``down_proj``) and each up-projection's contraction
+    stays fully in fp32 — matching single-chip precision.
+
+    Weight split mirrors ``chunk(2, dim=-1)``: rows ``[:intermediate]`` are the
+    gate, rows ``[intermediate:]`` are the up projection.
+    """
+
+    def __init__(self, fused_mlp):
+        super().__init__()
+        gate_up = fused_mlp.gate_up_proj
+        hidden_size = gate_up.in_features
+        intermediate_size = gate_up.out_features // 2
+        has_bias = gate_up.bias is not None
+
+        self.gate_proj = torch.nn.Linear(hidden_size, intermediate_size, bias=has_bias)
+        self.up_proj = torch.nn.Linear(hidden_size, intermediate_size, bias=has_bias)
+        self.down_proj = fused_mlp.down_proj
+        self.activation_fn = fused_mlp.activation_fn
+
+        self.gate_proj.weight = torch.nn.Parameter(
+            gate_up.weight[:intermediate_size].detach().clone()
+        )
+        self.up_proj.weight = torch.nn.Parameter(
+            gate_up.weight[intermediate_size:].detach().clone()
+        )
+        if has_bias:
+            self.gate_proj.bias = torch.nn.Parameter(
+                gate_up.bias[:intermediate_size].detach().clone()
+            )
+            self.up_proj.bias = torch.nn.Parameter(
+                gate_up.bias[intermediate_size:].detach().clone()
+            )
+
+    def forward(self, hidden_states):
+        gate = self.gate_proj(hidden_states)
+        up_states = self.up_proj(hidden_states)
+        up_states = up_states * self.activation_fn(gate)
+        return self.down_proj(up_states)
 
 
 def load_vae(dtype: torch.dtype = DTYPE):
@@ -110,6 +385,10 @@ def load_transformer_inputs(dtype: torch.dtype = DTYPE):
     `input_img_latents` and `input_image_sizes` are passed through the
     wrapper as empty/static structures (text-only generation path).
     """
+    # Keep input dtype in sync with the OMNIGEN_FP16_MODEL diagnostic toggle.
+    if os.environ.get("OMNIGEN_FP16_MODEL") == "1":
+        dtype = torch.float16
+
     hidden_states = torch.randn(
         CFG_BATCH,
         TRANSFORMER_IN_CHANNELS,
@@ -427,32 +706,44 @@ def shard_vae_encoder_specs(vae) -> dict:
 
 
 def shard_transformer_specs(transformer) -> dict:
-    """Shard specs for OmniGenTransformer2DModel.
+    """Tensor-parallel shard specs for OmniGenTransformer2DModel.
 
-    Column-parallel (Q, K, V, gate_up_proj): ("model", "batch")
-    Row-parallel   (attn out, down_proj):    ("batch", "model")
+    Megatron tensor parallelism on the "model" mesh axis only; the "batch"
+    axis is reserved for data parallelism and never appears in a weight spec.
+
+    Per block (LLaMA/Phi-3-style: RMSNorm -> attention -> RMSNorm -> MLP):
+      - attention to_q/to_k/to_v: column-parallel ("model", None). This shards
+        the 32 heads (head_dim stays whole), which is safe under the
+        view(..., heads, head_dim) reshape since the shard boundary lands on a
+        head boundary (768 = 8 heads * 96).
+      - attention to_out:         row-parallel   (None, "model").
+      - mlp.gate_proj / mlp.up_proj: column-parallel ("model", None). The fused
+        gate_up_proj is split at load time (see _SplitGateUpFeedForward) so each
+        projection can be column-sharded without scrambling the chunk; their
+        contraction over hidden stays fully in fp32 (no reduction), matching
+        single-chip precision.
+      - mlp.down_proj:            row-parallel   (None, "model").
+
+    The residual stream, RMSNorm weights, embeddings, patch embedding and
+    proj_out stay replicated so every RMSNorm reduces over the full (un-sharded)
+    hidden dim and the row-parallel all-reduces return the residual replicated.
     """
     specs = {}
 
-    patch = getattr(transformer, "patch_embedding", None)
-    if patch is not None:
-        for proj_name in ("output_image_proj", "input_image_proj"):
-            proj = getattr(patch, proj_name, None)
-            if proj is None:
-                continue
-            specs[proj.weight] = ("batch", None, None, None)
-            if proj.bias is not None:
-                specs[proj.bias] = ("batch",)
-
-    if hasattr(transformer, "embed_tokens"):
-        specs[transformer.embed_tokens.weight] = (None, "batch")
+    # Diagnostic fp32 wrappers keep the real submodule under `.mod`; unwrap so
+    # the projections still get sharded (heads split), avoiding the giant
+    # unsharded attention tensor that OOMs.
+    def _unwrap(m):
+        return m.mod if isinstance(m, _Fp32Module) else m
 
     for block in transformer.layers:
-        attn = block.self_attn
+        if isinstance(block, _Fp32ChainBlock):
+            block = block.block
+        attn = _unwrap(block.self_attn)
         for proj_name in ("to_q", "to_k", "to_v"):
             if hasattr(attn, proj_name):
                 proj = getattr(attn, proj_name)
-                specs[proj.weight] = ("model", "batch")
+                specs[proj.weight] = ("model", None)
                 if proj.bias is not None:
                     specs[proj.bias] = ("model",)
         if hasattr(attn, "to_out"):
@@ -462,27 +753,19 @@ def shard_transformer_specs(transformer) -> dict:
                 if isinstance(out, (torch.nn.Sequential, torch.nn.ModuleList))
                 else out
             )
-            specs[target.weight] = ("batch", "model")
+            specs[target.weight] = (None, "model")
             if target.bias is not None:
-                specs[target.bias] = ("batch",)
+                specs[target.bias] = (None,)
 
-        mlp = block.mlp
-        specs[mlp.gate_up_proj.weight] = ("model", "batch")
-        if mlp.gate_up_proj.bias is not None:
-            specs[mlp.gate_up_proj.bias] = ("model",)
-        specs[mlp.down_proj.weight] = ("batch", "model")
-        if mlp.down_proj.bias is not None:
-            specs[mlp.down_proj.bias] = ("batch",)
-
-        specs[block.input_layernorm.weight] = (None,)
-        specs[block.post_attention_layernorm.weight] = (None,)
-
-    if hasattr(transformer, "norm"):
-        specs[transformer.norm.weight] = (None,)
-
-    if hasattr(transformer, "proj_out"):
-        specs[transformer.proj_out.weight] = (None, "batch")
-        if transformer.proj_out.bias is not None:
-            specs[transformer.proj_out.bias] = (None,)
+        mlp = _unwrap(block.mlp)
+        if hasattr(mlp, "gate_proj"):
+            for proj_name in ("gate_proj", "up_proj"):
+                proj = getattr(mlp, proj_name)
+                specs[proj.weight] = ("model", None)
+                if proj.bias is not None:
+                    specs[proj.bias] = ("model",)
+            specs[mlp.down_proj.weight] = (None, "model")
+            if mlp.down_proj.bias is not None:
+                specs[mlp.down_proj.bias] = (None,)
 
     return specs
