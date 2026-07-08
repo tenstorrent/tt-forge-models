@@ -3,35 +3,21 @@
 # SPDX-License-Identifier: Apache-2.0
 """XTTS-v2 (coqui/XTTS-v2) per-component model loaders for tt-xla bring-up.
 
-XTTS-v2 is a multilingual voice-cloning TTS model whose weights live on Hugging
-Face and are loaded through the maintained ``coqui-tts`` library (the original
-``coqui-ai/TTS`` is archived). There is no ``transformers``-native path.
+XTTS-v2 is a multilingual voice-cloning TTS model loaded through ``coqui-tts``
+(no ``transformers``-native path). It has no single traceable forward, so each
+learned ``nn.Module`` is exposed as a separate variant -- a clean single-forward
+graph that can be PCC-compared against CPU:
 
-The model has no single traceable forward, so we expose its individual
-``nn.Module`` components as separate variants, each loadable as a clean
-single-forward graph that can be PCC-compared against CPU:
-
-    SPEAKER_ENCODER  - ResNet-SE speaker encoder trunk (mel -> embedding; the
-                       STFT/mel front-end stays on CPU, see the wrapper)
+    SPEAKER_ENCODER  - ResNet-SE speaker encoder trunk (mel -> embedding)
     CONDITIONING     - GPT conditioning encoder + perceiver (mel -> cond latents)
     GPT_PREFILL      - GPT2 trunk + audio lm_head, prefill step (no KV cache)
     GPT_DECODE       - GPT2 trunk + audio lm_head, one KV-cached decode step
-                       over a static cache prefilled on CPU (the graph the
-                       autoregressive loop reuses every step)
     GPT_LATENTS      - full-sequence GPT forward (codes -> GPT latents)
     HIFIGAN_DECODER  - HiFi-GAN vocoder (latents + speaker emb -> waveform)
 
-The incremental KV-cached decode step is stateful (a static cache), so GPT_DECODE
-keeps its forward pure: the cache is prefilled on CPU and handed in as plain
-input tensors, and each call rebuilds a fresh cache from clones (see
-``GptDecodeWrapper``). This makes the loop's per-step decode graph PCC-checkable
-in isolation, in addition to running inside the end-to-end pipeline.
-
-Every component is fed the real tensors it would receive during end-to-end
-inference: all inputs are derived from a real reference speech clip run through
-the actual XTTS pipeline (``get_conditioning_latents`` + ``inference``), with a
-deterministic (greedy) ``gpt.generate`` so the audio codes are reproducible. No
-synthetic or random inputs are used.
+Every component is fed the real tensors it would receive end-to-end, derived
+from a real reference clip through the actual XTTS pipeline (deterministic
+``gpt.generate`` so the audio codes are reproducible; no synthetic inputs).
 """
 
 import os
@@ -85,16 +71,14 @@ class ModelLoader(ForgeModel):
         "it I'm not going to be silent."
     )
     DEFAULT_LANGUAGE = "en"
-    # The model card only ships a placeholder speaker wav (e.g. "/path/to/target
-    # /speaker.wav"), so we supply a real public reference clip: a 16 kHz
-    # LibriSpeech utterance, the same asset the Whisper loader uses. Every input
-    # tensor is derived from this clip through the real XTTS pipeline (no
-    # synthetic/random inputs), so each component is PCC-tested on the exact
-    # tensors the end-to-end run would feed it.
+    # Real public reference clip (LibriSpeech, the Whisper loader's asset), since
+    # the model card ships only a placeholder speaker wav.
     REFERENCE_AUDIO = "test_files/pytorch/whisper/1272-128104-0000.pt"
-    # Seconds of reference audio used to compute the GPT conditioning latents,
-    # matching the model card's ``gpt_cond_len=3``.
+    # Seconds of reference audio used for the conditioning latents (model-card
+    # ``gpt_cond_len=3``).
     GPT_COND_LEN = 3
+    XTTS_SR = 22050  # XTTS native sample rate
+    SPEAKER_ENCODER_SR = 16000  # speaker encoder input rate (get_speaker_embedding)
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -159,12 +143,12 @@ class ModelLoader(ForgeModel):
         from ...tools.utils import get_file
 
         sample = torch.load(get_file(self.REFERENCE_AUDIO), weights_only=False)
-        sr = int(sample["audio"].get("sampling_rate", 16000))
+        sr = int(sample["audio"].get("sampling_rate", 16000))  # asset's own rate
         audio = torch.tensor(
             np.asarray(sample["audio"]["array"], dtype="float32")
         ).unsqueeze(0)
-        if sr != 22050:
-            audio = torchaudio.functional.resample(audio, sr, 22050)
+        if sr != self.XTTS_SR:
+            audio = torchaudio.functional.resample(audio, sr, self.XTTS_SR)
         self._cache["audio22"] = audio
         return audio
 
@@ -182,7 +166,7 @@ class ModelLoader(ForgeModel):
             with torch.no_grad():
                 self._cache["gpt_cond_latent"] = self._xtts.get_gpt_cond_latents(
                     self._reference_audio_22k(),
-                    22050,
+                    self.XTTS_SR,
                     length=self.GPT_COND_LEN,
                     chunk_length=self.GPT_COND_LEN,
                 )
@@ -193,7 +177,7 @@ class ModelLoader(ForgeModel):
         if "speaker_embedding" not in self._cache:
             with torch.no_grad():
                 self._cache["speaker_embedding"] = self._xtts.get_speaker_embedding(
-                    self._reference_audio_22k(), 22050
+                    self._reference_audio_22k(), self.XTTS_SR
                 )
         return self._cache["speaker_embedding"]
 
@@ -234,17 +218,12 @@ class ModelLoader(ForgeModel):
 
     def _build_decode_state(self):
         """Prefill ``[prefix, START]`` on CPU into a StaticCache and capture the
-        inputs for one decode step (the graph the autoregressive loop reuses).
+        inputs for one decode step (decoding the first generated token at audio
+        position 1, as loop iteration 1 does).
 
-        Mirrors ``examples/pytorch/xtts_pipeline.py``: build + populate the cache
-        on CPU (the on-device static-cache allocation issue, tt-xla#1645), then
-        hand the cache to the wrapper as plain input tensors so the runner moves
-        them to device. The step under test decodes the first generated token at
-        audio position 1, exactly as loop iteration 1 does.
-
-        Returns ``(decode_inputs, valid_len, max_cache_len)`` where ``valid_len``
-        is the number of slots the prefill wrote (= ``cumulative_length`` the
-        decode step starts from) and ``max_cache_len`` sizes the static buffers.
+        Returns ``(decode_inputs, valid_len, max_cache_len)``: ``valid_len`` is the
+        slots the prefill wrote (the decode step's starting ``cumulative_length``);
+        ``max_cache_len`` sizes the static buffers.
         """
         if self._decode_state is not None:
             return self._decode_state
@@ -370,14 +349,12 @@ class ModelLoader(ForgeModel):
             self.load_model(dtype_override=dtype_override)
 
         if self._variant == ModelVariant.SPEAKER_ENCODER:
-            # 16 kHz reference waveform (as Xtts.get_speaker_embedding feeds the
-            # encoder), then the mel front-end (torch.stft) is run here on CPU:
-            # it is fixed DSP preprocessing and its complex FFT is unsupported on
-            # device. The device graph consumes this real mel spectrogram.
+            # Speaker encoder consumes 16 kHz (get_speaker_embedding); the mel
+            # front-end (torch.stft) is run on CPU here (complex FFT, #5216).
             import torchaudio
 
             audio_16k = torchaudio.functional.resample(
-                self._reference_audio_22k(), 22050, 16000
+                self._reference_audio_22k(), self.XTTS_SR, self.SPEAKER_ENCODER_SR
             )
             with torch.no_grad():
                 mel_spec = self._xtts.hifigan_decoder.speaker_encoder.torch_spec(
@@ -386,12 +363,11 @@ class ModelLoader(ForgeModel):
             return {"mel_spec": mel_spec}
 
         if self._variant == ModelVariant.CONDITIONING:
-            # Real reference mel-spectrogram for the first GPT_COND_LEN seconds,
-            # matching the per-chunk mel Xtts.get_gpt_cond_latents feeds to
-            # gpt.get_style_emb (perceiver path).
+            # Reference mel for the first GPT_COND_LEN s; mel params match
+            # Xtts.get_gpt_cond_latents (perceiver path) exactly.
             from TTS.tts.models.xtts import wav_to_mel_cloning
 
-            audio22 = self._reference_audio_22k()[:, : 22050 * self.GPT_COND_LEN]
+            audio22 = self._reference_audio_22k()[:, : self.XTTS_SR * self.GPT_COND_LEN]
             cond_mel = wav_to_mel_cloning(
                 audio22,
                 mel_norms=self._xtts.mel_stats.cpu(),
@@ -400,7 +376,7 @@ class ModelLoader(ForgeModel):
                 win_length=1024,
                 power=2,
                 normalized=False,
-                sample_rate=22050,
+                sample_rate=self.XTTS_SR,
                 f_min=0,
                 f_max=8000,
                 n_mels=80,
