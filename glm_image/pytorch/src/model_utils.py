@@ -668,46 +668,48 @@ def shard_vae_specs(vae) -> dict:
 def shard_transformer_specs(transformer) -> dict:
     """Shard specs for GlmImageTransformer2DModel.
 
-    Column-parallel (Q, K, V, FFN up, modulation linear): ("model", "batch")
-    Row-parallel   (O, FFN down, proj_out):               ("batch", "model")
+    Single-axis "model" Megatron (mesh is ("batch", "model"), but data
+    batch == 1). Using "batch" as a second weight-sharding axis would force a
+    model<->batch axis-swap reshard that lowers to collective_permute.
+
+    Attention + FFN: column-parallel (to_q/k/v, ff up) -> ("model", None);
+    row-parallel (to_out, ff down) -> (None, "model"). The residual stream stays
+    REPLICATED (row layers all_reduce back before the residual add). AdaLayerNorm
+    modulation linears also stay REPLICATED: their outputs are `.chunk()`'d, and
+    sharding on "model" would straddle chunk boundaries -> per-chunk reshards.
+    Entry projectors / embeddings feeding the residual stream are replicated to
+    match it; the glyph/prior FeedForwards do their own column->row Megatron.
     """
     specs = {}
 
-    # Image / glyph / prior projectors are entry-point linears: shard Cout.
+    # image_projector feeds the (replicated) residual stream directly -> replicate.
     if hasattr(transformer, "image_projector") and hasattr(
         transformer.image_projector, "proj"
     ):
         proj = transformer.image_projector.proj
-        specs[proj.weight] = ("model", "batch")
+        specs[proj.weight] = (None, None)
         if proj.bias is not None:
-            specs[proj.bias] = ("model",)
+            specs[proj.bias] = (None,)
 
-    if hasattr(transformer, "glyph_projector"):
-        gp = transformer.glyph_projector
-        if hasattr(gp, "net"):
-            if hasattr(gp.net[0], "proj"):
-                specs[gp.net[0].proj.weight] = ("model", "batch")
-                if gp.net[0].proj.bias is not None:
-                    specs[gp.net[0].proj.bias] = ("model",)
-            specs[gp.net[2].weight] = ("batch", "model")
-            if gp.net[2].bias is not None:
-                specs[gp.net[2].bias] = ("batch",)
+    # glyph / prior projectors are FeedForwards: column-parallel up, row-parallel
+    # down on "model" -> replicated output (matches the residual stream).
+    for proj_attr in ("glyph_projector", "prior_projector"):
+        module = getattr(transformer, proj_attr, None)
+        if module is not None and hasattr(module, "net"):
+            if hasattr(module.net[0], "proj"):
+                specs[module.net[0].proj.weight] = ("model", None)
+                if module.net[0].proj.bias is not None:
+                    specs[module.net[0].proj.bias] = ("model",)
+            specs[module.net[2].weight] = (None, "model")
+            if module.net[2].bias is not None:
+                specs[module.net[2].bias] = (None,)
 
+    # Embedding lookup output feeds the residual stream -> replicate.
     if hasattr(transformer, "prior_token_embedding"):
-        specs[transformer.prior_token_embedding.weight] = (None, "batch")
+        specs[transformer.prior_token_embedding.weight] = (None, None)
 
-    if hasattr(transformer, "prior_projector"):
-        pp = transformer.prior_projector
-        if hasattr(pp, "net"):
-            if hasattr(pp.net[0], "proj"):
-                specs[pp.net[0].proj.weight] = ("model", "batch")
-                if pp.net[0].proj.bias is not None:
-                    specs[pp.net[0].proj.bias] = ("model",)
-            specs[pp.net[2].weight] = ("batch", "model")
-            if pp.net[2].bias is not None:
-                specs[pp.net[2].bias] = ("batch",)
-
-    # Time / size conditioning embedders (small replicated linears).
+    # Time / size conditioning embedders are small and produce temb, which the
+    # (replicated) modulation linears consume -> replicate.
     if hasattr(transformer, "time_condition_embed"):
         tce = transformer.time_condition_embed
         for sub in ("timestep_embedder", "condition_embedder"):
@@ -717,25 +719,26 @@ def shard_transformer_specs(transformer) -> dict:
             for lin_name in ("linear_1", "linear_2"):
                 if hasattr(mod, lin_name):
                     lin = getattr(mod, lin_name)
-                    specs[lin.weight] = ("batch", None)
+                    specs[lin.weight] = (None, None)
                     if lin.bias is not None:
-                        specs[lin.bias] = ("batch",)
+                        specs[lin.bias] = (None,)
 
     for block in getattr(transformer, "transformer_blocks", []) or []:
+        # AdaLayerNormZero modulation linear -> chunked -> MUST stay replicated.
         for norm_name in ("norm1", "norm1_context"):
             mod = getattr(block, norm_name, None)
             if mod is not None and hasattr(mod, "linear"):
                 lin = mod.linear
-                specs[lin.weight] = ("model", "batch")
+                specs[lin.weight] = (None, None)
                 if lin.bias is not None:
-                    specs[lin.bias] = ("model",)
+                    specs[lin.bias] = (None,)
 
         if hasattr(block, "attn1"):
             attn = block.attn1
             for proj_name in ("to_q", "to_k", "to_v"):
                 if hasattr(attn, proj_name):
                     proj = getattr(attn, proj_name)
-                    specs[proj.weight] = ("model", "batch")
+                    specs[proj.weight] = ("model", None)
                     if proj.bias is not None:
                         specs[proj.bias] = ("model",)
             if hasattr(attn, "to_out"):
@@ -745,28 +748,30 @@ def shard_transformer_specs(transformer) -> dict:
                     if isinstance(out, (torch.nn.Sequential, torch.nn.ModuleList))
                     else out
                 )
-                specs[target.weight] = ("batch", "model")
+                specs[target.weight] = (None, "model")
                 if target.bias is not None:
-                    specs[target.bias] = ("batch",)
+                    specs[target.bias] = (None,)
 
         if hasattr(block, "ff"):
             ff = block.ff
             if hasattr(ff.net[0], "proj"):
-                specs[ff.net[0].proj.weight] = ("model", "batch")
+                specs[ff.net[0].proj.weight] = ("model", None)
                 if ff.net[0].proj.bias is not None:
                     specs[ff.net[0].proj.bias] = ("model",)
-            specs[ff.net[2].weight] = ("batch", "model")
+            specs[ff.net[2].weight] = (None, "model")
             if ff.net[2].bias is not None:
-                specs[ff.net[2].bias] = ("batch",)
+                specs[ff.net[2].bias] = (None,)
 
+    # AdaLayerNormContinuous modulation linear -> chunked (shift/scale) -> replicate.
     if hasattr(transformer, "norm_out") and hasattr(transformer.norm_out, "linear"):
         lin = transformer.norm_out.linear
-        specs[lin.weight] = ("model", "batch")
+        specs[lin.weight] = (None, None)
         if lin.bias is not None:
-            specs[lin.bias] = ("model",)
+            specs[lin.bias] = (None,)
 
+    # Final patch projection feeds the reshape/unpatchify -> replicate.
     if hasattr(transformer, "proj_out"):
-        specs[transformer.proj_out.weight] = (None, "batch")
+        specs[transformer.proj_out.weight] = (None, None)
         if transformer.proj_out.bias is not None:
             specs[transformer.proj_out.bias] = (None,)
 
