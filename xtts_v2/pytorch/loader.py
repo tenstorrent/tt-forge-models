@@ -350,7 +350,8 @@ class ModelLoader(ForgeModel):
 
         if self._variant == ModelVariant.SPEAKER_ENCODER:
             # Speaker encoder consumes 16 kHz (get_speaker_embedding); the mel
-            # front-end (torch.stft) is run on CPU here (complex FFT, #5216).
+            # front-end (torch.stft) is run on CPU here (complex FFT, not
+            # lowerable to device).
             import torchaudio
 
             audio_16k = torchaudio.functional.resample(

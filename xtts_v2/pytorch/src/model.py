@@ -13,6 +13,9 @@ PCC-compared against CPU on its own:
     GptDecodeWrapper        one token + static KV cache-> next-step audio logits
     GptLatentsWrapper       text + audio-code sequence -> GPT latents
     HifiganDecoderWrapper   GPT latents + speaker emb  -> 24 kHz waveform
+
+``GptCachedStep`` (the live-cache decode step the autoregressive loop reuses) is
+also defined here so the e2e pipeline and the decode-loop test share one graph.
 """
 
 import torch
@@ -32,7 +35,7 @@ class SpeakerEncoderWrapper(nn.Module):
     """ResNet-SE speaker encoder trunk: mel ``(b, 64, T)`` -> embedding ``(b, 512)``.
 
     The mel front-end (``torch_spec`` / ``torch.stft``) is a complex FFT
-    unsupported on device (#5216), so the loader computes the mel on CPU and this
+    unsupported on device, so the loader computes the mel on CPU and this
     wrapper runs only the learned trunk (``use_torch_spec`` disabled so ``forward``
     consumes the precomputed mel).
     """
@@ -187,3 +190,49 @@ class HifiganDecoderWrapper(nn.Module):
 
     def forward(self, gpt_latents, speaker_embedding):
         return self.hifigan_decoder(gpt_latents, g=speaker_embedding)
+
+
+class GptCachedStep(nn.Module):
+    """GPT2 trunk + audio ``lm_head`` for one KV-cached decode step, driven by a
+    live HF ``StaticCache`` passed in by the caller.
+
+    Unlike ``GptDecodeWrapper`` (which rebuilds a fresh cache from K/V tensors so
+    its forward is pure for the runner's single-step PCC check), this module is
+    the graph the autoregressive *loop* reuses: the caller pre-allocates a
+    ``StaticCache`` to a fixed ``max_cache_len`` and feeds one token per step, so
+    shapes stay constant and the graph compiles once. Audio tokens are embedded
+    here (``mel_embedding`` + ``mel_pos_embedding`` at absolute positions) so all
+    learned ops run on TT; the prefill step prepends the conditioning+text
+    ``prefix_emb``. XTTS's GPT2 has a null ``wpe`` and ``StaticLayer`` self-manages
+    its write index, so the prefill and decode graphs each compile once and every
+    later step is a cache hit.
+
+    Shared by the e2e pipeline (``pipeline.XTTSPipeline``) and the decode-loop
+    bring-up test (``tests/torch/models/xtts_v2/test_xtts_decode.py``).
+    """
+
+    def __init__(self, xtts):
+        super().__init__()
+        gpt = xtts.gpt
+        self.gpt2 = gpt.gpt  # HF GPT2Model (wpe is null; positions are external)
+        self.mel_embedding = gpt.mel_embedding
+        self.mel_pos_embedding = gpt.mel_pos_embedding
+        self.final_norm = gpt.final_norm
+        self.mel_head = gpt.mel_head
+
+    def forward(
+        self, audio_ids, positions, attention_mask, past_key_values, prefix_emb=None
+    ):
+        emb = self.mel_embedding(audio_ids)
+        emb = emb + self.mel_pos_embedding.emb(positions).unsqueeze(0)
+        if prefix_emb is not None:  # prefill only
+            emb = torch.cat([prefix_emb.to(emb.dtype), emb], dim=1)
+        out = self.gpt2(
+            inputs_embeds=emb,
+            attention_mask=attention_mask,
+            past_key_values=past_key_values,
+            use_cache=True,
+            return_dict=True,
+        )
+        hidden = self.final_norm(out.last_hidden_state)
+        return self.mel_head(hidden)
