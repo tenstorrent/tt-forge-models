@@ -5,11 +5,9 @@
 """XTTS-v2 (coqui/XTTS-v2) — end-to-end text-to-speech pipeline on Tenstorrent.
 
 Chains the per-component nn.Module graphs (loader + wrappers in this package)
-into the full ``Xtts.inference`` path (https://huggingface.co/coqui/XTTS-v2),
-running the learned modules on TT and keeping only fixed DSP / orchestration on
-CPU. This is the reusable implementation shared by the tt-xla e2e test
-(``tests/torch/models/xtts_v2/test_xtts_v2_pipeline.py``) and any runnable demo;
-all model building blocks and inputs are sourced from this package's loader.
+into the full ``Xtts.inference`` path, running the learned modules on TT and
+keeping fixed DSP / orchestration on CPU. Reusable implementation shared by the
+tt-xla e2e test; all building blocks and inputs come from this package's loader.
 
 Stages (matching ``Xtts.inference`` + ``Xtts.get_conditioning_latents``):
 
@@ -19,29 +17,20 @@ Stages (matching ``Xtts.inference`` + ``Xtts.get_conditioning_latents``):
     text + gpt_codes ─────────────► gpt_latents      [TT] ─► gpt_latents
     gpt_latents + speaker_embedding► hifigan_decoder  [TT] ─► 24 kHz waveform
 
-CPU handles only what is not a learned device graph: the mel front-ends, the
-text-prefix embedding, tokenization, token sampling / loop control, and audio
-I/O. Sampling and conditioning use the
-reference ``Xtts.inference`` params (temperature 0.75 / top_k 50 / top_p 0.85 /
-repetition_penalty 10.0; gpt_cond_len 6 / chunk 6), so behavior matches the source.
-
-The audio-token loop is the only host-driven stage; its GPT2 trunk still runs on
-TT. A dynamic KV cache would grow one slot per step and force a recompile every
-step (torch_xla keys its graph cache on shapes), so the loop uses a pre-allocated
-HF ``StaticCache`` (``GptCachedStep``) with fixed-shape inputs — only mask
-*values* change. HF's ``StaticLayer`` self-manages its write index, so the prefill
-and single-token decode graphs each compile once and every later step is a cache
-hit. ``max_audio_tokens`` bounds ``max_cache_len``.
+CPU handles only non-learned work (mel front-ends, tokenizer, sampling / loop
+control, audio I/O); sampling/conditioning use the reference ``Xtts.inference``
+params so behavior matches the source. The audio-token loop drives
+``GptCachedStep`` (GPT2 trunk on TT) over a pre-allocated HF ``StaticCache``:
+fixed-shape inputs mean the decode graph compiles once and is reused every step.
+``max_audio_tokens`` bounds ``max_cache_len``.
 
 Requires the optional ``coqui-tts`` + ``torchaudio`` deps and the CPML-gated
-coqui/XTTS-v2 weights (``COQUI_TOS_AGREED=1``; ``HF_TOKEN`` / prior
-``huggingface-cli login`` if not cached).
+coqui/XTTS-v2 weights (``COQUI_TOS_AGREED=1``).
 """
 
 from __future__ import annotations
 
 import os
-import time
 from typing import Optional
 
 import torch
@@ -108,8 +97,6 @@ class XTTSPipeline:
     def __init__(self, config: XTTSConfig):
         self.config = config
         self._loader = ModelLoader(variant=ModelVariant.GPT_LATENTS)
-        # Per-stage wall-clock, populated by run() for the benchmark harness.
-        self._perf = {}
 
     # ------------------------------------------------------------------ #
     # setup: build the full model once, wrap each component, compile for TT
@@ -174,15 +161,10 @@ class XTTSPipeline:
             return self.xtts.hifigan_decoder.speaker_encoder.torch_spec(audio16)
 
     def _conditioning_mels(self, audio22: torch.Tensor) -> list:
-        """Reference ``get_gpt_cond_latents`` chunking (perceiver path).
-
-        The first ``GPT_COND_LEN`` s of the reference are split into
-        ``GPT_COND_CHUNK_LEN``-second chunks; each chunk is turned into a mel on
-        CPU. The conditioning encoder then runs per chunk on TT and the results
-        are mean-averaged in ``run()`` -- exactly as ``Xtts.get_gpt_cond_latents``
-        averages per-chunk ``get_style_emb`` outputs. With the reference defaults
-        (6 == 6) this is a single 6 s chunk.
-        """
+        """Reference ``get_gpt_cond_latents`` chunking: split the first
+        ``GPT_COND_LEN`` s into ``GPT_COND_CHUNK_LEN``-second mel chunks; the
+        conditioning encoder runs per chunk on TT and ``run()`` means over chunks.
+        Reference defaults (6 == 6) give a single 6 s chunk."""
         from TTS.tts.models.xtts import wav_to_mel_cloning
 
         audio = audio22[:, : 22050 * GPT_COND_LEN]
@@ -223,13 +205,9 @@ class XTTSPipeline:
     # gpt_codes: autoregressive audio-token loop
     # ------------------------------------------------------------------ #
     def _make_static_cache(self, max_cache_len: int, device):
-        """StaticCache for XTTS's GPT2, built on CPU then moved to device.
-
-        Mirrors examples/pytorch/llama.py: build + early_initialization on CPU
-        (a trace/fusion issue otherwise, tt-xla#1645), then move each layer's
-        buffers to device. GPT2's StaticLayer self-manages its write index, so
-        no cache_position is needed from the model.
-        """
+        """StaticCache for XTTS's GPT2, built on CPU then moved to device
+        (build + early_initialization on CPU avoids a trace/fusion issue,
+        tt-xla#1645). GPT2's StaticLayer self-manages its write index."""
         from transformers import StaticCache
 
         cfg = self.xtts.gpt.gpt.config
@@ -260,13 +238,11 @@ class XTTSPipeline:
     def _generate_codes_tt(self, gpt_cond_latent, text_tokens) -> torch.Tensor:
         """KV-cached, single-compile decode loop with the GPT2 trunk on TT.
 
-        Prefills the conditioning+text prefix + [START] token into a StaticCache,
-        then samples audio tokens one at a time using the same params as the
-        reference ``Xtts.inference`` (``do_sample=True``, temperature 0.75, top_k
-        50, top_p 0.85, repetition_penalty 10.0). Sampling is host-side via HF's
-        own logits processors, so token selection matches ``gpt.generate``; the TT
-        decode graph feeds only the new token (O(1) work) with constant shapes, so
-        it compiles once and is reused every step (no per-step recompiles).
+        Prefills the conditioning+text prefix + [START] into a StaticCache, then
+        samples audio tokens one at a time with the reference ``Xtts.inference``
+        params (host-side HF logits processors, so selection matches
+        ``gpt.generate``). The TT decode graph feeds only the new token with
+        constant shapes, so it compiles once and is reused every step.
         """
         from transformers import (
             LogitsProcessorList,
@@ -357,15 +333,7 @@ class XTTSPipeline:
         device = xm.xla_device()
         tt = lambda x: x.to(device)
         cpu = lambda x: x.to("cpu")
-        self._perf = {}
 
-        def _timed(name, fn):
-            t0 = time.perf_counter()
-            out = fn()
-            self._perf[name] = time.perf_counter() - t0
-            return out
-
-        t_total = time.perf_counter()
         with torch.no_grad():
             # --- CPU preprocessing ---
             audio22 = self._reference_audio_22k()
@@ -377,9 +345,7 @@ class XTTSPipeline:
             # --- speaker_embedding [TT] ---
             logger.info("[STAGE] speaker_encoder (TT)")
             self.speaker_encoder = self.speaker_encoder.to(device)
-            speaker_embedding = _timed(
-                "speaker_encoder", lambda: cpu(self.speaker_encoder(tt(speaker_mel)))
-            )
+            speaker_embedding = cpu(self.speaker_encoder(tt(speaker_mel)))
             self.speaker_encoder = self.speaker_encoder.to("cpu")
             # Match get_speaker_embedding output shape [1, 512, 1].
             speaker_embedding = speaker_embedding.unsqueeze(-1)
@@ -389,20 +355,14 @@ class XTTSPipeline:
             # get_gpt_cond_latents). Each chunk's style_emb is [1, 1024, 32].
             logger.info("[STAGE] conditioning encoder (TT)")
             self.conditioning = self.conditioning.to(device)
-            style_embs = _timed(
-                "conditioning",
-                lambda: [cpu(self.conditioning(tt(m))) for m in cond_mels],
-            )
+            style_embs = [cpu(self.conditioning(tt(m))) for m in cond_mels]
             self.conditioning = self.conditioning.to("cpu")
             conds = torch.stack(style_embs).mean(dim=0)  # [1, 1024, 32]
             gpt_cond_latent = conds.transpose(1, 2)  # [1, 32, 1024]
 
             # --- gpt_codes (autoregressive, GPT2 trunk on TT) ---
             logger.info("[STAGE] gpt_codes (TT)")
-            gpt_codes = _timed(
-                "gpt_codes",
-                lambda: self._generate_codes_tt(gpt_cond_latent, text_tokens),
-            )
+            gpt_codes = self._generate_codes_tt(gpt_cond_latent, text_tokens)
             logger.info(f"[gpt_codes] produced {gpt_codes.shape[-1]} audio tokens")
 
             expected_output_len = torch.tensor(
@@ -412,30 +372,23 @@ class XTTSPipeline:
             # --- gpt_latents [TT] ---
             logger.info("[STAGE] gpt_latents (TT)")
             self.gpt_latents = self.gpt_latents.to(device)
-            gpt_latents = _timed(
-                "gpt_latents",
-                lambda: cpu(
-                    self.gpt_latents(
-                        tt(text_tokens),
-                        tt(text_len),
-                        tt(gpt_codes),
-                        tt(expected_output_len),
-                        tt(gpt_cond_latent),
-                    )
-                ),
+            gpt_latents = cpu(
+                self.gpt_latents(
+                    tt(text_tokens),
+                    tt(text_len),
+                    tt(gpt_codes),
+                    tt(expected_output_len),
+                    tt(gpt_cond_latent),
+                )
             )
             self.gpt_latents = self.gpt_latents.to("cpu")
 
             # --- waveform [TT] ---
             logger.info("[STAGE] hifigan_decoder (TT)")
             self.hifigan = self.hifigan.to(device)
-            wav = _timed(
-                "hifigan_decoder",
-                lambda: cpu(self.hifigan(tt(gpt_latents), tt(speaker_embedding))),
-            )
+            wav = cpu(self.hifigan(tt(gpt_latents), tt(speaker_embedding)))
             self.hifigan = self.hifigan.to("cpu")
 
-        self._perf["total"] = time.perf_counter() - t_total
         return wav  # [1, 1, S] @ 24 kHz
 
 
