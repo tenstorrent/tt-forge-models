@@ -7,7 +7,7 @@ XTTS-v2 has no single traceable ``forward``, so each learned ``nn.Module`` is
 exposed through a thin tensor-in / tensor-out wrapper that can be compiled and
 PCC-compared against CPU on its own:
 
-    SpeakerEncoderWrapper   mel spectrogram (CPU STFT) -> speaker embedding
+    SpeakerEncoderWrapper   mel spectrogram            -> speaker embedding
     ConditioningWrapper     reference mel-spectrogram  -> GPT conditioning latents
     GptPrefillWrapper       [prefix, start] tokens     -> first-step audio logits
     GptDecodeWrapper        one token + static KV cache-> next-step audio logits
@@ -34,10 +34,9 @@ if not hasattr(_pu, "isin_mps_friendly"):
 class SpeakerEncoderWrapper(nn.Module):
     """ResNet-SE speaker encoder trunk: mel ``(b, 64, T)`` -> embedding ``(b, 512)``.
 
-    The mel front-end (``torch_spec`` / ``torch.stft``) is a complex FFT
-    unsupported on device, so the loader computes the mel on CPU and this
-    wrapper runs only the learned trunk (``use_torch_spec`` disabled so ``forward``
-    consumes the precomputed mel).
+    The mel front-end is computed by the loader; this wrapper runs only the
+    learned trunk (``use_torch_spec`` disabled so ``forward`` consumes the
+    precomputed mel).
     """
 
     def __init__(self, xtts):

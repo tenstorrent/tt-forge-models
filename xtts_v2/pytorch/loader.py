@@ -333,9 +333,7 @@ class ModelLoader(ForgeModel):
             text_tokens = self._text_tokens()
             gpt_inputs = xtts.gpt.compute_embeddings(gpt_cond_latent, text_tokens)
             prefix_emb = xtts.gpt.gpt_inference.cached_prefix_emb.clone()
-            attention_mask = torch.ones(
-                1, gpt_inputs.shape[1], dtype=torch.bool
-            )
+            attention_mask = torch.ones(1, gpt_inputs.shape[1], dtype=torch.bool)
             self._prefill_inputs = {
                 "gpt_inputs": gpt_inputs,
                 "attention_mask": attention_mask,
@@ -350,8 +348,7 @@ class ModelLoader(ForgeModel):
 
         if self._variant == ModelVariant.SPEAKER_ENCODER:
             # Speaker encoder consumes 16 kHz (get_speaker_embedding); the mel
-            # front-end (torch.stft) is run on CPU here (complex FFT, not
-            # lowerable to device).
+            # front-end is computed here and fed to the learned trunk.
             import torchaudio
 
             audio_16k = torchaudio.functional.resample(

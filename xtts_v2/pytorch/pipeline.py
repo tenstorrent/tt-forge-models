@@ -13,15 +13,15 @@ all model building blocks and inputs are sourced from this package's loader.
 
 Stages (matching ``Xtts.inference`` + ``Xtts.get_conditioning_latents``):
 
-    reference wav ─(CPU STFT/mel)─► speaker_encoder  [TT] ─► speaker_embedding
+    reference wav ─(CPU mel)──────► speaker_encoder  [TT] ─► speaker_embedding
     reference wav ─(CPU mel)──────► conditioning     [TT] ─► gpt_cond_latent
     text ─(CPU tokenizer)─► gpt autoregressive loop  [TT] ─► gpt_codes
     text + gpt_codes ─────────────► gpt_latents      [TT] ─► gpt_latents
     gpt_latents + speaker_embedding► hifigan_decoder  [TT] ─► 24 kHz waveform
 
-CPU handles only what is not a learned device graph: the STFT/mel front-ends
-(complex FFT, not lowerable to device), the text-prefix embedding, tokenization,
-token sampling / loop control, and audio I/O. Sampling and conditioning use the
+CPU handles only what is not a learned device graph: the mel front-ends, the
+text-prefix embedding, tokenization, token sampling / loop control, and audio
+I/O. Sampling and conditioning use the
 reference ``Xtts.inference`` params (temperature 0.75 / top_k 50 / top_p 0.85 /
 repetition_penalty 10.0; gpt_cond_len 6 / chunk 6), so behavior matches the source.
 
@@ -165,7 +165,7 @@ class XTTSPipeline:
         return audio
 
     def _speaker_mel(self, audio22: torch.Tensor) -> torch.Tensor:
-        """16 kHz reference -> speaker-encoder mel (CPU torch.stft)."""
+        """16 kHz reference -> speaker-encoder mel (computed on CPU)."""
         import torchaudio
 
         audio16 = torchaudio.functional.resample(audio22, 22050, 16000)
