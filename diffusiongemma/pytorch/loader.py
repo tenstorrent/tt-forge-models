@@ -11,6 +11,7 @@ MoE backbone that denoises a block of tokens instead of decoding left-to-right.
 
 from typing import Optional
 
+import torch
 from transformers import AutoProcessor
 
 from ...base import ForgeModel
@@ -31,6 +32,7 @@ class ModelVariant(StrEnum):
     """Available DiffusionGemma model variants."""
 
     DIFFUSIONGEMMA_26B_A4B_IT = "26B-A4B-it"
+    ENCODER = "encoder"
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +40,9 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.DIFFUSIONGEMMA_26B_A4B_IT: LLMModelConfig(
+            pretrained_model_name="google/diffusiongemma-26B-A4B-it",
+        ),
+        ModelVariant.ENCODER: LLMModelConfig(
             pretrained_model_name="google/diffusiongemma-26B-A4B-it",
         ),
     }
@@ -84,8 +89,14 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
         model = _install_dynamo_safe_param_props(model)
-        self.model = model
         self.config = model.config
+        # ENCODER variant: return the encoder as a standalone model so it can
+        # be freed independently -> staged residency avoids OOM.
+        # See https://github.com/tenstorrent/tt-xla/issues/5538
+        if self._variant == ModelVariant.ENCODER:
+            self.model = model.model.encoder
+            return self.model
+        self.model = model
         return model
 
     def load_inputs(
@@ -106,6 +117,15 @@ class ModelLoader(ForgeModel):
         for key in list(inputs):
             value = inputs[key].repeat_interleave(batch_size, dim=0)
             inputs[key] = cast_input_to_type(value, dtype_override)
+        # Workaround: pass decoder_input_ids to skip the model's randint (its
+        # lowering hits unsupported uint32 remainder).
+        # tt-metal ticket - https://github.com/tenstorrent/tt-metal/issues/27621
+        # tt-metal pr - https://github.com/tenstorrent/tt-metal/pull/48697
+        # tt-xla tracker - https://github.com/tenstorrent/tt-xla/issues/5423
+        text_cfg = getattr(self.config, "text_config", self.config)
+        inputs["decoder_input_ids"] = torch.randint(
+            0, text_cfg.vocab_size, (batch_size, self.config.canvas_length)
+        )
         return inputs
 
     def _text_layers(self, model):
@@ -114,24 +134,26 @@ class ModelLoader(ForgeModel):
         return list(base.encoder.language_model.layers) + list(base.decoder.layers)
 
     def get_mesh_config(self, num_devices: int):
-        """((1, num_devices), ("batch", "model")); model axis carries query heads
-        and the expert axis, so both must divide it (KV is replicated)."""
+        """((1, num_devices), ("batch", "model")); attention is replicated, so
+        only the expert axis rides the model axis and must divide it."""
         mesh_shape = (1, num_devices)
         text_cfg = getattr(self.config, "text_config", self.config)
-        assert text_cfg.num_attention_heads % mesh_shape[1] == 0
         assert text_cfg.num_experts % mesh_shape[1] == 0
         return mesh_shape, ("batch", "model")
 
-    def load_shard_spec(self, model):
-        """Megatron TP (q col / o row, dense MLP col->row) + expert-parallel MoE
-        (3D expert tensors sharded on the expert axis). K/V replicated: the
-        full-attention layers carry only 2 global KV heads (unsharddable)."""
-        shard_specs = {}
-        for layer in self._text_layers(model):
-            attn = layer.self_attn
-            shard_specs[attn.q_proj.weight] = ("model", None)
-            shard_specs[attn.o_proj.weight] = (None, "model")
+    def _layers_for_variant(self, model):
+        """Layers to shard: the ENCODER variant's `model` is the encoder submodule, so shard
+        its own language_model layers; else shard both encoder+decoder text layers."""
+        if self._variant == ModelVariant.ENCODER:
+            return list(model.language_model.layers)
+        return self._text_layers(model)
 
+    def load_shard_spec(self, model):
+        """Shard the dense MLP (col->row) and expert-parallel MoE. Attention is
+        replicated: the global layers' 2 KV heads can't shard the model axis,
+        and head-sharding Q crashes the repeat_kv reshard."""
+        shard_specs = {}
+        for layer in self._layers_for_variant(model):
             shard_specs[layer.mlp.gate_proj.weight] = ("model", None)
             shard_specs[layer.mlp.up_proj.weight] = ("model", None)
             shard_specs[layer.mlp.down_proj.weight] = (None, "model")

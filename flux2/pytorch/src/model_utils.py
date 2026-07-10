@@ -4,7 +4,7 @@
 """
 Component loaders and wrappers for black-forest-labs/FLUX.2-dev (Flux2Pipeline).
 
-Bringup resolution: 128x128 pixels (matches TT component-test plan).
+Output resolution is 1024x1024 (latent grid 64x64 → packed sequence length 4096).
 """
 
 import torch
@@ -17,8 +17,8 @@ PROMPT = (
     "Realistic macro photograph of a hermit crab using a soda can as its shell, "
     "partially emerging from the can, on a sunlit beach."
 )
-HEIGHT = 128
-WIDTH = 128
+HEIGHT = 1024
+WIDTH = 1024
 NUM_INFERENCE_STEPS = 4
 GUIDANCE_SCALE = 4.0
 SEED = 42
@@ -203,11 +203,25 @@ def make_packed_latents(dtype: torch.dtype = DTYPE) -> torch.Tensor:
 
 
 def make_prompt_embeds(dtype: torch.dtype = DTYPE) -> torch.Tensor:
+    """Real prompt embeddings — runs the 24B text encoder."""
     encoder = load_text_encoder(dtype)
     input_ids, attention_mask = tokenize_prompt()
     wrapper = Mistral3TextEncoderWrapper(encoder)
     with torch.no_grad():
         return wrapper(input_ids, attention_mask)
+
+
+def make_synthetic_prompt_embeds(dtype: torch.dtype = DTYPE) -> torch.Tensor:
+    """Synthetic encoder_hidden_states with the real (1, seq, joint_attention_dim) shape.
+
+    Used for the standalone transformer (denoiser) component test so it does not
+    need to load and run the 24B text encoder just to build inputs — the
+    transformer's PCC is computed CPU-vs-device against the same synthetic input.
+    """
+    gen = torch.Generator().manual_seed(SEED + 1)
+    return torch.randn(
+        1, MAX_SEQUENCE_LENGTH, JOINT_ATTENTION_DIM, dtype=dtype, generator=gen
+    )
 
 
 def prepare_text_ids(batch_size: int, seq_len: int, dtype: torch.dtype) -> torch.Tensor:
@@ -251,14 +265,40 @@ def _add_shard_spec(specs: dict, param: torch.Tensor | None, spec: tuple) -> Non
         specs[param] = spec
 
 
+def _resolve_text_transformer(encoder):
+    """Descend wrapper modules until reaching the decoder stack that owns `.layers`.
+
+    Mistral3ForConditionalGeneration nests the actual transformer as
+    ``encoder.model.language_model`` (Mistral3Model wraps a vision tower +
+    language model). The decoder block stack — the module that exposes
+    ``layers``/``embed_tokens`` — lives below those wrappers, so walk through the
+    common wrapper attributes until we find it. Returns the wrapper found last if
+    no `.layers` exists (e.g. a bare decoder passed directly).
+
+    The descent has no fixed depth: it keeps unwrapping until it reaches a module
+    with ``.layers`` or one that exposes none of the known wrapper attributes. A
+    ``visited`` set guards against pathological self-referential modules. Trying
+    ``language_model`` before ``model`` ensures the 24B encoder's decoder is
+    reached (a wrong path leaves every weight replicated and OOMs the device).
+    """
+    module = encoder
+    visited = {id(module)}
+    while not hasattr(module, "layers"):
+        for attr in ("language_model", "model", "text_model"):
+            inner = getattr(module, attr, None)
+            if inner is not None and id(inner) not in visited:
+                module = inner
+                visited.add(id(module))
+                break
+        else:
+            break
+    return module
+
+
 def shard_text_encoder_specs(encoder) -> dict:
     """Shard Mistral3 / language-model blocks (column/row parallel)."""
     specs = {}
-    language_model = encoder
-    if hasattr(language_model, "language_model"):
-        language_model = language_model.language_model
-    if hasattr(language_model, "model"):
-        language_model = language_model.model
+    language_model = _resolve_text_transformer(encoder)
 
     if hasattr(language_model, "embed_tokens"):
         specs[language_model.embed_tokens.weight] = (None, None)
@@ -315,57 +355,52 @@ def _shard_flux2_joint_attention(attn, specs: dict) -> None:
         _add_shard_spec(specs, attn.to_add_out.weight, (None, "model"))
         _add_shard_spec(specs, attn.to_add_out.bias, (None,))
 
+    # Per-head RMSNorm over head_dim: head_dim stays whole per device, so replicate.
     for norm_name in ("norm_q", "norm_k", "norm_added_q", "norm_added_k"):
         norm = getattr(attn, norm_name, None)
         if norm is not None:
-            _add_shard_spec(specs, getattr(norm, "weight", None), ("model",))
+            _add_shard_spec(specs, getattr(norm, "weight", None), (None,))
 
 
 def _shard_flux2_parallel_attention(attn, specs: dict) -> None:
-    """Flux2ParallelSelfAttention in single_stream_blocks (fused QKV+MLP)."""
+    """Flux2ParallelSelfAttention in single_stream_blocks (fused QKV+MLP).
+
+    The fused [Q|K|V|MLP] projection is contraction-parallel (None, "model") so
+    its output is replicated (partial-sum + all-reduce); a column split would
+    break the downstream split/chunk(3)/GEGLU gating. Weights stay 1/N per chip.
+    """
     if hasattr(attn, "to_qkv_mlp_proj"):
-        _add_shard_spec(specs, attn.to_qkv_mlp_proj.weight, ("model", None))
-        _add_shard_spec(specs, attn.to_qkv_mlp_proj.bias, ("model",))
+        _add_shard_spec(specs, attn.to_qkv_mlp_proj.weight, (None, "model"))
+        _add_shard_spec(specs, attn.to_qkv_mlp_proj.bias, (None,))
 
     if hasattr(attn, "to_out") and isinstance(attn.to_out, torch.nn.Linear):
         _add_shard_spec(specs, attn.to_out.weight, (None, "model"))
         _add_shard_spec(specs, attn.to_out.bias, (None,))
 
+    # Per-head RMSNorm over head_dim — replicated (see joint-attention note above).
     for norm_name in ("norm_q", "norm_k"):
         norm = getattr(attn, norm_name, None)
         if norm is not None:
-            _add_shard_spec(specs, getattr(norm, "weight", None), ("model",))
+            _add_shard_spec(specs, getattr(norm, "weight", None), (None,))
 
 
 def _shard_flux2_feed_forward(ff, specs: dict) -> None:
-    _add_shard_spec(specs, ff.linear_in.weight, ("model", None))
+    # GEGLU: contraction-parallel (None, "model") so linear_in's output is
+    # replicated and the chunk(2) gate sees the full tensor; a column split would
+    # straddle the gate boundary. linear_out is contraction-parallel too.
+    _add_shard_spec(specs, ff.linear_in.weight, (None, "model"))
     _add_shard_spec(specs, ff.linear_out.weight, (None, "model"))
 
 
 def shard_transformer_specs(transformer) -> dict:
-    """Shard Flux2Transformer2DModel (dual-stream + single-stream blocks)."""
+    """Tensor-parallel shard spec for Flux2Transformer2DModel.
+
+    The residual/modulation stream stays replicated; only each block's internal
+    attention and FFN weights are sharded, so every block consumes and produces a
+    replicated tensor. Embedders, modulation projections and proj_out are omitted
+    → replicated by default.
+    """
     specs = {}
-
-    _add_shard_spec(specs, transformer.x_embedder.weight, ("model", None))
-    _add_shard_spec(specs, transformer.context_embedder.weight, ("model", None))
-
-    for mod in (
-        transformer.double_stream_modulation_img,
-        transformer.double_stream_modulation_txt,
-        transformer.single_stream_modulation,
-    ):
-        _add_shard_spec(specs, mod.linear.weight, ("model", None))
-
-    def _shard_timestep_embedding(embedder) -> None:
-        if embedder is None:
-            return
-        _add_shard_spec(specs, embedder.linear_1.weight, ("model", None))
-        _add_shard_spec(specs, embedder.linear_1.bias, ("model",))
-        _add_shard_spec(specs, embedder.linear_2.weight, (None, "model"))
-        _add_shard_spec(specs, embedder.linear_2.bias, (None,))
-
-    _shard_timestep_embedding(transformer.time_guidance_embed.timestep_embedder)
-    _shard_timestep_embedding(transformer.time_guidance_embed.guidance_embedder)
 
     for block in transformer.transformer_blocks:
         for norm_name in ("norm1", "norm1_context"):
@@ -384,9 +419,5 @@ def shard_transformer_specs(transformer) -> dict:
             _add_shard_spec(specs, getattr(block.norm, "bias", None), (None,))
         _shard_flux2_parallel_attention(block.attn, specs)
 
-    if hasattr(transformer.norm_out, "linear"):
-        _add_shard_spec(specs, transformer.norm_out.linear.weight, ("model", None))
-        _add_shard_spec(specs, transformer.norm_out.linear.bias, ("model",))
-    _add_shard_spec(specs, transformer.proj_out.weight, (None, None))
-
+    # norm_out modulation and proj_out feed the replicated stream → leave replicated.
     return specs
