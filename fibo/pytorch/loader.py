@@ -47,12 +47,22 @@ from .src.model_utils import (
     positional_inputs_from_capture,
 )
 from .src.shard_specs import build_shard_spec, get_mesh_shape
+from .src.vae_utils import (
+    VAE_DTYPE,
+    VAEDecoderWrapper,
+    load_vae,
+    make_vae_latent_inputs,
+)
 
 
 class ModelVariant(StrEnum):
     """Available FIBO model variants."""
 
+    # The 8B DiT denoiser (whole-pipeline capture path).
     BASE = "Base"
+    # The Wan-2.2 VAE decoder component (loads only the vae subfolder). Runs on
+    # a single chip; brought up independently of the DiT.
+    VAE_DECODER = "VaeDecoder"
 
 
 class ModelLoader(ForgeModel):
@@ -60,6 +70,9 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.BASE: ModelConfig(
+            pretrained_model_name="briaai/FIBO",
+        ),
+        ModelVariant.VAE_DECODER: ModelConfig(
             pretrained_model_name="briaai/FIBO",
         ),
     }
@@ -117,15 +130,21 @@ class ModelLoader(ForgeModel):
         return self._capture
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Return the wrapped FIBO transformer.
+        """Return the wrapped FIBO transformer (or VAE decoder).
 
         Args:
             dtype_override: Optional ``torch.dtype`` to cast the pipeline to.
 
         Returns:
-            torch.nn.Module: ``FiboTransformerWrapper`` around the FIBO DiT,
-            ready to accept the positional tensors returned by ``load_inputs``.
+            torch.nn.Module: For ``VAE_DECODER`` a ``VAEDecoderWrapper`` around
+            the Wan-2.2 VAE (``vae`` subfolder only). Otherwise a
+            ``FiboTransformerWrapper`` around the FIBO DiT, ready to accept the
+            positional tensors returned by ``load_inputs``.
         """
+        if self._variant == ModelVariant.VAE_DECODER:
+            dtype = dtype_override if dtype_override is not None else VAE_DTYPE
+            return VAEDecoderWrapper(load_vae(dtype)).eval()
+
         self._ensure_capture(dtype_override=dtype_override)
         if dtype_override is not None:
             self.pipe.transformer = self.pipe.transformer.to(dtype_override)
@@ -143,8 +162,15 @@ class ModelLoader(ForgeModel):
                 signature the auto-runner expects.
 
         Returns:
-            tuple: Positional inputs matching ``FiboTransformerWrapper.forward``.
+            For ``VAE_DECODER`` a single-element list ``[latent]`` where
+            ``latent`` is ``[1, 48, 1, 64, 64]`` at FIBO's native 1024x1024.
+            Otherwise a tuple of positional inputs matching
+            ``FiboTransformerWrapper.forward``.
         """
+        if self._variant == ModelVariant.VAE_DECODER:
+            dtype = dtype_override if dtype_override is not None else VAE_DTYPE
+            return [make_vae_latent_inputs(dtype)]
+
         capture = self._ensure_capture(dtype_override=dtype_override)
         inputs = positional_inputs_from_capture(capture)
 
@@ -172,6 +198,9 @@ class ModelLoader(ForgeModel):
         Returns:
             tuple: ``(mesh_shape, mesh_names)`` consumed by the auto-runner.
         """
+        if self._variant == ModelVariant.VAE_DECODER:
+            # The 705M-param VAE fits comfortably on one chip — run replicated.
+            return (1, 1), ("batch", "model")
         return get_mesh_shape(num_devices)
 
     def load_shard_spec(self, model):
@@ -184,4 +213,7 @@ class ModelLoader(ForgeModel):
             dict: ``{torch.nn.Parameter: partition_spec}``. Parameters absent
             from the mapping are replicated across the mesh.
         """
+        if self._variant == ModelVariant.VAE_DECODER:
+            # Single-chip component — nothing to shard.
+            return None
         return build_shard_spec(model)
