@@ -2,30 +2,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""XTTS-v2 (coqui/XTTS-v2) — end-to-end text-to-speech pipeline on Tenstorrent.
+"""XTTS-v2 (coqui/XTTS-v2) end-to-end text-to-speech pipeline on Tenstorrent.
 
-Chains the per-component nn.Module graphs (loader + wrappers in this package)
-into the full ``Xtts.inference`` path, running the learned modules on TT and
-keeping fixed DSP / orchestration on CPU. Reusable implementation shared by the
-tt-xla e2e test; all building blocks and inputs come from this package's loader.
-
-Stages (matching ``Xtts.inference`` + ``Xtts.get_conditioning_latents``):
-
-    reference wav ─(CPU mel)──────► speaker_encoder  [TT] ─► speaker_embedding
-    reference wav ─(CPU mel)──────► conditioning     [TT] ─► gpt_cond_latent
-    text ─(CPU tokenizer)─► gpt autoregressive loop  [TT] ─► gpt_codes
-    text + gpt_codes ─────────────► gpt_latents      [TT] ─► gpt_latents
-    gpt_latents + speaker_embedding► hifigan_decoder  [TT] ─► 24 kHz waveform
-
-CPU handles only non-learned work (mel front-ends, tokenizer, sampling / loop
-control, audio I/O); sampling/conditioning use the reference ``Xtts.inference``
-params so behavior matches the source. The audio-token loop drives
-``GptCachedStep`` (GPT2 trunk on TT) over a pre-allocated HF ``StaticCache``:
-fixed-shape inputs mean the decode graph compiles once and is reused every step.
-``max_audio_tokens`` bounds ``max_cache_len``.
-
-Requires the optional ``coqui-tts`` + ``torchaudio`` deps and the CPML-gated
-coqui/XTTS-v2 weights (``COQUI_TOS_AGREED=1``).
+Chains the per-component nn.Module graphs into the full ``Xtts.inference`` path,
+running the learned modules on TT and keeping fixed DSP/orchestration on CPU. The
+audio-token loop reuses one ``GptCachedStep`` graph over a StaticCache (compiles
+once). Requires ``coqui-tts`` + ``torchaudio`` and CPML-gated weights (``COQUI_TOS_AGREED=1``).
 """
 
 from __future__ import annotations
@@ -54,6 +36,23 @@ DEFAULT_TEXT = (
 )
 DEFAULT_LANGUAGE = "en"
 OUTPUT_SAMPLE_RATE = 24000
+
+# Audio sample rates (Hz).
+XTTS_SAMPLE_RATE = 22050  # XTTS native rate for conditioning / cloning mels
+SPEAKER_ENCODER_SR = 16000  # speaker-encoder input rate
+DEFAULT_REFERENCE_SR = 16000  # fallback rate of the packaged reference clip
+
+# wav_to_mel_cloning front-end params (reference Xtts.get_gpt_cond_latents).
+MEL_N_FFT = 2048
+MEL_HOP_LENGTH = 256
+MEL_WIN_LENGTH = 1024
+MEL_POWER = 2
+MEL_F_MIN = 0
+MEL_F_MAX = 8000
+MEL_N_MELS = 80
+
+# Emit a progress log every N decode tokens.
+DECODE_LOG_INTERVAL = 32
 
 # Reference autoregressive sampling params, matching ``Xtts.inference`` defaults
 # (coqui/XTTS-v2). The decode loop applies these host-side via HF's own logits
@@ -143,50 +142,50 @@ class XTTSPipeline:
             sample = torch.load(
                 get_file(self._loader.REFERENCE_AUDIO), weights_only=False
             )
-            sr = int(sample["audio"].get("sampling_rate", 16000))
+            sr = int(sample["audio"].get("sampling_rate", DEFAULT_REFERENCE_SR))
             audio = torch.tensor(
                 np.asarray(sample["audio"]["array"], dtype="float32")
             ).unsqueeze(0)
-        if sr != 22050:
-            audio = torchaudio.functional.resample(audio, sr, 22050)
+        if sr != XTTS_SAMPLE_RATE:
+            audio = torchaudio.functional.resample(audio, sr, XTTS_SAMPLE_RATE)
         return audio
 
     def _speaker_mel(self, audio22: torch.Tensor) -> torch.Tensor:
         """16 kHz reference -> speaker-encoder mel (computed on CPU)."""
         import torchaudio
 
-        audio16 = torchaudio.functional.resample(audio22, 22050, 16000)
+        audio16 = torchaudio.functional.resample(
+            audio22, XTTS_SAMPLE_RATE, SPEAKER_ENCODER_SR
+        )
         # use_torch_spec is disabled inside the wrapper, so feed the mel directly.
         with torch.no_grad():
             return self.xtts.hifigan_decoder.speaker_encoder.torch_spec(audio16)
 
     def _conditioning_mels(self, audio22: torch.Tensor) -> list:
-        """Reference ``get_gpt_cond_latents`` chunking: split the first
-        ``GPT_COND_LEN`` s into ``GPT_COND_CHUNK_LEN``-second mel chunks; the
-        conditioning encoder runs per chunk on TT and ``run()`` means over chunks.
-        Reference defaults (6 == 6) give a single 6 s chunk."""
+        """Reference ``get_gpt_cond_latents`` chunking into GPT_COND_CHUNK_LEN-second
+        mel chunks; the conditioning encoder runs per chunk on TT, meaned in run()."""
         from TTS.tts.models.xtts import wav_to_mel_cloning
 
-        audio = audio22[:, : 22050 * GPT_COND_LEN]
-        step = 22050 * GPT_COND_CHUNK_LEN
+        audio = audio22[:, : XTTS_SAMPLE_RATE * GPT_COND_LEN]
+        step = XTTS_SAMPLE_RATE * GPT_COND_CHUNK_LEN
         mels = []
         for i in range(0, audio.shape[1], step):
             chunk = audio[:, i : i + step]
-            if chunk.size(-1) < 22050 * MIN_AUDIO_SECONDS:
+            if chunk.size(-1) < XTTS_SAMPLE_RATE * MIN_AUDIO_SECONDS:
                 continue  # skip too-short trailing chunk (reference behavior)
             mels.append(
                 wav_to_mel_cloning(
                     chunk,
                     mel_norms=self.xtts.mel_stats.cpu(),
-                    n_fft=2048,
-                    hop_length=256,
-                    win_length=1024,
-                    power=2,
+                    n_fft=MEL_N_FFT,
+                    hop_length=MEL_HOP_LENGTH,
+                    win_length=MEL_WIN_LENGTH,
+                    power=MEL_POWER,
                     normalized=False,
-                    sample_rate=22050,
-                    f_min=0,
-                    f_max=8000,
-                    n_mels=80,
+                    sample_rate=XTTS_SAMPLE_RATE,
+                    f_min=MEL_F_MIN,
+                    f_max=MEL_F_MAX,
+                    n_mels=MEL_N_MELS,
                 )
             )
         if not mels:
@@ -240,9 +239,8 @@ class XTTSPipeline:
 
         Prefills the conditioning+text prefix + [START] into a StaticCache, then
         samples audio tokens one at a time with the reference ``Xtts.inference``
-        params (host-side HF logits processors, so selection matches
-        ``gpt.generate``). The TT decode graph feeds only the new token with
-        constant shapes, so it compiles once and is reused every step.
+        params (host-side HF logits processors). Constant-shape inputs mean the
+        decode graph compiles once and is reused every step.
         """
         from transformers import (
             LogitsProcessorList,
@@ -320,7 +318,7 @@ class XTTSPipeline:
                 logits = self.decode_step(tok, pos, mask(cur + 1), cache, None)
                 next_token = sample(logits[:, -1, :].to("cpu"))
                 cur += 1
-                if step % 32 == 0:
+                if step % DECODE_LOG_INTERVAL == 0:
                     logger.info(f"[gpt_codes] {step}/{max_tokens} tokens")
 
         self.decode_step = self.decode_step.to("cpu")
