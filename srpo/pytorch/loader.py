@@ -21,6 +21,7 @@ Reference: https://huggingface.co/tencent/SRPO
 from typing import Optional
 
 import torch
+from transformers import CLIPTextModel
 
 from ...base import ForgeModel
 from ...config import (
@@ -35,11 +36,64 @@ from ...config import (
 from .src.model_utils import load_pipe, srpo_preprocessing
 from .src.shard_specs import build_shard_spec, get_mesh_shape
 
+# FLUX.1-dev's (and thus SRPO's) CLIP text encoder is CLIP-L, i.e. the standard
+# ``openai/clip-vit-large-patch14`` ``CLIPTextModel``. We load it directly here
+# rather than from the gated ``black-forest-labs/FLUX.1-dev`` ``text_encoder``
+# subfolder so the component can be exercised without FLUX license access; the
+# weights/architecture are identical (matches ``stable_diffusion_1_5``).
+CLIP_REPO_ID = "openai/clip-vit-large-patch14"
+# CLIP context length (tokenizer_max_length) and vocab size.
+CLIP_MAX_SEQ_LEN = 77
+CLIP_VOCAB_SIZE = 49408
+
+
+class CLIPTextEncoderWrapper(torch.nn.Module):
+    """Run ``CLIPTextModel`` as a stateless encoder returning a plain tensor.
+
+    Pins ``return_dict=False`` so graph capture sees a pure tensor rather than a
+    ``BaseModelOutputWithPooling`` dataclass, and returns the ``pooler_output``
+    (index 1) — mirroring how SRPO's FLUX pipeline consumes the CLIP tower:
+    ``pipe.text_encoder(input_ids, output_hidden_states=False).pooler_output``
+    (see ``srpo_preprocessing``).
+    """
+
+    def __init__(self, encoder):
+        super().__init__()
+        self.encoder = encoder
+
+    def forward(self, input_ids):
+        return self.encoder(input_ids=input_ids, return_dict=False)[1]
+
+
+def shard_clip_text_encoder_specs(encoder) -> dict:
+    """Megatron-style tensor-parallel shard specs for ``CLIPTextModel``.
+
+    Mesh axes: ("batch", "model")
+    Column-parallel (q, k, v, fc1): ("model", "batch")
+    Row-parallel   (out_proj, fc2): ("batch", "model")
+
+    ``encoder`` is the raw ``CLIPTextModel``. Layer norms and embeddings are
+    left replicated. On a single device (mesh (1, 1)) these specs are a no-op.
+    """
+    specs = {}
+    for layer in encoder.text_model.encoder.layers:
+        attn = layer.self_attn
+        specs[attn.q_proj.weight] = ("model", "batch")
+        specs[attn.k_proj.weight] = ("model", "batch")
+        specs[attn.v_proj.weight] = ("model", "batch")
+        specs[attn.out_proj.weight] = ("batch", "model")
+
+        specs[layer.mlp.fc1.weight] = ("model", "batch")
+        specs[layer.mlp.fc2.weight] = ("batch", "model")
+
+    return specs
+
 
 class ModelVariant(StrEnum):
     """Available SRPO model variants."""
 
     BASE = "Base"
+    TEXT_ENCODER = "TextEncoder"
 
 
 class ModelLoader(ForgeModel):
@@ -48,6 +102,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.BASE: ModelConfig(
             pretrained_model_name="tencent/SRPO",
+        ),
+        ModelVariant.TEXT_ENCODER: ModelConfig(
+            pretrained_model_name=CLIP_REPO_ID,
         ),
     }
 
@@ -71,11 +128,16 @@ class ModelLoader(ForgeModel):
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         if variant is None:
             variant = cls.DEFAULT_VARIANT
+        task = (
+            ModelTask.NLP_EMBED_GEN
+            if variant == ModelVariant.TEXT_ENCODER
+            else ModelTask.CONDITIONAL_GENERATION
+        )
         return ModelInfo(
             model="SRPO",
             variant=variant,
             group=ModelGroup.GENERALITY,
-            task=ModelTask.CONDITIONAL_GENERATION,
+            task=task,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
@@ -95,8 +157,15 @@ class ModelLoader(ForgeModel):
             dtype_override: Optional ``torch.dtype`` to cast the pipeline to.
 
         Returns:
-            torch.nn.Module: The FLUX transformer with SRPO weights overlaid.
+            torch.nn.Module: The FLUX transformer with SRPO weights overlaid,
+            or a ``CLIPTextEncoderWrapper`` around the CLIP-L text encoder for
+            the ``TEXT_ENCODER`` variant.
         """
+        if self._variant == ModelVariant.TEXT_ENCODER:
+            dtype = dtype_override if dtype_override is not None else torch.bfloat16
+            encoder = CLIPTextModel.from_pretrained(CLIP_REPO_ID, torch_dtype=dtype)
+            return CLIPTextEncoderWrapper(encoder).eval()
+
         if self.pipe is None:
             self._load_pipeline(dtype_override=dtype_override)
         elif dtype_override is not None:
@@ -114,8 +183,15 @@ class ModelLoader(ForgeModel):
         Returns:
             dict: Input tensors that can be fed directly to the transformer
             (matches the keyword-argument signature of FLUX's
-            ``FluxTransformer2DModel.forward``).
+            ``FluxTransformer2DModel.forward``). For ``TEXT_ENCODER`` returns
+            ``[input_ids]`` for the CLIP-L encoder.
         """
+        if self._variant == ModelVariant.TEXT_ENCODER:
+            input_ids = torch.randint(
+                0, CLIP_VOCAB_SIZE, (batch_size, CLIP_MAX_SEQ_LEN), dtype=torch.long
+            )
+            return [input_ids]
+
         if self.pipe is None:
             self._load_pipeline(dtype_override=dtype_override)
 
@@ -173,4 +249,6 @@ class ModelLoader(ForgeModel):
             dict: ``{torch.nn.Parameter: partition_spec}``. Parameters absent
             from the mapping are replicated across the mesh.
         """
+        if self._variant == ModelVariant.TEXT_ENCODER:
+            return shard_clip_text_encoder_specs(model.encoder)
         return build_shard_spec(model)
