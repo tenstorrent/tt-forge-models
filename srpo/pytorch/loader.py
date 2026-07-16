@@ -21,7 +21,7 @@ Reference: https://huggingface.co/tencent/SRPO
 from typing import Optional
 
 import torch
-from transformers import CLIPTextModel
+from transformers import CLIPTextModel, T5EncoderModel
 
 from ...base import ForgeModel
 from ...config import (
@@ -89,11 +89,71 @@ def shard_clip_text_encoder_specs(encoder) -> dict:
     return specs
 
 
+# FLUX.1-dev's (and thus SRPO's) second text encoder is the frozen T5-v1.1-XXL
+# ``T5EncoderModel`` (google/t5-v1_1-xxl, ~4.7B). It is the same off-the-shelf
+# encoder SD3 Medium ships as ``text_encoder_3``, so we load it from that repo's
+# subfolder — ungated and identical weights — to avoid the gated FLUX.1-dev
+# ``text_encoder_2`` (mirrors the CLIP-provenance choice above and reuses the
+# ``stable_diffusion_3`` T5 component).
+T5_REPO_ID = "stabilityai/stable-diffusion-3-medium-diffusers"
+T5_SUBFOLDER = "text_encoder_3"
+# T5 sequence length SRPO feeds the encoder (srpo_preprocessing max_sequence_length)
+# and the T5 v1.1 SentencePiece vocab size.
+T5_MAX_SEQ_LEN = 256
+T5_VOCAB_SIZE = 32128
+
+
+class T5TextEncoderWrapper(torch.nn.Module):
+    """Run ``T5EncoderModel`` as a stateless encoder returning a plain tensor.
+
+    Pins ``return_dict=False`` so graph capture sees a pure tensor
+    (last_hidden_state) rather than a ``BaseModelOutput`` dataclass — mirroring
+    how SRPO's FLUX pipeline consumes the T5 tower:
+    ``pipe.text_encoder_2(input_ids, output_hidden_states=False)[0]``
+    (see ``srpo_preprocessing``).
+    """
+
+    def __init__(self, encoder):
+        super().__init__()
+        self.encoder = encoder
+
+    def forward(self, input_ids):
+        return self.encoder(input_ids=input_ids, return_dict=False)[0]
+
+
+def shard_t5_text_encoder_specs(encoder) -> dict:
+    """Megatron-style tensor-parallel shard specs for ``T5EncoderModel``.
+
+    Mesh axes: ("batch", "model")
+    Column-parallel (q, k, v, wi_0, wi_1): ("model", "batch")
+    Row-parallel   (o, wo):                ("batch", "model")
+
+    ``encoder`` is the raw ``T5EncoderModel``. Layer norms and the relative
+    attention bias are left replicated. On a single device (mesh (1, 1)) these
+    specs are a no-op.
+    """
+    specs = {encoder.shared.weight: (None, "batch")}
+    for block in encoder.encoder.block:
+        attn = block.layer[0].SelfAttention
+        specs[attn.q.weight] = ("model", "batch")
+        specs[attn.k.weight] = ("model", "batch")
+        specs[attn.v.weight] = ("model", "batch")
+        specs[attn.o.weight] = ("batch", "model")
+
+        ff = block.layer[1].DenseReluDense
+        specs[ff.wi_0.weight] = ("model", "batch")
+        specs[ff.wi_1.weight] = ("model", "batch")
+        specs[ff.wo.weight] = ("batch", "model")
+
+    return specs
+
+
 class ModelVariant(StrEnum):
     """Available SRPO model variants."""
 
     BASE = "Base"
     TEXT_ENCODER = "TextEncoder"
+    T5_TEXT_ENCODER = "T5TextEncoder"
 
 
 class ModelLoader(ForgeModel):
@@ -105,6 +165,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.TEXT_ENCODER: ModelConfig(
             pretrained_model_name=CLIP_REPO_ID,
+        ),
+        ModelVariant.T5_TEXT_ENCODER: ModelConfig(
+            pretrained_model_name=T5_REPO_ID,
         ),
     }
 
@@ -130,7 +193,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
         task = (
             ModelTask.NLP_EMBED_GEN
-            if variant == ModelVariant.TEXT_ENCODER
+            if variant in (ModelVariant.TEXT_ENCODER, ModelVariant.T5_TEXT_ENCODER)
             else ModelTask.CONDITIONAL_GENERATION
         )
         return ModelInfo(
@@ -166,6 +229,13 @@ class ModelLoader(ForgeModel):
             encoder = CLIPTextModel.from_pretrained(CLIP_REPO_ID, torch_dtype=dtype)
             return CLIPTextEncoderWrapper(encoder).eval()
 
+        if self._variant == ModelVariant.T5_TEXT_ENCODER:
+            dtype = dtype_override if dtype_override is not None else torch.bfloat16
+            encoder = T5EncoderModel.from_pretrained(
+                T5_REPO_ID, subfolder=T5_SUBFOLDER, torch_dtype=dtype, device_map="cpu"
+            )
+            return T5TextEncoderWrapper(encoder).eval()
+
         if self.pipe is None:
             self._load_pipeline(dtype_override=dtype_override)
         elif dtype_override is not None:
@@ -189,6 +259,12 @@ class ModelLoader(ForgeModel):
         if self._variant == ModelVariant.TEXT_ENCODER:
             input_ids = torch.randint(
                 0, CLIP_VOCAB_SIZE, (batch_size, CLIP_MAX_SEQ_LEN), dtype=torch.long
+            )
+            return [input_ids]
+
+        if self._variant == ModelVariant.T5_TEXT_ENCODER:
+            input_ids = torch.randint(
+                0, T5_VOCAB_SIZE, (batch_size, T5_MAX_SEQ_LEN), dtype=torch.long
             )
             return [input_ids]
 
@@ -251,4 +327,6 @@ class ModelLoader(ForgeModel):
         """
         if self._variant == ModelVariant.TEXT_ENCODER:
             return shard_clip_text_encoder_specs(model.encoder)
+        if self._variant == ModelVariant.T5_TEXT_ENCODER:
+            return shard_t5_text_encoder_specs(model.encoder)
         return build_shard_spec(model)
