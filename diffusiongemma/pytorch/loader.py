@@ -25,7 +25,6 @@ from ...config import (
     StrEnum,
 )
 from ...tools.utils import cast_input_to_type
-from .utils import _install_dynamo_safe_param_props
 
 
 class ModelVariant(StrEnum):
@@ -88,7 +87,6 @@ class ModelLoader(ForgeModel):
             self._variant_config.pretrained_model_name, **model_kwargs
         )
         model.eval()
-        model = _install_dynamo_safe_param_props(model)
         self.config = model.config
         # ENCODER variant: return the encoder as a standalone model so it can
         # be freed independently -> staged residency avoids OOM.
