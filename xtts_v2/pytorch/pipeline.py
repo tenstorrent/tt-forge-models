@@ -166,6 +166,20 @@ class XTTSPipeline:
         self.config = config
         self._loader = ModelLoader(variant=ModelVariant.GPT_LATENTS)
         self.timings = []  # list[(stage_label, seconds)] for the end-of-run table
+        self.tp_mesh = None  # set for multi-chip TP (see run_xtts_pipeline / sharding.py)
+        self._tp_applied = False
+
+    def _apply_tp_sharding_once(self):
+        """When running multi-chip (``tp_mesh`` set), mark the GPT2 trunk weights
+        with the Megatron TP spec. Idempotent: applied on the first GPT stage
+        (weights are on-device by then) and skipped thereafter. No-op for tp=1."""
+        if self.tp_mesh is None or self._tp_applied:
+            return
+        from .sharding import apply_gpt_tp_sharding
+
+        n = apply_gpt_tp_sharding(self.xtts.gpt, self.tp_mesh)
+        self._tp_applied = True
+        logger.info(f"[XTTS][TP] sharded {n} GPT tensors onto mesh {self.tp_mesh}")
 
     # ------------------------------------------------------------------ #
     # setup: build the full model once, wrap each component, compile for TT
@@ -355,6 +369,7 @@ class XTTSPipeline:
 
         cache = self._make_static_cache(max_cache_len, device)
         self.decode_step = self.decode_step.to(device)
+        self._apply_tp_sharding_once()  # multi-chip: shard GPT weights (no-op for tp=1)
 
         def mask(valid):  # [1, max_cache_len]; 1s for written cache slots
             m = torch.zeros((1, max_cache_len), dtype=torch.long)
@@ -464,6 +479,7 @@ class XTTSPipeline:
             logger.info("[STAGE] gpt_latents (TT)")
             with _timed(self.timings, "gpt_latents (TT)"):
                 self.gpt_latents = self.gpt_latents.to(device)
+                self._apply_tp_sharding_once()  # covers decode-loop-skipped path
                 gpt_latents = cpu(
                     self.gpt_latents(
                         tt(text_tokens),
@@ -514,6 +530,7 @@ def run_xtts_pipeline(
     warmup: int = 1,
     repeat: int = 3,
     opt_level: int = 0,
+    tp: int = 1,
     cache_dir: Optional[str] = DEFAULT_CACHE_DIR,
 ) -> torch.Tensor:
     """Run the XTTS-v2 pipeline and write a WAV file. Returns the waveform tensor.
@@ -523,10 +540,24 @@ def run_xtts_pipeline(
     iterations and prints a per-stage min/max/avg table. The WAV from the last
     iteration is saved.
 
+    ``tp`` > 1 enables multi-chip tensor parallelism on the GPT (Megatron TP; see
+    sharding.py + SHARDING_TP2.md). tp=1 is the unchanged single-chip path. tp>1
+    requires a machine with ``device_count % tp == 0`` (e.g. tp=2 on an n300).
+
     ``cache_dir`` enables the persistent PJRT compilation cache so subsequent
     runs reuse compiled TT executables (no recompilation). Pass ``None``/"" to
     disable. The device type must already be set (``xr.set_device_type("TT")``).
     """
+    # Multi-chip tensor parallelism: enable SPMD before any device op, then build
+    # the mesh. tp=1 leaves the single-chip path completely untouched.
+    tp_mesh = None
+    if tp and tp > 1:
+        from . import sharding
+
+        sharding.enable_spmd()
+        tp_mesh = sharding.build_tp_mesh(tp)
+        logger.info(f"[XTTS][TP] tp={tp}, mesh={tp_mesh}")
+
     # optimization_level 0 (default): the memory-layout optimizer probes ttnn op
     # constraints by allocating buffers on-device at compile time, which can
     # OOM when an earlier stage's weights are still resident. Levels >0 enable it
@@ -551,6 +582,7 @@ def run_xtts_pipeline(
         seed=seed,
     )
     pipeline = XTTSPipeline(config)
+    pipeline.tp_mesh = tp_mesh
     setup_store = []
     with _timed(setup_store, "setup"):
         pipeline.setup()
@@ -627,6 +659,14 @@ if __name__ == "__main__":
         "2=slowest compile/fastest runtime). Levels >0 may OOM. Default: 0",
     )
     parser.add_argument(
+        "--tp",
+        type=int,
+        default=1,
+        help="Tensor-parallel degree. 1=single chip (default). >1 enables "
+        "multi-chip Megatron TP on the GPT (needs device_count %% tp == 0, "
+        "e.g. --tp 2 on an n300). See sharding.py / SHARDING_TP2.md.",
+    )
+    parser.add_argument(
         "--cache-dir",
         default=DEFAULT_CACHE_DIR,
         help="Persistent PJRT compilation cache dir (pass '' to disable). Warm "
@@ -648,5 +688,6 @@ if __name__ == "__main__":
         warmup=args.warmup,
         repeat=args.repeat,
         opt_level=args.opt_level,
+        tp=args.tp,
         cache_dir=args.cache_dir,
     )
