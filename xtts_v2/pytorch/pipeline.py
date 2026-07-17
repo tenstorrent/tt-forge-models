@@ -13,11 +13,14 @@ once). Requires ``coqui-tts`` + ``torchaudio`` and CPML-gated weights (``COQUI_T
 from __future__ import annotations
 
 import os
+import time
+from contextlib import contextmanager
 from typing import Optional
 
 import torch
 import torch_xla
 import torch_xla.core.xla_model as xm
+import torch_xla.runtime as xr
 from loguru import logger
 
 from .loader import ModelLoader, ModelVariant
@@ -29,6 +32,55 @@ from .src.model import (
     SpeakerEncoderWrapper,
 )
 
+
+@contextmanager
+def _timed(store: list, label: str):
+    """Wall-clock time the enclosed block and append ``(label, seconds)`` to
+    ``store``. Used to build the end-of-run stage-timing table. TT stages are
+    materialized (``.to("cpu")``) inside the block, so the measured time
+    includes the one-time per-stage TT compilation on its first (only) call."""
+    t0 = time.perf_counter()
+    try:
+        yield
+    finally:
+        store.append((label, time.perf_counter() - t0))
+
+
+def _print_stats_table(setup_secs: float, per_run: list, warmup: int):
+    """Print per-stage min/max/avg over the measured runs. ``per_run`` is a list
+    (one entry per measured run) of ``{stage_label: seconds}`` dicts. ``setup``
+    (model build + compile registration) is a one-time cost, reported separately.
+    Uses ``print`` (stdout) so it is captured reliably under output redirection."""
+    if not per_run:
+        return
+    n = len(per_run)
+    stages = list(per_run[0].keys())  # insertion order == pipeline order
+
+    def agg(vals):
+        return min(vals), max(vals), sum(vals) / len(vals)
+
+    label_w = max([len("Stage"), len("TOTAL (per run)")] + [len(s) for s in stages])
+    bar = "=" * (label_w + 33)
+    rows = [
+        "",
+        bar,
+        f"XTTS-v2 pipeline timing over {n} run(s), after {warmup} warmup (seconds)",
+        bar,
+        f"setup: model build + compile registration: {setup_secs:.3f}  (one-time, excluded below)",
+        "-" * (label_w + 33),
+        f"{'Stage':<{label_w}}  {'min':>9}  {'max':>9}  {'avg':>9}",
+        "-" * (label_w + 33),
+    ]
+    for s in stages:
+        mn, mx, av = agg([r[s] for r in per_run])
+        rows.append(f"{s:<{label_w}}  {mn:>9.3f}  {mx:>9.3f}  {av:>9.3f}")
+    mn, mx, av = agg([sum(r.values()) for r in per_run])
+    rows.append("-" * (label_w + 33))
+    rows.append(f"{'TOTAL (per run)':<{label_w}}  {mn:>9.3f}  {mx:>9.3f}  {av:>9.3f}")
+    rows.append(bar)
+    rows.append("(measured runs are warm: compiled + on-device kernels cached during warmup)")
+    print("\n".join(rows), flush=True)
+
 # Model-card example text; any real sentence works.
 DEFAULT_TEXT = (
     "It took me quite a long time to develop a voice, and now that I have it "
@@ -36,6 +88,11 @@ DEFAULT_TEXT = (
 )
 DEFAULT_LANGUAGE = "en"
 OUTPUT_SAMPLE_RATE = 24000
+
+# Persistent PJRT compilation cache. Compiled TT executables are keyed by the
+# StableHLO graph, so a "warm" run reuses them and skips recompilation. Kept
+# under $HOME (stable) rather than the repo tree so it survives across runs.
+DEFAULT_CACHE_DIR = os.path.expanduser("~/.cache/tt-xla/xtts_pjrt_cache")
 
 # Audio sample rates (Hz).
 XTTS_SAMPLE_RATE = 22050  # XTTS native rate for conditioning / cloning mels
@@ -53,6 +110,18 @@ MEL_N_MELS = 80
 
 # Emit a progress log every N decode tokens.
 DECODE_LOG_INTERVAL = 32
+
+# Bring-up workaround for a tt-mlir tile-alignment limitation. The conditioning
+# encoder's AttentionBlocks apply a ``ttnn.group_norm`` whose flattened height
+# must be a multiple of 32 (tile-aligned), otherwise TTIRToTTNNCommon lowering
+# fails ("flattened height must be tile-aligned, got 505"). That flattened
+# height is the mel time-frame count T: ConditioningEncoder.init is a kernel-1
+# Conv1d and every conv inside AttentionBlock is kernel-1 stride-1, so there is
+# NO time downsampling before the group_norm (downsampling factor D = 1). Hence
+# we pad T up to the next multiple of 32. The downstream PerceiverResampler
+# collapses the (variable-length) time axis to a fixed 32 latents, so padding
+# does not change the [1, 1024, 32] conditioning-latent output shape.
+COND_MEL_TIME_ALIGN = 32
 
 # Reference autoregressive sampling params, matching ``Xtts.inference`` defaults
 # (coqui/XTTS-v2). The decode loop applies these host-side via HF's own logits
@@ -96,6 +165,7 @@ class XTTSPipeline:
     def __init__(self, config: XTTSConfig):
         self.config = config
         self._loader = ModelLoader(variant=ModelVariant.GPT_LATENTS)
+        self.timings = []  # list[(stage_label, seconds)] for the end-of-run table
 
     # ------------------------------------------------------------------ #
     # setup: build the full model once, wrap each component, compile for TT
@@ -161,6 +231,22 @@ class XTTSPipeline:
         with torch.no_grad():
             return self.xtts.hifigan_decoder.speaker_encoder.torch_spec(audio16)
 
+    @staticmethod
+    def _pad_mel_time(mel: torch.Tensor, multiple: int) -> torch.Tensor:
+        """Pad a ``[1, 80, T]`` mel's time axis (last dim) up to the next multiple
+        of ``multiple``, on the host, so the conditioning encoder's group_norm
+        flattened height is tile-aligned (see COND_MEL_TIME_ALIGN). Uses
+        edge-replication (repeat the last frame) rather than zero-padding to
+        minimize disturbance to the group_norm statistics. Bring-up workaround
+        for a tt-mlir tile-alignment compiler limitation."""
+        t = mel.size(-1)
+        pad = (-t) % multiple
+        if pad == 0:
+            return mel
+        # replicate the last time frame `pad` times: F.pad with mode="replicate"
+        # expects a 3-D (N, C, W) input, which our [1, 80, T] mel already is.
+        return torch.nn.functional.pad(mel, (0, pad), mode="replicate")
+
     def _conditioning_mels(self, audio22: torch.Tensor) -> list:
         """Reference ``get_gpt_cond_latents`` chunking into GPT_COND_CHUNK_LEN-second
         mel chunks; the conditioning encoder runs per chunk on TT, meaned in run()."""
@@ -173,21 +259,23 @@ class XTTSPipeline:
             chunk = audio[:, i : i + step]
             if chunk.size(-1) < XTTS_SAMPLE_RATE * MIN_AUDIO_SECONDS:
                 continue  # skip too-short trailing chunk (reference behavior)
-            mels.append(
-                wav_to_mel_cloning(
-                    chunk,
-                    mel_norms=self.xtts.mel_stats.cpu(),
-                    n_fft=MEL_N_FFT,
-                    hop_length=MEL_HOP_LENGTH,
-                    win_length=MEL_WIN_LENGTH,
-                    power=MEL_POWER,
-                    normalized=False,
-                    sample_rate=XTTS_SAMPLE_RATE,
-                    f_min=MEL_F_MIN,
-                    f_max=MEL_F_MAX,
-                    n_mels=MEL_N_MELS,
-                )
+            mel = wav_to_mel_cloning(
+                chunk,
+                mel_norms=self.xtts.mel_stats.cpu(),
+                n_fft=MEL_N_FFT,
+                hop_length=MEL_HOP_LENGTH,
+                win_length=MEL_WIN_LENGTH,
+                power=MEL_POWER,
+                normalized=False,
+                sample_rate=XTTS_SAMPLE_RATE,
+                f_min=MEL_F_MIN,
+                f_max=MEL_F_MAX,
+                n_mels=MEL_N_MELS,
             )
+            # Host-side tile-alignment pad of the mel time axis before the mel is
+            # sent to the TT conditioning encoder (see COND_MEL_TIME_ALIGN).
+            mel = self._pad_mel_time(mel, COND_MEL_TIME_ALIGN)
+            mels.append(mel)
         if not mels:
             raise RuntimeError(
                 f"Reference audio too short (< {MIN_AUDIO_SECONDS:.2f}s) for conditioning."
@@ -332,19 +420,22 @@ class XTTSPipeline:
         tt = lambda x: x.to(device)
         cpu = lambda x: x.to("cpu")
 
+        self.timings = []  # fresh per-call stage timings (see run_xtts_pipeline)
         with torch.no_grad():
             # --- CPU preprocessing ---
-            audio22 = self._reference_audio_22k()
-            speaker_mel = self._speaker_mel(audio22)
-            cond_mels = self._conditioning_mels(audio22)
-            text_tokens = self._text_tokens()
-            text_len = torch.tensor([text_tokens.shape[-1]])
+            with _timed(self.timings, "CPU preprocessing (mel + tokenize)"):
+                audio22 = self._reference_audio_22k()
+                speaker_mel = self._speaker_mel(audio22)
+                cond_mels = self._conditioning_mels(audio22)
+                text_tokens = self._text_tokens()
+                text_len = torch.tensor([text_tokens.shape[-1]])
 
             # --- speaker_embedding [TT] ---
             logger.info("[STAGE] speaker_encoder (TT)")
-            self.speaker_encoder = self.speaker_encoder.to(device)
-            speaker_embedding = cpu(self.speaker_encoder(tt(speaker_mel)))
-            self.speaker_encoder = self.speaker_encoder.to("cpu")
+            with _timed(self.timings, "speaker_encoder (TT)"):
+                self.speaker_encoder = self.speaker_encoder.to(device)
+                speaker_embedding = cpu(self.speaker_encoder(tt(speaker_mel)))
+                self.speaker_encoder = self.speaker_encoder.to("cpu")
             # Match get_speaker_embedding output shape [1, 512, 1].
             speaker_embedding = speaker_embedding.unsqueeze(-1)
 
@@ -352,15 +443,17 @@ class XTTSPipeline:
             # Per-chunk conditioning on TT, then mean over chunks (reference
             # get_gpt_cond_latents). Each chunk's style_emb is [1, 1024, 32].
             logger.info("[STAGE] conditioning encoder (TT)")
-            self.conditioning = self.conditioning.to(device)
-            style_embs = [cpu(self.conditioning(tt(m))) for m in cond_mels]
-            self.conditioning = self.conditioning.to("cpu")
-            conds = torch.stack(style_embs).mean(dim=0)  # [1, 1024, 32]
-            gpt_cond_latent = conds.transpose(1, 2)  # [1, 32, 1024]
+            with _timed(self.timings, "conditioning encoder (TT)"):
+                self.conditioning = self.conditioning.to(device)
+                style_embs = [cpu(self.conditioning(tt(m))) for m in cond_mels]
+                self.conditioning = self.conditioning.to("cpu")
+                conds = torch.stack(style_embs).mean(dim=0)  # [1, 1024, 32]
+                gpt_cond_latent = conds.transpose(1, 2)  # [1, 32, 1024]
 
             # --- gpt_codes (autoregressive, GPT2 trunk on TT) ---
             logger.info("[STAGE] gpt_codes (TT)")
-            gpt_codes = self._generate_codes_tt(gpt_cond_latent, text_tokens)
+            with _timed(self.timings, "gpt_codes decode loop (TT)"):
+                gpt_codes = self._generate_codes_tt(gpt_cond_latent, text_tokens)
             logger.info(f"[gpt_codes] produced {gpt_codes.shape[-1]} audio tokens")
 
             expected_output_len = torch.tensor(
@@ -369,23 +462,25 @@ class XTTSPipeline:
 
             # --- gpt_latents [TT] ---
             logger.info("[STAGE] gpt_latents (TT)")
-            self.gpt_latents = self.gpt_latents.to(device)
-            gpt_latents = cpu(
-                self.gpt_latents(
-                    tt(text_tokens),
-                    tt(text_len),
-                    tt(gpt_codes),
-                    tt(expected_output_len),
-                    tt(gpt_cond_latent),
+            with _timed(self.timings, "gpt_latents (TT)"):
+                self.gpt_latents = self.gpt_latents.to(device)
+                gpt_latents = cpu(
+                    self.gpt_latents(
+                        tt(text_tokens),
+                        tt(text_len),
+                        tt(gpt_codes),
+                        tt(expected_output_len),
+                        tt(gpt_cond_latent),
+                    )
                 )
-            )
-            self.gpt_latents = self.gpt_latents.to("cpu")
+                self.gpt_latents = self.gpt_latents.to("cpu")
 
             # --- waveform [TT] ---
             logger.info("[STAGE] hifigan_decoder (TT)")
-            self.hifigan = self.hifigan.to(device)
-            wav = cpu(self.hifigan(tt(gpt_latents), tt(speaker_embedding)))
-            self.hifigan = self.hifigan.to("cpu")
+            with _timed(self.timings, "hifigan_decoder (TT)"):
+                self.hifigan = self.hifigan.to(device)
+                wav = cpu(self.hifigan(tt(gpt_latents), tt(speaker_embedding)))
+                self.hifigan = self.hifigan.to("cpu")
 
         return wav  # [1, 1, S] @ 24 kHz
 
@@ -416,12 +511,37 @@ def run_xtts_pipeline(
     speaker_wav: Optional[str] = None,
     max_audio_tokens: Optional[int] = None,
     seed: int = 0,
+    warmup: int = 1,
+    repeat: int = 3,
+    opt_level: int = 0,
+    cache_dir: Optional[str] = DEFAULT_CACHE_DIR,
 ) -> torch.Tensor:
-    """Run the XTTS-v2 pipeline and write a WAV file. Returns the waveform tensor."""
-    # optimization_level 0: the memory-layout optimizer probes ttnn op
+    """Run the XTTS-v2 pipeline and write a WAV file. Returns the waveform tensor.
+
+    Builds the model once, runs ``warmup`` un-timed iterations (to pay the
+    one-time compile + on-device kernel-caching cost), then ``repeat`` measured
+    iterations and prints a per-stage min/max/avg table. The WAV from the last
+    iteration is saved.
+
+    ``cache_dir`` enables the persistent PJRT compilation cache so subsequent
+    runs reuse compiled TT executables (no recompilation). Pass ``None``/"" to
+    disable. The device type must already be set (``xr.set_device_type("TT")``).
+    """
+    # optimization_level 0 (default): the memory-layout optimizer probes ttnn op
     # constraints by allocating buffers on-device at compile time, which can
-    # OOM when an earlier stage's weights are still resident. Level 0 skips it.
-    torch_xla.set_custom_compile_options({"optimization_level": 0})
+    # OOM when an earlier stage's weights are still resident. Levels >0 enable it
+    # (better runtime, slower/heavier compile) -- try with care.
+    torch_xla.set_custom_compile_options({"optimization_level": opt_level})
+
+    # Persistent compilation cache -> warm subsequent runs. Must be initialized
+    # before any XLA computation; guard so a re-entrant call does not assert.
+    if cache_dir:
+        os.makedirs(cache_dir, exist_ok=True)
+        if not torch_xla._XLAC._xla_computation_cache_is_initialized():
+            xr.initialize_cache(cache_dir, readonly=False)
+            logger.info(f"[XTTS] persistent compilation cache: {cache_dir}")
+        else:
+            logger.info("[XTTS] XLA computation cache already initialized; skipping")
 
     config = XTTSConfig(
         text=text,
@@ -431,19 +551,38 @@ def run_xtts_pipeline(
         seed=seed,
     )
     pipeline = XTTSPipeline(config)
-    pipeline.setup()
-    wav = pipeline.run()
+    setup_store = []
+    with _timed(setup_store, "setup"):
+        pipeline.setup()
+    setup_secs = setup_store[0][1]
+
+    wav = None
+    for i in range(max(warmup, 0)):
+        logger.info(f"[XTTS] warmup run {i + 1}/{warmup}")
+        wav = pipeline.run()
+
+    per_run = []  # list[dict[stage_label, seconds]], one per measured run
+    for i in range(max(repeat, 0)):
+        logger.info(f"[XTTS] measured run {i + 1}/{repeat}")
+        wav = pipeline.run()
+        per_run.append(dict(pipeline.timings))
+        logger.info(
+            f"[XTTS]   run total: {sum(s for _, s in pipeline.timings):.3f}s"
+        )
+
+    if wav is None:  # warmup == repeat == 0: still produce output
+        wav = pipeline.run()
+
     save_wav(wav, output_path)
     logger.info(
         f"[XTTS] wrote {output_path} ({wav.shape[-1]} samples @ {OUTPUT_SAMPLE_RATE} Hz)"
     )
+    _print_stats_table(setup_secs, per_run, warmup)
     return wav
 
 
 if __name__ == "__main__":
     import argparse
-
-    import torch_xla.runtime as xr
 
     parser = argparse.ArgumentParser(description="XTTS-v2 e2e text-to-speech on TT")
     parser.add_argument("--text", default=DEFAULT_TEXT, help="Text to synthesize")
@@ -466,6 +605,34 @@ if __name__ == "__main__":
         default=0,
         help="Seed for the reference stochastic sampling (reproducible runs)",
     )
+    parser.add_argument(
+        "--warmup",
+        type=int,
+        default=1,
+        help="Un-timed warmup runs before measuring (pays one-time compile + "
+        "on-device kernel-caching cost). Default: 1",
+    )
+    parser.add_argument(
+        "--repeat",
+        type=int,
+        default=3,
+        help="Measured runs; reports per-stage min/max/avg. Default: 3",
+    )
+    parser.add_argument(
+        "--opt-level",
+        type=int,
+        default=0,
+        choices=[0, 1, 2],
+        help="TT-MLIR optimization level (0=fastest compile/slowest runtime, "
+        "2=slowest compile/fastest runtime). Levels >0 may OOM. Default: 0",
+    )
+    parser.add_argument(
+        "--cache-dir",
+        default=DEFAULT_CACHE_DIR,
+        help="Persistent PJRT compilation cache dir (pass '' to disable). Warm "
+        "runs reuse compiled TT executables and skip recompilation. "
+        f"Default: {DEFAULT_CACHE_DIR}",
+    )
     args = parser.parse_args()
 
     # torch_xla defaults to CPU; point it at the Tenstorrent device.
@@ -478,4 +645,8 @@ if __name__ == "__main__":
         speaker_wav=args.speaker_wav,
         max_audio_tokens=args.max_audio_tokens,
         seed=args.seed,
+        warmup=args.warmup,
+        repeat=args.repeat,
+        opt_level=args.opt_level,
+        cache_dir=args.cache_dir,
     )
