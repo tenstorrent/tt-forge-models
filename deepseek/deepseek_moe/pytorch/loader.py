@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     DEEPSEEK_LITE_CHAT = "DEEPSEEK_V2_LITE_CHAT"
     DEEPSEEK_CHAT = "DEEPSEEK_CODER_V2_LITE_INSTRUCT"
+    DEEPSEEK_V2_CHAT = "DEEPSEEK_V2_CHAT"
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +39,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.DEEPSEEK_CHAT: LLMModelConfig(
             pretrained_model_name="deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct",
+            max_length=256,
+        ),
+        ModelVariant.DEEPSEEK_V2_CHAT: LLMModelConfig(
+            pretrained_model_name="deepseek-ai/DeepSeek-V2-Chat",
             max_length=256,
         ),
     }
@@ -114,9 +119,21 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+        # transformers bug (e.g. 5.5.x): DeepseekV2Moe.route_tokens_to_experts
+        # uses self.num_experts for group_limited_greedy routing (DeepSeek-V2 /
+        # DeepSeek-V2-Chat), but __init__ never sets it. Lite variants use
+        # topk_method="greedy" and skip this path. Fixed upstream by moving
+        # routing onto DeepseekV2TopkRouter.
+        for module in model.modules():
+            if (
+                type(module).__name__ == "DeepseekV2Moe"
+                and not hasattr(module, "num_experts")
+            ):
+                module.num_experts = module.config.n_routed_experts
         model.eval()
         self.config = model.config
         self.model = model
+        print("model loaded", model)
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):

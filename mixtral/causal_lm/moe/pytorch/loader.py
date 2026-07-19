@@ -25,6 +25,7 @@ class ModelVariant(StrEnum):
     """Available Mixtral MoE model variants for causal language modeling."""
 
     MIXTRAL_8X7B_INSTRUCT = "Mixtral-8x7B-Instruct-v0.1"
+    MIXTRAL_8X22B_INSTRUCT = "Mixtral-8x22B-Instruct-v0.1"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.MIXTRAL_8X7B_INSTRUCT: LLMModelConfig(
             pretrained_model_name="mistralai/Mixtral-8x7B-Instruct-v0.1",
+            max_length=256,
+        ),
+        ModelVariant.MIXTRAL_8X22B_INSTRUCT: LLMModelConfig(
+            pretrained_model_name="mistralai/Mixtral-8x22B-Instruct-v0.1",
             max_length=256,
         ),
     }
@@ -116,6 +121,7 @@ class ModelLoader(ForgeModel):
         model.eval()
         self.config = model.config
         self.model = model
+        print("model loaded", model)
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
