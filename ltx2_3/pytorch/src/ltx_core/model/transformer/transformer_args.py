@@ -189,7 +189,14 @@ class TransformerArgsPreprocessor:
         x_dtype: torch.dtype,
     ) -> torch.Tensor:
         """Prepare positional embeddings."""
-        freq_grid_generator = generate_freq_grid_np if self.double_precision_rope else generate_freq_grid_pytorch
+        # tt-xla bringup: the ``double_precision_rope`` path (generate_freq_grid_np)
+        # runs float64 numpy inside the traced forward, which dynamo cannot trace
+        # ('ndarray' object has no attribute 'div'). The torch-native generator is
+        # numerically equivalent for our purposes — the RoPE grid depends only on
+        # scalar hyper-parameters and TT executes in bf16, so the float64→float32
+        # grid difference is washed out. Force the traceable pytorch generator so
+        # the forward stays a single graph (no graph break / graph fragmentation).
+        freq_grid_generator = generate_freq_grid_pytorch
         pe = precompute_freqs_cis(
             positions,
             dim=inner_dim,
