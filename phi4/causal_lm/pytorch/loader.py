@@ -24,6 +24,7 @@ class ModelVariant(StrEnum):
     """Available Phi 4 model variants."""
 
     PHI_4 = "Phi_4"
+    PHI_4_REASONING_PLUS = "Phi_4_Reasoning_Plus"
 
 
 class ModelLoader(ForgeModel):
@@ -33,6 +34,9 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.PHI_4: ModelConfig(
             pretrained_model_name="microsoft/phi-4",
+        ),
+        ModelVariant.PHI_4_REASONING_PLUS: ModelConfig(
+            pretrained_model_name="microsoft/Phi-4-reasoning-plus",
         ),
     }
 
