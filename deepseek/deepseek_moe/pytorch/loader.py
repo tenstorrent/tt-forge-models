@@ -26,6 +26,7 @@ class ModelVariant(StrEnum):
 
     DEEPSEEK_LITE_CHAT = "DEEPSEEK_V2_LITE_CHAT"
     DEEPSEEK_CHAT = "DEEPSEEK_CODER_V2_LITE_INSTRUCT"
+    DEEPSEEK_V2_CHAT = "DEEPSEEK_V2_CHAT"
 
 
 class ModelLoader(ForgeModel):
@@ -38,6 +39,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.DEEPSEEK_CHAT: LLMModelConfig(
             pretrained_model_name="deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct",
+            max_length=256,
+        ),
+        ModelVariant.DEEPSEEK_V2_CHAT: LLMModelConfig(
+            pretrained_model_name="deepseek-ai/DeepSeek-V2-Chat",
             max_length=256,
         ),
     }
@@ -114,6 +119,19 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
+
+        # Work around a transformers bug (as of 5.5.1): DeepseekV2Moe.__init__
+        # never sets `num_experts`, but route_tokens_to_experts references
+        # `self.num_experts` in the "group_limited_greedy" branch. Variants that
+        # use grouped routing (e.g. DeepSeek-V2-Chat, n_group > 1) crash with
+        # AttributeError. Lite/Coder-Lite use "greedy" and are unaffected.
+        for module in model.modules():
+            if (
+                type(module).__name__ == "DeepseekV2Moe"
+                and not hasattr(module, "num_experts")
+            ):
+                module.num_experts = model.config.n_routed_experts
+
         model.eval()
         self.config = model.config
         self.model = model
