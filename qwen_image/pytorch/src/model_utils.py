@@ -8,8 +8,6 @@ Components:
   - TextEncoder  → Qwen2_5_VLForConditionalGeneration  (~7B, text-only usage)
   - Transformer  → QwenImageTransformer2DModel (MMDiT)  (~20B)
   - Vae          → AutoencoderKLQwenImage decoder        (3D video-style VAE)
-
-Output resolution is 1024x1024 (latent grid 64x64 → packed sequence length 4096).
 """
 
 import torch
@@ -17,15 +15,19 @@ import torch
 REPO_ID = "Qwen/Qwen-Image"
 DTYPE = torch.bfloat16
 
-# Inference config matching the official Qwen/Qwen-Image source
-# (https://huggingface.co/Qwen/Qwen-Image, diffusers QwenImagePipeline).
-PROMPT = "A red cube on a white table, studio lighting, sharp focus."
+# Inference config from the official Qwen/Qwen-Image usage example
+# (https://huggingface.co/Qwen/Qwen-Image): source example prompt + positive
+# magic, 50 steps, true_cfg_scale 4.0, seed 42. Resolution is the source's 1:1
+# aspect ratio (its default example uses 1664x928 16:9).
+PROMPT = (
+    'A coffee shop entrance features a chalkboard sign reading "Qwen Coffee '
+    '😊 $2 per cup," with a neon light beside it displaying "通义千问". Next to it '
+    "hangs a poster showing a beautiful Chinese woman, and beneath the poster is "
+    'written "π≈3.1415926-53589793-23846264-33832795-02384197".'
+)
 POSITIVE_MAGIC = ", Ultra HD, 4K, cinematic composition."
-NEGATIVE_PROMPT = ""
-# Org-source 1:1 default resolution: 1328x1328 -> latent 166x166 -> 2x2 patch
-# -> 83x83 = 6889 image tokens. This is the real inference activation size; the
-# joint-attention activation scales with (img_seq + txt_seq)^2 so the ~20B
-# transformer OOMs on a 2/4-chip mesh at this resolution (OOM to be investigated).
+NEGATIVE_PROMPT = " "
+# 1:1 aspect: 1328x1328 -> latent 166x166 -> 2x2 patches -> 83x83 = 6889 tokens.
 HEIGHT = 1328
 WIDTH = 1328
 NUM_INFERENCE_STEPS = 50
@@ -47,6 +49,10 @@ TEXT_SEQ_LEN = 512
 # Transformer config (Qwen/Qwen-Image)
 TRANSFORMER_IN_CHANNELS = 64
 JOINT_ATTENTION_DIM = 3584
+# QwenImagePipeline feeds the transformer scheduler_timestep / 1000; use a
+# mid-denoising step for the standalone transformer input.
+DENOISE_TIMESTEP = 500.0
+TIMESTEP_SCALE = 1000.0
 
 # VAE geometry: AutoencoderKLQwenImage is a 3D (video) VAE with 8x spatial
 # compression (2 ** len(temperal_downsample) == 8) and z_dim latent channels.
@@ -104,11 +110,8 @@ def tokenize_prompt(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Tokenize with the QwenImagePipeline prompt template.
 
-    Mirrors QwenImagePipeline._get_qwen_prompt_embeds: ``padding=True`` (pad to the
-    longest sequence, i.e. no padding for a single prompt) rather than pad to
-    ``max_length``. Padding to the full 1024-token window would leave ~1000 masked
-    padding positions whose Qwen2.5-VL hidden states are numerically unstable and
-    diverge badly TT-vs-CPU, tanking PCC even when the real tokens match.
+    Mirrors QwenImagePipeline._get_qwen_prompt_embeds: ``padding=True`` (pad to
+    the longest sequence) rather than to ``max_length``.
     """
     tokenizer = load_tokenizer()
     txt = PROMPT_TEMPLATE_ENCODE.format(prompt)
@@ -213,8 +216,7 @@ class QwenImageVAEDecoderWrapper(torch.nn.Module):
             .to(latents.device, latents.dtype)
         )
         latents_std = (
-            1.0
-            / torch.tensor(self.vae.config.latents_std).view(1, z_dim, 1, 1, 1)
+            1.0 / torch.tensor(self.vae.config.latents_std).view(1, z_dim, 1, 1, 1)
         ).to(latents.device, latents.dtype)
         latents = latents / latents_std + latents_mean
         # decode -> (B, C, T, H, W); pipeline takes the first (only) frame.
@@ -238,9 +240,7 @@ def make_synthetic_prompt_embeds(dtype: torch.dtype = DTYPE) -> torch.Tensor:
     shape, so the standalone transformer test does not have to run the 7B text
     encoder just to build inputs."""
     gen = torch.Generator().manual_seed(SEED + 1)
-    return torch.randn(
-        1, TEXT_SEQ_LEN, JOINT_ATTENTION_DIM, dtype=dtype, generator=gen
-    )
+    return torch.randn(1, TEXT_SEQ_LEN, JOINT_ATTENTION_DIM, dtype=dtype, generator=gen)
 
 
 def make_prompt_embeds_mask() -> torch.Tensor:
@@ -326,24 +326,27 @@ def _shard_qwenimage_feed_forward(ff, specs: dict) -> None:
 def _shard_modulation(mod, specs: dict) -> None:
     """img_mod / txt_mod = Sequential(SiLU, Linear(dim, 6*dim)).
 
-    The Linear output is chunk(6)'d into (shift, scale, gate) for norm1 and norm2
-    and applied elementwise to the full hidden state. Column-sharding that output
-    dim would split across a chunk boundary and hand each device the wrong
-    modulation slice (silently wrong per layer), so keep it REPLICATED.
+    Shard contraction-parallel (None, "model"): each device holds 1/N of the
+    weight and an all-reduce restores the full 6*dim output before the chunk(6),
+    so the result matches the replicated case at 1/N the weight memory. A column
+    split would straddle the chunk(6) boundary and is unsafe.
     """
-    lin = mod[-1] if isinstance(mod, (torch.nn.Sequential, torch.nn.ModuleList)) else mod
+    lin = (
+        mod[-1] if isinstance(mod, (torch.nn.Sequential, torch.nn.ModuleList)) else mod
+    )
     if isinstance(lin, torch.nn.Linear):
-        _add_shard_spec(specs, lin.weight, (None, None))
+        _add_shard_spec(specs, lin.weight, (None, "model"))
         _add_shard_spec(specs, lin.bias, (None,))
 
 
 def shard_transformer_specs(transformer) -> dict:
     """Tensor-parallel shard spec for QwenImageTransformer2DModel.
 
-    Only each dual-stream block's internal attention and FFN weights are sharded,
-    so every block consumes and produces a replicated tensor. Embedders
-    (img_in/txt_in), txt_norm, time_text_embed, norm_out and proj_out are omitted
-    → replicated by default. Modulation projections stay explicitly replicated.
+    Each dual-stream block's attention, FFN and modulation weights are sharded,
+    so every block consumes and produces a replicated tensor (attention/FFN via
+    Megatron column→row, modulation via contraction-parallel all-reduce). The
+    small embedders (img_in/txt_in), txt_norm, time_text_embed, norm_out and
+    proj_out are omitted → replicated by default (each < 12M params).
     """
     specs = {}
 
@@ -353,5 +356,68 @@ def shard_transformer_specs(transformer) -> dict:
         _shard_qwenimage_joint_attention(block.attn, specs)
         _shard_qwenimage_feed_forward(block.img_mlp, specs)
         _shard_qwenimage_feed_forward(block.txt_mlp, specs)
+
+    return specs
+
+
+def _resolve_language_model(encoder):
+    """Descend wrapper modules to the Qwen2.5 decoder stack that owns ``.layers``.
+
+    The text encoder is Qwen2_5_VLForConditionalGeneration; its decoder is at
+    ``model.language_model``. Keep unwrapping ``model`` / ``language_model`` /
+    ``text_model`` until a module exposing ``layers`` is reached.
+    """
+    module = encoder
+    visited = {id(module)}
+    while not hasattr(module, "layers"):
+        for attr in ("model", "language_model", "text_model"):
+            inner = getattr(module, attr, None)
+            if inner is not None and id(inner) not in visited:
+                module = inner
+                visited.add(id(module))
+                break
+        else:
+            raise ValueError("Could not locate the language-model decoder stack")
+    return module
+
+
+def shard_text_encoder_specs(encoder) -> dict:
+    """Tensor-parallel shard spec for the Qwen2.5-VL text encoder.
+
+    Megatron column→row on the decoder layers: q/k/v projections are
+    column-parallel, o_proj is row-parallel; MLP gate/up are column-parallel and
+    down is row-parallel; layernorms and embeddings stay replicated. GQA divides
+    cleanly at degree 4 (28 q-heads → 7, 4 kv-heads → 1). Replicated the encoder
+    is ~16.6 GB/chip, which cannot coexist with the transformer; sharding drops
+    it to ~4 GB/chip so both fit (the vision tower is unused in text-only mode
+    and left replicated).
+    """
+    specs = {}
+    lm = _resolve_language_model(encoder)
+
+    if hasattr(lm, "embed_tokens"):
+        _add_shard_spec(specs, lm.embed_tokens.weight, (None, None))
+
+    for layer in lm.layers:
+        sa = layer.self_attn
+        for proj_name in ("q_proj", "k_proj", "v_proj"):
+            proj = getattr(sa, proj_name)
+            _add_shard_spec(specs, proj.weight, ("model", None))
+            _add_shard_spec(specs, proj.bias, ("model",))
+        _add_shard_spec(specs, sa.o_proj.weight, (None, "model"))
+        _add_shard_spec(specs, getattr(sa.o_proj, "bias", None), (None,))
+
+        mlp = layer.mlp
+        _add_shard_spec(specs, mlp.gate_proj.weight, ("model", None))
+        _add_shard_spec(specs, mlp.up_proj.weight, ("model", None))
+        _add_shard_spec(specs, mlp.down_proj.weight, (None, "model"))
+
+        _add_shard_spec(specs, getattr(layer.input_layernorm, "weight", None), (None,))
+        _add_shard_spec(
+            specs, getattr(layer.post_attention_layernorm, "weight", None), (None,)
+        )
+
+    if hasattr(lm, "norm"):
+        _add_shard_spec(specs, getattr(lm.norm, "weight", None), (None,))
 
     return specs
