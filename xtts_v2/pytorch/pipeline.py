@@ -418,9 +418,6 @@ def run_xtts_pipeline(
     seed: int = 0,
 ) -> torch.Tensor:
     """Run the XTTS-v2 pipeline and write a WAV file. Returns the waveform tensor."""
-    # optimization_level 0: the memory-layout optimizer probes ttnn op
-    # constraints by allocating buffers on-device at compile time, which can
-    # OOM when an earlier stage's weights are still resident. Level 0 skips it.
     torch_xla.set_custom_compile_options({"optimization_level": 0})
 
     config = XTTSConfig(
@@ -438,44 +435,3 @@ def run_xtts_pipeline(
         f"[XTTS] wrote {output_path} ({wav.shape[-1]} samples @ {OUTPUT_SAMPLE_RATE} Hz)"
     )
     return wav
-
-
-if __name__ == "__main__":
-    import argparse
-
-    import torch_xla.runtime as xr
-
-    parser = argparse.ArgumentParser(description="XTTS-v2 e2e text-to-speech on TT")
-    parser.add_argument("--text", default=DEFAULT_TEXT, help="Text to synthesize")
-    parser.add_argument("--language", default=DEFAULT_LANGUAGE)
-    parser.add_argument(
-        "--speaker-wav",
-        default=None,
-        help="Reference speaker WAV (defaults to a public LibriSpeech clip)",
-    )
-    parser.add_argument("--output", default="xtts_output.wav")
-    parser.add_argument(
-        "--max-audio-tokens",
-        type=int,
-        default=None,
-        help="Cap on generated audio tokens (keeps the TT decode demo short)",
-    )
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=0,
-        help="Seed for the reference stochastic sampling (reproducible runs)",
-    )
-    args = parser.parse_args()
-
-    # torch_xla defaults to CPU; point it at the Tenstorrent device.
-    xr.set_device_type("TT")
-
-    run_xtts_pipeline(
-        output_path=args.output,
-        text=args.text,
-        language=args.language,
-        speaker_wav=args.speaker_wav,
-        max_audio_tokens=args.max_audio_tokens,
-        seed=args.seed,
-    )
