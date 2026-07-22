@@ -1,0 +1,437 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
+"""XTTS-v2 (coqui/XTTS-v2) end-to-end text-to-speech pipeline on Tenstorrent.
+
+Chains the per-component nn.Module graphs into the full ``Xtts.inference`` path,
+running the learned modules on TT and keeping fixed DSP/orchestration on CPU. The
+audio-token loop reuses one ``GptCachedStep`` graph over a StaticCache (compiles
+once). Requires ``coqui-tts`` + ``torchaudio`` and CPML-gated weights (``COQUI_TOS_AGREED=1``).
+"""
+
+from __future__ import annotations
+
+import os
+from typing import Optional
+
+import torch
+import torch_xla
+import torch_xla.core.xla_model as xm
+from loguru import logger
+
+from .loader import ModelLoader, ModelVariant
+from .src.model import (
+    ConditioningWrapper,
+    GptCachedStep,
+    GptLatentsWrapper,
+    HifiganDecoderWrapper,
+    SpeakerEncoderWrapper,
+)
+
+# Model-card example text; any real sentence works.
+DEFAULT_TEXT = (
+    "It took me quite a long time to develop a voice, and now that I have it "
+    "I'm not going to be silent."
+)
+DEFAULT_LANGUAGE = "en"
+OUTPUT_SAMPLE_RATE = 24000
+
+# Audio sample rates (Hz).
+XTTS_SAMPLE_RATE = 22050  # XTTS native rate for conditioning / cloning mels
+SPEAKER_ENCODER_SR = 16000  # speaker-encoder input rate
+DEFAULT_REFERENCE_SR = 16000  # fallback rate of the packaged reference clip
+
+# wav_to_mel_cloning front-end params (reference Xtts.get_gpt_cond_latents).
+MEL_N_FFT = 2048
+MEL_HOP_LENGTH = 256
+MEL_WIN_LENGTH = 1024
+MEL_POWER = 2
+MEL_F_MIN = 0
+MEL_F_MAX = 8000
+MEL_N_MELS = 80
+
+# Emit a progress log every N decode tokens.
+DECODE_LOG_INTERVAL = 32
+
+# Reference autoregressive sampling params, matching ``Xtts.inference`` defaults
+# (coqui/XTTS-v2). The decode loop applies these host-side via HF's own logits
+# processors so token selection matches the reference generate() exactly.
+REF_TEMPERATURE = 0.75
+REF_TOP_K = 50
+REF_TOP_P = 0.85
+REF_REPETITION_PENALTY = 10.0
+# Reference conditioning params, matching ``Xtts.get_conditioning_latents``
+# defaults: gpt_cond_len == gpt_cond_chunk_len == 6 -> a single 6 s chunk, with
+# multi-chunk mean when they differ (see ``Xtts.get_gpt_cond_latents``).
+GPT_COND_LEN = 6
+GPT_COND_CHUNK_LEN = 6
+MIN_AUDIO_SECONDS = 0.33  # chunks shorter than this are skipped (reference)
+
+
+class XTTSConfig:
+    def __init__(
+        self,
+        text: str = DEFAULT_TEXT,
+        language: str = DEFAULT_LANGUAGE,
+        speaker_wav: Optional[str] = None,
+        max_audio_tokens: Optional[int] = None,
+        seed: int = 0,
+    ):
+        self.text = text
+        self.language = language
+        # A reference speaker clip; defaults to the same public LibriSpeech
+        # utterance the component loader uses so the pipeline runs out of the box.
+        self.speaker_wav = speaker_wav
+        # Cap on generated audio tokens (each ~= 1024 output samples / 24 kHz);
+        # keeps the single-compile TT decode loop demo-sized. None = model max.
+        self.max_audio_tokens = max_audio_tokens
+        # Seed for the (stochastic) reference sampling, so runs are reproducible.
+        self.seed = seed
+
+
+class XTTSPipeline:
+    """coqui/XTTS-v2 text-to-speech pipeline (components chained on TT)."""
+
+    def __init__(self, config: XTTSConfig):
+        self.config = config
+        self._loader = ModelLoader(variant=ModelVariant.GPT_LATENTS)
+
+    # ------------------------------------------------------------------ #
+    # setup: build the full model once, wrap each component, compile for TT
+    # ------------------------------------------------------------------ #
+    def setup(self):
+        os.environ.setdefault("COQUI_TOS_AGREED", "1")
+        self.xtts = self._loader._build_xtts()  # downloads weights, eval mode
+        gpt = self.xtts.gpt
+
+        self.start_audio_token = gpt.start_audio_token
+        self.stop_audio_token = gpt.stop_audio_token
+        self.code_stride_len = gpt.code_stride_len
+        self.model_max_audio_tokens = gpt.max_gen_mel_tokens
+
+        # Component graphs (same wrappers as the bring-up tests). Register the
+        # `tt` backend now; the actual .to(device) happens per stage in run().
+        self.speaker_encoder = SpeakerEncoderWrapper(self.xtts).eval()
+        self.conditioning = ConditioningWrapper(self.xtts).eval()
+        self.gpt_latents = GptLatentsWrapper(self.xtts).eval()
+        self.hifigan = HifiganDecoderWrapper(self.xtts).eval()
+
+        self.speaker_encoder.compile(backend="tt")
+        self.conditioning.compile(backend="tt")
+        self.gpt_latents.compile(backend="tt")
+        self.hifigan.compile(backend="tt")
+
+        self.decode_step = GptCachedStep(self.xtts).eval()
+        self.decode_step.compile(backend="tt")
+
+    # ------------------------------------------------------------------ #
+    # CPU preprocessing (mirrors get_conditioning_latents + tokenizer)
+    # ------------------------------------------------------------------ #
+    def _reference_audio_22k(self) -> torch.Tensor:
+        import numpy as np
+        import torchaudio
+
+        if self.config.speaker_wav:
+            audio, sr = torchaudio.load(self.config.speaker_wav)
+            audio = audio.mean(0, keepdim=True)  # mono
+        else:
+            # Same public LibriSpeech reference the component loader uses.
+            from ...tools.utils import get_file
+
+            sample = torch.load(
+                get_file(self._loader.REFERENCE_AUDIO), weights_only=False
+            )
+            sr = int(sample["audio"].get("sampling_rate", DEFAULT_REFERENCE_SR))
+            audio = torch.tensor(
+                np.asarray(sample["audio"]["array"], dtype="float32")
+            ).unsqueeze(0)
+        if sr != XTTS_SAMPLE_RATE:
+            audio = torchaudio.functional.resample(audio, sr, XTTS_SAMPLE_RATE)
+        return audio
+
+    def _speaker_mel(self, audio22: torch.Tensor) -> torch.Tensor:
+        """16 kHz reference -> speaker-encoder mel (computed on CPU)."""
+        import torchaudio
+
+        audio16 = torchaudio.functional.resample(
+            audio22, XTTS_SAMPLE_RATE, SPEAKER_ENCODER_SR
+        )
+        # use_torch_spec is disabled inside the wrapper, so feed the mel directly.
+        with torch.no_grad():
+            return self.xtts.hifigan_decoder.speaker_encoder.torch_spec(audio16)
+
+    def _conditioning_mels(self, audio22: torch.Tensor) -> list:
+        """Reference ``get_gpt_cond_latents`` chunking into GPT_COND_CHUNK_LEN-second
+        mel chunks; the conditioning encoder runs per chunk on TT, meaned in run()."""
+        from TTS.tts.models.xtts import wav_to_mel_cloning
+
+        audio = audio22[:, : XTTS_SAMPLE_RATE * GPT_COND_LEN]
+        step = XTTS_SAMPLE_RATE * GPT_COND_CHUNK_LEN
+        mels = []
+        for i in range(0, audio.shape[1], step):
+            chunk = audio[:, i : i + step]
+            if chunk.size(-1) < XTTS_SAMPLE_RATE * MIN_AUDIO_SECONDS:
+                continue  # skip too-short trailing chunk (reference behavior)
+            mels.append(
+                wav_to_mel_cloning(
+                    chunk,
+                    mel_norms=self.xtts.mel_stats.cpu(),
+                    n_fft=MEL_N_FFT,
+                    hop_length=MEL_HOP_LENGTH,
+                    win_length=MEL_WIN_LENGTH,
+                    power=MEL_POWER,
+                    normalized=False,
+                    sample_rate=XTTS_SAMPLE_RATE,
+                    f_min=MEL_F_MIN,
+                    f_max=MEL_F_MAX,
+                    n_mels=MEL_N_MELS,
+                )
+            )
+        if not mels:
+            raise RuntimeError(
+                f"Reference audio too short (< {MIN_AUDIO_SECONDS:.2f}s) for conditioning."
+            )
+        return mels
+
+    def _text_tokens(self) -> torch.Tensor:
+        toks = self.xtts.tokenizer.encode(
+            self.config.text.strip().lower(), lang=self.config.language
+        )
+        return torch.IntTensor(toks).unsqueeze(0)
+
+    # ------------------------------------------------------------------ #
+    # gpt_codes: autoregressive audio-token loop
+    # ------------------------------------------------------------------ #
+    def _make_static_cache(self, max_cache_len: int, device):
+        """StaticCache for XTTS's GPT2, built on CPU then moved to device
+        (build + early_initialization on CPU avoids a trace/fusion issue,
+        tt-xla#1645). GPT2's StaticLayer self-manages its write index."""
+        from transformers import StaticCache
+
+        cfg = self.xtts.gpt.gpt.config
+        n_head = cfg.num_attention_heads
+        head_dim = cfg.hidden_size // n_head
+        cache = StaticCache(
+            config=cfg,
+            max_batch_size=1,
+            max_cache_len=max_cache_len,
+            device="cpu",
+            dtype=torch.float32,
+        )
+        cache.early_initialization(
+            batch_size=1,
+            num_heads=n_head,
+            head_dim=head_dim,
+            dtype=torch.float32,
+            device="cpu",
+        )
+        if device != "cpu":
+            for layer in cache.layers:
+                layer.keys = layer.keys.to(device)
+                layer.values = layer.values.to(device)
+                layer.cumulative_length = layer.cumulative_length.to(device)
+                layer.device = device
+        return cache
+
+    def _generate_codes_tt(self, gpt_cond_latent, text_tokens) -> torch.Tensor:
+        """KV-cached, single-compile decode loop with the GPT2 trunk on TT.
+
+        Prefills the conditioning+text prefix + [START] into a StaticCache, then
+        samples audio tokens one at a time with the reference ``Xtts.inference``
+        params (host-side HF logits processors). Constant-shape inputs mean the
+        decode graph compiles once and is reused every step.
+        """
+        from transformers import (
+            LogitsProcessorList,
+            RepetitionPenaltyLogitsProcessor,
+            TemperatureLogitsWarper,
+            TopKLogitsWarper,
+            TopPLogitsWarper,
+        )
+
+        device = xm.xla_device()
+        gpt = self.xtts.gpt
+
+        # Prefix embedding (cond latents + [START]text[STOP]); host side.
+        with torch.no_grad():
+            gpt.compute_embeddings(gpt_cond_latent, text_tokens)
+        prefix_emb = gpt.gpt_inference.cached_prefix_emb.clone().to(
+            device
+        )  # [1,P,1024]
+        prefix_len = prefix_emb.shape[1]
+
+        max_tokens = self.config.max_audio_tokens or self.model_max_audio_tokens
+        max_tokens = int(min(max_tokens, self.model_max_audio_tokens))
+        max_cache_len = prefix_len + max_tokens
+
+        cache = self._make_static_cache(max_cache_len, device)
+        self.decode_step = self.decode_step.to(device)
+
+        def mask(valid):  # [1, max_cache_len]; 1s for written cache slots
+            m = torch.zeros((1, max_cache_len), dtype=torch.long)
+            m[:, :valid] = 1
+            return m.to(device)
+
+        # Reference sampling stack: repetition penalty (processor) then the
+        # temperature/top-k/top-p warpers, in HF's generate() order. Applied on
+        # the CPU logits each step; the running audio-token sequence (starting
+        # with [START]) drives the repetition penalty, exactly like HF generate.
+        processors = LogitsProcessorList(
+            [
+                RepetitionPenaltyLogitsProcessor(penalty=REF_REPETITION_PENALTY),
+                TemperatureLogitsWarper(REF_TEMPERATURE),
+                TopKLogitsWarper(REF_TOP_K),
+                TopPLogitsWarper(REF_TOP_P),
+            ]
+        )
+        rng = torch.Generator().manual_seed(int(self.config.seed))
+        seq = [self.start_audio_token]  # running sequence for repetition penalty
+
+        def sample(logits_row_cpu):  # logits_row_cpu: [1, vocab] on CPU
+            input_ids = torch.tensor([seq], dtype=torch.long)
+            scores = processors(input_ids, logits_row_cpu.float())
+            probs = torch.softmax(scores, dim=-1)
+            return int(torch.multinomial(probs, num_samples=1, generator=rng).item())
+
+        generated = []
+        with torch.no_grad():
+            # --- Prefill: [prefix, START(audio pos 0)] -> first audio token ---
+            start_ids = torch.tensor(
+                [[self.start_audio_token]], dtype=torch.long, device=device
+            )
+            pos0 = torch.tensor([0], dtype=torch.long, device=device)
+            logits = self.decode_step(
+                start_ids, pos0, mask(prefix_len + 1), cache, prefix_emb
+            )
+            next_token = sample(logits[:, -1, :].to("cpu"))
+
+            cur = prefix_len + 1  # cache positions written so far
+            # --- Decode loop: feed 1 token per step, audio position = step ---
+            for step in range(1, max_tokens):
+                if next_token == self.stop_audio_token:
+                    break
+                generated.append(next_token)
+                seq.append(next_token)  # extend history before sampling the next
+                tok = torch.tensor([[next_token]], dtype=torch.long, device=device)
+                pos = torch.tensor([step], dtype=torch.long, device=device)
+                logits = self.decode_step(tok, pos, mask(cur + 1), cache, None)
+                next_token = sample(logits[:, -1, :].to("cpu"))
+                cur += 1
+                if step % DECODE_LOG_INTERVAL == 0:
+                    logger.info(f"[gpt_codes] {step}/{max_tokens} tokens")
+
+        self.decode_step = self.decode_step.to("cpu")
+        return torch.tensor(generated, dtype=torch.long).unsqueeze(0)
+
+    # ------------------------------------------------------------------ #
+    # run: full text -> waveform
+    # ------------------------------------------------------------------ #
+    def run(self) -> torch.Tensor:
+        device = xm.xla_device()
+        tt = lambda x: x.to(device)
+        cpu = lambda x: x.to("cpu")
+
+        with torch.no_grad():
+            # --- CPU preprocessing ---
+            audio22 = self._reference_audio_22k()
+            speaker_mel = self._speaker_mel(audio22)
+            cond_mels = self._conditioning_mels(audio22)
+            text_tokens = self._text_tokens()
+            text_len = torch.tensor([text_tokens.shape[-1]])
+
+            # --- speaker_embedding [TT] ---
+            logger.info("[STAGE] speaker_encoder (TT)")
+            self.speaker_encoder = self.speaker_encoder.to(device)
+            speaker_embedding = cpu(self.speaker_encoder(tt(speaker_mel)))
+            self.speaker_encoder = self.speaker_encoder.to("cpu")
+            # Match get_speaker_embedding output shape [1, 512, 1].
+            speaker_embedding = speaker_embedding.unsqueeze(-1)
+
+            # --- gpt_cond_latent [TT] ---
+            # Per-chunk conditioning on TT, then mean over chunks (reference
+            # get_gpt_cond_latents). Each chunk's style_emb is [1, 1024, 32].
+            logger.info("[STAGE] conditioning encoder (TT)")
+            self.conditioning = self.conditioning.to(device)
+            style_embs = [cpu(self.conditioning(tt(m))) for m in cond_mels]
+            self.conditioning = self.conditioning.to("cpu")
+            conds = torch.stack(style_embs).mean(dim=0)  # [1, 1024, 32]
+            gpt_cond_latent = conds.transpose(1, 2)  # [1, 32, 1024]
+
+            # --- gpt_codes (autoregressive, GPT2 trunk on TT) ---
+            logger.info("[STAGE] gpt_codes (TT)")
+            gpt_codes = self._generate_codes_tt(gpt_cond_latent, text_tokens)
+            logger.info(f"[gpt_codes] produced {gpt_codes.shape[-1]} audio tokens")
+
+            expected_output_len = torch.tensor(
+                [gpt_codes.shape[-1] * self.code_stride_len]
+            )
+
+            # --- gpt_latents [TT] ---
+            logger.info("[STAGE] gpt_latents (TT)")
+            self.gpt_latents = self.gpt_latents.to(device)
+            gpt_latents = cpu(
+                self.gpt_latents(
+                    tt(text_tokens),
+                    tt(text_len),
+                    tt(gpt_codes),
+                    tt(expected_output_len),
+                    tt(gpt_cond_latent),
+                )
+            )
+            self.gpt_latents = self.gpt_latents.to("cpu")
+
+            # --- waveform [TT] ---
+            logger.info("[STAGE] hifigan_decoder (TT)")
+            self.hifigan = self.hifigan.to(device)
+            wav = cpu(self.hifigan(tt(gpt_latents), tt(speaker_embedding)))
+            self.hifigan = self.hifigan.to("cpu")
+
+        return wav  # [1, 1, S] @ 24 kHz
+
+
+def save_wav(wav: torch.Tensor, filepath: str = "xtts_output.wav"):
+    """Save the pipeline waveform as a 24 kHz 16-bit PCM WAV.
+
+    Uses the stdlib ``wave`` module rather than ``torchaudio.save`` so it does
+    not depend on FFmpeg / torchcodec (often absent on bring-up hosts).
+    """
+    import wave
+
+    audio = wav.detach().cpu().float().reshape(-1)  # mono [S]
+    audio = torch.clamp(audio, -1.0, 1.0)
+    pcm = (audio * 32767.0).round().to(torch.int16).numpy()
+    with wave.open(filepath, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)  # 16-bit
+        wf.setframerate(OUTPUT_SAMPLE_RATE)
+        wf.writeframes(pcm.tobytes())
+    return filepath
+
+
+def run_xtts_pipeline(
+    output_path: str = "xtts_output.wav",
+    text: str = DEFAULT_TEXT,
+    language: str = DEFAULT_LANGUAGE,
+    speaker_wav: Optional[str] = None,
+    max_audio_tokens: Optional[int] = None,
+    seed: int = 0,
+) -> torch.Tensor:
+    """Run the XTTS-v2 pipeline and write a WAV file. Returns the waveform tensor."""
+    torch_xla.set_custom_compile_options({"optimization_level": 0})
+
+    config = XTTSConfig(
+        text=text,
+        language=language,
+        speaker_wav=speaker_wav,
+        max_audio_tokens=max_audio_tokens,
+        seed=seed,
+    )
+    pipeline = XTTSPipeline(config)
+    pipeline.setup()
+    wav = pipeline.run()
+    save_wav(wav, output_path)
+    logger.info(
+        f"[XTTS] wrote {output_path} ({wav.shape[-1]} samples @ {OUTPUT_SAMPLE_RATE} Hz)"
+    )
+    return wav
