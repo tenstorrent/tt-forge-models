@@ -9,8 +9,10 @@ Components:
   - Transformer  → QwenImageTransformer2DModel (MMDiT)  (~20B, 2D SPMD sharding)
   - Vae          → AutoencoderKLQwenImage decoder        (3D video-style VAE)
 
-Text encoder and VAE run on a single chip; the transformer's weights exceed a
-single Blackhole chip's DRAM and require a multi-chip mesh.
+The VAE runs on a single chip. The transformer's weights exceed a single
+Blackhole chip's DRAM, so it is tensor-parallel sharded across a multi-chip mesh;
+in the e2e pipeline the text encoder is sharded on the same mesh too (see
+``shard_transformer_specs`` / ``shard_text_encoder_specs``).
 """
 
 from typing import Optional
@@ -28,11 +30,13 @@ from ...config import (
     StrEnum,
 )
 from .src.model_utils import (
+    DENOISE_TIMESTEP,
     DTYPE,
     MESH_NAMES,
     MESH_SHAPES,
     PROMPT,
     REPO_ID,
+    TIMESTEP_SCALE,
     QwenImageTransformerWrapper,
     QwenImageVAEDecoderWrapper,
     Qwen25VLTextEncoderWrapper,
@@ -133,8 +137,7 @@ class ModelLoader(ForgeModel):
             hidden_states = make_packed_latents(dtype)
             encoder_hidden_states = make_synthetic_prompt_embeds(dtype)
             encoder_hidden_states_mask = make_prompt_embeds_mask()
-            # QwenImagePipeline passes scheduler timestep / 1000.
-            timestep = torch.tensor([500.0 / 1000.0], dtype=dtype)
+            timestep = torch.tensor([DENOISE_TIMESTEP / TIMESTEP_SCALE], dtype=dtype)
             return [
                 hidden_states,
                 encoder_hidden_states,
