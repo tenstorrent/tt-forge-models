@@ -22,9 +22,59 @@ from PIL import Image
 from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
+    AutoModelForImageTextToText,
     AutoProcessor,
     AutoTokenizer,
 )
+
+
+def _gemma4_dense_experts_forward(self, hidden_states, top_k_index, top_k_weights):
+    """Static, graph-traceable replacement for ``Gemma4TextExperts.forward``.
+
+    The stock forward is data-dependent: it builds an expert-hit mask, calls
+    ``.nonzero()`` and then loops in Python over the hit experts, dynamically
+    gathering the tokens routed to each. That control flow cannot be traced
+    into a static graph — on the ``tt`` backend it segfaults the compiler
+    (CPU-fallback partitioning of the dynamic gather / ``index_add_``).
+
+    This rewrite computes every expert densely and combines them with a
+    one-hot routing weight matrix — no ``nonzero``, no Python loop, no
+    dynamic gather. It is numerically identical to the sparse form (verified
+    PCC 1.0 on CPU): top-k selection is expressed as zeros in ``weights_full``
+    for the non-selected experts, so the extra experts contribute nothing.
+    Dense costs ``num_experts / top_k`` (16x here) more expert FLOPs, which is
+    tractable for prefill and is the standard MoE-on-static-shapes trade.
+
+    Shapes: hidden_states ``[T, H]``, top_k_index/top_k_weights ``[T, K]``,
+    gate_up_proj ``[E, 2I, H]``, down_proj ``[E, H, I]``. Sharding the expert
+    weights on their leading (expert) dim makes this expert-parallel: each
+    chip owns a slice of ``E`` and the final sum over ``E`` becomes a
+    cross-device reduce (see ``load_shard_spec``).
+    """
+    E = self.num_experts
+    # Dense routing weights: weights_full[t, e] = sum_k [top_k_index[t,k]==e] * w.
+    # Built with a broadcast-compare (arange == index) rather than one_hot: on
+    # the SPMD/tensor-parallel path one_hot lowers to a stablehlo.scatter whose
+    # arguments cannot be sharding-annotated ("GSPMD presharded argument missing
+    # @Sharding custom call"), while the compare lowers to broadcast + eq that
+    # shards cleanly.
+    arange_e = torch.arange(E, device=top_k_index.device)
+    oh = (top_k_index.unsqueeze(-1) == arange_e).to(top_k_weights.dtype)  # [T,K,E]
+    weights_full = (oh * top_k_weights.unsqueeze(-1)).sum(dim=1)  # [T, E]
+
+    # Batched (per-expert) matmuls, expert dim as the batch dim, rather than a
+    # single 4D einsum. einsum lowers to a broadcast-multiply-reduce whose
+    # [T, E, H, I] intermediate (tens of GB) is materialized in full under the
+    # Shardy manual-computation path — an explicit bmm keeps it a contracting
+    # matmul that composes with the intermediate-dim (column->row) sharding.
+    h = hidden_states.unsqueeze(0)  # [1, T, H]
+    gate_up = torch.matmul(h, self.gate_up_proj.transpose(-1, -2))  # [E, T, 2I]
+    gate, up = gate_up.chunk(2, dim=-1)  # [E, T, I]
+    inter = self.act_fn(gate) * up  # [E, T, I]
+    down = torch.matmul(inter, self.down_proj.transpose(-1, -2))  # [E, T, H]
+    w = weights_full.transpose(0, 1).unsqueeze(-1)  # [E, T, 1]
+    out = (down * w).sum(dim=0)  # [T, H]
+    return out.to(hidden_states.dtype)
 
 from ...base import ForgeModel
 from ...config import (
@@ -50,6 +100,9 @@ class ModelVariant(StrEnum):
     GEMMA_4_12B_IMAGE = "12B-image"
     GEMMA_4_12B_AUDIO = "12B-audio"
     GEMMA_4_12B_VIDEO = "12B-video"
+    # Sparse-MoE VLM checkpoint (Gemma4ForConditionalGeneration). This variant
+    # brings up the text MoE decoder prefill path only, tensor-parallel.
+    GEMMA_4_26B_A4B_IT = "26B-A4B-it"
 
 
 class ModelLoader(ForgeModel):
@@ -71,6 +124,10 @@ class ModelLoader(ForgeModel):
         ModelVariant.GEMMA_4_12B_VIDEO: LLMModelConfig(
             pretrained_model_name="google/gemma-4-12B",
             max_length=256,
+        ),
+        ModelVariant.GEMMA_4_26B_A4B_IT: LLMModelConfig(
+            pretrained_model_name="google/gemma-4-26B-A4B-it",
+            max_length=128,
         ),
     }
 
@@ -186,13 +243,45 @@ class ModelLoader(ForgeModel):
         model_kwargs["config"] = config
 
         model_kwargs |= kwargs
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name, **model_kwargs
-        )
+        # The 26B-A4B-it checkpoint is a Gemma4ForConditionalGeneration (a
+        # vision+text VLM), which is registered under the image-text-to-text
+        # auto class rather than causal-LM. The 12B unified variants keep the
+        # existing causal-LM auto class.
+        if self._variant == ModelVariant.GEMMA_4_26B_A4B_IT:
+            model = AutoModelForImageTextToText.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
+            self._patch_dense_experts(model)
+        else:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name, **model_kwargs
+            )
         model.eval()
         self.model = model
         self.config = model.config
         return model
+
+    @staticmethod
+    def _patch_dense_experts(model):
+        """Swap the data-dependent MoE expert dispatch for a static dense form.
+
+        google/gemma-4-26B-A4B-it's ``Gemma4TextExperts.forward`` routes tokens
+        to experts with ``.nonzero()`` + a Python loop + a dynamic gather, which
+        segfaults the ``tt`` compiler (it cannot trace data-dependent control
+        flow) and, single-chip, falls the ``nonzero`` back to CPU.
+        ``_gemma4_dense_experts_forward`` is a numerically-identical static
+        replacement (verified PCC 1.0 on CPU) so the prefill graph is fully
+        static and, with expert-parallel sharding, splits the 45.7 GB of expert
+        weights across the mesh.
+
+        The patch is applied to the **class**, not the module instance:
+        ``torch.compile``/dynamo traces ``type(module).forward`` and ignores an
+        instance-level ``forward`` attribute, so an instance override would
+        silently leave the original ``nonzero`` path in the compiled graph.
+        """
+        import transformers.models.gemma4.modeling_gemma4 as g4
+
+        g4.Gemma4TextExperts.forward = _gemma4_dense_experts_forward
 
     def unpack_forward_output(self, fwd_output):
         """Extract the logits tensor from the Gemma4 unified model output.
@@ -247,17 +336,92 @@ class ModelLoader(ForgeModel):
         text-only path and are replicated.
         """
         shard_specs = {}
-        for layer in model.model.language_model.layers:
+        text_cfg = getattr(self.config, "text_config", self.config)
+        layer_types = getattr(text_cfg, "layer_types", None)
+        for i, layer in enumerate(model.model.language_model.layers):
             shard_specs[layer.mlp.gate_proj.weight] = ("model", None)
             shard_specs[layer.mlp.up_proj.weight] = ("model", None)
             shard_specs[layer.mlp.down_proj.weight] = (None, "model")
 
             attn = layer.self_attn
-            shard_specs[attn.q_proj.weight] = ("model", None)
-            shard_specs[attn.o_proj.weight] = (None, "model")
+            # Shard the query/output projections (Megatron column->row) only on
+            # the local sliding-window layers. The global ``full_attention``
+            # layers carry a single global KV head (``attention_k_eq_v``): with
+            # the query heads sharded on the model axis, broadcasting that lone
+            # replicated KV head across the sharded query heads forces an
+            # ``sdy.all_slice`` on the model axis that is already bound by the
+            # tensor-parallel manual_computation ("axis already bound"), so those
+            # layers fail to compile. They are only 5 of 30 layers and their
+            # attention weights are tiny next to the experts, so leave them
+            # replicated. (Sliding layers have 8 KV heads and shard cleanly.)
+            layer_type = layer_types[i] if layer_types else "sliding_attention"
+            if layer_type != "full_attention":
+                shard_specs[attn.q_proj.weight] = ("model", None)
+                shard_specs[attn.o_proj.weight] = (None, "model")
             # k_proj/v_proj replicated (skipped). On Gemma4 global layers
             # v_proj is None and k_proj holds a single unsharddable KV head.
+
+            # Expert-parallel sharding for the sparse-MoE (26B-A4B-it) experts.
+            # The 128 experts hold 45.7 GB that cannot be replicated on a 32 GB
+            # chip. Shard both 3D expert tensors on their leading (expert) dim,
+            # which is the batch dim of the dense expert forward's per-expert
+            # matmuls: each chip owns E/num_devices experts, computes their
+            # contribution, and the final sum over the expert dim becomes a
+            # cross-device all-reduce. This is preferred over sharding the fused
+            # gate_up 2I dim (which would split the gate/up halves across chips
+            # and break the ``chunk(2)`` + gate*up). Requires
+            # num_experts % model-axis == 0 (128 % 4 == 0).
+            if hasattr(layer, "experts"):
+                experts = layer.experts
+                shard_specs[experts.gate_up_proj] = ("model", None, None)
+                shard_specs[experts.down_proj] = ("model", None, None)
         return shard_specs
+
+    def _build_prefill_mask_dict(self, seq_len, dtype):
+        """Precompute the additive causal-mask dict for the text prefill path.
+
+        Gemma4's forward builds ``full_attention`` / ``sliding_attention`` masks
+        via ``create_causal_mask`` / ``create_sliding_window_causal_mask``, which
+        lower to a ``stablehlo.scatter`` (from an ``aten::nonzero``) that the
+        tt-mlir SPMD pipeline cannot sharding-annotate (``AnnotateLocalShapesPass``
+        → "GSPMD presharded argument missing @Sharding custom call"), so
+        tensor-parallel compilation fails. The forward accepts a pre-built dict
+        for ``attention_mask`` (skipping construction entirely), so we compute
+        the masks on the host here — an additive ``[1, 1, S, S]`` tensor, ``0``
+        where attention is allowed and ``finfo.min`` where masked. For prefill
+        with no padding and ``S <= sliding_window`` both mask types are plain
+        causal. The scatter therefore never enters the traced graph.
+        """
+        mask_dtype = dtype if dtype is not None else torch.float32
+        cfg = getattr(self, "config", None)
+        if cfg is None:
+            cfg = AutoConfig.from_pretrained(
+                self._variant_config.pretrained_model_name
+            )
+        sliding_window = getattr(
+            getattr(cfg, "text_config", cfg), "sliding_window", None
+        )
+        q = torch.arange(seq_len).view(seq_len, 1)
+        k = torch.arange(seq_len).view(1, seq_len)
+        allowed_full = k <= q
+        if sliding_window:
+            allowed_sliding = allowed_full & (k > q - sliding_window)
+        else:
+            allowed_sliding = allowed_full
+        minval = torch.finfo(mask_dtype).min
+
+        def additive(allowed):
+            m = torch.where(
+                allowed,
+                torch.zeros((), dtype=mask_dtype),
+                torch.full((), minval, dtype=mask_dtype),
+            )
+            return m.view(1, 1, seq_len, seq_len)
+
+        return {
+            "full_attention": additive(allowed_full),
+            "sliding_attention": additive(allowed_sliding),
+        }
 
     def load_image_inputs(
         self,
@@ -500,4 +664,15 @@ class ModelLoader(ForgeModel):
         if dtype_override is not None:
             input_ids = cast_input_to_type(input_ids, dtype_override)
             attn_mask = cast_input_to_type(attn_mask, dtype_override)
+
+        # The 26B-A4B-it prefill path is brought up tensor-parallel. Pass a
+        # precomputed additive causal-mask dict so the model skips its own
+        # scatter-producing mask construction, which the SPMD pipeline cannot
+        # compile (see _build_prefill_mask_dict). Other variants keep the plain
+        # 2D attention_mask and let the model build its masks.
+        if self._variant == ModelVariant.GEMMA_4_26B_A4B_IT:
+            mask_dict = self._build_prefill_mask_dict(
+                input_ids.shape[1], dtype_override
+            )
+            return {"input_ids": input_ids, "attention_mask": mask_dict}
         return {"input_ids": input_ids, "attention_mask": attn_mask}
