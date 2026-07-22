@@ -26,7 +26,7 @@ from transformers import (
     AutoTokenizer,
 )
 
-from ...base import ForgeModel
+from ...base import ForgeModel, ForgePrefillModel
 from ...config import (
     Framework,
     LLMModelConfig,
@@ -50,6 +50,10 @@ class ModelVariant(StrEnum):
     GEMMA_4_12B_IMAGE = "12B-image"
     GEMMA_4_12B_AUDIO = "12B-audio"
     GEMMA_4_12B_VIDEO = "12B-video"
+    # Instruction-tuned 26B-total / 4B-active MoE (Gemma4ForConditionalGeneration).
+    # Text-only causal-LM path; brought up for the prefill graph only (see
+    # ModelLoaderPrefill below).
+    GEMMA_4_26B_A4B_IT = "26B-A4B-it"
 
 
 class ModelLoader(ForgeModel):
@@ -70,6 +74,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.GEMMA_4_12B_VIDEO: LLMModelConfig(
             pretrained_model_name="google/gemma-4-12B",
+            max_length=256,
+        ),
+        ModelVariant.GEMMA_4_26B_A4B_IT: LLMModelConfig(
+            pretrained_model_name="google/gemma-4-26B-A4B-it",
             max_length=256,
         ),
     }
@@ -501,3 +509,75 @@ class ModelLoader(ForgeModel):
             input_ids = cast_input_to_type(input_ids, dtype_override)
             attn_mask = cast_input_to_type(attn_mask, dtype_override)
         return {"input_ids": input_ids, "attention_mask": attn_mask}
+
+
+class ModelLoaderPrefill(ModelLoader, ForgePrefillModel):
+    """Prefill-focused loader for the Gemma4 26B-A4B-it MoE (text decoder).
+
+    google/gemma-4-26B-A4B-it is a ``Gemma4ForConditionalGeneration`` (text +
+    vision) instruction-tuned model whose text decoder is a 26B-total /
+    4B-active mixture-of-experts (128 experts, 30 layers, GQA 16q:8kv with
+    ``attention_k_eq_v``, interleaved sliding/full attention). This loader
+    brings up the **prefill graph only** — a single forward over the padded
+    prompt (``use_cache=False``) driving the text-only causal-LM path
+    (``input_ids`` + ``attention_mask`` keyed by name, so ``pixel_values``
+    stays ``None`` and the vision tower is not exercised).
+
+    It reuses ``ModelLoader.load_model`` (which returns the
+    ``Gemma4ForConditionalGeneration`` and disables the cache on both the top
+    config and ``text_config``) and inherits ``load_inputs_prefill`` from
+    ``ForgePrefillModel`` to produce prompt-sized inputs padded to the requested
+    ``seq_len``. No tensor-parallel / FSDP shard spec is defined (single-chip
+    bring-up on p150), so ``load_shard_spec`` raises.
+    """
+
+    _VARIANTS = {
+        ModelVariant.GEMMA_4_26B_A4B_IT: ModelLoader._VARIANTS[
+            ModelVariant.GEMMA_4_26B_A4B_IT
+        ],
+    }
+    DEFAULT_VARIANT = ModelVariant.GEMMA_4_26B_A4B_IT
+
+    @property
+    def requires_model_rewrites(self) -> bool:
+        """Gemma4's interleaved sliding-window attention needs the TT-friendly
+        causal-mask rewrite applied before compile."""
+        return True
+
+    def load_model(self, *, dtype_override=None, **kwargs):
+        """Load the model and force a static, device-friendly MoE experts path.
+
+        Gemma4's default experts implementation (``grouped_mm``) falls back to
+        the ``eager`` experts forward, whose data-dependent expert loop
+        (``one_hot`` / ``nonzero`` / ``torch.where`` / ``index_add_``) forces a
+        CPU fallback that segfaults the tt graph partitioner
+        (``partition_fx_graph_for_cpu_fallback``). ``batched_mm`` is a static
+        dense batched matmul over all experts, masked by the routing weights —
+        it has no data-dependent control flow and compiles on device. The TT
+        custom-MoE (expert-parallel) backend is multi-chip only, so on a single
+        p150 the static built-in is the supported route.
+        """
+        model = super().load_model(dtype_override=dtype_override, **kwargs)
+        model.set_experts_implementation("batched_mm")
+        return model
+
+    def _load_tokenizer(self, dtype_override=None):
+        """Load the tokenizer for the prefill variant.
+
+        ``ForgePrefillModel.load_inputs_prefill`` calls
+        ``self._load_tokenizer(dtype_override=...)``; the base Gemma4
+        ``_load_tokenizer`` takes no arguments, so accept (and ignore, the
+        tokenizer is dtype-agnostic) the kwarg here.
+        """
+        pretrained_model_name = self._variant_config.pretrained_model_name
+        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+        return self.tokenizer
+
+    def load_shard_spec(self, model, strategy="fsdp", batch_axis="batch"):
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement load_shard_spec; "
+            "no TP/FSDP sharding is defined for this single-chip prefill "
+            "bring-up of gemma-4-26B-A4B-it."
+        )
