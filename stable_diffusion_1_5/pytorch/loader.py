@@ -32,11 +32,62 @@ from ...config import (
     StrEnum,
 )
 
+# CLIP text encoder used by SD1.x (openai/clip-vit-large-patch14).
+CLIP_REPO_ID = "openai/clip-vit-large-patch14"
+# CLIP context length (tokenizer model_max_length) and vocab size.
+CLIP_MAX_SEQ_LEN = 77
+CLIP_VOCAB_SIZE = 49408
+
+# (batch, model) mesh shapes by device count — matches the sibling image loaders.
+MESH_SHAPES = {32: (8, 4), 8: (2, 4), 4: (1, 4), 2: (1, 2), 1: (1, 1)}
+MESH_NAMES = ("batch", "model")
+
+
+class CLIPTextEncoderWrapper(torch.nn.Module):
+    """Run ``CLIPTextModel`` as a stateless encoder returning a plain tensor.
+
+    Pins ``return_dict=False`` so graph capture sees a pure tensor
+    (last_hidden_state) rather than a ``BaseModelOutputWithPooling`` dataclass,
+    matching how the SD1.5 pipeline consumes it: ``text_encoder(input_ids)[0]``.
+    """
+
+    def __init__(self, encoder):
+        super().__init__()
+        self.encoder = encoder
+
+    def forward(self, input_ids):
+        return self.encoder(input_ids=input_ids, return_dict=False)[0]
+
+
+def shard_clip_text_encoder_specs(encoder) -> dict:
+    """Megatron-style tensor-parallel shard specs for ``CLIPTextModel``.
+
+    Mesh axes: ("batch", "model")
+    Column-parallel (q, k, v, fc1): ("model", "batch")
+    Row-parallel   (out_proj, fc2): ("batch", "model")
+
+    ``encoder`` is the raw ``CLIPTextModel``. Layer norms and embeddings are
+    left replicated. On a single device (mesh (1, 1)) these specs are a no-op.
+    """
+    specs = {}
+    for layer in encoder.text_model.encoder.layers:
+        attn = layer.self_attn
+        specs[attn.q_proj.weight] = ("model", "batch")
+        specs[attn.k_proj.weight] = ("model", "batch")
+        specs[attn.v_proj.weight] = ("model", "batch")
+        specs[attn.out_proj.weight] = ("batch", "model")
+
+        specs[layer.mlp.fc1.weight] = ("model", "batch")
+        specs[layer.mlp.fc2.weight] = ("batch", "model")
+
+    return specs
+
 
 class ModelVariant(StrEnum):
     """Available Stable Diffusion 1.5 model variants."""
 
     BASE = "Base"
+    TEXT_ENCODER = "TextEncoder"
 
 
 class ModelLoader(ForgeModel):
@@ -44,6 +95,9 @@ class ModelLoader(ForgeModel):
 
     _VARIANTS = {
         ModelVariant.BASE: ModelConfig(
+            pretrained_model_name="stable-diffusion-v1-5/stable-diffusion-v1-5",
+        ),
+        ModelVariant.TEXT_ENCODER: ModelConfig(
             pretrained_model_name="stable-diffusion-v1-5/stable-diffusion-v1-5",
         ),
     }
@@ -60,11 +114,16 @@ class ModelLoader(ForgeModel):
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
+        task = (
+            ModelTask.NLP_EMBED_GEN
+            if variant == ModelVariant.TEXT_ENCODER
+            else ModelTask.CONDITIONAL_GENERATION
+        )
         return ModelInfo(
             model="Stable Diffusion 1.5",
             variant=variant,
             group=ModelGroup.GENERALITY,
-            task=ModelTask.CONDITIONAL_GENERATION,
+            task=task,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
@@ -77,9 +136,17 @@ class ModelLoader(ForgeModel):
                 defaults to ``torch.bfloat16`` to match TT execution.
 
         Returns:
-            torch.nn.Module: The ``UNet2DConditionModel`` instance for SD1.5.
+            torch.nn.Module: The ``UNet2DConditionModel`` instance for SD1.5,
+            or a ``CLIPTextEncoderWrapper`` around the CLIP-L text encoder for
+            the ``TEXT_ENCODER`` variant.
         """
         dtype = dtype_override or torch.bfloat16
+
+        if self._variant == ModelVariant.TEXT_ENCODER:
+            text_encoder = CLIPTextModel.from_pretrained(
+                CLIP_REPO_ID, torch_dtype=dtype, **kwargs
+            )
+            return CLIPTextEncoderWrapper(text_encoder).eval()
 
         self.tokenizer = CLIPTokenizer.from_pretrained(
             "openai/clip-vit-large-patch14", **kwargs
@@ -110,9 +177,16 @@ class ModelLoader(ForgeModel):
             batch_size: Repetition factor for the prompt.
 
         Returns:
-            dict: ``{"sample": …, "timestep": 0, "encoder_hidden_states": …}``.
+            dict: ``{"sample": …, "timestep": 0, "encoder_hidden_states": …}``
+            for the UNet, or ``[input_ids]`` for the ``TEXT_ENCODER`` variant.
         """
         dtype = dtype_override or torch.bfloat16
+
+        if self._variant == ModelVariant.TEXT_ENCODER:
+            input_ids = torch.randint(
+                0, CLIP_VOCAB_SIZE, (batch_size, CLIP_MAX_SEQ_LEN), dtype=torch.long
+            )
+            return [input_ids]
 
         prompt = ["A fantasy landscape with mountains and rivers"] * batch_size
         text_input = self.tokenizer(prompt, return_tensors="pt")
@@ -131,3 +205,25 @@ class ModelLoader(ForgeModel):
             "timestep": 0,
             "encoder_hidden_states": text_embeddings.to(dtype),
         }
+
+    def get_mesh_config(self, num_devices: int):
+        """Return ``(mesh_shape, mesh_names)`` for a ("batch", "model") 2D mesh.
+
+        Supported device counts: 1, 2, 4, 8, 32.
+        """
+        if num_devices not in MESH_SHAPES:
+            raise ValueError(
+                f"Unsupported device count: {num_devices}. "
+                f"Expected one of {sorted(MESH_SHAPES)}."
+            )
+        return MESH_SHAPES[num_devices], MESH_NAMES
+
+    def load_shard_spec(self, model):
+        """Return tensor → partition_spec dict for the active component.
+
+        Only ``TEXT_ENCODER`` provides shard specs; the model object is the
+        ``CLIPTextEncoderWrapper`` returned by :meth:`load_model`.
+        """
+        if self._variant == ModelVariant.TEXT_ENCODER:
+            return shard_clip_text_encoder_specs(model.encoder)
+        return None
