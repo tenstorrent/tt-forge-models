@@ -10,7 +10,7 @@ transformer forward + multinomial sampling + BSQ-VAE code accumulation per scale
 then a single VAE decode. This reimplements the model's ``autoregressive_infer_cfg``
 with an explicit CPU/TT device split:
 
-  - Transformer on Tenstorrent, 8-way tensor-parallel sharded (mesh (1, 8),
+  - Transformer on Tenstorrent, tensor-parallel sharded (mesh (1, num_devices),
     Megatron head-parallel attention from ``loader.load_shard_spec``).
   - T5-XL text encoder, multinomial sampling and BSQ-VAE decode stay on CPU.
 
@@ -113,7 +113,7 @@ class InfinityConfig:
         # smaller value still decodes a full-resolution (coarse) image, since
         # every scale's codes are accumulated at the final resolution.
         self.max_scales = max_scales
-        # 8-way Megatron tensor-parallel sharding (needed so the large-scale
+        # Megatron tensor-parallel sharding (needed so the large-scale
         # attention does not OOM).
         self.shard = shard
         self.transformer_on_tt = transformer_on_tt
@@ -146,7 +146,7 @@ class InfinityPipeline:
         self.model_dtype = self.model.pos_start.dtype
 
     def shard_to_tt(self):
-        # Enable SPMD, build the (1, 8) mesh, move the transformer to the XLA
+        # Enable SPMD, build the (1, num_devices) mesh, move the transformer to the XLA
         # device, then mark every weight in the Megatron shard spec.
         _enable_spmd()
         num_devices = xr.global_runtime_device_count()
@@ -160,14 +160,76 @@ class InfinityPipeline:
         sched = _m.dynamic_resolution_h_w[self.config.h_div_w][self.config.pn]["scales"]
         return [(1, h, w) for (_, h, w) in sched]
 
+    def _ensure_cpu_twin(self):
+        """Lazily build the fp32 CPU golden transformer (only when PCC-checking).
+
+        A second transformer instance kept in fp32 on CPU, reusing the already
+        loaded BSQ-VAE (so only the transformer weights are re-read). No
+        ``_force_fp32_layernorm`` -- that decomposition only exists to dodge the
+        bf16 fused ttnn.layer_norm on TT; a native fp32 CPU LayerNorm is already
+        the ideal reference. ~8GB CPU RAM, so it is built once, on first use.
+        """
+        if getattr(self, "_cpu_twin", None) is None:
+            run_args = self.loader._build_run_args()
+            twin = _m.load_transformer(self.loader.vae, run_args)
+            self._cpu_twin = twin.to("cpu").float().eval()
+        return self._cpu_twin
+
+    def _golden_logits(self, x_cpu, br, sub_sched, attn_bias, L_si, tau):
+        """Run one block stack + logits head on the fp32 CPU twin.
+
+        Fed the same conditioning (``gss``/``ca_kv``/``cond_BD``) and attn bias as
+        the TT branch, downcast-free to CPU fp32, so the returned logits are a
+        pure fp32 reference for this scale's TT forward.
+        """
+        g = self._ensure_cpu_twin()
+        gss = br["gss"].to("cpu", torch.float32)
+        ca_feat, cu_seqlens, max_seqlen = br["ca_kv"]
+        ca_kv = (ca_feat.to("cpu", torch.float32), cu_seqlens.to("cpu"), max_seqlen)
+        cond_BD = br["cond_BD"].to("cpu", torch.float32)
+        attn_bias_cpu = attn_bias.to("cpu", torch.float32)
+
+        x = g.add_lvl_embeding_for_x_BLC(x_cpu, sub_sched)
+        for b in g.block_chunks:
+            for blk in b.module:
+                x = blk(
+                    x=x,
+                    cond_BD=gss,
+                    ca_kv=ca_kv,
+                    attn_bias_or_two_vector=attn_bias_cpu,
+                    attn_fn=None,
+                    scale_schedule=self.scale_schedule,
+                    rope2d_freqs_grid=g.rope2d_freqs_grid,
+                    scale_ind=0,
+                )
+        hidden_si = x[:, -L_si:]
+        return g.get_logits(hidden_si, cond_BD).mul(1 / tau).float()
+
     @torch.no_grad()
-    def generate(self, prompt: str, seed: Optional[int] = SEED) -> torch.Tensor:
+    def generate(
+        self,
+        prompt: str,
+        seed: Optional[int] = SEED,
+        pcc_hook=None,
+    ) -> torch.Tensor:
         """Reimplements ``Infinity.autoregressive_infer_cfg`` with a CPU/TT split.
 
         - T5-XL text encode -> CPU
         - transformer conditioning, blocks, logits, word_embed -> TT
         - multinomial sampling -> CPU
         - BSQ-VAE indices->codes, residual accumulation, decode -> CPU
+
+        Args:
+            prompt: text prompt.
+            seed: multinomial-sampling seed (``None`` -> unseeded).
+            pcc_hook: optional ``callable(tag, device_logits, golden_logits)``.
+                When given, every per-scale, per-CFG-branch TT transformer forward
+                is repeated on a lazy-loaded fp32 CPU twin fed the *same* block
+                inputs (packed tokens, conditioning, attn bias), and both logits
+                are handed to the hook -- so it measures the bf16-TT block stack +
+                logits head against the ideal fp32 reference, isolated per scale
+                (the twin is fed the TT-carried state, not its own, so errors do
+                not accumulate across scales). ``None`` -> no golden, no overhead.
         """
         m = self.model
         vae = self.vae
@@ -285,15 +347,31 @@ class InfinityPipeline:
             attn_bias = None
 
             # --- one batch-1 forward per CFG branch (TT, sharded) -> logits (CPU) ---
+            branch_tags = ("cond", "uncond")
             branch_logits = []
-            for br in branches:
-                x_BLC = torch.cat([br["sos"], *shared_inputs], dim=1)
+            for bi, br in enumerate(branches):
+                x_in = torch.cat([br["sos"], *shared_inputs], dim=1)
                 if attn_bias is None:
-                    attn_bias = _build_attn_bias(sub_sched, x_BLC)
-                x_BLC = _run_blocks(x_BLC, br, sub_sched, attn_bias)
+                    attn_bias = _build_attn_bias(sub_sched, x_in)
+                # Snapshot the block inputs (as CPU fp32) before the TT forward, so
+                # the golden twin is fed exactly the same packed sequence.
+                golden_in = (
+                    x_in.to("cpu", torch.float32) if pcc_hook is not None else None
+                )
+                x_BLC = _run_blocks(x_in, br, sub_sched, attn_bias)
                 hidden_si = x_BLC[:, -L_si:]
                 logits = m.get_logits(hidden_si, br["cond_BD"]).mul(1 / tau_list[si])
-                branch_logits.append(cpu_cast(logits).float())
+                tt_logits = cpu_cast(logits).float()
+                branch_logits.append(tt_logits)
+
+                # --- fp32 CPU twin on the same inputs -> golden logits ---
+                if pcc_hook is not None:
+                    golden = self._golden_logits(
+                        golden_in, br, sub_sched, attn_bias, L_si, tau_list[si]
+                    )
+                    pcc_hook(
+                        f"scale {si + 1}/{n_run} {branch_tags[bi]}", tt_logits, golden
+                    )
 
             # CFG combine on logits: cfg*cond + (1-cfg)*uncond.
             if use_cfg:
