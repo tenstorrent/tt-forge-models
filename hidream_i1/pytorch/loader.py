@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-HiDream-I1-Fast component loader.
+HiDream-I1-Full component loader.
 
 Each variant corresponds to one independently loadable component:
   - TextEncoder    → CLIPTextModelWithProjection (CLIP ViT-L/14)         params=0.123 B
@@ -29,6 +29,7 @@ from ...config import (
     StrEnum,
 )
 from .src.model_utils import (
+    CFG_BATCH,
     CLIP_VOCAB_SIZE,
     DTYPE,
     HIDREAM_REPO_ID,
@@ -63,7 +64,7 @@ from .src.model_utils import (
 
 
 class ModelVariant(StrEnum):
-    """Loadable components of the HiDream-I1-Fast pipeline."""
+    """Loadable components of the HiDream-I1-Full pipeline."""
 
     TEXT_ENCODER = "TextEncoder"
     TEXT_ENCODER_2 = "TextEncoder2"
@@ -74,10 +75,10 @@ class ModelVariant(StrEnum):
 
 
 class ModelLoader(ForgeModel):
-    """Load individual HiDream-I1-Fast components without pulling the full pipeline.
+    """Load individual HiDream-I1-Full components without pulling the full pipeline.
 
     text_encoder, text_encoder_2, text_encoder_3, transformer, and vae weights
-    come from HiDream-ai/HiDream-I1-Fast. text_encoder_4 (Llama-3.1-8B) is loaded
+    come from HiDream-ai/HiDream-I1-Full. text_encoder_4 (Llama-3.1-8B) is loaded
     separately from the Meta repo (HiDream snapshot does not ship Llama).
     """
 
@@ -107,7 +108,7 @@ class ModelLoader(ForgeModel):
             else ModelTask.CONDITIONAL_GENERATION
         )
         return ModelInfo(
-            model="HiDreamI1Fast",
+            model="HiDreamI1Full",
             variant=variant,
             group=ModelGroup.RED,
             task=task,
@@ -182,8 +183,9 @@ class ModelLoader(ForgeModel):
         TEXT_ENCODER_2  → [input_ids (1,128) int64]
         TEXT_ENCODER_3  → [input_ids (1,128) int64, attention_mask (1,128) int64]
         TEXT_ENCODER_4  → [input_ids (1,128) int64, attention_mask (1,128) int64]
-        TRANSFORMER     → [hidden_states (1,16,128,128), timesteps (1,), enc_t5 (1,128,4096),
-                           enc_llama3 (32,1,128,4096), pooled_embeds (1,2048)]
+        TRANSFORMER     → [hidden_states (2,16,128,128), timesteps (2,) int64, enc_t5 (2,128,4096),
+                           enc_llama3 (32,2,128,4096), pooled_embeds (2,2048)]
+                          (batch 2 = CFG uncond+cond; timesteps int64 per UniPCMultistepScheduler)
         VAE             → [z (1,16,128,128)]
         """
         dtype = dtype_override if dtype_override is not None else DTYPE
@@ -216,16 +218,16 @@ class ModelLoader(ForgeModel):
 
         if self._variant == ModelVariant.TRANSFORMER:
             hidden_states = torch.randn(
-                1, LATENT_CHANNELS, LATENT_H, LATENT_W, dtype=dtype
+                CFG_BATCH, LATENT_CHANNELS, LATENT_H, LATENT_W, dtype=dtype
             )
-            timesteps = torch.tensor([1.0], dtype=torch.float32)
+            timesteps = torch.ones(CFG_BATCH, dtype=torch.int64)
             encoder_hidden_states_t5 = torch.randn(
-                1, MAX_SEQ_LEN, T5_HIDDEN, dtype=dtype
+                CFG_BATCH, MAX_SEQ_LEN, T5_HIDDEN, dtype=dtype
             )
             encoder_hidden_states_llama3 = torch.randn(
-                LLAMA_NUM_LAYERS, 1, MAX_SEQ_LEN, LLAMA_HIDDEN, dtype=dtype
+                LLAMA_NUM_LAYERS, CFG_BATCH, MAX_SEQ_LEN, LLAMA_HIDDEN, dtype=dtype
             )
-            pooled_embeds = torch.randn(1, POOLED_TEXT_EMB_DIM, dtype=dtype)
+            pooled_embeds = torch.randn(CFG_BATCH, POOLED_TEXT_EMB_DIM, dtype=dtype)
             return [
                 hidden_states,
                 timesteps,
