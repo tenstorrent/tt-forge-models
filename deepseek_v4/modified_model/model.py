@@ -958,7 +958,7 @@ class MTPBlock(Block):
         self.embed: ParallelEmbedding = None
         self.head: ParallelHead = None
 
-    @torch.inference_mode()
+    @torch.no_grad()
     def forward(
         self, x: torch.Tensor, start_pos: int, input_ids: torch.Tensor
     ) -> torch.Tensor:
@@ -1004,7 +1004,7 @@ class Transformer(nn.Module):
             self.hc_head_base = nn.Parameter(torch.empty(hc_mult))
             self.hc_head_scale = nn.Parameter(torch.empty(1))
 
-    @torch.inference_mode()
+    @torch.no_grad()
     def forward(self, input_ids: torch.Tensor, start_pos: int = 0):
         h = self.embed(input_ids)
         h = h.unsqueeze(2).repeat(1, 1, self.hc_mult, 1)
