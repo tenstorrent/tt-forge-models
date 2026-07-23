@@ -224,6 +224,53 @@ class OmniGenTransformerWrapper(torch.nn.Module):
         )[0]
 
 
+class _SplitGateUpFeedForward(torch.nn.Module):
+    """Numerically-identical rewrite of ``OmniGenFeedForward`` that splits the
+    fused ``gate_up_proj`` into separate ``gate_proj`` / ``up_proj`` linears.
+
+    ``OmniGenFeedForward`` packs both projections into one Linear whose output is
+    ``chunk(2, dim=-1)``-ed into ``[gate, up]`` (weight rows ``[0:inter]`` feed
+    ``gate``, rows ``[inter:2*inter]`` feed ``up``). Column-parallel Megatron
+    sharding of that *fused* weight along its output dim would split the
+    ``[gate; up]`` concat across devices, so ``SiLU(gate) * up`` would pair
+    channels living on different devices -- incorrect. Splitting first lets each
+    projection be column-parallel independently, so every device holds the same
+    intermediate-channel range of both ``gate`` and ``up`` and the elementwise
+    product stays local. ``down_proj`` (row-parallel) is reused unchanged.
+    """
+
+    def __init__(self, mlp):
+        super().__init__()
+        fused = mlp.gate_up_proj  # Linear(hidden, 2 * intermediate), bias=False
+        two_inter, hidden = fused.weight.shape
+        assert two_inter % 2 == 0, "gate_up_proj output must be 2 * intermediate"
+        inter = two_inter // 2
+        has_bias = fused.bias is not None
+
+        gate_w, up_w = fused.weight.data.chunk(2, dim=0)  # rows [0:inter], [inter:]
+        self.gate_proj = torch.nn.Linear(
+            hidden, inter, bias=has_bias, device=gate_w.device, dtype=gate_w.dtype
+        )
+        self.up_proj = torch.nn.Linear(
+            hidden, inter, bias=has_bias, device=up_w.device, dtype=up_w.dtype
+        )
+        with torch.no_grad():
+            self.gate_proj.weight.copy_(gate_w)
+            self.up_proj.weight.copy_(up_w)
+            if has_bias:
+                gate_b, up_b = fused.bias.data.chunk(2, dim=0)
+                self.gate_proj.bias.copy_(gate_b)
+                self.up_proj.bias.copy_(up_b)
+
+        self.down_proj = mlp.down_proj
+        self.activation_fn = mlp.activation_fn
+
+    def forward(self, hidden_states):
+        gate = self.gate_proj(hidden_states)
+        up = self.up_proj(hidden_states)
+        return self.down_proj(up * self.activation_fn(gate))
+
+
 # ---------------------------------------------------------------------------
 # SPMD shard specifications
 # ---------------------------------------------------------------------------
@@ -466,10 +513,15 @@ def shard_transformer_specs(transformer) -> dict:
             if target.bias is not None:
                 specs[target.bias] = ("batch",)
 
+        # MLP is rewritten to _SplitGateUpFeedForward (fused gate_up_proj split
+        # into gate_proj / up_proj) so each column-parallel shard keeps the same
+        # intermediate-channel range of gate and up -- see _SplitGateUpFeedForward.
         mlp = block.mlp
-        specs[mlp.gate_up_proj.weight] = ("model", "batch")
-        if mlp.gate_up_proj.bias is not None:
-            specs[mlp.gate_up_proj.bias] = ("model",)
+        for proj_name in ("gate_proj", "up_proj"):
+            proj = getattr(mlp, proj_name)
+            specs[proj.weight] = ("model", "batch")
+            if proj.bias is not None:
+                specs[proj.bias] = ("model",)
         specs[mlp.down_proj.weight] = ("batch", "model")
         if mlp.down_proj.bias is not None:
             specs[mlp.down_proj.bias] = ("batch",)
