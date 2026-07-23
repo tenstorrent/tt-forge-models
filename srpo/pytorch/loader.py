@@ -174,3 +174,46 @@ class ModelLoader(ForgeModel):
             from the mapping are replicated across the mesh.
         """
         return build_shard_spec(model)
+
+    # ------------------------------------------------------------------ #
+    # TAEF1 lightweight preview VAE decoder on TT.
+    #
+    # SRPO's full AutoencoderKL VAE noises out / OOMs on TT at native res.
+    # TAEF1 (madebyollin/taef1) is the tiny FLUX autoencoder — its conv-only
+    # decoder (no complex/FFT, no GroupNorm) is the tractable preview decoder
+    # that runs on TT and decodes SRPO's FLUX-native latents. See tt-xla #5537.
+    # ------------------------------------------------------------------ #
+
+    TAEF1_REPO = "madebyollin/taef1"
+
+    def load_taef1_decoder(self):
+        """Load the TAEF1 tiny FLUX autoencoder (preview VAE)."""
+        from diffusers import AutoencoderTiny
+
+        self.taef1 = (
+            AutoencoderTiny.from_pretrained(self.TAEF1_REPO, torch_dtype=torch.float32)
+            .eval()
+        )
+        return self.taef1
+
+    def decode_taef1(self, latents, on_tt=False):
+        """Decode FLUX latents [B, 16, H/8, W/8] -> image [-1, 1] via TAEF1.
+
+        With ``on_tt=True`` the conv decoder runs on TT via
+        ``torch.compile(backend="tt")``. ``AutoencoderTiny.decode(z)`` is
+        ``self.decoder(z)`` directly (no pre-scaling), so the raw latents feed
+        the decoder in both modes. ``load_taef1_decoder`` must run first.
+        """
+        vae = getattr(self, "taef1", None) or self.load_taef1_decoder()
+        with torch.no_grad():
+            if not on_tt:
+                return vae.decode(latents).sample
+
+            import torch_xla  # noqa: F401
+            import torch_xla.core.xla_model as xm
+
+            dev = xm.xla_device()
+            dec = vae.decoder.to(dtype=torch.bfloat16).to(dev)
+            compiled = torch.compile(lambda z: dec(z), backend="tt")
+            out = compiled(latents.to(dtype=torch.bfloat16).to(dev))
+            return out.to("cpu").to(torch.float32)
