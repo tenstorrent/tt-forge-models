@@ -1,0 +1,11 @@
+# Intentionally empty (trigger file only).
+#
+# The kokoro acoustic model is installed with --no-deps from the sibling
+# requirements.nodeps.txt. The test runner (RequirementsManager.for_loader)
+# only installs a requirements.nodeps.txt when a sibling requirements.txt
+# exists, so this file must be present even though it declares nothing.
+#
+# kokoro's own import-time deps (huggingface_hub, loguru, numpy, transformers,
+# torch) are all already guaranteed by the tt-xla environment — loguru is a
+# dependency of the pjrt-plugin-tt package itself, and the rest are core — so
+# nothing needs to be installed here.
