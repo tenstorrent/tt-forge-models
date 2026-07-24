@@ -28,6 +28,7 @@ class ModelVariant(StrEnum):
     """Available Qwen 3.5 multimodal model variants."""
 
     QWEN_3_5_27B = "Qwen/Qwen3.5-27B"
+    QWEN_3_5_35B_A3B = "Qwen/Qwen3.5-35B-A3B"
 
 
 class ModelLoader(ForgeModel):
@@ -36,6 +37,10 @@ class ModelLoader(ForgeModel):
     _VARIANTS = {
         ModelVariant.QWEN_3_5_27B: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.QWEN_3_5_27B),
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_5_35B_A3B: LLMModelConfig(
+            pretrained_model_name=str(ModelVariant.QWEN_3_5_35B_A3B),
             max_length=128,
         ),
     }
@@ -90,8 +95,9 @@ class ModelLoader(ForgeModel):
     def load_model(self, *, dtype_override=None, **kwargs):
         """Load the full Qwen 3.5 VLM (vision encoder + hybrid/MoE text decoder).
 
-        AutoModelForImageTextToText resolves to Qwen3_5ForConditionalGeneration.
-        MTP weights (^mtp.*) are silently dropped on load.
+        AutoModelForImageTextToText resolves to Qwen3_5ForConditionalGeneration
+        for the dense 27B and Qwen3_5MoeForConditionalGeneration for the 35B-A3B
+        MoE variant.
 
         Args:
             dtype_override: torch.dtype to use; defaults to bfloat16.
@@ -216,10 +222,24 @@ class ModelLoader(ForgeModel):
         shard_specs[merger.linear_fc2.weight] = ("batch", "model")
 
         for layer in model.model.language_model.layers:
-            # Qwen3.5-27B is dense (the MoE variants are not supported here).
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+            mlp = layer.mlp
+            if hasattr(mlp, "experts"):
+                # MoE layer (35B-A3B): the routed experts' fused weights
+                # (mlp.experts.gate_up_proj / down_proj) are sharded on the
+                # expert dimension by get_tt_moe_shard_specs. The router
+                # (mlp.gate.weight) and shared_expert_gate stay replicated so
+                # every device can score all experts before dispatch. The
+                # always-on shared expert is a dense MLP: column-parallel
+                # gate/up, row-parallel down.
+                shared = mlp.shared_expert
+                shard_specs[shared.gate_proj.weight] = ("model", "batch")
+                shard_specs[shared.up_proj.weight] = ("model", "batch")
+                shard_specs[shared.down_proj.weight] = ("batch", "model")
+            else:
+                # Dense layer (27B): plain gate/up/down MLP.
+                shard_specs[mlp.gate_proj.weight] = ("model", "batch")
+                shard_specs[mlp.up_proj.weight] = ("model", "batch")
+                shard_specs[mlp.down_proj.weight] = ("batch", "model")
 
             if layer.layer_type == "full_attention":
                 shard_specs[layer.self_attn.q_proj.weight] = ("batch", "model")
