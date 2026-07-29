@@ -137,7 +137,9 @@ class ModelLoader(ForgeModel):
 
         # If image is None, use default dataset image (backward compatibility)
         if image is None:
-            dataset = load_dataset("chrismontes/dog_images", split="train")
+            dataset = load_dataset(
+                "chrismontes/dog_images", split="train", drop_labels=True
+            )
             image = dataset[0]["image"]
 
         return self._preprocessor.preprocess(

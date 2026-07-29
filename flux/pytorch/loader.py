@@ -2,262 +2,165 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-FLUX model loader implementation for text-to-image generation
+FLUX.1-dev component loader (1024x1024 native resolution).
+
+Components:
+  - ClipTextEncoder → CLIPTextModel          (pooled text embedding)
+  - T5TextEncoder   → T5EncoderModel         (sequence text embedding)
+  - Transformer     → FluxTransformer2DModel (single denoise step)
+  - Vae             → AutoencoderKL decoder
 """
-import torch
-import numpy as np
-from diffusers import FluxPipeline, AutoencoderTiny
+
 from typing import Optional
+
+import torch
 
 from ...base import ForgeModel
 from ...config import (
-    ModelConfig,
-    ModelInfo,
-    ModelGroup,
-    ModelTask,
-    ModelSource,
     Framework,
+    ModelConfig,
+    ModelGroup,
+    ModelInfo,
+    ModelSource,
+    ModelTask,
     StrEnum,
+)
+from .src.model_utils import (
+    DTYPE,
+    GUIDANCE_SCALE,
+    LATENT_GRID_H,
+    LATENT_GRID_W,
+    MAX_SEQUENCE_LENGTH,
+    MESH_NAMES,
+    MESH_SHAPES,
+    REPO_ID,
+    ClipTextEncoderWrapper,
+    FluxTransformerWrapper,
+    FluxVAEDecoderWrapper,
+    T5TextEncoderWrapper,
+    load_clip_text_encoder,
+    load_t5_text_encoder,
+    load_transformer,
+    load_vae,
+    make_packed_latents,
+    make_pooled_embeds,
+    make_prompt_embeds,
+    make_vae_decoder_input,
+    prepare_latent_image_ids,
+    prepare_text_ids,
+    shard_transformer_specs,
+    tokenize_clip,
+    tokenize_t5,
 )
 
 
 class ModelVariant(StrEnum):
-    """Available FLUX model variants."""
+    """Loadable components of the FLUX.1-dev pipeline."""
 
-    SCHNELL = "Schnell"
-    DEV = "Dev"
+    CLIP_TEXT_ENCODER = "ClipTextEncoder"
+    T5_TEXT_ENCODER = "T5TextEncoder"
+    TRANSFORMER = "Transformer"
+    VAE = "Vae"
 
 
 class ModelLoader(ForgeModel):
-    """FLUX model loader implementation for text-to-image generation tasks."""
+    """Load individual FLUX.1-dev components without instantiating FluxPipeline."""
 
-    # Dictionary of available model variants
     _VARIANTS = {
-        ModelVariant.SCHNELL: ModelConfig(
-            pretrained_model_name="black-forest-labs/FLUX.1-schnell",
-        ),
-        ModelVariant.DEV: ModelConfig(
-            pretrained_model_name="black-forest-labs/FLUX.1-dev",
-        ),
+        ModelVariant.CLIP_TEXT_ENCODER: ModelConfig(pretrained_model_name=REPO_ID),
+        ModelVariant.T5_TEXT_ENCODER: ModelConfig(pretrained_model_name=REPO_ID),
+        ModelVariant.TRANSFORMER: ModelConfig(pretrained_model_name=REPO_ID),
+        ModelVariant.VAE: ModelConfig(pretrained_model_name=REPO_ID),
     }
+    DEFAULT_VARIANT = ModelVariant.TRANSFORMER
 
-    # Default variant to use
-    DEFAULT_VARIANT = ModelVariant.SCHNELL
-
-    def __init__(self, variant: Optional[ModelVariant] = None):
-        """Initialize ModelLoader with specified variant.
-
-        Args:
-            variant: Optional ModelVariant specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-        """
-        super().__init__(variant)
-        self.pipe = None
-        self.guidance_scale = 0.0 if variant == ModelVariant.SCHNELL else 3.5
+    _TEXT_VARIANTS = (ModelVariant.CLIP_TEXT_ENCODER, ModelVariant.T5_TEXT_ENCODER)
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
-        """Implementation method for getting model info with validated variant.
-
-        Args:
-            variant: Optional ModelVariant specifying which variant to use.
-                     If None, DEFAULT_VARIANT is used.
-
-        Returns:
-            ModelInfo: Information about the model and variant
-        """
         if variant is None:
             variant = cls.DEFAULT_VARIANT
-
+        task = (
+            ModelTask.NLP_EMBED_GEN
+            if variant in cls._TEXT_VARIANTS
+            else ModelTask.MM_IMAGE_TTT
+        )
         return ModelInfo(
             model="FLUX",
             variant=variant,
-            group=ModelGroup.RED
-            if variant == ModelVariant.SCHNELL
-            else ModelGroup.GENERALITY,
-            task=ModelTask.MM_IMAGE_TTT,  # FIXME: Update task to Text to Image
+            group=ModelGroup.RED,
+            task=task,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
 
-    def _load_pipeline(self, dtype_override=None):
-        """Load pipeline for the current variant.
+    def load_model(self, *, dtype_override: Optional[torch.dtype] = None, **kwargs):
+        """Load and return the component for this variant as a torch.nn.Module."""
+        dtype = dtype_override if dtype_override is not None else DTYPE
 
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-                           If not provided, the model will use its default dtype (typically bfloat16).
+        if self._variant == ModelVariant.CLIP_TEXT_ENCODER:
+            return ClipTextEncoderWrapper(load_clip_text_encoder(dtype)).eval()
+        if self._variant == ModelVariant.T5_TEXT_ENCODER:
+            return T5TextEncoderWrapper(load_t5_text_encoder(dtype)).eval()
+        if self._variant == ModelVariant.TRANSFORMER:
+            return FluxTransformerWrapper(load_transformer(dtype)).eval()
+        if self._variant == ModelVariant.VAE:
+            return FluxVAEDecoderWrapper(load_vae(dtype)).eval()
 
-        Returns:
-            The loaded pipeline instance
+        raise ValueError(f"Unknown variant: {self._variant}")
+
+    def get_mesh_config(self, num_devices: int):
+        """Return (mesh_shape, mesh_names) for a ("batch", "model") 2D mesh.
+
+        Supported device counts: 1, 2, 4, 8. The transformer is sharded
+        tensor-parallel along the "model" axis.
         """
-        pipe_kwargs = {
-            "use_safetensors": True,
-        }
-        if dtype_override is not None:
-            pipe_kwargs["torch_dtype"] = dtype_override
+        if num_devices not in MESH_SHAPES:
+            raise ValueError(
+                f"Unsupported device count: {num_devices}. "
+                f"Expected one of {sorted(MESH_SHAPES)}."
+            )
+        return MESH_SHAPES[num_devices], MESH_NAMES
 
-        # Initialize pipeline
-        self.pipe = FluxPipeline.from_pretrained(
-            self._variant_config.pretrained_model_name, **pipe_kwargs
-        )
+    def load_shard_spec(self, model):
+        """Return tensor -> partition_spec dict for the active component.
 
-        vae_kwargs = {}
-        if dtype_override is not None:
-            vae_kwargs["torch_dtype"] = dtype_override
-
-        # Replace VAE with tiny version for efficiency
-        self.pipe.vae = AutoencoderTiny.from_pretrained(
-            "madebyollin/taef1", **vae_kwargs
-        )
-
-        # Enable optimizations
-        self.pipe.enable_attention_slicing()
-        self.pipe.enable_vae_tiling()
-
-        return self.pipe
-
-    def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the FLUX transformer model instance for this instance's variant.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the model's default dtype.
-                           If not provided, the model will use its default dtype (typically bfloat16).
-
-        Returns:
-            torch.nn.Module: The FLUX transformer model instance for text-to-image generation.
+        Expects the same wrapper object returned by load_model(). Only the
+        TRANSFORMER variant is sharded today (the others fit a single chip).
         """
-        # Ensure pipeline is loaded
-        if self.pipe is None:
-            self._load_pipeline(dtype_override=dtype_override)
+        if self._variant == ModelVariant.TRANSFORMER:
+            return shard_transformer_specs(model.transformer)
+        return None
 
-        # Apply dtype override if specified
-        if dtype_override is not None:
-            self.pipe.transformer = self.pipe.transformer.to(dtype_override)
+    def load_inputs(self, dtype_override: Optional[torch.dtype] = None, **kwargs):
+        """Return synthetic inputs for the active component at 1024x1024."""
+        dtype = dtype_override if dtype_override is not None else DTYPE
 
-        return self.pipe.transformer
+        if self._variant == ModelVariant.CLIP_TEXT_ENCODER:
+            return [tokenize_clip()]
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the FLUX model with this instance's variant settings.
+        if self._variant == ModelVariant.T5_TEXT_ENCODER:
+            return [tokenize_t5()]
 
-        Args:
-            dtype_override: Optional torch.dtype to override the model inputs' default dtype.
-            batch_size: Optional batch size to override the default batch size of 1.
+        if self._variant == ModelVariant.TRANSFORMER:
+            hidden_states = make_packed_latents(dtype)
+            pooled_projections = make_pooled_embeds(dtype)
+            encoder_hidden_states = make_prompt_embeds(dtype)
+            timestep = torch.tensor([1.0], dtype=dtype)
+            guidance = torch.full([1], GUIDANCE_SCALE, dtype=dtype)
+            txt_ids = prepare_text_ids(MAX_SEQUENCE_LENGTH, dtype)
+            img_ids = prepare_latent_image_ids(LATENT_GRID_H, LATENT_GRID_W, dtype)
+            return [
+                hidden_states,
+                timestep,
+                guidance,
+                pooled_projections,
+                encoder_hidden_states,
+                txt_ids,
+                img_ids,
+            ]
 
-        Returns:
-            dict: Input tensors that can be fed to the transformer model.
-        """
-        # Ensure pipeline is initialized
-        if self.pipe is None:
-            self._load_pipeline(dtype_override=dtype_override)
+        if self._variant == ModelVariant.VAE:
+            return [make_vae_decoder_input(dtype)]
 
-        # Configuration
-        max_sequence_length = 256
-        prompt = "An astronaut riding a horse in a futuristic city"
-        do_classifier_free_guidance = self.guidance_scale > 1.0
-        num_inference_steps = 1
-        height = 128
-        width = 128
-        num_images_per_prompt = 1
-        dtype = dtype_override if dtype_override is not None else torch.bfloat16
-        num_channels_latents = self.pipe.transformer.config.in_channels // 4
-
-        # Text encoding for CLIP
-        text_inputs_clip = self.pipe.tokenizer(
-            prompt,
-            padding="max_length",
-            max_length=self.pipe.tokenizer_max_length,
-            truncation=True,
-            return_tensors="pt",
-        )
-        text_input_ids_clip = text_inputs_clip.input_ids
-        pooled_prompt_embeds = self.pipe.text_encoder(
-            text_input_ids_clip, output_hidden_states=False
-        ).pooler_output
-        pooled_prompt_embeds = pooled_prompt_embeds.to(dtype=dtype)
-        pooled_prompt_embeds = pooled_prompt_embeds.repeat(
-            batch_size, num_images_per_prompt
-        )
-        pooled_prompt_embeds = pooled_prompt_embeds.view(
-            batch_size * num_images_per_prompt, -1
-        )
-
-        # Text encoding for T5
-        text_inputs_t5 = self.pipe.tokenizer_2(
-            prompt,
-            padding="max_length",
-            max_length=max_sequence_length,
-            truncation=True,
-            return_length=False,
-            return_overflowing_tokens=False,
-            return_tensors="pt",
-        )
-        text_input_ids_t5 = text_inputs_t5.input_ids
-        prompt_embeds = self.pipe.text_encoder_2(
-            text_input_ids_t5, output_hidden_states=False
-        )[0]
-        prompt_embeds = prompt_embeds.to(dtype=dtype)
-        _, seq_len_t5, _ = prompt_embeds.shape
-        prompt_embeds = prompt_embeds.repeat(batch_size, num_images_per_prompt, 1)
-        prompt_embeds = prompt_embeds.view(
-            batch_size * num_images_per_prompt, seq_len_t5, -1
-        )
-
-        # Create text IDs
-        text_ids = torch.zeros(prompt_embeds.shape[1], 3).to(dtype=dtype)
-
-        # Create latents
-        height_latent = 2 * (int(height) // (self.pipe.vae_scale_factor * 2))
-        width_latent = 2 * (int(width) // (self.pipe.vae_scale_factor * 2))
-
-        shape = (
-            batch_size * num_images_per_prompt,
-            num_channels_latents,
-            height_latent,
-            width_latent,
-        )
-
-        latents = torch.randn(shape, dtype=dtype)
-        latents = latents.view(
-            batch_size * num_images_per_prompt,
-            num_channels_latents,
-            height_latent // 2,
-            2,
-            width_latent // 2,
-            2,
-        )
-        latents = latents.permute(0, 2, 4, 1, 3, 5)
-        latents = latents.reshape(
-            batch_size * num_images_per_prompt,
-            (height_latent // 2) * (width_latent // 2),
-            num_channels_latents * 4,
-        )
-
-        # Prepare latent image IDs
-        latent_image_ids = torch.zeros(height_latent // 2, width_latent // 2, 3)
-        latent_image_ids[..., 1] = (
-            latent_image_ids[..., 1] + torch.arange(height_latent // 2)[:, None]
-        )
-        latent_image_ids[..., 2] = (
-            latent_image_ids[..., 2] + torch.arange(width_latent // 2)[None, :]
-        )
-        latent_image_ids = latent_image_ids.reshape(-1, 3).to(dtype=dtype)
-
-        # Prepare guidance
-        if do_classifier_free_guidance:
-            guidance = torch.full([batch_size], self.guidance_scale, dtype=dtype)
-        else:
-            guidance = None
-
-        # Prepare inputs
-        inputs = {
-            "hidden_states": latents,
-            "timestep": torch.tensor([1.0], dtype=dtype),
-            "guidance": guidance,
-            "pooled_projections": pooled_prompt_embeds,
-            "encoder_hidden_states": prompt_embeds,
-            "txt_ids": text_ids,
-            "img_ids": latent_image_ids,
-            "joint_attention_kwargs": {},
-        }
-
-        return inputs
+        raise ValueError(f"Unknown variant: {self._variant}")

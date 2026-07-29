@@ -11,6 +11,13 @@ import torch
 from .flux_modules import PyramidFluxTransformer
 
 
+# HuggingFace repo carrying the real Pyramid Flow miniFLUX weights (ungated).
+_HF_REPO = "rain1011/pyramid-flow-miniflux"
+# Variant -> the DiT subfolder inside the repo (each has config.json +
+# diffusion_pytorch_model.safetensors). 768p is the default bringup target.
+_DIT_SUBFOLDER = "diffusion_transformer_768p"
+
+
 # ============================================================================
 # Architectural constants matching `rain1011/pyramid-flow-miniflux`
 # (Pyramid Flow miniFLUX-768p DiT, see
@@ -20,13 +27,13 @@ from .flux_modules import PyramidFluxTransformer
 DIT_CONFIG = dict(
     patch_size=1,
     in_channels=64,
-    num_layers=19,
-    num_single_layers=38,
-    attention_head_dim=128,
-    num_attention_heads=24,
+    num_layers=8,
+    num_single_layers=16,
+    attention_head_dim=64,
+    num_attention_heads=30,
     joint_attention_dim=4096,
     pooled_projection_dim=768,
-    axes_dims_rope=[16, 56, 56],
+    axes_dims_rope=[16, 24, 24],
     use_flash_attn=False,
     use_temporal_causal=True,
     interp_condition_pos=True,
@@ -53,15 +60,22 @@ _SMOKE_BATCH = 1
 
 def load_transformer(dtype: torch.dtype) -> PyramidFluxTransformer:
     """
-    Instantiate the PyramidFluxTransformer DiT with random weights.
+    Load the real Pyramid Flow miniFLUX DiT with pretrained weights.
 
-    Pyramid Flow has no diffusers integration; we vendor the model code
-    locally and instantiate from scratch. Weights are random — sufficient for
-    compilation / op-coverage error analysis, not for accuracy.
+    The weights come from the public (ungated) `rain1011/pyramid-flow-miniflux`
+    HuggingFace repo via `from_pretrained`. If the download fails (e.g. no
+    network), we fall back to a randomly-initialised model with the corrected
+    miniFLUX config so compilation / op-coverage analysis can still run.
     """
-    model = PyramidFluxTransformer(**DIT_CONFIG)
-    model = model.to(dtype=dtype).eval()
-    return model
+    try:
+        model = PyramidFluxTransformer.from_pretrained(
+            _HF_REPO,
+            subfolder=_DIT_SUBFOLDER,
+            torch_dtype=dtype,
+        )
+    except Exception:
+        model = PyramidFluxTransformer(**DIT_CONFIG).to(dtype=dtype)
+    return model.eval()
 
 
 # ============================================================================

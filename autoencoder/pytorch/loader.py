@@ -104,7 +104,7 @@ class ModelLoader(ForgeModel):
                     transforms.Normalize((0.1307,), (0.3081,)),
                 ]
             )
-            dataset = load_dataset("mnist")
+            dataset = load_dataset("ylecun/mnist")
             sample = dataset["train"][0]["image"]
             sample_tensor = transform(sample).view(1, -1)
             batch_tensor = sample_tensor.repeat(batch_size, 1)
@@ -116,7 +116,7 @@ class ModelLoader(ForgeModel):
                     transforms.Normalize((0.1307,), (0.3081,)),
                 ]
             )
-            dataset = load_dataset("mnist")
+            dataset = load_dataset("ylecun/mnist")
             sample = dataset["train"][0]["image"]
             sample_tensor = transform(sample).unsqueeze(0)
             batch_tensor = sample_tensor.repeat(batch_size, 1, 1, 1)
