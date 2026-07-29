@@ -1,11 +1,11 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Qwen 2.5 VL model loader implementation for vision-language tasks.
+Qwen2-VL model loader implementation for vision-language tasks.
 """
 import torch
-from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, AwqConfig
+from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
 from typing import Optional
 
 
@@ -23,39 +23,23 @@ from .src.model import Wrapper
 
 
 class ModelVariant(StrEnum):
-    """Available Qwen 2.5 VL model variants for vision-language tasks."""
+    """Available Qwen2-VL model variants for vision-language tasks."""
 
-    QWEN_2_5_VL_3B_INSTRUCT = "3B_Instruct"
-    QWEN_2_5_VL_7B_INSTRUCT = "7B_Instruct"
-    QWEN_2_5_VL_3B_INSTRUCT_AWQ = "3B_INSTRUCT_Awq"
-    QWEN_2_5_VL_7B_INSTRUCT_AWQ = "7B_INSTRUCT_Awq"
-    QWEN_2_5_VL_72B_INSTRUCT = "72B_Instruct"
+    QWEN_2_VL_72B_INSTRUCT = "72B_Instruct"
 
 
 class ModelLoader(ForgeModel):
-    """Qwen 2.5 VL model loader implementation for vision-language tasks."""
+    """Qwen2-VL model loader implementation for vision-language tasks."""
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
-        ModelVariant.QWEN_2_5_VL_3B_INSTRUCT: LLMModelConfig(
-            pretrained_model_name="Qwen/Qwen2.5-VL-3B-Instruct",
-        ),
-        ModelVariant.QWEN_2_5_VL_7B_INSTRUCT: LLMModelConfig(
-            pretrained_model_name="Qwen/Qwen2.5-VL-7B-Instruct",
-        ),
-        ModelVariant.QWEN_2_5_VL_3B_INSTRUCT_AWQ: LLMModelConfig(
-            pretrained_model_name="Qwen/Qwen2.5-VL-3B-Instruct-AWQ",
-        ),
-        ModelVariant.QWEN_2_5_VL_7B_INSTRUCT_AWQ: LLMModelConfig(
-            pretrained_model_name="Qwen/Qwen2.5-VL-7B-Instruct-AWQ",
-        ),
-        ModelVariant.QWEN_2_5_VL_72B_INSTRUCT: LLMModelConfig(
-            pretrained_model_name="Qwen/Qwen2.5-VL-72B-Instruct",
+        ModelVariant.QWEN_2_VL_72B_INSTRUCT: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen2-VL-72B-Instruct",
         ),
     }
 
     # Default variant to use
-    DEFAULT_VARIANT = ModelVariant.QWEN_2_5_VL_3B_INSTRUCT
+    DEFAULT_VARIANT = ModelVariant.QWEN_2_VL_72B_INSTRUCT
 
     # Shared configuration parameters
     messages = [
@@ -98,11 +82,9 @@ class ModelLoader(ForgeModel):
             ModelInfo: Information about the model and variant
         """
         return ModelInfo(
-            model="Qwen 2.5-VL",
+            model="Qwen2-VL",
             variant=variant,
-            group=ModelGroup.RED
-            if variant == ModelVariant.QWEN_2_5_VL_3B_INSTRUCT
-            else ModelGroup.GENERALITY,
+            group=ModelGroup.GENERALITY,
             task=ModelTask.MM_CONDITIONAL_GENERATION,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
@@ -128,37 +110,28 @@ class ModelLoader(ForgeModel):
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the Qwen 2.5 VL model instance for this instance's variant.
+        """Load and return the Qwen2-VL model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
-                           If not provided, the model will use its default dtype (typically float32).
+                           If not provided, the model will use its default dtype.
 
         Returns:
-            torch.nn.Module: The Wrapped Qwen 2.5 VL model instance for vision-language tasks.
+            torch.nn.Module: The Wrapped Qwen2-VL model instance for vision-language tasks.
         """
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         model_kwargs = {"low_cpu_mem_usage": True}
 
-        # Check if this is an AWQ variant and configure accordingly
-        if pretrained_model_name in [
-            "Qwen/Qwen2.5-VL-3B-Instruct-AWQ",
-            "Qwen/Qwen2.5-VL-7B-Instruct-AWQ",
-        ]:
-            quantization_config = AwqConfig(version="ipex")
-            model_kwargs["quantization_config"] = quantization_config
-            model_kwargs["device_map"] = "cpu"
-
         # Load the model with dtype override if specified
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         else:
-            model_kwargs["torch_dtype"] = torch.float32
+            model_kwargs["torch_dtype"] = torch.bfloat16
         model_kwargs |= kwargs
 
-        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+        model = Qwen2VLForConditionalGeneration.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
         model.config.text_config.use_cache = False
@@ -169,7 +142,7 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None):
-        """Load and return sample inputs for the Qwen 2.5 VL model with this instance's variant settings.
+        """Load and return sample inputs for the Qwen2-VL model with this instance's variant settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
@@ -220,14 +193,13 @@ class ModelLoader(ForgeModel):
         return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
-        """Tensor-parallel shard spec for the Qwen2.5 backbone (GQA, q/k/v bias)."""
+        """Tensor-parallel shard spec for the Qwen2 backbone (GQA, q/k/v bias)."""
         hf = model.model
         text_model = hf.model.language_model
         visual = hf.model.visual
 
         shard_specs = {text_model.embed_tokens.weight: ("model", "batch")}
 
-        # Language model.
         for layer in text_model.layers:
             attn = layer.self_attn
             shard_specs[attn.q_proj.weight] = ("model", "batch")
@@ -244,8 +216,7 @@ class ModelLoader(ForgeModel):
         shard_specs[hf.lm_head.weight] = ("model", "batch")
 
         # Vision tower. The ViT uses a *fused* qkv Linear; column-parallel on the
-        # fused output + row-parallel on proj stays correct under Shardy. Its MLP
-        # is SwiGLU (gate/up/down), unlike Qwen2-VL's fc1/fc2.
+        # fused output + row-parallel on proj stays correct under Shardy.
         for block in visual.blocks:
             attn = block.attn
             shard_specs[attn.qkv.weight] = ("model", "batch")
@@ -253,12 +224,10 @@ class ModelLoader(ForgeModel):
             shard_specs[attn.proj.weight] = ("batch", "model")
             shard_specs[attn.proj.bias] = ("batch",)
 
-            shard_specs[block.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[block.mlp.gate_proj.bias] = ("model",)
-            shard_specs[block.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[block.mlp.up_proj.bias] = ("model",)
-            shard_specs[block.mlp.down_proj.weight] = ("batch", "model")
-            shard_specs[block.mlp.down_proj.bias] = ("batch",)
+            shard_specs[block.mlp.fc1.weight] = ("model", "batch")
+            shard_specs[block.mlp.fc1.bias] = ("model",)
+            shard_specs[block.mlp.fc2.weight] = ("batch", "model")
+            shard_specs[block.mlp.fc2.bias] = ("batch",)
 
         # PatchMerger MLP: Sequential(Linear, GELU, Linear) -> column then row.
         up, down = (m for m in visual.merger.mlp if isinstance(m, torch.nn.Linear))
