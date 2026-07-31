@@ -34,12 +34,26 @@ class ModelVariant(StrEnum):
     QWEN_3_5_9B = "9B"
     QWEN_3_5_27B = "27B"
     QWEN_3_5_122B_A10B = "122B_A10B"
+    QWEN_3_5_397B_A17B = "397B_A17B"
 
 
 # Variants promoted to the RED model group.
 _RED_VARIANTS = {
     ModelVariant.QWEN_3_5_27B,
     ModelVariant.QWEN_3_5_122B_A10B,
+    ModelVariant.QWEN_3_5_397B_A17B,
+}
+
+
+# MoE variants that use the head-parallel full-attention layout: KV heads are
+# padded to the galaxy "model" axis width (see _pad_kv_heads) so q/k/v shard on
+# heads and contract hidden on "batch", keeping the residual stream uniformly on
+# "batch" across linear-attention, full-attention, MLP and MoE layers.
+# Both variants have num_attention_heads=32, num_key_value_heads=2, head_dim=256,
+# so the same target_kv_heads=8 padding applies unchanged.
+_HEAD_PARALLEL_VARIANTS = {
+    ModelVariant.QWEN_3_5_122B_A10B,
+    ModelVariant.QWEN_3_5_397B_A17B,
 }
 
 
@@ -69,6 +83,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_5_122B_A10B: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen3.5-122B-A10B",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_5_397B_A17B: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen3.5-397B-A17B",
             max_length=128,
         ),
     }
@@ -143,7 +161,7 @@ class ModelLoader(ForgeModel):
         # rebuilds its config from the checkpoint.
         model.config.use_cache = False
 
-        if self._variant == ModelVariant.QWEN_3_5_122B_A10B:
+        if self._variant in _HEAD_PARALLEL_VARIANTS:
             # Duplicate GQA KV heads up to 8 so full-attention can be
             # head-parallel-sharded on the galaxy "model" axis (size 8). Qwen3.5
             # has only 2 KV heads, which don't tile 8; the resulting hidden-dim
@@ -269,7 +287,7 @@ class ModelLoader(ForgeModel):
         for layer in model.model.layers:
             mlp = layer.mlp
             if hasattr(mlp, "experts"):
-                # MoE layer (122B-A10B): routed experts are sharded on the
+                # MoE layer (122B-A10B / 397B-A17B): routed experts are sharded on the
                 # expert dimension by get_tt_moe_shard_specs (inject_custom_moe).
                 # The always-on shared expert is a dense MLP: keep its hidden
                 # dim on "batch" (gate/up input, down output) to stay consistent
@@ -285,7 +303,7 @@ class ModelLoader(ForgeModel):
 
             if hasattr(layer, "self_attn"):
                 sa = layer.self_attn
-                if self._variant == ModelVariant.QWEN_3_5_122B_A10B:
+                if self._variant in _HEAD_PARALLEL_VARIANTS:
                     # KV heads padded to 8 (see _pad_kv_heads) so attention is
                     # head-parallel like gpt_oss: heads sharded on "model",
                     # hidden contracted on "batch". This keeps the residual on
