@@ -84,11 +84,11 @@ class _DeviceTextEncoder:
 
 
 class _DeviceDenoiser:
-    """Transformer on TT (tensor-parallel sharded); each call is one denoise step."""
+    """Transformer on TT (tensor-parallel sharded); one call is one forward."""
 
-    def __init__(self, transformer, mesh, perf):
+    def __init__(self, transformer, mesh, forward_times):
         self._dev = torch_xla.device()
-        self._perf = perf
+        self._forward_times = forward_times
         self.config = transformer.config
         self.dtype = next(transformer.parameters()).dtype
         self.cache_context = transformer.cache_context
@@ -109,7 +109,7 @@ class _DeviceDenoiser:
         # graph to run and only returns once the result is on host.
         (sample,) = self._compiled(**moved)
         sample = sample.cpu()
-        self._perf["steps"].append(time.perf_counter() - t0)
+        self._forward_times.append(time.perf_counter() - t0)
         return (sample,)
 
 
@@ -177,6 +177,8 @@ class QwenImagePipeline:
             "step_metric_name": "transformer_step",
             "total": None,
         }
+        # Raw per-forward times; collapsed into per-step entries in generate().
+        self._forward_times = []
         self._placed = False
 
     def setup(self):
@@ -242,19 +244,20 @@ class QwenImagePipeline:
         """End-to-end generation. Returns pixels in [-1, 1], shape (1, 3, H, W)."""
         self._perf["components"].clear()
         self._perf["steps"].clear()
+        self._forward_times.clear()
         self._perf["total"] = None
         t_total_start = time.perf_counter()
 
         if not self._placed:
-            self._embeds, self._encode_time = self._encode(prompt)
+            self._embeds, encode_time = self._encode(prompt)
             self.pipe.transformer = _DeviceDenoiser(
-                self._raw_transformer, self.mesh, self._perf
+                self._raw_transformer, self.mesh, self._forward_times
             )
             self._vae_wrapper = _DeviceVAEDecoder(self._raw_vae, self._perf)
             self.pipe.vae = self._vae_wrapper
             self._placed = True
+            self._perf["components"]["text_encoder"] = encode_time
 
-        self._perf["components"]["text_encoder"] = self._encode_time
         (
             prompt_embeds,
             prompt_embeds_mask,
@@ -281,6 +284,12 @@ class QwenImagePipeline:
             generator=generator,
         )
         logger.info("[STAGE] transformer + vae: done")
+
+        per_step = 2 if TRUE_CFG_SCALE > 1.0 else 1
+        self._perf["steps"].extend(
+            sum(self._forward_times[i : i + per_step])
+            for i in range(0, len(self._forward_times), per_step)
+        )
 
         self._perf["total"] = time.perf_counter() - t_total_start
         return self._vae_wrapper.last_pixels
