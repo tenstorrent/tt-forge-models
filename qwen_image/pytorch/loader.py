@@ -47,6 +47,7 @@ from .src.model_utils import (
     make_prompt_embeds_mask,
     make_synthetic_prompt_embeds,
     make_vae_decoder_input,
+    shard_text_encoder_specs,
     shard_transformer_specs,
     tokenize_prompt,
 )
@@ -106,10 +107,10 @@ class ModelLoader(ForgeModel):
     def get_mesh_config(self, num_devices: int):
         """Return (mesh_shape, mesh_names) for a ("batch", "model") 2D mesh.
 
-        Supported device counts: 1, 2, 4, 8, 32. TEXT_ENCODER and VAE fit on a
-        single chip so any count maps to (1, 1).
+        Supported device counts: 1, 2, 4, 8, 32. VAE fits on a single chip so any
+        count maps to (1, 1).
         """
-        if self._variant in (ModelVariant.TEXT_ENCODER, ModelVariant.VAE):
+        if self._variant == ModelVariant.VAE:
             return (1, 1), MESH_NAMES
 
         if num_devices not in MESH_SHAPES:
@@ -120,7 +121,15 @@ class ModelLoader(ForgeModel):
         return MESH_SHAPES[num_devices], MESH_NAMES
 
     def load_shard_spec(self, model):
-        """Return tensor → partition_spec dict for the active component."""
+        """Return tensor → partition_spec dict for the active component.
+
+        Expects the same model object returned by load_model():
+          TEXT_ENCODER → Qwen25VLTextEncoderWrapper (specs from .text_encoder)
+          TRANSFORMER  → QwenImageTransformerWrapper (specs from .transformer)
+          VAE          → None (single-chip, no sharding)
+        """
+        if self._variant == ModelVariant.TEXT_ENCODER:
+            return shard_text_encoder_specs(model.text_encoder)
         if self._variant == ModelVariant.TRANSFORMER:
             return shard_transformer_specs(model.transformer)
         return None
