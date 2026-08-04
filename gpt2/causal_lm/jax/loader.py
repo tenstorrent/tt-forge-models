@@ -217,16 +217,21 @@ class ModelLoader(ForgeModel):
             # In data parallel mode, use fully replicated partitioning
             partition_rules = ((r".*", PartitionSpec()),)
         else:
-            # Use EasyDel's GPT2Config to get proper partition rules
-            from easydel.modules.gpt2 import GPT2Config
+            # EasyDeL >= 0.3 moved sharding from config-level partition rules to
+            # module-level `craft_sharding` hooks; config.get_partition_rules()
+            # now unconditionally returns None. `_get_partition_rules` is EasyDeL's
+            # own chain: config rules -> resolve_shardings_automatically() -> widen
+            # the anchored patterns so they also match the trailing "/value" of nnx
+            # VariableState leaves. Calling the resolver directly skips that last
+            # step, no rule matches, and every param silently ends up replicated.
+            partition_rules = model_for_multichip._get_partition_rules(None)
 
-            gpt2_config = GPT2Config()
-            partition_rules = gpt2_config.get_partition_rules()
-
-            # Override lm_head/kernel to use replicated partitioning instead of ('fsdp', 'sp'), 'tp'
+            # Override lm_head/kernel to use replicated partitioning instead of ('fsdp', 'sp'), 'tp'.
+            # The resolver emits generated regexes (e.g. "^(?:.*/)?lm_head/kernel$")
+            # rather than the bare parameter path, so match on containment.
             partition_rules = list(partition_rules)  # Convert to mutable list
             for i, (pattern, spec) in enumerate(partition_rules):
-                if pattern == "lm_head/kernel":
+                if "lm_head/kernel" in pattern:
                     partition_rules[i] = (pattern, PartitionSpec())
                     break
             partition_rules = tuple(partition_rules)  # Convert back to tuple

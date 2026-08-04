@@ -221,11 +221,14 @@ class ModelLoader(ForgeModel):
             # In data parallel mode, use fully replicated partitioning
             partition_rules = ((r".*", PartitionSpec()),)
         else:
-            # Use EasyDL's Qwen3Config to get proper partition rules
-            from easydel.modules.qwen3 import Qwen3Config
-
-            qwen3_config = Qwen3Config()
-            partition_rules = qwen3_config.get_partition_rules()
+            # EasyDeL >= 0.3 moved sharding from config-level partition rules to
+            # module-level `craft_sharding` hooks; config.get_partition_rules()
+            # now unconditionally returns None. `_get_partition_rules` is EasyDeL's
+            # own chain: config rules -> resolve_shardings_automatically() -> widen
+            # the anchored patterns so they also match the trailing "/value" of nnx
+            # VariableState leaves. Calling the resolver directly skips that last
+            # step, no rule matches, and every param silently ends up replicated.
+            partition_rules = model_for_multichip._get_partition_rules(None)
 
         from infra.utilities import make_easydel_parameters_partition_specs
 
