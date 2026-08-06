@@ -131,3 +131,46 @@ class ModelLoader(ForgeModel):
             "timestep": 0,
             "encoder_hidden_states": text_embeddings.to(dtype),
         }
+
+    # ------------------------------------------------------------------ #
+    # TAESD lightweight VAE decoder on TT.
+    #
+    # SD1.5's full AutoencoderKL VAE noises out on TT. TAESD (madebyollin/taesd)
+    # is the tiny AE for SD1.5's 4-channel latents; its conv-only decoder (no
+    # complex/FFT, no GroupNorm) is the tractable decoder that runs on TT. See
+    # tt-xla #5537.
+    # ------------------------------------------------------------------ #
+
+    TAESD_REPO = "madebyollin/taesd"
+
+    def load_taesd_decoder(self):
+        """Load TAESD, the tiny AE (tractable VAE decoder) for SD1.5 latents."""
+        from diffusers import AutoencoderTiny
+
+        self.taesd = (
+            AutoencoderTiny.from_pretrained(self.TAESD_REPO, torch_dtype=torch.float32)
+            .eval()
+        )
+        return self.taesd
+
+    def decode_taesd(self, latents, on_tt=False):
+        """Decode SD1.5 (4-ch) latents [B, 4, H/8, W/8] -> image [-1, 1] via TAESD.
+
+        With ``on_tt=True`` the conv decoder runs on TT via
+        ``torch.compile(backend="tt")``. ``AutoencoderTiny.decode(z)`` is
+        ``self.decoder(z)`` directly (no pre-scaling), so raw latents feed the
+        decoder in both modes. ``load_taesd_decoder`` must run first.
+        """
+        vae = getattr(self, "taesd", None) or self.load_taesd_decoder()
+        with torch.no_grad():
+            if not on_tt:
+                return vae.decode(latents).sample
+
+            import torch_xla  # noqa: F401
+            import torch_xla.core.xla_model as xm
+
+            dev = xm.xla_device()
+            dec = vae.decoder.to(dtype=torch.bfloat16).to(dev)
+            compiled = torch.compile(lambda z: dec(z), backend="tt")
+            out = compiled(latents.to(dtype=torch.bfloat16).to(dev))
+            return out.to("cpu").to(torch.float32)
