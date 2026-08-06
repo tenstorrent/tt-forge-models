@@ -78,23 +78,20 @@ class XTTSConfig:
         speaker_wav: Optional[str] = None,
         max_audio_tokens: Optional[int] = None,
         seed: int = 0,
-        keep_resident: bool = False,
+        stop_early: bool = True,
     ):
         self.text = text
         self.language = language
-        # Keep the learned modules on device between ``run()`` calls instead of
-        # evicting each one back to the host after its stage. Off by default:
-        # the demo runs once, so eviction is the right trade there, and the
-        # nightly PCC test relies on ``decode_step`` being back on CPU so it can
-        # replay the decode loop against CPU weights.
+        # Whether the decode loop may stop as soon as the model emits its stop
+        # token. True is the natural behaviour and what a demo wants.
         #
-        # Turn it on when calling ``run()`` more than once in a process (perf
-        # benchmarking). Re-uploading a module's weights hands its compiled
-        # graph new parameter tensors, so with eviction the conditioning, decode
-        # and gpt_latents graphs -- which all wrap overlapping parts of
-        # ``xtts.gpt``, moved three separate times per run -- recompile on every
-        # single run and never reach a steady state.
-        self.keep_resident = keep_resident
+        # Set False to always generate the full ``max_audio_tokens`` budget. The
+        # generated length then depends only on the config, not on what sampling
+        # happened to produce, so every ``run()`` of the same config drives the
+        # length-shaped stages (``gpt_latents``, ``hifigan``) at identical shapes.
+        # That is what a perf benchmark needs: comparable work per run, and no
+        # recompile from a length that drifted between passes.
+        self.stop_early = stop_early
         # A reference speaker clip; defaults to the same public LibriSpeech
         # utterance the component loader uses so the pipeline runs out of the box.
         self.speaker_wav = speaker_wav
@@ -113,8 +110,9 @@ class XTTSPipeline:
         self._loader = ModelLoader(variant=ModelVariant.GPT_LATENTS)
         # Per-stage timings from the last run(); see _reset_perf for the schema.
         self._reset_perf()
-        # Reused across runs when config.keep_resident is set.
-        self._kv_caches = {}
+        # One KV cache, built on the first generation and reused after that.
+        self._kv_cache = None
+        self._kv_cache_len = None
 
     def _reset_perf(self):
         """Per-stage timing for the last ``run()``.
@@ -124,6 +122,11 @@ class XTTSPipeline:
         timed around its forward *and* the ``.to("cpu")`` that follows, which is
         what forces the XLA sync -- so the numbers bracket real device work
         rather than graph tracing.
+
+        Every stage is measured under the same conditions: ``setup()`` puts all
+        the learned modules on device and nothing moves afterwards, so a stage
+        time is that stage's compute and never a weight upload. That is what
+        makes the per-stage numbers comparable with each other.
         """
         self._perf = {
             "components": {},
@@ -133,22 +136,6 @@ class XTTSPipeline:
             "audio_samples": 0,
             "text_tokens": 0,
         }
-
-    # Stages kept on device when ``keep_resident`` is set: exactly the wrappers
-    # over the ``xtts.gpt`` tree, which is otherwise moved on and off the device
-    # three times per run and is the only tree whose graphs never reach a steady
-    # state. ``speaker_encoder`` and ``hifigan`` are deliberately excluded -- they
-    # live in the ``hifigan_decoder`` tree, and the CPU-side ``_speaker_mel`` step
-    # reads ``speaker_encoder``'s weights, so pinning them makes the next run feed
-    # CPU inputs into device weights. They are moved once per run and settle on
-    # their own regardless.
-    _RESIDENT_STAGES = frozenset({"conditioning", "gpt_latents", "decode_step"})
-
-    def _evict(self, name, module):
-        """Move a stage back to the host unless it is pinned on device."""
-        if self.config.keep_resident and name in self._RESIDENT_STAGES:
-            return module
-        return module.to("cpu")
 
     # ------------------------------------------------------------------ #
     # setup: build the full model once, wrap each component, compile for TT
@@ -163,20 +150,47 @@ class XTTSPipeline:
         self.code_stride_len = gpt.code_stride_len
         self.model_max_audio_tokens = gpt.max_gen_mel_tokens
 
-        # Component graphs (same wrappers as the bring-up tests). Register the
-        # `tt` backend now; the actual .to(device) happens per stage in run().
+        # The speaker mel front-end runs on the host, on host audio, but lives
+        # inside ``hifigan_decoder.speaker_encoder`` -- which is about to move to
+        # device. Keep a host copy so the two do not fight. It is a fixed DSP
+        # transform (filterbank + window buffers), so copying it is cheap and it
+        # never needs to track the learned weights.
+        import copy
+
+        self._speaker_torch_spec = copy.deepcopy(
+            self.xtts.hifigan_decoder.speaker_encoder.torch_spec
+        )
+
+        # Component graphs (same wrappers as the bring-up tests).
         self.speaker_encoder = SpeakerEncoderWrapper(self.xtts).eval()
         self.conditioning = ConditioningWrapper(self.xtts).eval()
         self.gpt_latents = GptLatentsWrapper(self.xtts).eval()
         self.hifigan = HifiganDecoderWrapper(self.xtts).eval()
-
-        self.speaker_encoder.compile(backend="tt")
-        self.conditioning.compile(backend="tt")
-        self.gpt_latents.compile(backend="tt")
-        self.hifigan.compile(backend="tt")
-
         self.decode_step = GptCachedStep(self.xtts).eval()
-        self.decode_step.compile(backend="tt")
+
+        # Compile for TT and place on device once. Nothing moves after this.
+        #
+        # These wrappers share parameter subtrees -- ``gpt_latents`` holds the
+        # whole of ``xtts.gpt`` (so it covers ``conditioning`` and
+        # ``decode_step``), and ``hifigan`` holds the whole of
+        # ``hifigan_decoder`` (so it covers ``speaker_encoder``). Moving a module
+        # rewrites those shared parameters in place, so evicting one stage after
+        # its forward used to drag the others off the device with it: the gpt
+        # tree crossed the bus three times per run, and every graph over it was
+        # handed new parameter tensors and recompiled. Placing everything once
+        # is what keeps the graphs stable across runs, and it is also what makes
+        # the per-stage timings in ``_perf`` comparable -- see ``_reset_perf``.
+        device = xm.xla_device()
+        for module_name in (
+            "speaker_encoder",
+            "conditioning",
+            "gpt_latents",
+            "hifigan",
+            "decode_step",
+        ):
+            module = getattr(self, module_name)
+            module.compile(backend="tt")
+            setattr(self, module_name, module.to(device))
 
     # ------------------------------------------------------------------ #
     # CPU preprocessing (mirrors get_conditioning_latents + tokenizer)
@@ -211,8 +225,9 @@ class XTTSPipeline:
             audio22, XTTS_SAMPLE_RATE, SPEAKER_ENCODER_SR
         )
         # use_torch_spec is disabled inside the wrapper, so feed the mel directly.
+        # Uses the host copy taken in setup(); the live one is on device.
         with torch.no_grad():
-            return self.xtts.hifigan_decoder.speaker_encoder.torch_spec(audio16)
+            return self._speaker_torch_spec(audio16)
 
     def _conditioning_mels(self, audio22: torch.Tensor) -> list:
         """Reference ``get_gpt_cond_latents`` chunking into GPT_COND_CHUNK_LEN-second
@@ -306,15 +321,12 @@ class XTTSPipeline:
         device = xm.xla_device()
         gpt = self.xtts.gpt
 
-        # Prefix embedding (cond latents + [START]text[STOP]); host side.
-        # Skipped when the gpt tree is pinned on device: this call runs on CPU
-        # tensors and would otherwise be the one thing forcing the weights back
-        # to the host mid-run. Its inputs are unchanged across runs of the same
-        # config, so the cached prefix from the first run still applies.
-        cached_prefix = getattr(gpt.gpt_inference, "cached_prefix_emb", None)
-        if not (self.config.keep_resident and cached_prefix is not None):
-            with torch.no_grad():
-                gpt.compute_embeddings(gpt_cond_latent, text_tokens)
+        # Prefix embedding (cond latents + [START]text[STOP]). This is a pair of
+        # embedding lookups over the gpt tree, which is on device, so it is fed
+        # device inputs and runs there -- the alternative would drag those
+        # weights back to the host mid-run.
+        with torch.no_grad():
+            gpt.compute_embeddings(gpt_cond_latent.to(device), text_tokens.to(device))
         prefix_emb = gpt.gpt_inference.cached_prefix_emb.clone().to(
             device
         )  # [1,P,1024]
@@ -324,21 +336,19 @@ class XTTSPipeline:
         max_tokens = int(min(max_tokens, self.model_max_audio_tokens))
         max_cache_len = prefix_len + max_tokens
 
-        # Reuse one cache across runs when pinned: a fresh StaticCache hands the
-        # prefill and decode graphs new buffers, which recompiles them. Only the
-        # write index is reset -- stale K/V past it is never read, because the
-        # mask admits exactly the slots this run has written.
-        cache_key = (max_cache_len, str(device))
-        cache = self._kv_caches.get(cache_key) if self.config.keep_resident else None
-        if cache is None:
+        # One cache, reused across runs: a fresh StaticCache hands the prefill and
+        # decode graphs new buffers, which recompiles them. Only the write index
+        # is reset -- stale K/V past it is never read, because the mask admits
+        # exactly the slots this run has written.
+        cache = self._kv_cache
+        if cache is None or self._kv_cache_len != max_cache_len:
             cache = self._make_static_cache(max_cache_len, device)
-            if self.config.keep_resident:
-                self._kv_caches[cache_key] = cache
+            self._kv_cache = cache
+            self._kv_cache_len = max_cache_len
         else:
             for layer in cache.layers:
                 if getattr(layer, "cumulative_length", None) is not None:
                     layer.cumulative_length.zero_()
-        self.decode_step = self.decode_step.to(device)
 
         def mask(valid):  # [1, max_cache_len]; 1s for written cache slots
             m = torch.zeros((1, max_cache_len), dtype=torch.long)
@@ -386,7 +396,7 @@ class XTTSPipeline:
             cur = prefix_len + 1  # cache positions written so far
             # --- Decode loop: feed 1 token per step, audio position = step ---
             for step in range(1, max_tokens):
-                if next_token == self.stop_audio_token:
+                if next_token == self.stop_audio_token and self.config.stop_early:
                     break
                 generated.append(next_token)
                 seq.append(next_token)  # extend history before sampling the next
@@ -401,7 +411,6 @@ class XTTSPipeline:
                 if step % DECODE_LOG_INTERVAL == 0:
                     logger.info(f"[gpt_codes] {step}/{max_tokens} tokens")
 
-        self.decode_step = self._evict("decode_step", self.decode_step)
         return torch.tensor(generated, dtype=torch.long).unsqueeze(0)
 
     # ------------------------------------------------------------------ #
@@ -428,9 +437,7 @@ class XTTSPipeline:
             # --- speaker_embedding [TT] ---
             logger.info("[STAGE] speaker_encoder (TT)")
             t0 = time.perf_counter()
-            self.speaker_encoder = self.speaker_encoder.to(device)
             speaker_embedding = cpu(self.speaker_encoder(tt(speaker_mel)))
-            self.speaker_encoder = self._evict("speaker_encoder", self.speaker_encoder)
             components["speaker_encoder"] = time.perf_counter() - t0
             # Match get_speaker_embedding output shape [1, 512, 1].
             speaker_embedding = speaker_embedding.unsqueeze(-1)
@@ -440,9 +447,7 @@ class XTTSPipeline:
             # get_gpt_cond_latents). Each chunk's style_emb is [1, 1024, 32].
             logger.info("[STAGE] conditioning encoder (TT)")
             t0 = time.perf_counter()
-            self.conditioning = self.conditioning.to(device)
             style_embs = [cpu(self.conditioning(tt(m))) for m in cond_mels]
-            self.conditioning = self._evict("conditioning", self.conditioning)
             components["conditioning"] = time.perf_counter() - t0
             conds = torch.stack(style_embs).mean(dim=0)  # [1, 1024, 32]
             gpt_cond_latent = conds.transpose(1, 2)  # [1, 32, 1024]
@@ -459,7 +464,6 @@ class XTTSPipeline:
             # --- gpt_latents [TT] ---
             logger.info("[STAGE] gpt_latents (TT)")
             t0 = time.perf_counter()
-            self.gpt_latents = self.gpt_latents.to(device)
             gpt_latents = cpu(
                 self.gpt_latents(
                     tt(text_tokens),
@@ -469,15 +473,12 @@ class XTTSPipeline:
                     tt(gpt_cond_latent),
                 )
             )
-            self.gpt_latents = self._evict("gpt_latents", self.gpt_latents)
             components["gpt_latents"] = time.perf_counter() - t0
 
             # --- waveform [TT] ---
             logger.info("[STAGE] hifigan_decoder (TT)")
             t0 = time.perf_counter()
-            self.hifigan = self.hifigan.to(device)
             wav = cpu(self.hifigan(tt(gpt_latents), tt(speaker_embedding)))
-            self.hifigan = self._evict("hifigan", self.hifigan)
             components["hifigan"] = time.perf_counter() - t0
 
         self._perf["total"] = time.perf_counter() - t_total
