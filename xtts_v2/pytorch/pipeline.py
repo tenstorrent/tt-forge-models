@@ -82,15 +82,9 @@ class XTTSConfig:
     ):
         self.text = text
         self.language = language
-        # Whether the decode loop may stop as soon as the model emits its stop
-        # token. True is the natural behaviour and what a demo wants.
-        #
-        # Set False to always generate the full ``max_audio_tokens`` budget. The
-        # generated length then depends only on the config, not on what sampling
-        # happened to produce, so every ``run()`` of the same config drives the
-        # length-shaped stages (``gpt_latents``, ``hifigan``) at identical shapes.
-        # That is what a perf benchmark needs: comparable work per run, and no
-        # recompile from a length that drifted between passes.
+        # False always generates the full ``max_audio_tokens`` budget, so the
+        # length depends only on the config rather than on sampling and the
+        # length-shaped stages keep identical shapes across runs (perf benchmarks).
         self.stop_early = stop_early
         # A reference speaker clip; defaults to the same public LibriSpeech
         # utterance the component loader uses so the pipeline runs out of the box.
@@ -118,15 +112,9 @@ class XTTSPipeline:
         """Per-stage timing for the last ``run()``.
 
         ``components`` maps stage name -> seconds, ``steps`` holds one entry per
-        audio-token decode call, and ``total`` is the whole run. Each stage is
-        timed around its forward *and* the ``.to("cpu")`` that follows, which is
-        what forces the XLA sync -- so the numbers bracket real device work
-        rather than graph tracing.
-
-        Every stage is measured under the same conditions: ``setup()`` puts all
-        the learned modules on device and nothing moves afterwards, so a stage
-        time is that stage's compute and never a weight upload. That is what
-        makes the per-stage numbers comparable with each other.
+        decode call. Stages are timed around the forward *and* the ``.to("cpu")``
+        that follows, which is what forces the XLA sync. Modules never move after
+        ``setup()``, so a stage time is compute, never a weight upload.
         """
         self._perf = {
             "components": {},
@@ -150,11 +138,9 @@ class XTTSPipeline:
         self.code_stride_len = gpt.code_stride_len
         self.model_max_audio_tokens = gpt.max_gen_mel_tokens
 
-        # The speaker mel front-end runs on the host, on host audio, but lives
-        # inside ``hifigan_decoder.speaker_encoder`` -- which is about to move to
-        # device. Keep a host copy so the two do not fight. It is a fixed DSP
-        # transform (filterbank + window buffers), so copying it is cheap and it
-        # never needs to track the learned weights.
+        # Host copy of the mel front-end: it runs on host audio but lives inside
+        # speaker_encoder, which is about to move to device. Fixed DSP, so the
+        # copy is cheap and never needs to track the learned weights.
         import copy
 
         self._speaker_torch_spec = copy.deepcopy(
@@ -168,18 +154,11 @@ class XTTSPipeline:
         self.hifigan = HifiganDecoderWrapper(self.xtts).eval()
         self.decode_step = GptCachedStep(self.xtts).eval()
 
-        # Compile for TT and place on device once. Nothing moves after this.
-        #
-        # These wrappers share parameter subtrees -- ``gpt_latents`` holds the
-        # whole of ``xtts.gpt`` (so it covers ``conditioning`` and
-        # ``decode_step``), and ``hifigan`` holds the whole of
-        # ``hifigan_decoder`` (so it covers ``speaker_encoder``). Moving a module
-        # rewrites those shared parameters in place, so evicting one stage after
-        # its forward used to drag the others off the device with it: the gpt
-        # tree crossed the bus three times per run, and every graph over it was
-        # handed new parameter tensors and recompiled. Placing everything once
-        # is what keeps the graphs stable across runs, and it is also what makes
-        # the per-stage timings in ``_perf`` comparable -- see ``_reset_perf``.
+        # Compile and place on device once; nothing moves after this. The wrappers
+        # share parameter subtrees (gpt_latents holds all of xtts.gpt, hifigan all
+        # of hifigan_decoder), and moving one rewrites those shared parameters in
+        # place -- so per-stage eviction dragged the others along and recompiled
+        # their graphs every run.
         device = xm.xla_device()
         for module_name in (
             "speaker_encoder",
@@ -224,8 +203,8 @@ class XTTSPipeline:
         audio16 = torchaudio.functional.resample(
             audio22, XTTS_SAMPLE_RATE, SPEAKER_ENCODER_SR
         )
-        # use_torch_spec is disabled inside the wrapper, so feed the mel directly.
-        # Uses the host copy taken in setup(); the live one is on device.
+        # use_torch_spec is disabled in the wrapper, so feed the mel directly.
+        # Uses the host copy from setup(); the live one is on device.
         with torch.no_grad():
             return self._speaker_torch_spec(audio16)
 
@@ -321,10 +300,9 @@ class XTTSPipeline:
         device = xm.xla_device()
         gpt = self.xtts.gpt
 
-        # Prefix embedding (cond latents + [START]text[STOP]). This is a pair of
-        # embedding lookups over the gpt tree, which is on device, so it is fed
-        # device inputs and runs there -- the alternative would drag those
-        # weights back to the host mid-run.
+        # Prefix embedding (cond latents + [START]text[STOP]): two embedding
+        # lookups over the gpt tree, fed device inputs so they run where those
+        # weights already are.
         with torch.no_grad():
             gpt.compute_embeddings(gpt_cond_latent.to(device), text_tokens.to(device))
         prefix_emb = gpt.gpt_inference.cached_prefix_emb.clone().to(
@@ -336,10 +314,9 @@ class XTTSPipeline:
         max_tokens = int(min(max_tokens, self.model_max_audio_tokens))
         max_cache_len = prefix_len + max_tokens
 
-        # One cache, reused across runs: a fresh StaticCache hands the prefill and
-        # decode graphs new buffers, which recompiles them. Only the write index
-        # is reset -- stale K/V past it is never read, because the mask admits
-        # exactly the slots this run has written.
+        # One cache, reused: a fresh StaticCache hands the decode graphs new
+        # buffers and recompiles them. Only the write index is reset -- stale K/V
+        # past it is never read, since the mask admits only written slots.
         cache = self._kv_cache
         if cache is None or self._kv_cache_len != max_cache_len:
             cache = self._make_static_cache(max_cache_len, device)
@@ -383,8 +360,8 @@ class XTTSPipeline:
                 [[self.start_audio_token]], dtype=torch.long, device=device
             )
             pos0 = torch.tensor([0], dtype=torch.long, device=device)
-            # The .to("cpu") is what forces the XLA sync, so the timer has to
-            # close after it -- but before sample(), which is host-side work.
+            # .to("cpu") forces the XLA sync, so close the timer after it but
+            # before sample(), which is host-side.
             t0 = time.perf_counter()
             logits = self.decode_step(
                 start_ids, pos0, mask(prefix_len + 1), cache, prefix_emb
