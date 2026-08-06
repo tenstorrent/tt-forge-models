@@ -11,20 +11,26 @@ then a single VAE decode. This reimplements the model's ``autoregressive_infer_c
 with an explicit CPU/TT device split:
 
   - Transformer on Tenstorrent, tensor-parallel sharded (mesh (1, num_devices),
-    Megatron head-parallel attention from ``loader.load_shard_spec``).
+    Megatron head-parallel attention from ``loader.load_shard_spec``) and compiled
+    with ``torch.compile(backend="tt")``.
   - T5-XL text encoder, multinomial sampling and BSQ-VAE decode stay on CPU.
 
-Two correctness-critical choices:
-  - SEQUENTIAL classifier-free guidance -- cond and uncond are run as two batch-1
-    forwards per scale and combined on the logits. A batch-2 (stacked) forward
-    makes the attention score matmul all-gather the heads (de-shard) and OOM at
-    the last 1M scale; batch-1 keeps the score head-sharded.
-  - fp32 LayerNorm -- every LayerNorm is computed via an explicit mean/var/rsqrt
-    decomposition in fp32 (``_force_fp32_layernorm``). The bf16 fused
-    ttnn.layer_norm loses precision on the mid/late layers' outlier activations,
-    which autoregressive sampling amplifies into a noise image; the decomposition
-    restores per-block PCC to ~1.0 and yields a coherent image. (A plain
-    ``F.layer_norm(x.float())`` does not help -- it folds back to bf16.)
+Unlike the diffusion pipelines, there is no single transformer ``forward`` to
+compile: the sampling loop drives the model piecewise, with CPU work (multinomial
+sampling, BSQ-VAE residual accumulation) in between. The device-side work is
+therefore exposed as three tensor-in/tensor-out ``nn.Module`` regions, each
+compiled once in ``setup()`` and reused across every scale:
+
+  - ``_TextConditioning`` -- per-CFG-branch text projections (once per branch).
+  - ``_BlockStackLogits`` -- the block stack + logits head (the dominant compute;
+    one call per scale per CFG branch, recompiled per scale since the packed
+    sequence length grows).
+  - ``_WordEmbed`` -- the next scale's token embedding.
+
+One correctness-critical choice: SEQUENTIAL classifier-free guidance -- cond and
+uncond are run as two batch-1 forwards per scale and combined on the logits. A
+batch-2 (stacked) forward makes the attention score matmul all-gather the heads
+(de-shard) and OOM at the last 1M scale; batch-1 keeps the score head-sharded.
 """
 
 import os
@@ -34,7 +40,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch_xla.core.xla_model as xm
+import torch_xla
 import torch_xla.distributed.spmd as xs
 import torch_xla.runtime as xr
 from loguru import logger
@@ -64,28 +70,85 @@ def _enable_spmd() -> None:
     xr.use_spmd()
 
 
-def _force_fp32_layernorm(model):
-    """Compute every nn.LayerNorm in fp32 via an explicit mean/var/rsqrt
-    decomposition (NOT F.layer_norm, which folds back to a bf16 ttnn.layer_norm on
-    TT). The fused bf16 LayerNorm loses precision on the mid/late layers' outlier
-    activations -- the dominant TT accuracy loss for this model -- which the
-    autoregressive sampling amplifies into a noise image. Normalizes over the last
-    dim (normalized_shape is (C,) for every block here)."""
-    for mod in model.modules():
-        if isinstance(mod, nn.LayerNorm):
+class _TextConditioning(nn.Module):
+    """Per-CFG-branch text conditioning: T5 features -> (ca_kv feature, cond_BD,
+    gss, SOS token). Called once per branch, before the scale loop."""
 
-            def _fwd(x, m=mod):
-                xf = x.float()
-                mu = xf.mean(-1, keepdim=True)
-                var = (xf - mu).pow(2).mean(-1, keepdim=True)
-                y = (xf - mu) * torch.rsqrt(var + m.eps)
-                if m.weight is not None:
-                    y = y * m.weight.float()
-                if m.bias is not None:
-                    y = y + m.bias.float()
-                return y.to(x.dtype)
+    def __init__(self, model):
+        super().__init__()
+        self.m = model
 
-            mod.forward = _fwd
+    def forward(self, kv, cu_seqlens_k, max_seqlen_k):
+        m = self.m
+        kv = m.text_norm(kv)
+        sos = cond_BD = m.text_proj_for_sos((kv, cu_seqlens_k, max_seqlen_k))
+        ca_feat = m.text_proj_for_ca(kv)
+        sos_tok = sos.unsqueeze(1).expand(1, 1, -1) + m.pos_start.expand(1, 1, -1)
+        with torch.amp.autocast("cuda", enabled=False):
+            # bf16 throughout (no .float()): an f32 input to the bf16
+            # shared_ada_lin Linear yields a mismatched-dtype dot that fails
+            # HLO->MHLO conversion on TT.
+            gss = m.shared_ada_lin(cond_BD).contiguous()
+        return ca_feat, cond_BD, gss, sos_tok
+
+
+class _BlockStackLogits(nn.Module):
+    """The dominant compute: level embedding + the full block stack over the packed
+    sequence + the logits head, scaled by ``inv_tau``.
+
+    One call per scale per CFG branch. Everything after ``attn_bias`` is a static
+    (non-tensor) argument that dynamo guards on; ``sub_sched``/``L_si`` change per
+    scale, so each scale gets its own compiled graph -- unavoidable, since the
+    packed sequence length grows with the scale anyway."""
+
+    def __init__(self, model, scale_schedule):
+        super().__init__()
+        self.m = model
+        self.scale_schedule = scale_schedule
+
+    def forward(
+        self,
+        x_BLC,
+        gss,
+        ca_feat,
+        cu_seqlens_k,
+        cond_BD,
+        attn_bias,
+        sub_sched,
+        max_seqlen_k,
+        L_si,
+        inv_tau,
+    ):
+        m = self.m
+        ca_kv = (ca_feat, cu_seqlens_k, max_seqlen_k)
+        x_BLC = m.add_lvl_embeding_for_x_BLC(x_BLC, sub_sched)
+        for b in m.block_chunks:
+            for blk in b.module:
+                x_BLC = blk(
+                    x=x_BLC,
+                    cond_BD=gss,
+                    ca_kv=ca_kv,
+                    attn_bias_or_two_vector=attn_bias,
+                    attn_fn=None,
+                    # rope is keyed by the FULL schedule (its precomputed grid is
+                    # keyed by the full tuple) with scale_ind=0.
+                    scale_schedule=self.scale_schedule,
+                    rope2d_freqs_grid=m.rope2d_freqs_grid,
+                    scale_ind=0,
+                )
+        hidden_si = x_BLC[:, -L_si:]
+        return m.get_logits(hidden_si, cond_BD).mul(inv_tau)
+
+
+class _WordEmbed(nn.Module):
+    """Next scale's RAW VAE features -> token embeddings fed back into the stack."""
+
+    def __init__(self, model):
+        super().__init__()
+        self.m = model
+
+    def forward(self, x):
+        return self.m.word_embed(self.m.norm0_ve(x))
 
 
 class InfinityConfig:
@@ -120,7 +183,12 @@ class InfinityConfig:
 
 
 class InfinityPipeline:
-    """Infinity 2B pipeline: transformer sharded on TT, sampling + VAE on CPU."""
+    """Infinity 2B pipeline: transformer sharded on TT, sampling + VAE on CPU.
+
+    Built once with ``setup()``; ``generate()`` can be called repeatedly. The
+    sharded transformer is placed + compiled in ``setup()`` and reused across
+    calls (kernel compile happens lazily on the first forward of each region).
+    """
 
     def __init__(self, config: InfinityConfig):
         self.config = config
@@ -131,15 +199,30 @@ class InfinityPipeline:
             if self.config.shard:
                 self.shard_to_tt()
             else:
-                self.model = self.model.to(xm.xla_device())
+                self.model = self.model.to(torch_xla.device())
         self.scale_schedule = self._build_scale_schedule()
+        self.compile_regions()
+
+    def compile_regions(self):
+        """Wrap the three device-side regions in ``torch.compile(backend="tt")``.
+
+        Must run after the weights are on device and marked sharded: the compiled
+        graphs capture the parameters as they are then. On CPU (``transformer_on_tt
+        = False``) the modules are used uncompiled, since "tt" is a device backend.
+        """
+        if self.config.transformer_on_tt:
+            wrap = lambda mod: torch.compile(mod, backend="tt")
+        else:
+            wrap = lambda mod: mod
+        self.tt_conditioning = wrap(_TextConditioning(self.model))
+        self.tt_block_stack = wrap(_BlockStackLogits(self.model, self.scale_schedule))
+        self.tt_word_embed = wrap(_WordEmbed(self.model))
 
     def load_models(self):
         # Loading the transformer side-loads the T5-XL tokenizer/encoder and the
         # BSQ-VAE onto the loader; both stay on CPU.
         self.loader = ModelLoader(ModelVariant.INFINITY_2B)
         self.model = self.loader.load_model(dtype_override=DTYPE)
-        _force_fp32_layernorm(self.model)
         self.tokenizer = self.loader.tokenizer
         self.text_encoder = self.loader.text_encoder
         self.vae = self.loader.vae
@@ -152,8 +235,10 @@ class InfinityPipeline:
         num_devices = xr.global_runtime_device_count()
         mesh_shape, mesh_names = self.loader.get_mesh_config(num_devices)
         self.mesh = Mesh(np.array(range(num_devices)), mesh_shape, mesh_names)
-        self.model = self.model.to(xm.xla_device())
-        for tensor, spec in self.loader.load_shard_spec(self.model).items():
+        self.model = self.model.to(torch_xla.device())
+        specs = self.loader.load_shard_spec(self.model)
+        assert specs, "transformer shard spec is empty — would run replicated/OOM"
+        for tensor, spec in specs.items():
             xs.mark_sharding(tensor, self.mesh, spec)
 
     def _build_scale_schedule(self):
@@ -164,10 +249,9 @@ class InfinityPipeline:
         """Lazily build the fp32 CPU golden transformer (only when PCC-checking).
 
         A second transformer instance kept in fp32 on CPU, reusing the already
-        loaded BSQ-VAE (so only the transformer weights are re-read). No
-        ``_force_fp32_layernorm`` -- that decomposition only exists to dodge the
-        bf16 fused ttnn.layer_norm on TT; a native fp32 CPU LayerNorm is already
-        the ideal reference. ~8GB CPU RAM, so it is built once, on first use.
+        loaded BSQ-VAE (so only the transformer weights are re-read) and run
+        eagerly (never compiled -- it is the reference, not the thing under test).
+        ~8GB CPU RAM, so it is built once, on first use.
         """
         if getattr(self, "_cpu_twin", None) is None:
             run_args = self.loader._build_run_args()
@@ -215,7 +299,8 @@ class InfinityPipeline:
         """Reimplements ``Infinity.autoregressive_infer_cfg`` with a CPU/TT split.
 
         - T5-XL text encode -> CPU
-        - transformer conditioning, blocks, logits, word_embed -> TT
+        - transformer conditioning, blocks, logits, word_embed -> TT, via the
+          ``torch.compile``d regions built in ``setup()``
         - multinomial sampling -> CPU
         - BSQ-VAE indices->codes, residual accumulation, decode -> CPU
 
@@ -236,7 +321,8 @@ class InfinityPipeline:
         on_tt = self.config.transformer_on_tt
 
         # CPU <-> TT casts (no-ops when the transformer runs on CPU).
-        tt_cast = lambda x: x.to(device=xm.xla_device()) if on_tt else x
+        dev = torch_xla.device() if on_tt else "cpu"
+        tt_cast = lambda x: x.to(device=dev) if on_tt else x
         cpu_cast = lambda x: x.to("cpu") if on_tt else x
 
         scale_schedule = self.scale_schedule
@@ -276,20 +362,19 @@ class InfinityPipeline:
 
         # ── Per-branch text conditioning projections (TT, batch=1) ─────
         cu_seqlens_k = tt_cast(cu_seqlens_k)
-
-        def _conditioning(kv_raw):
-            kv = m.text_norm(tt_cast(kv_raw.to(self.model_dtype)))
-            sos = cond_BD = m.text_proj_for_sos((kv, cu_seqlens_k, max_seqlen_k))
-            ca_kv = (m.text_proj_for_ca(kv), cu_seqlens_k, max_seqlen_k)
-            sos_tok = sos.unsqueeze(1).expand(B, 1, -1) + m.pos_start.expand(B, 1, -1)
-            with torch.amp.autocast("cuda", enabled=False):
-                # bf16 throughout (no .float()): an f32 input to the bf16
-                # shared_ada_lin Linear yields a mismatched-dtype dot that fails
-                # HLO->MHLO conversion on TT.
-                gss = m.shared_ada_lin(cond_BD).contiguous()
-            return {"ca_kv": ca_kv, "cond_BD": cond_BD, "gss": gss, "sos": sos_tok}
-
-        branches = [_conditioning(kv) for kv in kv_branches]
+        branches = []
+        for kv_raw in kv_branches:
+            ca_feat, cond_BD, gss, sos_tok = self.tt_conditioning(
+                tt_cast(kv_raw.to(self.model_dtype)), cu_seqlens_k, max_seqlen_k
+            )
+            branches.append(
+                {
+                    "ca_kv": (ca_feat, cu_seqlens_k, max_seqlen_k),
+                    "cond_BD": cond_BD,
+                    "gss": gss,
+                    "sos": sos_tok,
+                }
+            )
 
         # ── Next-scale prediction loop (packed recompute, stays sharded) ──
         # No KV cache: each scale rebuilds the full token sequence generated so far
@@ -315,22 +400,6 @@ class InfinityPipeline:
             bias = torch.where(d >= d.transpose(1, 2), 0.0, -torch.inf)
             return bias.reshape(1, 1, l_end, l_end).type_as(ref).to(ref.device)
 
-        def _run_blocks(x_BLC, br, sub_sched, attn_bias):
-            x_BLC = m.add_lvl_embeding_for_x_BLC(x_BLC, sub_sched)
-            for b in m.block_chunks:
-                for blk in b.module:
-                    x_BLC = blk(
-                        x=x_BLC,
-                        cond_BD=br["gss"],
-                        ca_kv=br["ca_kv"],
-                        attn_bias_or_two_vector=attn_bias,
-                        attn_fn=None,
-                        scale_schedule=scale_schedule,
-                        rope2d_freqs_grid=m.rope2d_freqs_grid,
-                        scale_ind=0,
-                    )
-            return x_BLC
-
         # Shared per-scale RAW token inputs (scales 1..si-1); each branch prepends
         # its own SOS (conditioning-derived, so it differs per branch).
         shared_inputs = []
@@ -342,7 +411,8 @@ class InfinityPipeline:
             cfg = cfg_list[si]
             logger.info(f"[STEP] scale {si + 1}/{n_run} {tuple(pn)}")
 
-            sub_sched = scale_schedule[: si + 1]
+            # A tuple (not a list) so dynamo guards on it by value.
+            sub_sched = tuple(scale_schedule[: si + 1])
             L_si = int(np.prod(pn))
             attn_bias = None
 
@@ -358,9 +428,21 @@ class InfinityPipeline:
                 golden_in = (
                     x_in.to("cpu", torch.float32) if pcc_hook is not None else None
                 )
-                x_BLC = _run_blocks(x_in, br, sub_sched, attn_bias)
-                hidden_si = x_BLC[:, -L_si:]
-                logits = m.get_logits(hidden_si, br["cond_BD"]).mul(1 / tau_list[si])
+                ca_feat, _, max_seqlen = br["ca_kv"]
+                logits = self.tt_block_stack(
+                    x_in,
+                    br["gss"],
+                    ca_feat,
+                    cu_seqlens_k,
+                    br["cond_BD"],
+                    attn_bias,
+                    sub_sched,
+                    max_seqlen,
+                    L_si,
+                    1 / tau_list[si],
+                )
+                # .cpu() is the sync point: it forces the graph to run and only
+                # returns once the result is on host.
                 tt_logits = cpu_cast(logits).float()
                 branch_logits.append(tt_logits)
 
@@ -413,7 +495,7 @@ class InfinityPipeline:
                 next_stage = next_stage.reshape(*next_stage.shape[:2], -1)
                 next_stage = torch.permute(next_stage, [0, 2, 1])  # (B, L_next, d_vae)
                 next_stage = tt_cast(next_stage.to(self.model_dtype))
-                shared_inputs.append(m.word_embed(m.norm0_ve(next_stage)))
+                shared_inputs.append(self.tt_word_embed(next_stage))
             else:
                 summed_codes = summed_codes + codes
 
