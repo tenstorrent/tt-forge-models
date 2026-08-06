@@ -29,6 +29,7 @@ class ModelVariant(StrEnum):
 
     QWEN_3_5_27B = "Qwen/Qwen3.5-27B"
     QWEN_3_5_35B_A3B = "Qwen/Qwen3.5-35B-A3B"
+    QWEN_3_5_122B_A10B = "Qwen/Qwen3.5-122B-A10B"
 
 
 class ModelLoader(ForgeModel):
@@ -41,6 +42,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_5_35B_A3B: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.QWEN_3_5_35B_A3B),
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_5_122B_A10B: LLMModelConfig(
+            pretrained_model_name=str(ModelVariant.QWEN_3_5_122B_A10B),
             max_length=128,
         ),
     }
@@ -144,9 +149,66 @@ class ModelLoader(ForgeModel):
         if getattr(model.config, "text_config", None) is not None:
             model.config.text_config.use_cache = False
 
+        if self._variant == ModelVariant.QWEN_3_5_122B_A10B:
+            # Duplicate GQA KV heads up to 8 so the text decoder's full-attention
+            # can be head-parallel-sharded on the galaxy "model" axis (size 8).
+            # Qwen3.5 has only 2 KV heads, which don't tile 8; the resulting
+            # hidden-dim sharding is what forced the batch<->model residual
+            # reshards (sdy.collective_permute, tt-mlir #3370). Padding lets
+            # attention use the gpt_oss-style head-parallel layout with a uniform
+            # residual axis. Same fix as the causal_lm loader.
+            self._pad_kv_heads(model, target_kv_heads=8)
+
         self.config = model.config
         self.model = model
         return model
+
+    def _pad_kv_heads(self, model, target_kv_heads=8):
+        """Duplicate the text decoder's GQA key/value heads up to ``target_kv_heads``.
+
+        Numerically identical: GQA already broadcasts each KV head to a fixed
+        group of query heads, so duplicating a KV head (contiguously, matching
+        ``repeat_kv``) and shrinking the group size leaves attention unchanged.
+        Only the weights, ``num_key_value_groups`` and the config are touched --
+        the attention ``forward`` infers the head count from the tensor width,
+        so no method override is needed. Operates on the VLM text decoder
+        (``model.model.language_model.layers``); the vision tower is untouched.
+        """
+        text_cfg = getattr(model.config, "text_config", model.config)
+        orig = text_cfg.num_key_value_heads
+        if orig >= target_kv_heads or target_kv_heads % orig != 0:
+            return
+        rep = target_kv_heads // orig
+        head_dim = getattr(
+            text_cfg,
+            "head_dim",
+            text_cfg.hidden_size // text_cfg.num_attention_heads,
+        )
+        for layer in model.model.language_model.layers:
+            sa = getattr(layer, "self_attn", None)
+            if sa is None:
+                continue
+            for name in ("k_proj", "v_proj"):
+                proj = getattr(sa, name)
+                in_f = proj.weight.shape[1]
+                w = (
+                    proj.weight.data.view(orig, head_dim, in_f)
+                    .repeat_interleave(rep, dim=0)
+                    .reshape(target_kv_heads * head_dim, in_f)
+                )
+                proj.weight = torch.nn.Parameter(w, requires_grad=False)
+                proj.out_features = target_kv_heads * head_dim
+                if proj.bias is not None:
+                    b = (
+                        proj.bias.data.view(orig, head_dim)
+                        .repeat_interleave(rep, dim=0)
+                        .reshape(-1)
+                    )
+                    proj.bias = torch.nn.Parameter(b, requires_grad=False)
+            sa.num_key_value_groups = text_cfg.num_attention_heads // target_kv_heads
+            if hasattr(sa, "num_key_value_heads"):
+                sa.num_key_value_heads = target_kv_heads
+        text_cfg.num_key_value_heads = target_kv_heads
 
     def load_inputs(
         self,
@@ -195,7 +257,10 @@ class ModelLoader(ForgeModel):
         return inputs
 
     def get_mesh_config(self, num_devices: int):
-        mesh_shape = (1, num_devices)
+        if num_devices == 32:  # Galaxy
+            mesh_shape = (4, 8)
+        else:
+            mesh_shape = (1, num_devices)
         return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
@@ -224,13 +289,13 @@ class ModelLoader(ForgeModel):
         for layer in model.model.language_model.layers:
             mlp = layer.mlp
             if hasattr(mlp, "experts"):
-                # MoE layer (35B-A3B): the routed experts' fused weights
-                # (mlp.experts.gate_up_proj / down_proj) are sharded on the
-                # expert dimension by get_tt_moe_shard_specs. The router
-                # (mlp.gate.weight) and shared_expert_gate stay replicated so
-                # every device can score all experts before dispatch. The
-                # always-on shared expert is a dense MLP: column-parallel
-                # gate/up, row-parallel down.
+                # MoE layer (35B-A3B, 122B-A10B): the routed experts' fused
+                # weights (mlp.experts.gate_up_proj / down_proj) are sharded on
+                # the expert dimension by get_tt_moe_shard_specs
+                # (inject_custom_moe). The router (mlp.gate.weight) and
+                # shared_expert_gate stay replicated so every device can score
+                # all experts before dispatch. The always-on shared expert is a
+                # dense MLP: column-parallel gate/up, row-parallel down.
                 shared = mlp.shared_expert
                 shard_specs[shared.gate_proj.weight] = ("model", "batch")
                 shard_specs[shared.up_proj.weight] = ("model", "batch")
@@ -242,10 +307,20 @@ class ModelLoader(ForgeModel):
                 shard_specs[mlp.down_proj.weight] = ("batch", "model")
 
             if layer.layer_type == "full_attention":
-                shard_specs[layer.self_attn.q_proj.weight] = ("batch", "model")
-                shard_specs[layer.self_attn.k_proj.weight] = ("batch", "model")
-                shard_specs[layer.self_attn.v_proj.weight] = ("batch", "model")
-                shard_specs[layer.self_attn.o_proj.weight] = ("model", "batch")
+                sa = layer.self_attn
+                if self._variant == ModelVariant.QWEN_3_5_122B_A10B:
+                    # KV heads padded to 8 (see _pad_kv_heads) -> head-parallel:
+                    # heads on "model", hidden on "batch" (uniform residual axis,
+                    # no sdy.collective_permute on the 2D galaxy mesh).
+                    shard_specs[sa.q_proj.weight] = ("model", "batch")
+                    shard_specs[sa.k_proj.weight] = ("model", "batch")
+                    shard_specs[sa.v_proj.weight] = ("model", "batch")
+                    shard_specs[sa.o_proj.weight] = ("batch", "model")
+                else:
+                    shard_specs[sa.q_proj.weight] = ("batch", "model")
+                    shard_specs[sa.k_proj.weight] = ("batch", "model")
+                    shard_specs[sa.v_proj.weight] = ("batch", "model")
+                    shard_specs[sa.o_proj.weight] = ("model", "batch")
 
             elif layer.layer_type == "linear_attention":
                 shard_specs[layer.linear_attn.in_proj_qkv.weight] = ("model", "batch")
@@ -258,6 +333,14 @@ class ModelLoader(ForgeModel):
                 shard_specs[layer.linear_attn.dt_bias] = ("model",)
                 shard_specs[layer.linear_attn.A_log] = ("model",)
 
+        # VLM text decoder embedding lives at model.model.language_model
+        # (model.model only exposes .visual / .language_model). Vocab on
+        # "model", hidden on "batch" -> embedding output keeps hidden on
+        # "batch", matching the head-parallel residual axis.
+        shard_specs[model.model.language_model.embed_tokens.weight] = (
+            "model",
+            "batch",
+        )
         shard_specs[model.lm_head.weight] = ("model", "batch")
 
         return shard_specs
