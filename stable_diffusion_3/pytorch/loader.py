@@ -123,3 +123,49 @@ class ModelLoader(ForgeModel):
             pooled_prompt_embeds = pooled_prompt_embeds.to(dtype_override)
 
         return [latent_model_input, timestep, prompt_embeds, pooled_prompt_embeds]
+
+    # ------------------------------------------------------------------ #
+    # TAESD3 lightweight VAE decoder on TT.
+    #
+    # SD3's full AutoencoderKL VAE noises out / OOMs on TT. TAESD3
+    # (madebyollin/taesd3) is the tiny AE for SD3's 16-channel latents; its
+    # conv-only decoder (no complex/FFT, no GroupNorm) is the tractable decoder
+    # that runs on TT. See tt-xla #5537.
+    # ------------------------------------------------------------------ #
+
+    TAESD3_REPO = "madebyollin/taesd3"
+
+    def load_taesd3_decoder(self):
+        """Load TAESD3, the tiny AE (tractable VAE decoder) for SD3 latents."""
+        import torch
+        from diffusers import AutoencoderTiny
+
+        self.taesd3 = (
+            AutoencoderTiny.from_pretrained(self.TAESD3_REPO, torch_dtype=torch.float32)
+            .eval()
+        )
+        return self.taesd3
+
+    def decode_taesd3(self, latents, on_tt=False):
+        """Decode SD3 (16-ch) latents [B, 16, H/8, W/8] -> image [-1, 1] via TAESD3.
+
+        With ``on_tt=True`` the conv decoder runs on TT via
+        ``torch.compile(backend="tt")``. ``AutoencoderTiny.decode(z)`` is
+        ``self.decoder(z)`` directly (no pre-scaling), so raw latents feed the
+        decoder in both modes. ``load_taesd3_decoder`` must run first.
+        """
+        import torch
+
+        vae = getattr(self, "taesd3", None) or self.load_taesd3_decoder()
+        with torch.no_grad():
+            if not on_tt:
+                return vae.decode(latents).sample
+
+            import torch_xla  # noqa: F401
+            import torch_xla.core.xla_model as xm
+
+            dev = xm.xla_device()
+            dec = vae.decoder.to(dtype=torch.bfloat16).to(dev)
+            compiled = torch.compile(lambda z: dec(z), backend="tt")
+            out = compiled(latents.to(dtype=torch.bfloat16).to(dev))
+            return out.to("cpu").to(torch.float32)
