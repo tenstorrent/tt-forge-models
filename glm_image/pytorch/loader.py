@@ -124,7 +124,14 @@ class ModelLoader(ForgeModel):
                 f"Unsupported device count: {num_devices}. "
                 f"Expected one of {sorted(MESH_SHAPES)}."
             )
-        return MESH_SHAPES[num_devices], MESH_NAMES
+        self._mesh_shape = MESH_SHAPES[num_devices]
+        return self._mesh_shape, MESH_NAMES
+
+    @property
+    def _model_axis_size(self) -> int:
+        """Width of the "model" mesh axis, or 1 if no mesh was requested."""
+        mesh_shape = getattr(self, "_mesh_shape", None)
+        return mesh_shape[MESH_NAMES.index("model")] if mesh_shape else 1
 
     def load_shard_spec(self, model):
         """Return tensor → partition_spec dict for the active component.
@@ -136,9 +143,9 @@ class ModelLoader(ForgeModel):
           VAE                     → VAEDecoderWrapper (specs from .vae)
         """
         if self._variant == ModelVariant.TEXT_ENCODER:
-            return shard_text_encoder_specs(model)
+            return shard_text_encoder_specs(model, self._model_axis_size)
         if self._variant == ModelVariant.VISION_LANGUAGE_ENCODER:
-            return shard_vision_language_encoder_specs(model.vlm)
+            return shard_vision_language_encoder_specs(model.vlm, self._model_axis_size)
         if self._variant == ModelVariant.TRANSFORMER:
             return shard_transformer_specs(model.transformer)
         if self._variant == ModelVariant.VAE:

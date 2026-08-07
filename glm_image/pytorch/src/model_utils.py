@@ -356,11 +356,55 @@ MESH_SHAPES = {32: (8, 4), 8: (2, 4), 4: (1, 4), 2: (1, 2), 1: (1, 1)}
 MESH_NAMES = ("batch", "model")
 
 
-def shard_text_encoder_specs(encoder) -> dict:
+def _heads_divide(n_heads, model_axis_size: int) -> bool:
+    """True when a head-parallel split lands whole heads on every device.
+
+    Every attention projection in this pipeline produces inner_dim =
+    n_heads * head_dim and is immediately reshaped to (..., n_heads, head_dim).
+    Splitting inner_dim across the model axis is only representable when the
+    split falls on a head boundary; otherwise that reshape has no valid
+    sharding and SPMD fails outright (element-count mismatch, or a reshard the
+    Shardy dialect cannot express). Callers replicate the projection instead.
+
+    For grouped-query attention the binding count is the KV head count, not the
+    query head count -- k/v produce n_kv_heads * head_dim, which is the smaller
+    of the two and therefore the first to stop dividing.
+    """
+    if model_axis_size <= 1:
+        return True
+    return bool(n_heads) and n_heads % model_axis_size == 0
+
+
+def _is_fused_glu(up_proj, down_proj) -> bool:
+    """True when the up-projection emits a gated pair that the FFN chunks.
+
+    GEGLU / SwiGLU feed-forwards project to 2 * inner_dim and then
+    `.chunk(2, dim=-1)` into (gate, value); a plain GELU projects to inner_dim.
+    Detect it from the shapes rather than the activation class so this holds
+    for any variant: the up-projection is fused iff it emits more columns than
+    the down-projection contracts over.
+
+    Sharding a fused dim is silently wrong -- the chunk is lowered as a slice
+    of each device's LOCAL shard instead of the global tensor, so each device
+    pairs two halves of the same chunk and the result is uncorrelated.
+    """
+    return up_proj.weight.shape[0] != down_proj.weight.shape[1]
+
+
+def shard_text_encoder_specs(encoder, model_axis_size: int = 1) -> dict:
     """Shard specs for T5 text encoder.
 
     Column-parallel (q, k, v, wi_0, wi_1): ("model", "batch")
     Row-parallel   (o, wo):                ("batch", "model")
+
+    Attention is head-parallel: q/k/v produce inner_dim = num_heads * d_kv,
+    which the model then reshapes to (B, T, num_heads, d_kv). Splitting
+    inner_dim across the model axis is only valid when whole heads land on
+    each device -- this T5 has num_heads=6, so on a 4-wide model axis the
+    per-device 96 columns are 1.5 heads and that reshape has no valid
+    sharding (SPMD fails with an element-count mismatch on the reshape).
+    When the heads do not divide evenly we leave q/k/v/o replicated and keep
+    only the feed-forward tensor-parallel.
     """
     specs = {}
 
@@ -381,14 +425,16 @@ def shard_text_encoder_specs(encoder) -> dict:
     for block in blocks:
         self_attn_layer = block.layer[0]
         attn = self_attn_layer.SelfAttention
-        for proj_name in ("q", "k", "v"):
-            proj = getattr(attn, proj_name)
-            specs[proj.weight] = ("model", "batch")
-            if getattr(proj, "bias", None) is not None:
-                specs[proj.bias] = ("model",)
-        specs[attn.o.weight] = ("batch", "model")
-        if getattr(attn.o, "bias", None) is not None:
-            specs[attn.o.bias] = ("batch",)
+        n_heads = getattr(attn, "n_heads", None) or encoder.config.num_heads
+        if _heads_divide(n_heads, model_axis_size):
+            for proj_name in ("q", "k", "v"):
+                proj = getattr(attn, proj_name)
+                specs[proj.weight] = ("model", "batch")
+                if getattr(proj, "bias", None) is not None:
+                    specs[proj.bias] = ("model",)
+            specs[attn.o.weight] = ("batch", "model")
+            if getattr(attn.o, "bias", None) is not None:
+                specs[attn.o.bias] = ("batch",)
         if hasattr(self_attn_layer, "layer_norm"):
             specs[self_attn_layer.layer_norm.weight] = ("batch",)
 
@@ -413,12 +459,49 @@ def shard_text_encoder_specs(encoder) -> dict:
     return specs
 
 
-def shard_vision_language_encoder_specs(vlm) -> dict:
+def _attention_head_counts(attn, config):
+    """(n_heads, n_kv_heads) for an attention module, or (None, None).
+
+    Read off the weight shapes via head_dim rather than trusting a particular
+    attribute name, since the HF attention modules moved these onto `config`.
+    """
+    head_dim = getattr(attn, "head_dim", None) or getattr(config, "head_dim", None)
+    q_proj = getattr(attn, "q_proj", None)
+    k_proj = getattr(attn, "k_proj", None)
+    if head_dim and q_proj is not None and k_proj is not None:
+        return (
+            q_proj.weight.shape[0] // head_dim,
+            k_proj.weight.shape[0] // head_dim,
+        )
+    n_heads = getattr(config, "num_attention_heads", None)
+    return n_heads, getattr(config, "num_key_value_heads", None) or n_heads
+
+
+def shard_vision_language_encoder_specs(vlm, model_axis_size: int = 1) -> dict:
     """Shard specs for GlmImageForConditionalGeneration.
 
     Column-parallel (qkv, q, k, v, gate_up, fc1): ("model", "batch")
     Row-parallel   (proj/o, down_proj, fc2):       ("batch", "model")
     Replicated norms / embeddings as required.
+
+    Attention is head-parallel and therefore gated on _heads_divide, same as
+    the T5 encoder. Two things make the gate bite here that did not there:
+
+      * The language model is GQA (32 query heads, 2 KV heads, head_dim 128),
+        so k/v project to only 2 * 128 = 256 columns. On a 4-wide model axis
+        that is 64 columns = half a KV head, and the repeat_kv broadcast
+        (1, 2, T, 128) -> (1, 2, 16, T, 128) has no valid sharding: Shardy
+        emitted an sdy.all_slice on the model axis inside a region that had
+        already claimed it ("operates on axis ... already bound by a parent
+        sdy.manual_computation op"). The 32 query heads divide fine -- the KV
+        heads are what fails, so the gate tests those.
+      * The visual tower uses a FUSED qkv of shape (3 * inner_dim, hidden)
+        reshaped to (..., 3, n_heads, head_dim). A contiguous N-way split of
+        dim 0 only respects the q|k|v boundaries when N divides 3, so on any
+        power-of-two mesh wider than 1 the fused projection cannot be
+        column-parallel at all, whatever the head count.
+
+    In both cases the MLPs stay tensor-parallel; only attention is replicated.
     """
     specs = {}
 
@@ -444,13 +527,19 @@ def shard_vision_language_encoder_specs(vlm) -> dict:
             if block.norm2.bias is not None:
                 specs[block.norm2.bias] = ("batch",)
 
+            # Fused qkv: needs whole heads per device AND a split that does not
+            # straddle the q|k|v thirds, i.e. model_axis_size must divide 3.
             attn = block.attn
-            specs[attn.qkv.weight] = ("model", "batch")
-            if attn.qkv.bias is not None:
-                specs[attn.qkv.bias] = ("model",)
-            specs[attn.proj.weight] = ("batch", "model")
-            if attn.proj.bias is not None:
-                specs[attn.proj.bias] = ("batch",)
+            vis_heads = getattr(attn, "num_heads", None) or getattr(
+                getattr(visual, "config", None), "num_heads", None
+            )
+            if _heads_divide(vis_heads, model_axis_size) and 3 % model_axis_size == 0:
+                specs[attn.qkv.weight] = ("model", "batch")
+                if attn.qkv.bias is not None:
+                    specs[attn.qkv.bias] = ("model",)
+                specs[attn.proj.weight] = ("batch", "model")
+                if attn.proj.bias is not None:
+                    specs[attn.proj.bias] = ("batch",)
 
             mlp = block.mlp
             specs[mlp.fc1.weight] = ("model", "batch")
@@ -466,21 +555,43 @@ def shard_vision_language_encoder_specs(vlm) -> dict:
         if hasattr(language_model, "embed_tokens"):
             specs[language_model.embed_tokens.weight] = (None, "batch")
 
+        lm_config = getattr(language_model, "config", None) or getattr(
+            vlm, "config", None
+        )
+
         for layer in getattr(language_model, "layers", []) or []:
             sa = layer.self_attn
-            specs[sa.q_proj.weight] = ("model", "batch")
-            if sa.q_proj.bias is not None:
-                specs[sa.q_proj.bias] = ("model",)
-            specs[sa.k_proj.weight] = ("model", "batch")
-            if sa.k_proj.bias is not None:
-                specs[sa.k_proj.bias] = ("model",)
-            specs[sa.v_proj.weight] = ("model", "batch")
-            if sa.v_proj.bias is not None:
-                specs[sa.v_proj.bias] = ("model",)
-            specs[sa.o_proj.weight] = ("batch", "model")
+            n_heads, n_kv_heads = _attention_head_counts(
+                sa, getattr(sa, "config", None) or lm_config
+            )
+            # GQA: k/v carry n_kv_heads, so they hit the head boundary first.
+            if _heads_divide(n_heads, model_axis_size) and _heads_divide(
+                n_kv_heads, model_axis_size
+            ):
+                specs[sa.q_proj.weight] = ("model", "batch")
+                if sa.q_proj.bias is not None:
+                    specs[sa.q_proj.bias] = ("model",)
+                specs[sa.k_proj.weight] = ("model", "batch")
+                if sa.k_proj.bias is not None:
+                    specs[sa.k_proj.bias] = ("model",)
+                specs[sa.v_proj.weight] = ("model", "batch")
+                if sa.v_proj.bias is not None:
+                    specs[sa.v_proj.bias] = ("model",)
+                specs[sa.o_proj.weight] = ("batch", "model")
 
+            # gate_up_proj is FUSED: it emits 2 * intermediate_size columns
+            # that the MLP immediately splits with .chunk(2, -1). Sharding that
+            # fused dim on "model" is silently wrong -- the chunk lowers to a
+            # slice of each device's LOCAL shard rather than of the global
+            # tensor, so with a 4-wide axis devices 0-1 hold only gate and
+            # devices 2-3 only up, and every device ends up computing
+            # `gate_hi * silu(gate_lo)` instead of `up * silu(gate)`. It
+            # compiles cleanly and returns uncorrelated logits (pcc ~ 0).
+            # Only the fused dim is left unsharded; "batch" still splits the
+            # contracted (hidden) dim, and down_proj stays row-parallel -- it
+            # slices its replicated input locally, so no collective is added.
             mlp = layer.mlp
-            specs[mlp.gate_up_proj.weight] = ("model", "batch")
+            specs[mlp.gate_up_proj.weight] = (None, "batch")
             specs[mlp.down_proj.weight] = ("batch", "model")
 
             specs[layer.input_layernorm.weight] = ("batch",)
@@ -548,23 +659,36 @@ def _shard_resnet_block_2d(block, specs: dict) -> None:
         # `conv2_out + shortcut_out` requires the shortcut to also be
         # replicated, so we don't shard it.
 
+      norm1 / norm2 (replicated):
+        weight (None,), bias (None,)
+        # GroupNorm's weight/bias are per-CHANNEL, so their sharding has to
+        # agree with the channel sharding of the activation they scale.
+        # norm2 sees the conv1 output (Cout-sharded on "model") while norm1
+        # sees the replicated residual stream, so no single sharding matches
+        # both -- and sharding them on "batch" matches NEITHER. That mismatch
+        # made Shardy reshard 1024/"batch"(2) -> 1024/"model"(4) inside the
+        # group_norm decomposition, which it lowered to sdy.collective_permute
+        # with 512- and 256-element operand/result ("op requires the same type
+        # for all operands and results"). Replicated params are free: Shardy
+        # slices them locally to match whatever the activation sharding is.
+
     Spatial dims (kH, kW) are NEVER sharded — that would require a halo
     exchange (neighbor_pad / slice_reshard) collective which TTIR/TTNN MLIR
     does not currently expose. Channel sharding is the only viable strategy.
     """
     if hasattr(block, "norm1"):
-        specs[block.norm1.weight] = ("batch",)
+        specs[block.norm1.weight] = (None,)
         if block.norm1.bias is not None:
-            specs[block.norm1.bias] = ("batch",)
+            specs[block.norm1.bias] = (None,)
 
     specs[block.conv1.weight] = ("model", None, None, None)
     if block.conv1.bias is not None:
         specs[block.conv1.bias] = ("model",)
 
     if hasattr(block, "norm2"):
-        specs[block.norm2.weight] = ("batch",)
+        specs[block.norm2.weight] = (None,)
         if block.norm2.bias is not None:
-            specs[block.norm2.bias] = ("batch",)
+            specs[block.norm2.bias] = (None,)
 
     specs[block.conv2.weight] = (None, "model", None, None)
     if block.conv2.bias is not None:
@@ -602,8 +726,16 @@ def shard_vae_specs(vae) -> dict:
         # must match the post-all_reduce replicated state of conv2 so the
         # residual add doesn't need a re-shard.
 
-    Norm / mid-block attention specs are replicated along the "batch" axis
-    only, mirroring the conventions used elsewhere in the pipeline.
+    "model" is the ONLY weight-sharding axis here, matching
+    shard_transformer_specs: the decoder runs with B=1, and using "batch" as a
+    second axis forces a model<->batch axis swap that Shardy lowers to
+    sdy.collective_permute. Because the two axes have different widths (2 vs 4
+    on the 8-device mesh) that permute is emitted with mismatched operand and
+    result types and fails the sdy verifier outright.
+
+    Everything that is not channel-parallel is therefore REPLICATED, not
+    "batch"-sharded: all GroupNorm weights/biases (see _shard_resnet_block_2d)
+    and the mid-block attention.
     """
     specs = {}
 
@@ -623,16 +755,23 @@ def shard_vae_specs(vae) -> dict:
         for attn in getattr(mid_block, "attentions", []) or []:
             if attn is None:
                 continue
+            # Fully replicated. AutoencoderKL's mid-block Attention is built
+            # with heads = in_channels // attention_head_dim == 1, so the
+            # inner_dim -> (B, T, heads, head_dim) reshape has no valid
+            # head-parallel sharding (same constraint that gates the T5
+            # attention in shard_text_encoder_specs). The GLM-Image VAE config
+            # sets mid_block_add_attention=False, so this branch is inert for
+            # the shipped model; replication keeps it correct if it is ever hit.
             if hasattr(attn, "group_norm") and attn.group_norm is not None:
-                specs[attn.group_norm.weight] = ("batch",)
+                specs[attn.group_norm.weight] = (None,)
                 if attn.group_norm.bias is not None:
-                    specs[attn.group_norm.bias] = ("batch",)
+                    specs[attn.group_norm.bias] = (None,)
             for proj_name in ("to_q", "to_k", "to_v"):
                 if hasattr(attn, proj_name):
                     proj = getattr(attn, proj_name)
-                    specs[proj.weight] = ("model", "batch")
+                    specs[proj.weight] = (None, None)
                     if proj.bias is not None:
-                        specs[proj.bias] = ("model",)
+                        specs[proj.bias] = (None,)
             if hasattr(attn, "to_out"):
                 out = attn.to_out
                 target = (
@@ -640,9 +779,9 @@ def shard_vae_specs(vae) -> dict:
                     if isinstance(out, (torch.nn.Sequential, torch.nn.ModuleList))
                     else out
                 )
-                specs[target.weight] = ("batch", "model")
+                specs[target.weight] = (None, None)
                 if target.bias is not None:
-                    specs[target.bias] = ("batch",)
+                    specs[target.bias] = (None,)
 
     for up_block in getattr(decoder, "up_blocks", []) or []:
         for resnet in getattr(up_block, "resnets", []) or []:
@@ -653,9 +792,12 @@ def shard_vae_specs(vae) -> dict:
                 specs[upsampler.conv.bias] = ("model",)
 
     if hasattr(decoder, "conv_norm_out"):
-        specs[decoder.conv_norm_out.weight] = ("batch",)
+        # Replicated: matches the replicated residual stream leaving the last
+        # up_block, and feeds the row-parallel conv_out which wants a
+        # Cin-sharded input Shardy can slice locally.
+        specs[decoder.conv_norm_out.weight] = (None,)
         if decoder.conv_norm_out.bias is not None:
-            specs[decoder.conv_norm_out.bias] = ("batch",)
+            specs[decoder.conv_norm_out.bias] = (None,)
 
     if hasattr(decoder, "conv_out"):
         specs[decoder.conv_out.weight] = (None, "model", None, None)
@@ -696,7 +838,9 @@ def shard_transformer_specs(transformer) -> dict:
     for proj_attr in ("glyph_projector", "prior_projector"):
         module = getattr(transformer, proj_attr, None)
         if module is not None and hasattr(module, "net"):
-            if hasattr(module.net[0], "proj"):
+            if hasattr(module.net[0], "proj") and not _is_fused_glu(
+                module.net[0].proj, module.net[2]
+            ):
                 specs[module.net[0].proj.weight] = ("model", None)
                 if module.net[0].proj.bias is not None:
                     specs[module.net[0].proj.bias] = ("model",)
@@ -754,7 +898,9 @@ def shard_transformer_specs(transformer) -> dict:
 
         if hasattr(block, "ff"):
             ff = block.ff
-            if hasattr(ff.net[0], "proj"):
+            if hasattr(ff.net[0], "proj") and not _is_fused_glu(
+                ff.net[0].proj, ff.net[2]
+            ):
                 specs[ff.net[0].proj.weight] = ("model", None)
                 if ff.net[0].proj.bias is not None:
                     specs[ff.net[0].proj.bias] = ("model",)
