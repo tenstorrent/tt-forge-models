@@ -49,14 +49,84 @@ from ...config import (
     StrEnum,
 )
 
+
+def _xla_apply_split_rotary_emb(x, freqs):
+    """XLA-safe replacement for diffusers ``apply_split_rotary_emb``.
+
+    Upstream applies rope in ``(b, h, t, d)`` layout and merges the heads back
+    with ``out.swapaxes(1, 2).reshape(b, t, -1)``. On XLA that reshape is traced
+    as a strict ``aten.view``: XLA tensors report dense row-major strides, so
+    ``reshape`` takes the view path, but the later decomposition runs on fake
+    tensors that *do* carry the transposed strides, and the view is rejected —
+    ``ValueError: Cannot view a tensor with shape [1, 128, 30, 128] and strides
+    (491520, 128, 16384, 1) as a tensor with shape (1, 128, 3840)``.
+    ``.contiguous()`` cannot fix it (a no-op on XLA lazy tensors).
+
+    This version keeps ``x`` in ``(b, t, h, d)`` layout and transposes ``cos`` /
+    ``sin`` instead. Those only ever feed elementwise broadcasts, never a
+    reshape, so no view-of-transposed op is produced and the head merge is a
+    plain contiguous reshape. Bit-exact with upstream on CPU in fp32 and bf16.
+
+    See https://github.com/tenstorrent/tt-xla/issues/5196.
+    """
+    cos, sin = freqs
+
+    x_dtype = x.dtype
+    transposed_freqs = x.ndim != 4 and cos.ndim == 4
+    if transposed_freqs:
+        # cos is (b, h, t, r) -> view x as (b, t, h, dim_per_head), no transpose
+        b, h, t, _ = cos.shape
+        x = x.reshape(b, t, h, -1)
+        cos = cos.swapaxes(1, 2)  # (b, t, h, r)
+        sin = sin.swapaxes(1, 2)
+
+    last = x.shape[-1]
+    if last % 2 != 0:
+        raise ValueError(
+            f"Expected x.shape[-1] to be even for split rotary, got {last}."
+        )
+    r = last // 2
+
+    split_x = x.reshape(*x.shape[:-1], 2, r).float()
+    first_x = split_x[..., :1, :]
+    second_x = split_x[..., 1:, :]
+
+    cos_u = cos.unsqueeze(-2)
+    sin_u = sin.unsqueeze(-2)
+
+    out = split_x * cos_u
+    first_out = out[..., :1, :]
+    second_out = out[..., 1:, :]
+
+    first_out.addcmul_(-sin_u, second_x)
+    second_out.addcmul_(sin_u, first_x)
+
+    if transposed_freqs:
+        out = out.reshape(b, t, h * last)
+    else:
+        out = out.reshape(*out.shape[:-2], last)
+
+    return out.to(dtype=x_dtype)
+
+
+def _patch_rope_for_xla():
+    """Install the XLA-safe rope head-merge (tt-xla#5196).
+
+    Both the transformer's attention processors and the text connectors resolve
+    ``apply_split_rotary_emb`` as a module global at call time, so replacing the
+    module attribute covers every call site.
+    """
+    from diffusers.models.transformers import transformer_ltx2
+
+    transformer_ltx2.apply_split_rotary_emb = _xla_apply_split_rotary_emb
+
+
 _HF_REPO = "Lightricks/LTX-2"
 
-# NOTE: transformer + connectors currently xfail on TT — apply_split_rotary_emb
-# merges attention heads via `out.swapaxes(1, 2).reshape(b, t, -1)`, and
-# torch_xla's `_assert_tensor_metadata` rejects reshaping the transposed
-# (non-contiguous) tensor. `.contiguous()` is a no-op on XLA lazy tensors, so a
-# loader monkey-patch cannot fix it — see the xfail reasons in
-# tests/torch/models/ltx2/test_{connectors,transformer}.py. No patch is applied.
+# NOTE: transformer + connectors run split rope, whose upstream head merge
+# (`out.swapaxes(1, 2).reshape(b, t, -1)`) cannot be lowered on XLA — see
+# tt-xla#5196. `_patch_rope_for_xla()` (above) installs an XLA-safe replacement
+# and is applied for both variants in `load_model()`.
 
 # ── Shape constants (minimal valid dims for TT bringup) ─────────────────────
 # VAE compression ratios — LTX-2 family (LTX2Pipeline defaults)
@@ -83,20 +153,42 @@ _AUDIO_CHANNELS = 2
 _AUDIO_VAE_TIME = 64  # minimal mel time frames for a valid audio-VAE forward
 _VOCODER_TIME = 16  # minimal mel time frames for a valid vocoder forward
 
+# Latent channel counts (vae/config.json, audio_vae/config.json). The encoder
+# emits 2x these (mean ++ logvar moments); the decoder consumes 1x.
+_VAE_LATENT_CHANNELS = 128
+_AUDIO_VAE_LATENT_CHANNELS = 8
+
+# Video sample dims for the VAE variants. The 32x spatial / 8x temporal
+# compression maps a (1, 3, 1, 64, 64) sample to a (1, 128, 1, 2, 2) latent.
+_VAE_SAMPLE_FRAMES = 1
+_VAE_SAMPLE_SIZE = 64
+_VAE_LATENT_FRAMES = 1
+_VAE_LATENT_SIZE = _VAE_SAMPLE_SIZE // _VAE_SPATIAL_COMPRESSION
+
+# Audio latent dims: a (1, 2, 64, 64) mel sample encodes to (1, 8, 16, 16).
+_AUDIO_VAE_LATENT_MEL = 16
+_AUDIO_VAE_LATENT_TIME = 16
+
 # Captured per-component I/O spec (forward arg order == load_inputs() order).
 # Validated by random-init CPU forward unless tagged derived.
 _COMPONENT_IO_SPEC = {
     "transformer": {  # derived (19B; not CPU-instantiated)
         "inputs": [
             ("hidden_states", "float", (1, 2, _VIDEO_IN_CHANNELS)),
-            ("audio_hidden_states", "float", (1, 144, _AUDIO_IN_CHANNELS)),
+            ("audio_hidden_states", "float", (1, 9, _AUDIO_IN_CHANNELS)),
             ("encoder_hidden_states", "float", (1, DEFAULT_SEQ_LEN, _CAPTION_CHANNELS)),
             (
                 "audio_encoder_hidden_states",
                 "float",
                 (1, DEFAULT_SEQ_LEN, _CAPTION_CHANNELS),
             ),
-            ("timestep", "float", (1, 2)),
+            # One timestep per batch element, as LTX2Pipeline passes it
+            # (t.expand(batch)). The model views the embedding as
+            # (batch, -1, dim) so it broadcasts over both the video and the
+            # audio token axes; a per-video-token timestep would give
+            # temb_audio a video-length token axis and fail to broadcast
+            # against the 144 audio tokens.
+            ("timestep", "float", (1,)),
             ("encoder_attention_mask", "float", (1, DEFAULT_SEQ_LEN)),
             ("audio_encoder_attention_mask", "float", (1, DEFAULT_SEQ_LEN)),
         ],
@@ -120,15 +212,45 @@ _COMPONENT_IO_SPEC = {
         ],
         "output": "out[0] -> (1, 128, 3840)",
     },
-    "vae": {  # validated 1.22B
+    "vae": {  # validated 1.22B (encoder 0.694B + decoder 0.528B, round trip)
         "inputs": [("sample", "float", (1, 3, 1, 64, 64))],
-        "output": "out.sample",
+        "output": "out.sample -> (1, 3, 1, 64, 64)",
     },
-    "audio_vae": {  # validated 0.053B
+    "vae_encoder": {  # validated 0.694B
+        "inputs": [("sample", "float", (1, 3, 1, 64, 64))],
+        "output": "latent_dist.parameters -> (1, 256, 1, 2, 2)",
+    },
+    "vae_decoder": {  # validated 0.528B
+        "inputs": [
+            (
+                "latent",
+                "float",
+                (1, _VAE_LATENT_CHANNELS, 1, 2, 2),
+            )
+        ],
+        "output": "out.sample -> (1, 3, 1, 64, 64)",
+    },
+    "audio_vae": {  # validated 0.053B (round trip)
         "inputs": [
             ("sample", "float", (1, _AUDIO_CHANNELS, _AUDIO_MEL_BINS, _AUDIO_VAE_TIME))
         ],
-        "output": "out.sample",
+        "output": "out.sample -> (1, 2, 61, 64)",
+    },
+    "audio_vae_encoder": {  # validated
+        "inputs": [
+            ("sample", "float", (1, _AUDIO_CHANNELS, _AUDIO_MEL_BINS, _AUDIO_VAE_TIME))
+        ],
+        "output": "latent_dist.parameters -> (1, 16, 16, 16)",
+    },
+    "audio_vae_decoder": {  # validated
+        "inputs": [
+            (
+                "latent",
+                "float",
+                (1, _AUDIO_VAE_LATENT_CHANNELS, 16, 16),
+            )
+        ],
+        "output": "out.sample -> (1, 2, 61, 64)",
     },
     "vocoder": {  # validated 0.056B -> (1, 2, 3840)
         "inputs": [
@@ -147,8 +269,16 @@ class ModelVariant(StrEnum):
     LTX2_TRANSFORMER = "Transformer"
     LTX2_TEXT_ENCODER = "TextEncoder"
     LTX2_CONNECTORS = "Connectors"
+    # The plain `Vae` / `AudioVae` variants run the full autoencode round trip
+    # (encode -> posterior mode -> decode) in one graph, which is what the
+    # pipeline's `forward` does. The `*Encoder` / `*Decoder` variants isolate a
+    # single direction so each half can be brought up and measured on its own.
     LTX2_VAE = "Vae"
+    LTX2_VAE_ENCODER = "VaeEncoder"
+    LTX2_VAE_DECODER = "VaeDecoder"
     LTX2_AUDIO_VAE = "AudioVae"
+    LTX2_AUDIO_VAE_ENCODER = "AudioVaeEncoder"
+    LTX2_AUDIO_VAE_DECODER = "AudioVaeDecoder"
     LTX2_VOCODER = "Vocoder"
 
 
@@ -158,7 +288,11 @@ _COMPONENT = {
     ModelVariant.LTX2_TEXT_ENCODER: (Gemma3ForConditionalGeneration, "text_encoder"),
     ModelVariant.LTX2_CONNECTORS: (LTX2TextConnectors, "connectors"),
     ModelVariant.LTX2_VAE: (AutoencoderKLLTX2Video, "vae"),
+    ModelVariant.LTX2_VAE_ENCODER: (AutoencoderKLLTX2Video, "vae"),
+    ModelVariant.LTX2_VAE_DECODER: (AutoencoderKLLTX2Video, "vae"),
     ModelVariant.LTX2_AUDIO_VAE: (AutoencoderKLLTX2Audio, "audio_vae"),
+    ModelVariant.LTX2_AUDIO_VAE_ENCODER: (AutoencoderKLLTX2Audio, "audio_vae"),
+    ModelVariant.LTX2_AUDIO_VAE_DECODER: (AutoencoderKLLTX2Audio, "audio_vae"),
     ModelVariant.LTX2_VOCODER: (LTX2Vocoder, "vocoder"),
 }
 
@@ -235,7 +369,12 @@ class _ConnectorsWrapper(torch.nn.Module):
 
 
 class _VaeWrapper(torch.nn.Module):
-    """Full autoencode (deterministic: sample_posterior=False)."""
+    """Full autoencode round trip: encode -> posterior mode -> decode.
+
+    Deterministic (``sample_posterior=False``), so both halves of the VAE are
+    exercised in a single graph. Use ``_VaeEncoderWrapper`` /
+    ``_VaeDecoderWrapper`` to compile one direction on its own.
+    """
 
     def __init__(self, vae):
         super().__init__()
@@ -244,9 +383,35 @@ class _VaeWrapper(torch.nn.Module):
     def forward(self, sample):
         out = self.vae(sample, return_dict=True)
         return out.sample
+
+
+class _VaeEncoderWrapper(torch.nn.Module):
+    """Encoder half only. Returns the raw Gaussian moments (mean ++ logvar) so
+    the full encoder output is covered by the comparison, not just the mean."""
+
+    def __init__(self, vae):
+        super().__init__()
+        self.vae = vae
+
+    def forward(self, sample):
+        return self.vae.encode(sample, return_dict=True).latent_dist.parameters
+
+
+class _VaeDecoderWrapper(torch.nn.Module):
+    """Decoder half only. ``temb`` is None because the checkpoint sets
+    ``timestep_conditioning=False``."""
+
+    def __init__(self, vae):
+        super().__init__()
+        self.vae = vae
+
+    def forward(self, latent):
+        return self.vae.decode(latent, return_dict=True).sample
 
 
 class _AudioVaeWrapper(torch.nn.Module):
+    """Full audio autoencode round trip (deterministic)."""
+
     def __init__(self, vae):
         super().__init__()
         self.vae = vae
@@ -254,6 +419,24 @@ class _AudioVaeWrapper(torch.nn.Module):
     def forward(self, sample):
         out = self.vae(sample, return_dict=True)
         return out.sample
+
+
+class _AudioVaeEncoderWrapper(torch.nn.Module):
+    def __init__(self, vae):
+        super().__init__()
+        self.vae = vae
+
+    def forward(self, sample):
+        return self.vae.encode(sample, return_dict=True).latent_dist.parameters
+
+
+class _AudioVaeDecoderWrapper(torch.nn.Module):
+    def __init__(self, vae):
+        super().__init__()
+        self.vae = vae
+
+    def forward(self, latent):
+        return self.vae.decode(latent, return_dict=True).sample
 
 
 class _VocoderWrapper(torch.nn.Module):
@@ -263,6 +446,21 @@ class _VocoderWrapper(torch.nn.Module):
 
     def forward(self, hidden_states):
         return self.vocoder(hidden_states, time_last=False)
+
+
+# Variant -> wrapper. The transformer is built separately (its wrapper needs the
+# derived latent dims), so it is intentionally absent here.
+_WRAPPER = {
+    ModelVariant.LTX2_TEXT_ENCODER: _TextEncoderWrapper,
+    ModelVariant.LTX2_CONNECTORS: _ConnectorsWrapper,
+    ModelVariant.LTX2_VAE: _VaeWrapper,
+    ModelVariant.LTX2_VAE_ENCODER: _VaeEncoderWrapper,
+    ModelVariant.LTX2_VAE_DECODER: _VaeDecoderWrapper,
+    ModelVariant.LTX2_AUDIO_VAE: _AudioVaeWrapper,
+    ModelVariant.LTX2_AUDIO_VAE_ENCODER: _AudioVaeEncoderWrapper,
+    ModelVariant.LTX2_AUDIO_VAE_DECODER: _AudioVaeDecoderWrapper,
+    ModelVariant.LTX2_VOCODER: _VocoderWrapper,
+}
 
 
 class ModelLoader(ForgeModel):
@@ -296,7 +494,15 @@ class ModelLoader(ForgeModel):
         latent_width = DEFAULT_WIDTH // _VAE_SPATIAL_COMPRESSION
         video_tokens = max(1, latent_num_frames * latent_height * latent_width)
         audio_num_frames = 9
-        audio_tokens = audio_num_frames * (_AUDIO_MEL_BINS // 4)
+        # One audio token per latent frame. LTX2Pipeline._pack_audio_latents is
+        # called without patch sizes, so it takes the [B, C, L, M] -> [B, L, C*M]
+        # branch: the mel bins are folded into the *feature* axis (C*M == 8*16 ==
+        # audio_in_channels == 128), not the sequence axis, and
+        # prepare_audio_coords likewise emits num_patches == num_frames. Folding
+        # mel bins into the token count instead gives the audio rope a
+        # 16x-too-short token axis and the per-head split then mismatches
+        # cos/sin ("size of tensor a (512) must match tensor b (32)").
+        audio_tokens = audio_num_frames
         return (
             latent_num_frames,
             latent_height,
@@ -310,6 +516,15 @@ class ModelLoader(ForgeModel):
         """Load one LTX-2 component (direct from_pretrained, wrapped to a
         tensors-only forward)."""
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
+
+        # The transformer and the connectors both run split rope, whose upstream
+        # head merge cannot be lowered on XLA (tt-xla#5196).
+        if self._variant in (
+            ModelVariant.LTX2_TRANSFORMER,
+            ModelVariant.LTX2_CONNECTORS,
+        ):
+            _patch_rope_for_xla()
+
         cls, subfolder = _COMPONENT[self._variant]
         base = cls.from_pretrained(
             self._variant_config.pretrained_model_name,
@@ -320,18 +535,11 @@ class ModelLoader(ForgeModel):
         if self._variant == ModelVariant.LTX2_TRANSFORMER:
             lnf, lh, lw, _, anf, _ = self._latent_dims()
             self.model = _TransformerWrapper(base, lnf, lh, lw, anf)
-        elif self._variant == ModelVariant.LTX2_TEXT_ENCODER:
-            self.model = _TextEncoderWrapper(base)
-        elif self._variant == ModelVariant.LTX2_CONNECTORS:
-            self.model = _ConnectorsWrapper(base)
-        elif self._variant == ModelVariant.LTX2_VAE:
-            self.model = _VaeWrapper(base)
-        elif self._variant == ModelVariant.LTX2_AUDIO_VAE:
-            self.model = _AudioVaeWrapper(base)
-        elif self._variant == ModelVariant.LTX2_VOCODER:
-            self.model = _VocoderWrapper(base)
-        else:  # pragma: no cover
-            raise ValueError(f"Unknown variant {self._variant}")
+        else:
+            wrapper = _WRAPPER.get(self._variant)
+            if wrapper is None:  # pragma: no cover
+                raise ValueError(f"Unknown variant {self._variant}")
+            self.model = wrapper(base)
 
         if dtype_override is not None:
             self.model = self.model.to(dtype_override)
@@ -354,7 +562,8 @@ class ModelLoader(ForgeModel):
                 torch.randn(
                     batch_size, DEFAULT_SEQ_LEN, _CAPTION_CHANNELS, dtype=dtype
                 ),
-                torch.full((batch_size, vtok), 1000.0, dtype=dtype),
+                # (batch,) — see the timestep note in _COMPONENT_IO_SPEC.
+                torch.full((batch_size,), 1000.0, dtype=dtype),
                 torch.ones(batch_size, DEFAULT_SEQ_LEN, dtype=dtype),
                 torch.ones(batch_size, DEFAULT_SEQ_LEN, dtype=dtype),
             ]
@@ -376,15 +585,45 @@ class ModelLoader(ForgeModel):
                 ),
                 torch.ones(batch_size, DEFAULT_SEQ_LEN, dtype=torch.long),
             ]
-        if v == ModelVariant.LTX2_VAE:
-            return [torch.randn(batch_size, 3, 1, 64, 64, dtype=dtype)]
-        if v == ModelVariant.LTX2_AUDIO_VAE:
+        if v in (ModelVariant.LTX2_VAE, ModelVariant.LTX2_VAE_ENCODER):
+            return [
+                torch.randn(
+                    batch_size,
+                    3,
+                    _VAE_SAMPLE_FRAMES,
+                    _VAE_SAMPLE_SIZE,
+                    _VAE_SAMPLE_SIZE,
+                    dtype=dtype,
+                )
+            ]
+        if v == ModelVariant.LTX2_VAE_DECODER:
+            return [
+                torch.randn(
+                    batch_size,
+                    _VAE_LATENT_CHANNELS,
+                    _VAE_LATENT_FRAMES,
+                    _VAE_LATENT_SIZE,
+                    _VAE_LATENT_SIZE,
+                    dtype=dtype,
+                )
+            ]
+        if v in (ModelVariant.LTX2_AUDIO_VAE, ModelVariant.LTX2_AUDIO_VAE_ENCODER):
             return [
                 torch.randn(
                     batch_size,
                     _AUDIO_CHANNELS,
                     _AUDIO_MEL_BINS,
                     _AUDIO_VAE_TIME,
+                    dtype=dtype,
+                )
+            ]
+        if v == ModelVariant.LTX2_AUDIO_VAE_DECODER:
+            return [
+                torch.randn(
+                    batch_size,
+                    _AUDIO_VAE_LATENT_CHANNELS,
+                    _AUDIO_VAE_LATENT_MEL,
+                    _AUDIO_VAE_LATENT_TIME,
                     dtype=dtype,
                 )
             ]
