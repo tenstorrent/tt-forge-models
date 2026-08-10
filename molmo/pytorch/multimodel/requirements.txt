@@ -1,5 +1,0 @@
-# Molmo's remote image_preprocessing_molmo.py is scanned by transformers
-# check_imports, which requires tensorflow to be importable. The default
-# resize path is torch-bilinear; tensorflow is only used for the optional
-# resize_method="tensorflow" path.
-tensorflow

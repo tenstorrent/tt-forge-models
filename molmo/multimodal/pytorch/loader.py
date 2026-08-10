@@ -22,9 +22,9 @@ from transformers.dynamic_module_utils import get_class_from_dynamic_module
 from transformers.modeling_outputs import CausalLMOutputWithPast
 from typing import Optional
 
-from ...base import ForgeModel
-from ...tools.utils import cast_input_to_type, get_file
-from ...config import (
+from ....base import ForgeModel
+from ....tools.utils import cast_input_to_type, get_file
+from ....config import (
     LLMModelConfig,
     ModelInfo,
     ModelGroup,
@@ -36,19 +36,33 @@ from ...config import (
 
 
 def _ensure_tensorflow_importable() -> None:
-    """Satisfy transformers check_imports for Molmo's image preprocessor.
+    """Make ``tensorflow`` importable without requiring the full package.
 
-    ``image_preprocessing_molmo.py`` optionally imports tensorflow for the
-    ``resize_method="tensorflow"`` path. The default path is
-    ``torch-bilinear``, but ``check_imports`` still requires the package to be
-    importable. Stub it when tensorflow is not installed.
+    Why this exists
+    - Molmo remote ``image_preprocessing_molmo.py`` is scanned by transformers
+      ``check_imports``, which requires the name ``tensorflow`` to import.
+    - This loader uses the default ``torch-bilinear`` resize path; the optional
+      ``resize_method="tensorflow"`` path is never used, so a real TF install
+      is not required (and is intentionally omitted from requirements).
+
+    Why we also attach dummy ``Tensor`` / ``Variable``
+    - If TF is missing we stub the module; if a broken/partial TF namespace is
+      already on ``sys.modules``, ``import tensorflow`` succeeds but has no
+      ``Tensor``/``Variable``.
+    - einops then loads its TF backend (because ``"tensorflow" in sys.modules``)
+      and crashes on ``tf.Tensor``. Dummy types make those ``isinstance`` checks
+      return False so einops falls through to numpy/torch.
     """
-    if "tensorflow" in sys.modules:
-        return
     try:
-        import tensorflow  # noqa: F401
+        import tensorflow as tf  # noqa: F401
     except ImportError:
-        sys.modules["tensorflow"] = types.ModuleType("tensorflow")
+        tf = types.ModuleType("tensorflow")
+        sys.modules["tensorflow"] = tf
+
+    if not hasattr(tf, "Tensor"):
+        tf.Tensor = type("Tensor", (), {})
+    if not hasattr(tf, "Variable"):
+        tf.Variable = type("Variable", (), {})
 
 
 def _patch_molmo_remote_code(pretrained_model_name: str) -> None:
@@ -296,22 +310,15 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
+    def _load_tokenizer(self):
         """Load tokenizer for the current variant.
-        Args:
-            dtype_override: Optional torch.dtype to override the tokenizer's default dtype.
 
         Returns:
             The loaded tokenizer instance
         """
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
             trust_remote_code=True,
-            **tokenizer_kwargs,
         )
 
         if self.tokenizer.pad_token is None:
@@ -319,10 +326,10 @@ class ModelLoader(ForgeModel):
 
         return self.tokenizer
 
-    def _load_processor(self, dtype_override=None):
+    def _load_processor(self):
         """Load Molmo multimodal processor (image processor + tokenizer)."""
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
         _ensure_tensorflow_importable()
         self.processor = AutoProcessor.from_pretrained(
@@ -348,9 +355,9 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.processor is None:
-            self._load_processor(dtype_override=dtype_override)
+            self._load_processor()
         elif self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -370,7 +377,6 @@ class ModelLoader(ForgeModel):
         model.eval()
         self.config = model.config
         self.model = model
-        print("model", model)
         return model
 
     def load_inputs(
@@ -396,7 +402,12 @@ class ModelLoader(ForgeModel):
             dict: Input tensors that can be fed to the model.
         """
         if self.processor is None:
-            self._load_processor(dtype_override=dtype_override)
+            self._load_processor()
+        else:
+            # Processor may already be loaded; re-apply before einops.rearrange
+            # in Molmo image preprocessing (broken/partial tensorflow in
+            # site-packages still sits on sys.modules).
+            _ensure_tensorflow_importable()
 
         image_file = get_file(image_url or self.sample_image_url)
         image = Image.open(image_file).convert("RGB")
