@@ -20,8 +20,11 @@ import torch.nn as nn
 from huggingface_hub import hf_hub_download
 from safetensors.torch import load_file
 
-from ideogram4.constants import LLM_TOKEN_INDICATOR, OUTPUT_IMAGE_INDICATOR
-from ideogram4.modeling_ideogram4 import Ideogram4Config, Ideogram4Transformer
+# NOTE: the ``ideogram4`` package (declared in requirements.txt) is imported
+# lazily inside the functions that need it, not at module top-level. Test
+# discovery imports this loader before per-model requirements are installed, so
+# a top-level ``import ideogram4`` would drop the model from parametrization.
+# Mirrors the pi_0 loader convention for git-installed packages.
 
 REPO_ID = "ideogram-ai/ideogram-4-fp8"
 DTYPE = torch.bfloat16
@@ -119,7 +122,26 @@ def materialize_fp8_state_dict_to_bf16(
 
 def load_conditional_transformer(dtype: torch.dtype = DTYPE) -> Ideogram4Transformer:
     """Load the conditional DiT branch with FP8 weights materialized to bf16."""
+    import os
+
+    from ideogram4.modeling_ideogram4 import Ideogram4Config, Ideogram4Transformer
+
     config = Ideogram4Config()
+
+    # DEBUG (hang triage, revertible): IDEOGRAM4_DEBUG_LAYERS shrinks the block
+    # count for a cheap compile; IDEOGRAM4_DEBUG_RANDOM=1 skips the HF download +
+    # single-threaded FP8->bf16 materialize (~30 min) and random-inits instead.
+    # A completion-queue device hang is structural (op sequence + shapes, not
+    # weight values), so random weights reproduce it while iterating fast.
+    debug_layers = os.environ.get("IDEOGRAM4_DEBUG_LAYERS")
+    if debug_layers:
+        config.num_layers = int(debug_layers)
+    if os.environ.get("IDEOGRAM4_DEBUG_RANDOM") == "1":
+        model = Ideogram4Transformer(config)
+        model.to(dtype=dtype)
+        model.eval()
+        return model
+
     state_dict = _load_sharded_state_dict(
         REPO_ID,
         "transformer/diffusion_pytorch_model.safetensors.index.json",
@@ -162,6 +184,8 @@ def build_synthetic_transformer_inputs(
     batch_size: int = 1, dtype: torch.dtype = DTYPE
 ) -> dict[str, torch.Tensor]:
     """Synthetic packed-sequence inputs at 512x512 resolution."""
+    from ideogram4.constants import LLM_TOKEN_INDICATOR, OUTPUT_IMAGE_INDICATOR
+
     llm_features = torch.randn(batch_size, TOTAL_SEQ_LEN, LLM_FEATURES_DIM, dtype=dtype)
     x = torch.randn(batch_size, TOTAL_SEQ_LEN, IN_CHANNELS, dtype=dtype)
     t = torch.full((batch_size,), 0.5, dtype=dtype)
@@ -196,3 +220,60 @@ def build_synthetic_transformer_inputs(
         "segment_ids": segment_ids,
         "indicator": indicator,
     }
+
+
+# ---------------------------------------------------------------------------
+# Tensor-parallel shard specs (Megatron column->row).
+#
+# Ideogram 4 attention CANNOT be head-parallel sharded: num_heads=18 does not
+# divide 4, and the qkv projection is a single fused Linear(emb -> 3*emb) whose
+# output reshapes to (3, heads, head_dim) -- a flat column shard slices across
+# the q|k|v and head boundaries. So attention (qkv, o) stays REPLICATED and only
+# the SwiGLU MLP is sharded (w1/w3 column-parallel, w2 row-parallel).
+#
+# NOTE: llm_cond_proj (53248 -> emb) is deliberately NOT row-sharded. Doing so
+# back-propagates the shard into the preceding llm_cond_norm, turning its
+# reduction over the 53248 dim into a distributed rms_norm_pre_all_gather whose
+# circular buffer (3.36 MB) overflows Blackhole L1 (1.5 MB max). It is only
+# ~2.7% of the model, so replicating it costs little per chip.
+#
+# Activations stay replicated end-to-end, so blocks chain with no reshards and
+# the only collective is one all-reduce per row-parallel (w2) matmul. See
+# sharding_analysis.md for the full derivation and CCL accounting.
+# ---------------------------------------------------------------------------
+
+MESH_SHAPES = {8: (2, 4), 4: (1, 4), 2: (1, 2), 1: (1, 1)}
+MESH_NAMES = ("batch", "model")
+
+
+def _add_shard_spec(specs: dict, param, spec: tuple) -> None:
+    """Register a partition spec only for real parameters (skip None)."""
+    if param is not None:
+        specs[param] = spec
+
+
+def _shard_linear(specs: dict, linear, spec: tuple) -> None:
+    """Shard a linear's weight per `spec`; bias along the first axis or replicated."""
+    if linear is None:
+        return
+    _add_shard_spec(specs, linear.weight, spec)
+    bias_spec = ("model",) if spec[0] == "model" else (None,)
+    _add_shard_spec(specs, getattr(linear, "bias", None), bias_spec)
+
+
+def shard_transformer_specs(transformer) -> dict:
+    """Tensor-parallel shard specs for Ideogram4Transformer (Option A, mesh 1x4).
+
+    SwiGLU MLP Megatron-sharded 4-way; attention, adaln, norms, llm_cond_proj and
+    the small embedders replicated (unmarked). ~53% weight per chip, 34 all-reduces.
+    """
+    specs: dict = {}
+
+    for block in transformer.layers:
+        ff = block.feed_forward
+        # SwiGLU: up (w1) and gate (w3) column-parallel; down (w2) row-parallel.
+        _shard_linear(specs, ff.w1, ("model", None))
+        _shard_linear(specs, ff.w3, ("model", None))
+        _shard_linear(specs, ff.w2, (None, "model"))
+
+    return specs

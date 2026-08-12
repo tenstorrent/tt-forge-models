@@ -29,10 +29,13 @@ from ...config import (
 )
 from .src.model_utils import (
     DTYPE,
+    MESH_NAMES,
+    MESH_SHAPES,
     REPO_ID,
     Ideogram4TransformerWrapper,
     build_synthetic_transformer_inputs,
     load_conditional_transformer,
+    shard_transformer_specs,
 )
 
 
@@ -81,3 +84,22 @@ class ModelLoader(ForgeModel):
         if isinstance(output, tuple):
             return output[0]
         return output
+
+    def get_mesh_config(self, num_devices: int):
+        """Return (mesh_shape, mesh_names) for a ("batch", "model") 2D mesh.
+
+        The transformer is sharded tensor-parallel along the "model" axis.
+        """
+        if num_devices not in MESH_SHAPES:
+            raise ValueError(
+                f"Unsupported device count: {num_devices}. "
+                f"Expected one of {sorted(MESH_SHAPES)}."
+            )
+        return MESH_SHAPES[num_devices], MESH_NAMES
+
+    def load_shard_spec(self, model):
+        """Return tensor -> partition_spec dict (Option A, Megatron column->row).
+
+        Expects the wrapper returned by load_model(); shards the inner transformer.
+        """
+        return shard_transformer_specs(model.transformer)
