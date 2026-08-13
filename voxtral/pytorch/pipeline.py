@@ -80,7 +80,10 @@ class VoxtralPipeline:
 
         # CPU copy of the token embeddings so generated tokens embed on the host.
         self._embed_w = (
-            self.model.get_input_embeddings().weight.detach().to(self.config.dtype).cpu()
+            self.model.get_input_embeddings()
+            .weight.detach()
+            .to(self.config.dtype)
+            .cpu()
         )
         eos = self.model.generation_config.eos_token_id
         self._eos = set(eos if isinstance(eos, (list, tuple)) else [eos])
