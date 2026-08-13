@@ -147,10 +147,9 @@ class ModelLoader(ForgeModel):
         """Load TAESD, the tiny AE (tractable VAE decoder) for SD1.5 latents."""
         from diffusers import AutoencoderTiny
 
-        self.taesd = (
-            AutoencoderTiny.from_pretrained(self.TAESD_REPO, torch_dtype=torch.float32)
-            .eval()
-        )
+        self.taesd = AutoencoderTiny.from_pretrained(
+            self.TAESD_REPO, torch_dtype=torch.float32
+        ).eval()
         return self.taesd
 
     def decode_taesd(self, latents, on_tt=False):
