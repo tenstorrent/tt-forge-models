@@ -158,7 +158,9 @@ class LlasaPipeline:
 
         prompt_ids = self._build_prompt_ids(text)
         prompt_len = prompt_ids.shape[1]
-        assert prompt_len + n_new <= window, "window too small for prompt + max_new_tokens"
+        assert (
+            prompt_len + n_new <= window
+        ), "window too small for prompt + max_new_tokens"
 
         self._perf = {
             "components": {},
@@ -198,4 +200,6 @@ class LlasaPipeline:
                 cur += 1
         self._perf["total"] = time.perf_counter() - t_total
 
-        return [t - self._speech_base for t in gen if self._speech_base <= t <= code_max]
+        return [
+            t - self._speech_base for t in gen if self._speech_base <= t <= code_max
+        ]
