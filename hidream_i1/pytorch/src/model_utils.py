@@ -2,9 +2,9 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Component loaders and wrappers for HiDream-I1-Fast.
+Component loaders and wrappers for HiDream-I1-Full.
 
-Model: HiDream-ai/HiDream-I1-Fast (Sparse-MoE MM-DiT, guidance- + step-distilled)
+Model: HiDream-ai/HiDream-I1-Full (Sparse-MoE MM-DiT, full / CFG variant)
 Components:
   - text_encoder    : CLIPTextModelWithProjection (CLIP ViT-L/14, ~0.123 B)
   - text_encoder_2  : CLIPTextModelWithProjection (OpenCLIP ViT-bigG/14, ~0.695 B)
@@ -20,12 +20,12 @@ import torch
 # Model identity
 # ---------------------------------------------------------------------------
 
-HIDREAM_REPO_ID = "HiDream-ai/HiDream-I1-Fast"
+HIDREAM_REPO_ID = "HiDream-ai/HiDream-I1-Full"
 LLAMA_REPO_ID = "meta-llama/Meta-Llama-3.1-8B-Instruct"
 DTYPE = torch.float32
 
 # ---------------------------------------------------------------------------
-# Inference shape constants (HiDream-I1-Fast @ 1024x1024)
+# Inference shape constants (HiDream-I1-Full @ 1024x1024)
 # ---------------------------------------------------------------------------
 
 HEIGHT = 1024
@@ -54,6 +54,12 @@ LLAMA_VOCAB_SIZE = 128256
 
 # Transformer (DiT) — conditioning shapes
 POOLED_TEXT_EMB_DIM = CLIP_L_HIDDEN + CLIP_G_HIDDEN  # 2048
+
+# HiDream-I1-Full uses classifier-free guidance (guidance_scale=5.0 > 1), so the
+# transformer runs on a concatenated [uncond, cond] batch of 2. The CFG concatenation
+# happens between text encoding and the denoise loop, so only the transformer's inputs
+# carry the doubled batch — the text encoders and VAE stay at batch 1.
+CFG_BATCH = 2
 
 # ---------------------------------------------------------------------------
 # Component loaders
