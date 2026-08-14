@@ -2,15 +2,15 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-DeepSeek MoE model loader implementation.
+ExaOne model loader implementation.
 """
 
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from typing import Optional
 
-from ....base import ForgeModel
-from ....config import (
+from ...base import ForgeModel
+from ...config import (
     LLMModelConfig,
     ModelInfo,
     ModelGroup,
@@ -22,32 +22,22 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available DeepSeek Chat model variants for causal language modeling."""
+    """Available K-EXAONE model variants for causal language modeling."""
 
-    DEEPSEEK_LITE_CHAT = "DEEPSEEK_V2_LITE_CHAT"
-    DEEPSEEK_CHAT = "DEEPSEEK_CODER_V2_LITE_INSTRUCT"
-    DEEPSEEK_V2_CHAT = "DEEPSEEK_V2_CHAT"
+    K_EXAONE_236B_A23B = "K_EXAONE_236B_A23B"
 
 
 class ModelLoader(ForgeModel):
-    """DeepSeek Chat model loader implementation for causal language modeling tasks."""
+    """K-EXAONE MoE model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.DEEPSEEK_LITE_CHAT: LLMModelConfig(
-            pretrained_model_name="deepseek-ai/DeepSeek-V2-Lite-Chat",
-            max_length=256,
-        ),
-        ModelVariant.DEEPSEEK_CHAT: LLMModelConfig(
-            pretrained_model_name="deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct",
-            max_length=256,
-        ),
-        ModelVariant.DEEPSEEK_V2_CHAT: LLMModelConfig(
-            pretrained_model_name="deepseek-ai/DeepSeek-V2-Chat",
+        ModelVariant.K_EXAONE_236B_A23B: LLMModelConfig(
+            pretrained_model_name="LGAI-EXAONE/K-EXAONE-236B-A23B",
             max_length=256,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.DEEPSEEK_LITE_CHAT
+    DEFAULT_VARIANT = ModelVariant.K_EXAONE_236B_A23B
 
     sample_text = "Who are you?"
 
@@ -76,7 +66,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="DeepSeek-V2-Lite",
+            model="K-EXAONE-236B-A23B",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -97,14 +87,14 @@ class ModelLoader(ForgeModel):
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the DeepSeek Chat model instance for this instance's variant.
+        """Load and return the K-EXAONE model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
-            torch.nn.Module: The DeepSeek Chat model for causal language modeling.
+            torch.nn.Module: The K-EXAONE model for causal language modeling.
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
@@ -119,23 +109,13 @@ class ModelLoader(ForgeModel):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
-        # transformers bug (e.g. 5.5.x): DeepseekV2Moe.route_tokens_to_experts
-        # uses self.num_experts for group_limited_greedy routing (DeepSeek-V2 /
-        # DeepSeek-V2-Chat), but __init__ never sets it. Lite variants use
-        # topk_method="greedy" and skip this path. Fixed upstream by moving
-        # routing onto DeepseekV2TopkRouter.
-        for module in model.modules():
-            if type(module).__name__ == "DeepseekV2Moe" and not hasattr(
-                module, "num_experts"
-            ):
-                module.num_experts = module.config.n_routed_experts
         model.eval()
         self.config = model.config
         self.model = model
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the DeepSeek Chat model with this instance's variant settings.
+        """Load and return sample inputs for the K-EXAONE model with this instance's variant settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
@@ -180,20 +160,12 @@ class ModelLoader(ForgeModel):
     def load_shard_spec(self, model):
         shard_specs = {}
         for layer in model.model.layers:
-            # DeepSeek-V2 uses Multi-head Latent Attention (MLA) rather than
-            # separate q/k/v projections. q_proj / q_b_proj and kv_b_proj
-            # (which recovers per-head K/V from the shared latent) are
-            # column-sharded over heads; o_proj is row-sharded to match.
-            # kv_a_proj_with_mqa (and q_a_proj when Q-LoRA is enabled) produce
-            # a shared latent every device needs in full, so they stay
-            # replicated.
-            sa = layer.self_attn
-            if getattr(sa, "q_lora_rank", None) is None:
-                shard_specs[sa.q_proj.weight] = ("model", "batch")
-            else:
-                shard_specs[sa.q_b_proj.weight] = ("model", "batch")
-            shard_specs[sa.kv_b_proj.weight] = ("model", "batch")
-            shard_specs[sa.o_proj.weight] = ("batch", "model")
+            # Standard GQA: q/k/v are column-sharded over heads (k/v are
+            # smaller under GQA) and o_proj is row-sharded to match.
+            shard_specs[layer.self_attn.q_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.k_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.v_proj.weight] = ("model", "batch")
+            shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
 
             mlp = layer.mlp
             if hasattr(mlp, "experts"):

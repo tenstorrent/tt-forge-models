@@ -356,11 +356,20 @@ MESH_SHAPES = {32: (8, 4), 8: (2, 4), 4: (1, 4), 2: (1, 2), 1: (1, 1)}
 MESH_NAMES = ("batch", "model")
 
 
-def shard_text_encoder_specs(encoder) -> dict:
+def shard_text_encoder_specs(encoder, model_axis_size: int = 1) -> dict:
     """Shard specs for T5 text encoder.
 
     Column-parallel (q, k, v, wi_0, wi_1): ("model", "batch")
     Row-parallel   (o, wo):                ("batch", "model")
+
+    Attention is head-parallel: q/k/v produce inner_dim = num_heads * d_kv,
+    which the model then reshapes to (B, T, num_heads, d_kv). Splitting
+    inner_dim across the model axis is only valid when whole heads land on
+    each device -- this T5 has num_heads=6, so on a 4-wide model axis the
+    per-device 96 columns are 1.5 heads and that reshape has no valid
+    sharding (SPMD fails with an element-count mismatch on the reshape).
+    When the heads do not divide evenly we leave q/k/v/o replicated and keep
+    only the feed-forward tensor-parallel.
     """
     specs = {}
 
@@ -381,14 +390,16 @@ def shard_text_encoder_specs(encoder) -> dict:
     for block in blocks:
         self_attn_layer = block.layer[0]
         attn = self_attn_layer.SelfAttention
-        for proj_name in ("q", "k", "v"):
-            proj = getattr(attn, proj_name)
-            specs[proj.weight] = ("model", "batch")
-            if getattr(proj, "bias", None) is not None:
-                specs[proj.bias] = ("model",)
-        specs[attn.o.weight] = ("batch", "model")
-        if getattr(attn.o, "bias", None) is not None:
-            specs[attn.o.bias] = ("batch",)
+        n_heads = getattr(attn, "n_heads", None) or encoder.config.num_heads
+        if model_axis_size <= 1 or n_heads % model_axis_size == 0:
+            for proj_name in ("q", "k", "v"):
+                proj = getattr(attn, proj_name)
+                specs[proj.weight] = ("model", "batch")
+                if getattr(proj, "bias", None) is not None:
+                    specs[proj.bias] = ("model",)
+            specs[attn.o.weight] = ("batch", "model")
+            if getattr(attn.o, "bias", None) is not None:
+                specs[attn.o.bias] = ("batch",)
         if hasattr(self_attn_layer, "layer_norm"):
             specs[self_attn_layer.layer_norm.weight] = ("batch",)
 
