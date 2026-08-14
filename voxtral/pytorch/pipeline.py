@@ -25,13 +25,18 @@ does a data-dependent ``.all()`` on it, and plain causal masking is correct for
 right-padded static-window decode (we read logits at real position ``cur-1``,
 which never attends to padded positions).
 
-Per-generate timing is recorded into ``self._perf``::
+Per-generate timing is recorded into ``self._perf``, in the schema the tt-xla
+benchmark harnesses read — ``components`` and ``steps`` hold *seconds*, counts
+live in their own top-level keys (same split as the XTTS-v2 pipeline)::
 
     _perf = {
-        "components": {"prefill_tokens": L},   # host-precomputed prefill length
+        "components": {},                      # no separate on-device stage:
+                                               # the LM decode is all of it
         "steps": [seconds, ...],               # per-token decode times
         "step_metric_name": "decode_step",
         "total": seconds,                      # full generate() wall time
+        "prefill_tokens": L,                   # host-precomputed prefill length
+        "output_tokens": N,                    # tokens the loop emitted
     }
 """
 
@@ -101,10 +106,12 @@ class VoxtralPipeline:
         window = L + n_new
 
         self._perf = {
-            "components": {"prefill_tokens": L},
+            "components": {},
             "steps": [],
             "step_metric_name": "decode_step",
             "total": None,
+            "prefill_tokens": L,
+            "output_tokens": 0,
         }
 
         # Static right-padded window of embeddings -> the forward compiles once.
@@ -127,5 +134,6 @@ class VoxtralPipeline:
             buf[0, cur, :] = self._embed_w[nxt]
             cur += 1
         self._perf["total"] = time.perf_counter() - t_total
+        self._perf["output_tokens"] = len(gen_ids)
 
         return self.tokenizer.decode(gen_ids, skip_special_tokens=True)

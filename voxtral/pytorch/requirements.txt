@@ -1,0 +1,4 @@
+# VoxtralProcessor tokenizes through the mistral_common backend (Voxtral ships a
+# tekken.json, not a Jinja chat template); the [audio] extra pulls the soundfile
+# / soxr decoders apply_chat_template needs to read the audio clips.
+mistral-common[audio]
