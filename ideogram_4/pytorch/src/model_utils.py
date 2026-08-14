@@ -277,3 +277,42 @@ def shard_transformer_specs(transformer) -> dict:
         _shard_linear(specs, ff.w2, (None, "model"))
 
     return specs
+
+
+# ---------------------------------------------------------------------------
+# VAE decoder component.
+#
+# `Ideogram4Pipeline._decode` calls `self.autoencoder.decoder(z)` directly, so
+# the decoder submodule - not the full AutoEncoder - is the compilable unit and
+# the one worth comparing against CPU. Its input is the *unpatched* AE latent:
+# the pipeline undoes the DiT's 2x2 patching before handing `z` over.
+# ---------------------------------------------------------------------------
+
+VAE_WEIGHTS_FILENAME = "vae/diffusion_pytorch_model.safetensors"
+# ch_mult has 4 entries -> three 2x upsamples -> 8x spatial scale.
+VAE_SPATIAL_SCALE = 8
+VAE_DEFAULT_RESOLUTION = 512
+
+
+def load_vae_decoder(dtype: torch.dtype = DTYPE):
+    """Load the Ideogram 4 autoencoder and return its decoder submodule."""
+    from ideogram4.pipeline_ideogram4 import _load_autoencoder
+
+    weights_path = hf_hub_download(repo_id=REPO_ID, filename=VAE_WEIGHTS_FILENAME)
+    autoencoder = _load_autoencoder(weights_path, torch.device("cpu"), dtype)
+    return autoencoder.decoder.eval()
+
+
+def build_vae_decoder_inputs(
+    dtype: torch.dtype = DTYPE, resolution: int = VAE_DEFAULT_RESOLUTION
+) -> list:
+    """Synthetic unpatched AE latent, matching what `_decode` feeds the decoder."""
+    from ideogram4.autoencoder import AutoEncoderParams
+
+    params = AutoEncoderParams()
+    side = resolution // VAE_SPATIAL_SCALE
+    generator = torch.Generator().manual_seed(0)
+    latent = torch.randn(
+        1, params.z_channels, side, side, dtype=torch.float32, generator=generator
+    )
+    return [latent.to(dtype)]
