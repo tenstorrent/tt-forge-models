@@ -6,8 +6,13 @@ Qwen 3.5 model loader implementation for causal language modeling.
 
 Qwen 3.5 uses a hybrid architecture interleaving Gated DeltaNet (linear
 attention with causal conv1d + chunked delta rule) and standard full
-attention layers. Dense variants follow the layout
-(3x linear_attention + 1x full_attention) repeated.
+attention layers, following the layout (3x linear_attention + 1x
+full_attention) repeated.
+
+Dense variants (0.8B..27B) use a plain gate/up/down MLP per layer. The
+35B-A3B variant is a Mixture-of-Experts model: every layer's MLP is a
+``Qwen3_5MoeSparseMoeBlock`` (35B-A3B: 40 layers, hidden 2048, moe/shared
+intermediate 512).
 """
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
@@ -33,11 +38,13 @@ class ModelVariant(StrEnum):
     QWEN_3_5_4B = "4B"
     QWEN_3_5_9B = "9B"
     QWEN_3_5_27B = "27B"
+    QWEN_3_5_35B_A3B = "35B_A3B"
 
 
 # Variants promoted to the RED model group.
 _RED_VARIANTS = {
     ModelVariant.QWEN_3_5_27B,
+    ModelVariant.QWEN_3_5_35B_A3B,
 }
 
 
@@ -63,6 +70,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.QWEN_3_5_27B: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen3.5-27B",
+            max_length=128,
+        ),
+        ModelVariant.QWEN_3_5_35B_A3B: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen3.5-35B-A3B",
             max_length=128,
         ),
     }
@@ -203,9 +214,24 @@ class ModelLoader(ForgeModel):
         shard_specs = {}
 
         for layer in model.model.layers:
-            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
-            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+            mlp = layer.mlp
+            if hasattr(mlp, "experts"):
+                # MoE layer (35B-A3B): the routed experts' fused weights
+                # (mlp.experts.gate_up_proj / down_proj) are sharded on the
+                # expert dimension by get_tt_moe_shard_specs. The router
+                # (mlp.gate.weight) and shared_expert_gate stay replicated so
+                # every device can score all experts before dispatch. The
+                # always-on shared expert is a dense MLP: column-parallel
+                # gate/up, row-parallel down.
+                shared = mlp.shared_expert
+                shard_specs[shared.gate_proj.weight] = ("model", "batch")
+                shard_specs[shared.up_proj.weight] = ("model", "batch")
+                shard_specs[shared.down_proj.weight] = ("batch", "model")
+            else:
+                # Dense layer (0.8B..27B): plain gate/up/down MLP.
+                shard_specs[mlp.gate_proj.weight] = ("model", "batch")
+                shard_specs[mlp.up_proj.weight] = ("model", "batch")
+                shard_specs[mlp.down_proj.weight] = ("batch", "model")
 
             if hasattr(layer, "self_attn"):
                 sa = layer.self_attn
