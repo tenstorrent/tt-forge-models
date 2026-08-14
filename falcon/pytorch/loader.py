@@ -30,6 +30,8 @@ class ModelVariant(StrEnum):
     FALCON_10B = "3_10B_Base"
     FALCON_MAMBA_7B = "3_Mamba_7B_Base"
     FALCON_7B_INSTRUCT = "7B_Instruct"
+    FALCON_40B_INSTRUCT = "40B_Instruct"
+    FALCON_180B_CHAT = "180B_Chat"
 
 
 class ModelLoader(ForgeModel):
@@ -54,6 +56,12 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.FALCON_7B_INSTRUCT: ModelConfig(
             pretrained_model_name="tiiuae/falcon-7b-instruct",
+        ),
+        ModelVariant.FALCON_40B_INSTRUCT: ModelConfig(
+            pretrained_model_name="tiiuae/falcon-40b-instruct",
+        ),
+        ModelVariant.FALCON_180B_CHAT: ModelConfig(
+            pretrained_model_name="tiiuae/falcon-180B-chat",
         ),
     }
 
@@ -152,7 +160,11 @@ class ModelLoader(ForgeModel):
         if self.tokenizer is None:
             self.load_model()  # This will initialize the tokenizer
 
-        if self._variant == ModelVariant.FALCON_7B_INSTRUCT:
+        if self._variant in [
+            ModelVariant.FALCON_7B_INSTRUCT,
+            ModelVariant.FALCON_40B_INSTRUCT,
+            ModelVariant.FALCON_180B_CHAT,
+        ]:
             inputs = self.tokenizer(self.input_text_2, return_tensors="pt")
         else:
             inputs = self.tokenizer(
@@ -199,6 +211,13 @@ class ModelLoader(ForgeModel):
             mesh_shape = (2, num_devices // 2)
             return mesh_shape, ("batch", "model")
 
+        if self._variant == ModelVariant.FALCON_180B_CHAT:
+            if num_devices == 32:  # Galaxy
+                mesh_shape = (4, 8)
+            else:
+                mesh_shape = (1, num_devices)
+            return mesh_shape, ("batch", "model")
+
         # All other Falcon variants have attention heads in config
         if self.config.num_attention_heads % num_devices == 0:
             mesh_shape = (1, num_devices)
@@ -209,6 +228,7 @@ class ModelLoader(ForgeModel):
         shard_attention = self._variant in [
             ModelVariant.FALCON_7B,
             ModelVariant.FALCON_10B,
+            ModelVariant.FALCON_40B_INSTRUCT,
         ]
         if shard_attention:
             assert (
@@ -250,6 +270,30 @@ class ModelLoader(ForgeModel):
             for layer in layers_container:
                 shard_specs[layer.mlp.dense_h_to_4h.weight] = ("model", None)
                 shard_specs[layer.mlp.dense_4h_to_h.weight] = (None, "model")
+        elif self._variant == ModelVariant.FALCON_40B_INSTRUCT:
+            # Original Falcon (RefinedWeb) architecture: fused query_key_value /
+            # dense attention projections and dense_h_to_4h / dense_4h_to_h MLP.
+            for layer in layers_container:
+                shard_specs[layer.mlp.dense_h_to_4h.weight] = ("model", None)
+                shard_specs[layer.mlp.dense_4h_to_h.weight] = (None, "model")
+
+                shard_specs[layer.self_attention.query_key_value.weight] = (
+                    "model",
+                    None,
+                )
+                shard_specs[layer.self_attention.dense.weight] = (None, "model")
+            shard_specs[model.lm_head.weight] = ("model", None)
+        elif self._variant == ModelVariant.FALCON_180B_CHAT:
+            for layer in layers_container:
+                shard_specs[layer.mlp.dense_h_to_4h.weight] = ("model", "batch")
+                shard_specs[layer.mlp.dense_4h_to_h.weight] = ("batch", "model")
+
+                shard_specs[layer.self_attention.query_key_value.weight] = (
+                    "model",
+                    "batch",
+                )
+                shard_specs[layer.self_attention.dense.weight] = ("batch", "model")
+            shard_specs[model.lm_head.weight] = ("model", "batch")
         elif self._variant == ModelVariant.FALCON_MAMBA_7B:
             for layer in layers_container:
                 shard_specs[layer.mixer.in_proj.weight] = ("model", None)

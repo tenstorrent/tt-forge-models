@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-FLUX.2-dev component loader (128x128 bringup resolution).
+FLUX.2-dev component loader (1024x1024 output resolution).
 
 Components:
   - TextEncoder  → Mistral3ForConditionalGeneration  (~24B)
@@ -43,7 +43,7 @@ from .src.model_utils import (
     load_transformer,
     load_vae,
     make_packed_latents,
-    make_prompt_embeds,
+    make_synthetic_prompt_embeds,
     make_vae_decoder_input,
     prepare_latent_image_ids,
     prepare_text_ids,
@@ -107,12 +107,11 @@ class ModelLoader(ForgeModel):
     def get_mesh_config(self, num_devices: int):
         """Return (mesh_shape, mesh_names) for a ("batch", "model") 2D mesh.
 
-        Supported device counts: 1, 2, 4, 8, 32.
-        VAE fits on a single chip so any count maps to (1, 1).
+        Supported device counts: 1, 2, 4, 8, 32. All components run on the full
+        device mesh — the PJRT runtime exposes every visible chip, so a program
+        compiled for fewer chips fails with a device-count mismatch. The VAE has
+        no shard spec, so it is simply replicated across the mesh.
         """
-        if self._variant == ModelVariant.VAE:
-            return (1, 1), MESH_NAMES
-
         if num_devices not in MESH_SHAPES:
             raise ValueError(
                 f"Unsupported device count: {num_devices}. "
@@ -140,7 +139,7 @@ class ModelLoader(ForgeModel):
 
         if self._variant == ModelVariant.TRANSFORMER:
             hidden_states = make_packed_latents(dtype)
-            encoder_hidden_states = make_prompt_embeds(dtype)
+            encoder_hidden_states = make_synthetic_prompt_embeds(dtype)
             # Flux2Pipeline passes scheduler timestep / 1000; model scales by 1000 internally.
             timestep = torch.tensor([500.0 / 1000.0], dtype=dtype)
             guidance = torch.tensor([GUIDANCE_SCALE], dtype=dtype)

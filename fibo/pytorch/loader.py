@@ -46,6 +46,7 @@ from .src.model_utils import (
     load_pipe,
     positional_inputs_from_capture,
 )
+from .src.shard_specs import build_shard_spec, get_mesh_shape
 
 
 class ModelVariant(StrEnum):
@@ -157,3 +158,30 @@ class ModelLoader(ForgeModel):
             else:
                 cast.append(value)
         return tuple(cast)
+
+    def get_mesh_config(self, num_devices: int):
+        """Return ``(mesh_shape, mesh_names)`` for tensor-parallel execution.
+
+        FIBO is an 8B DiT that runs out of DRAM on a single chip. It is brought
+        up across multiple chips with Megatron-1D tensor parallelism over a
+        ``(None, "model")`` mesh. See ``src/shard_specs.py``.
+
+        Args:
+            num_devices: Total chip count (``xr.global_runtime_device_count()``).
+
+        Returns:
+            tuple: ``(mesh_shape, mesh_names)`` consumed by the auto-runner.
+        """
+        return get_mesh_shape(num_devices)
+
+    def load_shard_spec(self, model):
+        """Return the tensor -> partition-spec mapping for the FIBO transformer.
+
+        Args:
+            model: the ``FiboTransformerWrapper`` returned by ``load_model``.
+
+        Returns:
+            dict: ``{torch.nn.Parameter: partition_spec}``. Parameters absent
+            from the mapping are replicated across the mesh.
+        """
+        return build_shard_spec(model)

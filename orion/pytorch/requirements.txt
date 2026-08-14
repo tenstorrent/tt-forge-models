@@ -1,0 +1,4 @@
+# Orion's trust_remote_code modeling file uses transformers APIs removed in
+# 5.5.1 (repo default), e.g. is_flash_attn_2_available and _tied_weights_keys.
+# 4.57.1 is the last release it imports/runs cleanly against.
+transformers==4.57.1

@@ -124,7 +124,16 @@ class ModelLoader(ForgeModel):
                 f"Unsupported device count: {num_devices}. "
                 f"Expected one of {sorted(MESH_SHAPES)}."
             )
-        return MESH_SHAPES[num_devices], MESH_NAMES
+        # Remembered so load_shard_spec() knows how wide the "model" axis is;
+        # some shard specs are only valid for certain axis sizes.
+        self._mesh_shape = MESH_SHAPES[num_devices]
+        return self._mesh_shape, MESH_NAMES
+
+    @property
+    def _model_axis_size(self) -> int:
+        """Width of the "model" mesh axis, or 1 if no mesh was requested."""
+        mesh_shape = getattr(self, "_mesh_shape", None)
+        return mesh_shape[MESH_NAMES.index("model")] if mesh_shape else 1
 
     def load_shard_spec(self, model):
         """Return tensor → partition_spec dict for the active component.
@@ -136,7 +145,7 @@ class ModelLoader(ForgeModel):
           VAE                     → VAEDecoderWrapper (specs from .vae)
         """
         if self._variant == ModelVariant.TEXT_ENCODER:
-            return shard_text_encoder_specs(model)
+            return shard_text_encoder_specs(model, self._model_axis_size)
         if self._variant == ModelVariant.VISION_LANGUAGE_ENCODER:
             return shard_vision_language_encoder_specs(model.vlm)
         if self._variant == ModelVariant.TRANSFORMER:
@@ -154,7 +163,7 @@ class ModelLoader(ForgeModel):
                                    images_per_sample (1,) int64, cache_position (394,) int64,
                                    logits_to_keep scalar int64]
         TRANSFORMER             → [hidden_states (1,16,128,144), encoder_hidden_states (1,376,1472),
-                                   prior_token_id (1,4608) int64, prior_token_drop (1,4608) int64,
+                                   prior_token_id (1,4608) int64, prior_token_drop (1,4608) bool,
                                    timestep ([999.]), target_size ([[1024.,1152.]] bf16),
                                    crop_coords ([[0.,0.]] bf16)]
         VAE                     → [z (1,16,128,144) dtype]

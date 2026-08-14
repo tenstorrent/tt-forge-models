@@ -2238,7 +2238,15 @@ class SelfAttention(nn.Module):
             self.max_scale_mul = torch.log(torch.tensor(100)).item()
         else:
             self.scale = 1 / math.sqrt(self.head_dim) / self.tau
-        self.mat_qkv = nn.Linear(embed_dim, embed_dim * 3, bias=False)
+        # Q/K/V kept as three separate projections (not a single fused
+        # ``mat_qkv``) so they can be sharded head-parallel for tensor
+        # parallelism. A fused qkv-major weight, sharded column-parallel, splits
+        # q/k/v of different heads onto different devices and produces incorrect
+        # attention (PCC ~ -0.18). The checkpoint's fused ``mat_qkv.weight`` is
+        # split into these at load time (``_unfuse_fused_projections``).
+        self.mat_q = nn.Linear(embed_dim, embed_dim, bias=False)
+        self.mat_k = nn.Linear(embed_dim, embed_dim, bias=False)
+        self.mat_v = nn.Linear(embed_dim, embed_dim, bias=False)
         self.q_bias = nn.Parameter(torch.zeros(embed_dim))
         self.v_bias = nn.Parameter(torch.zeros(embed_dim))
         self.register_buffer("zero_k_bias", torch.zeros(embed_dim))
@@ -2267,16 +2275,24 @@ class SelfAttention(nn.Module):
         scale_ind=0,
     ):
         B, L, C = x.shape
-        qkv = F.linear(
-            x,
-            self.mat_qkv.weight,
-            torch.cat((self.q_bias, self.zero_k_bias, self.v_bias)),
-        ).view(B, L, 3, self.num_heads, self.head_dim)
+        # Separate q/k/v projections (unfused). Each is [B, L, num_heads,
+        # head_dim], equivalent to the original fused
+        # ``view(B, L, 3, num_heads, head_dim)`` then unbind(dim=2).
+        q = F.linear(x, self.mat_q.weight, self.q_bias).view(
+            B, L, self.num_heads, self.head_dim
+        )
+        k = F.linear(x, self.mat_k.weight, self.zero_k_bias).view(
+            B, L, self.num_heads, self.head_dim
+        )
+        v = F.linear(x, self.mat_v.weight, self.v_bias).view(
+            B, L, self.num_heads, self.head_dim
+        )
         if self.using_flash:
-            q, k, v = qkv.unbind(dim=2)
             L_dim = 1
         else:
-            q, k, v = qkv.permute(2, 0, 3, 1, 4).unbind(dim=0)
+            q = q.permute(0, 2, 1, 3)
+            k = k.permute(0, 2, 1, 3)
+            v = v.permute(0, 2, 1, 3)
             L_dim = 2
         if self.cos_attn:
             scale_mul = self.scale_mul_1H11.clamp_max(self.max_scale_mul).exp()
@@ -2359,7 +2375,10 @@ class CrossAttention(nn.Module):
             self.mat_q = nn.Parameter(q)
         else:
             self.mat_q = nn.Linear(embed_dim, embed_dim, bias=True)
-        self.mat_kv = nn.Linear(kv_dim, embed_dim * 2, bias=False)
+        # K/V kept as separate projections (unfused) for head-parallel sharding;
+        # the checkpoint's fused ``mat_kv.weight`` is split at load time.
+        self.mat_k = nn.Linear(kv_dim, embed_dim, bias=False)
+        self.mat_v = nn.Linear(kv_dim, embed_dim, bias=False)
         self.v_bias = nn.Parameter(torch.zeros(embed_dim))
         self.register_buffer("zero_k_bias", torch.zeros(embed_dim))
         self.proj = nn.Linear(embed_dim, embed_dim)
@@ -2368,9 +2387,15 @@ class CrossAttention(nn.Module):
     def forward(self, q, ca_kv):
         kv_compact, cu_seqlens_k, max_seqlen_k = ca_kv
         N = kv_compact.shape[0]
-        kv_compact = F.linear(
-            kv_compact, self.mat_kv.weight, torch.cat((self.zero_k_bias, self.v_bias))
-        ).view(N, 2, self.num_heads, self.head_dim)
+        # Separate k/v projections (unfused), stacked to [N, 2, num_heads,
+        # head_dim] -- equivalent to the original fused ``mat_kv`` + view.
+        k = F.linear(kv_compact, self.mat_k.weight, self.zero_k_bias).view(
+            N, self.num_heads, self.head_dim
+        )
+        v = F.linear(kv_compact, self.mat_v.weight, self.v_bias).view(
+            N, self.num_heads, self.head_dim
+        )
+        kv_compact = torch.stack((k, v), dim=1)
         if not self.for_attn_pool:
             B, Lq = q.shape[:2]
             q_compact = self.mat_q(q).view(-1, self.num_heads, self.head_dim)
@@ -3012,10 +3037,19 @@ class Infinity(nn.Module):
         patch_t, patch_h, patch_w = scale_schedule[scale_ind]
         t_mul_h_mul_w = patch_t * patch_h * patch_w
         assert t_mul_h_mul_w + need_to_pad == seq_len
-        feature[:, :t_mul_h_mul_w] += self.lvl_embed(
-            scale_ind
-            * torch.ones((bs, t_mul_h_mul_w), dtype=torch.int).to(feature.device)
-        )
+        # ``lvl_embed`` is looked up with the constant index ``scale_ind`` at
+        # every position, which lowers to a dynamic gather plus an in-place
+        # sliced scatter -- a pattern that segfaults the tt-mlir compiler.
+        # Since the index is a constant, read the embedding row directly and add
+        # it via broadcasting (out-of-place, no gather, no scatter).
+        lvl_emb = self.lvl_embed.weight[scale_ind].to(feature.dtype)  # (C,)
+        if need_to_pad:
+            feature = torch.cat(
+                [feature[:, :t_mul_h_mul_w] + lvl_emb, feature[:, t_mul_h_mul_w:]],
+                dim=1,
+            )
+        else:
+            feature = feature + lvl_emb
         return feature
 
     def add_lvl_embeding_for_x_BLC(self, x_BLC, scale_schedule, need_to_pad=0):
@@ -3039,7 +3073,10 @@ class Infinity(nn.Module):
                 label_B_or_BLT=label_B_or_BLT, scale_schedule=scale_schedule, **kwargs
             )
 
-        _model_dtype = next(self.parameters()).dtype
+        # Read dtype from a concrete parameter rather than ``next(self.parameters())``:
+        # TorchDynamo cannot trace the ``parameters()`` generator here and raises an
+        # InternalTorchDynamoError ("cannot access free variable 'named_children'").
+        _model_dtype = self.pos_start.dtype
         x_BLC_wo_prefix = x_BLC_wo_prefix.to(_model_dtype)
         B = x_BLC_wo_prefix.shape[0]
         with torch.amp.autocast("cuda", enabled=False):
@@ -3505,6 +3542,33 @@ def load_visual_tokenizer(args):
     ).to(device)
 
 
+def _unfuse_fused_projections(state_dict):
+    """Split fused attention weights for the unfused SelfAttention/CrossAttention.
+
+    The official checkpoint stores fused projections; the modules now use
+    separate ones (for head-parallel sharding). Split along the output dim,
+    preserving the original q/k/v (qkv-major) and k/v (kv-major) ordering:
+      ``*.mat_qkv.weight`` [3C, C] -> ``*.mat_q/mat_k/mat_v.weight`` [C, C]
+      ``*.mat_kv.weight``  [2C, C] -> ``*.mat_k/mat_v.weight``       [C, C]
+    """
+    new_sd = {}
+    for key, w in state_dict.items():
+        if key.endswith("mat_qkv.weight"):
+            prefix = key[: -len("mat_qkv.weight")]
+            q, k, v = torch.chunk(w, 3, dim=0)
+            new_sd[prefix + "mat_q.weight"] = q
+            new_sd[prefix + "mat_k.weight"] = k
+            new_sd[prefix + "mat_v.weight"] = v
+        elif key.endswith("mat_kv.weight"):
+            prefix = key[: -len("mat_kv.weight")]
+            k, v = torch.chunk(w, 2, dim=0)
+            new_sd[prefix + "mat_k.weight"] = k
+            new_sd[prefix + "mat_v.weight"] = v
+        else:
+            new_sd[key] = w
+    return new_sd
+
+
 def load_infinity(
     rope2d_each_sa_layer,
     rope2d_normalized_by_hw,
@@ -3562,6 +3626,7 @@ def load_infinity(
             torch.cuda.empty_cache()
         if checkpoint_type == "torch":
             state_dict = torch.load(model_path, map_location=device)
+            state_dict = _unfuse_fused_projections(state_dict)
             infinity_test.load_state_dict(state_dict)
     return infinity_test
 

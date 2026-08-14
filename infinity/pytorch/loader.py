@@ -122,7 +122,7 @@ class ModelLoader(ForgeModel):
         return self.model
 
     def load_inputs(self, dtype_override=None, batch_size=1, prompt=None):
-        """Return a single forward-pass input dict for the Infinity transformer.
+        """Return positional forward-pass inputs for the Infinity transformer.
 
         Delegates input construction to
         :func:`.src.model_utils.build_forward_inputs`. Targets the
@@ -135,12 +135,16 @@ class ModelLoader(ForgeModel):
             prompt: Optional override prompt; defaults to a fixed string.
 
         Returns:
-            dict: ``{"label_B_or_BLT": (kv_compact, lens, cu_seqlens_k,
-                max_seqlen_k), "x_BLC_wo_prefix": tensor, "scale_schedule": [...]}``.
+            list: Positional ``forward`` arguments in signature order
+                ``[label_B_or_BLT, x_BLC_wo_prefix, scale_schedule]``, where
+                ``label_B_or_BLT`` is ``(kv_compact, lens, cu_seqlens_k,
+                max_seqlen_k)``. A positional sequence (not a dict) is required
+                because the test infra invokes the model as ``model(*inputs)``;
+                unpacking a dict would pass its string keys instead of tensors.
         """
         if self.text_encoder is None:
             raise RuntimeError("load_model() must be called before load_inputs().")
-        return build_forward_inputs(
+        forward_inputs = build_forward_inputs(
             tokenizer=self.tokenizer,
             text_encoder=self.text_encoder,
             vae=self.vae,
@@ -149,3 +153,88 @@ class ModelLoader(ForgeModel):
             prompt=prompt,
             dtype_override=dtype_override,
         )
+        return [
+            forward_inputs["label_B_or_BLT"],
+            forward_inputs["x_BLC_wo_prefix"],
+            forward_inputs["scale_schedule"],
+        ]
+
+    def get_mesh_config(self, num_devices: int):
+        """Mesh config for tensor-parallel sharding of the Infinity transformer.
+
+        Uses the mochi-style 2D mesh ``(1, 8)`` with axis names
+        ``(None, "model")``: the 8-wide ``model`` axis (index 1) carries the
+        tensor parallelism and the size-1 axis is named ``None`` so no partition
+        spec ever references it. ``load_inputs`` uses ``batch_size=1`` so there
+        is no data-parallel axis. An 8-wide ``model`` axis splits the 16
+        attention heads 2-per-device, shrinking the O(L^2) self-attention score
+        tensor from ``[1, 16, L, L]`` to ``[1, 2, L, L]`` -- the buffer that
+        OOM'd when attention was replicated.
+
+        Args:
+            num_devices: Total devices visible to the runtime.
+
+        Returns:
+            tuple: ``(mesh_shape, axis_names)``.
+        """
+        if num_devices == 8:
+            mesh_shape = (1, 8)
+        else:
+            raise ValueError(
+                f"Infinity sharding currently supports 8 devices, got {num_devices}."
+            )
+        return mesh_shape, (None, "model")
+
+    def load_shard_spec(self, model):
+        """Megatron tensor-parallel shard spec for the Infinity transformer.
+
+        Head-parallel attention: each of the (unfused) q/k/v projections is
+        column-parallel (split output heads on ``model``), and the output
+        ``proj`` is row-parallel (split the contraction dim) -- one all-reduce
+        per attention/FFN pair (Megatron-LM, arXiv:1909.08053). The projections
+        are unfused in ``model.py`` (``mat_qkv`` -> ``mat_q/mat_k/mat_v``,
+        ``mat_kv`` -> ``mat_k/mat_v``) precisely so a single partition spec can
+        place matching per-head q/k/v on the same device -- sharding the fused
+        qkv-major weight directly is numerically wrong (PCC ~ -0.18). Mesh is
+        the mochi ``(1, 8)`` / ``(None, "model")``.
+
+        Per-head scale (``scale_mul_1H11``), the concatenated bias buffers,
+        norms, lvl/positional embeddings and the tiny head are left replicated;
+        the partitioner slices them to match the sharded heads.
+
+        Args:
+            model: The Infinity transformer instance.
+
+        Returns:
+            Dict[torch.Tensor, tuple]: parameter -> partition spec.
+        """
+        specs = {}
+        for block in model.unregistered_blocks:
+            # --- self-attention: column-parallel q/k/v, row-parallel proj ---
+            sa = block.sa
+            specs[sa.mat_q.weight] = ("model", None)
+            specs[sa.mat_k.weight] = ("model", None)
+            specs[sa.mat_v.weight] = ("model", None)
+            specs[sa.proj.weight] = (None, "model")  # row: all-reduce
+            if sa.proj.bias is not None:
+                specs[sa.proj.bias] = (None,)
+
+            # --- cross-attention: column-parallel q/k/v, row-parallel proj ---
+            ca = block.ca
+            specs[ca.mat_q.weight] = ("model", None)
+            if ca.mat_q.bias is not None:
+                specs[ca.mat_q.bias] = ("model",)
+            specs[ca.mat_k.weight] = ("model", None)
+            specs[ca.mat_v.weight] = ("model", None)
+            specs[ca.proj.weight] = (None, "model")  # row: all-reduce
+            if ca.proj.bias is not None:
+                specs[ca.proj.bias] = (None,)
+
+            # --- FFN (column fc1 -> row fc2) ---
+            specs[block.ffn.fc1.weight] = ("model", None)
+            if block.ffn.fc1.bias is not None:
+                specs[block.ffn.fc1.bias] = ("model",)
+            specs[block.ffn.fc2.weight] = (None, "model")
+            if block.ffn.fc2.bias is not None:
+                specs[block.ffn.fc2.bias] = (None,)
+        return specs
