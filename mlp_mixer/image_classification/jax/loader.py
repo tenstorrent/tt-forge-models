@@ -126,7 +126,7 @@ class ModelLoader(ForgeModel):
         from PIL import Image
 
         # Load a sample image from a publicly available dataset
-        dataset = load_dataset("cifar10", split="test")
+        dataset = load_dataset("uoft-cs/cifar10", split="test")
         # Get the first image from the dataset
         image = dataset[0]["img"]
 

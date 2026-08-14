@@ -2,9 +2,9 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Component loaders and wrappers for HiDream-I1-Fast.
+Component loaders and wrappers for HiDream-I1-Full.
 
-Model: HiDream-ai/HiDream-I1-Fast (Sparse-MoE MM-DiT, guidance- + step-distilled)
+Model: HiDream-ai/HiDream-I1-Full (Sparse-MoE MM-DiT, full / CFG variant)
 Components:
   - text_encoder    : CLIPTextModelWithProjection (CLIP ViT-L/14, ~0.123 B)
   - text_encoder_2  : CLIPTextModelWithProjection (OpenCLIP ViT-bigG/14, ~0.695 B)
@@ -20,12 +20,12 @@ import torch
 # Model identity
 # ---------------------------------------------------------------------------
 
-HIDREAM_REPO_ID = "HiDream-ai/HiDream-I1-Fast"
+HIDREAM_REPO_ID = "HiDream-ai/HiDream-I1-Full"
 LLAMA_REPO_ID = "meta-llama/Meta-Llama-3.1-8B-Instruct"
 DTYPE = torch.float32
 
 # ---------------------------------------------------------------------------
-# Inference shape constants (HiDream-I1-Fast @ 1024x1024)
+# Inference shape constants (HiDream-I1-Full @ 1024x1024)
 # ---------------------------------------------------------------------------
 
 HEIGHT = 1024
@@ -54,6 +54,12 @@ LLAMA_VOCAB_SIZE = 128256
 
 # Transformer (DiT) — conditioning shapes
 POOLED_TEXT_EMB_DIM = CLIP_L_HIDDEN + CLIP_G_HIDDEN  # 2048
+
+# HiDream-I1-Full uses classifier-free guidance (guidance_scale=5.0 > 1), so the
+# transformer runs on a concatenated [uncond, cond] batch of 2. The CFG concatenation
+# happens between text encoding and the denoise loop, so only the transformer's inputs
+# carry the doubled batch — the text encoders and VAE stay at batch 1.
+CFG_BATCH = 2
 
 # ---------------------------------------------------------------------------
 # Component loaders
@@ -109,9 +115,50 @@ def load_text_encoder_4(pretrained_model_name: str, dtype: torch.dtype):
     ).eval()
 
 
+def _patch_hidream_moe_infer() -> None:
+    """Drop the `.cpu().numpy()` round-trip in MOEFeedForwardSwiGLU.moe_infer —
+    it forces a host sync + numpy array that torch.compile can't trace
+    ("'ndarray' object has no attribute 'dim'"). Keeping bincount().cumsum(0) as
+    on-device torch ops makes it traceable; everything else is unchanged.
+
+    See https://github.com/tenstorrent/tt-xla/issues/5290
+    """
+    from diffusers.models.transformers.transformer_hidream_image import (
+        MOEFeedForwardSwiGLU,
+    )
+
+    @torch.no_grad()
+    def moe_infer(self, x, flat_expert_indices, flat_expert_weights):
+        expert_cache = torch.zeros_like(x)
+        idxs = flat_expert_indices.argsort()
+        tokens_per_expert = flat_expert_indices.bincount().cumsum(0)
+        token_idxs = idxs // self.num_activated_experts
+        for i, end_idx in enumerate(tokens_per_expert):
+            start_idx = 0 if i == 0 else tokens_per_expert[i - 1]
+            if start_idx == end_idx:
+                continue
+            expert = self.experts[i]
+            exp_token_idx = token_idxs[start_idx:end_idx]
+            expert_tokens = x[exp_token_idx]
+            expert_out = expert(expert_tokens)
+            expert_out.mul_(flat_expert_weights[idxs[start_idx:end_idx]])
+            expert_cache = expert_cache.to(expert_out.dtype)
+            expert_cache.scatter_reduce_(
+                0,
+                exp_token_idx.view(-1, 1).repeat(1, x.shape[-1]),
+                expert_out,
+                reduce="sum",
+            )
+        return expert_cache
+
+    MOEFeedForwardSwiGLU.moe_infer = moe_infer
+
+
 def load_transformer(pretrained_model_name: str, dtype: torch.dtype):
     """Load HiDreamImageTransformer2DModel from the transformer subfolder."""
     from diffusers import HiDreamImageTransformer2DModel
+
+    _patch_hidream_moe_infer()
 
     return HiDreamImageTransformer2DModel.from_pretrained(
         pretrained_model_name,

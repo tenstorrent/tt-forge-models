@@ -31,6 +31,7 @@ class ModelVariant(StrEnum):
     FALCON_MAMBA_7B = "3_Mamba_7B_Base"
     FALCON_7B_INSTRUCT = "7B_Instruct"
     FALCON_40B_INSTRUCT = "40B_Instruct"
+    FALCON_180B_CHAT = "180B_Chat"
 
 
 class ModelLoader(ForgeModel):
@@ -58,6 +59,9 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.FALCON_40B_INSTRUCT: ModelConfig(
             pretrained_model_name="tiiuae/falcon-40b-instruct",
+        ),
+        ModelVariant.FALCON_180B_CHAT: ModelConfig(
+            pretrained_model_name="tiiuae/falcon-180B-chat",
         ),
     }
 
@@ -159,6 +163,7 @@ class ModelLoader(ForgeModel):
         if self._variant in [
             ModelVariant.FALCON_7B_INSTRUCT,
             ModelVariant.FALCON_40B_INSTRUCT,
+            ModelVariant.FALCON_180B_CHAT,
         ]:
             inputs = self.tokenizer(self.input_text_2, return_tensors="pt")
         else:
@@ -204,6 +209,13 @@ class ModelLoader(ForgeModel):
                 num_devices % 2 == 0
             ), "Mamba requires an even number of devices for (2, N/2) mesh"
             mesh_shape = (2, num_devices // 2)
+            return mesh_shape, ("batch", "model")
+
+        if self._variant == ModelVariant.FALCON_180B_CHAT:
+            if num_devices == 32:  # Galaxy
+                mesh_shape = (4, 8)
+            else:
+                mesh_shape = (1, num_devices)
             return mesh_shape, ("batch", "model")
 
         # All other Falcon variants have attention heads in config
@@ -271,6 +283,17 @@ class ModelLoader(ForgeModel):
                 )
                 shard_specs[layer.self_attention.dense.weight] = (None, "model")
             shard_specs[model.lm_head.weight] = ("model", None)
+        elif self._variant == ModelVariant.FALCON_180B_CHAT:
+            for layer in layers_container:
+                shard_specs[layer.mlp.dense_h_to_4h.weight] = ("model", "batch")
+                shard_specs[layer.mlp.dense_4h_to_h.weight] = ("batch", "model")
+
+                shard_specs[layer.self_attention.query_key_value.weight] = (
+                    "model",
+                    "batch",
+                )
+                shard_specs[layer.self_attention.dense.weight] = ("batch", "model")
+            shard_specs[model.lm_head.weight] = ("model", "batch")
         elif self._variant == ModelVariant.FALCON_MAMBA_7B:
             for layer in layers_container:
                 shard_specs[layer.mixer.in_proj.weight] = ("model", None)

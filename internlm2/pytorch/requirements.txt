@@ -1,0 +1,4 @@
+# InternLM2's trust_remote_code modeling/tokenizer code uses transformers APIs
+# removed in 5.5.1 (repo default), e.g. from_legacy_cache and the tokenizer's
+# convert_to_native_format path. 4.46.3 is the version it runs cleanly against.
+transformers==4.46.3
