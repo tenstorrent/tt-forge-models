@@ -208,9 +208,7 @@ class ModelLoader(ForgeModel):
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name
-        )
+        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
 
         # Set pad token to eos token for Llama models
         self.tokenizer.pad_token = self.tokenizer.eos_token

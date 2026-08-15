@@ -81,8 +81,7 @@ class ModelLoader(ForgeModel):
             The loaded tokenizer instance
         """
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            trust_remote_code=True
+            self._variant_config.pretrained_model_name, trust_remote_code=True
         )
 
         # Smaug's tokenizer ships without a pad token; reuse EOS so padding works.

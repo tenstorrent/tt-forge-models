@@ -181,8 +181,7 @@ class ModelLoader(ForgeModel):
             The loaded tokenizer instance
         """
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name,
-            trust_remote_code=True
+            self._variant_config.pretrained_model_name, trust_remote_code=True
         )
 
         return self.tokenizer
