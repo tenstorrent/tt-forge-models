@@ -19,12 +19,15 @@ from typing import Optional
 import numpy as np
 import torch
 from PIL import Image
-from transformers import (
-    AutoConfig,
-    AutoModelForCausalLM,
-    AutoProcessor,
-    AutoTokenizer,
-)
+
+# NOTE: `transformers` is intentionally NOT imported at module top level.
+# google/gemma-4-12B declares model_type "gemma4_unified", which needs
+# transformers >= 5.12.0 (see requirements.txt). The test runner upgrades
+# transformers at test time and purges it from sys.modules. A top-level import
+# would bind the Auto* classes to whatever transformers was loaded during pytest
+# collection (the repo pin is 5.5.1 and only knows "gemma4"), leaving stale
+# class objects that cannot load this checkpoint. So the Auto* classes are
+# imported lazily in the methods.
 
 from ...base import ForgeModel
 from ...config import (
@@ -139,6 +142,9 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded tokenizer instance
         """
+        # Lazy import so it binds to the pinned transformers (see module note).
+        from transformers import AutoTokenizer
+
         pretrained_model_name = self._variant_config.pretrained_model_name
         self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
         if self.tokenizer.pad_token is None:
@@ -151,6 +157,9 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded processor instance (``Gemma4UnifiedProcessor``).
         """
+        # Lazy import so it binds to the pinned transformers (see module note).
+        from transformers import AutoProcessor
+
         pretrained_model_name = self._variant_config.pretrained_model_name
         self.processor = AutoProcessor.from_pretrained(pretrained_model_name)
         return self.processor
@@ -167,6 +176,9 @@ class ModelLoader(ForgeModel):
             torch.nn.Module: The Gemma4 unified model instance, driven through
             its causal language modeling (text) path.
         """
+        # Lazy import so it binds to the pinned transformers (see module note).
+        from transformers import AutoConfig, AutoModelForCausalLM
+
         pretrained_model_name = self._variant_config.pretrained_model_name
         if self.tokenizer is None:
             self._load_tokenizer()
