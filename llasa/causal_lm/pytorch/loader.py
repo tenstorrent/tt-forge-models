@@ -301,13 +301,23 @@ class ModelLoader(ForgeModel):
 
         generator = CodecDecoderVocos().eval()
         fc_post_a = torch.nn.Linear(2048, 1024)
-        full = load_file(hf_hub_download(repo_id=self.XCODEC2_REPO, filename="model.safetensors"))
+        full = load_file(
+            hf_hub_download(repo_id=self.XCODEC2_REPO, filename="model.safetensors")
+        )
         generator.load_state_dict(
-            {k[len("generator."):]: v for k, v in full.items() if k.startswith("generator.")},
+            {
+                k[len("generator.") :]: v
+                for k, v in full.items()
+                if k.startswith("generator.")
+            },
             strict=False,
         )
         fc_post_a.load_state_dict(
-            {k[len("fc_post_a."):]: v for k, v in full.items() if k.startswith("fc_post_a.")},
+            {
+                k[len("fc_post_a.") :]: v
+                for k, v in full.items()
+                if k.startswith("fc_post_a.")
+            },
             strict=False,
         )
         self.audio_generator = generator.to(torch.float32)
@@ -327,8 +337,8 @@ class ModelLoader(ForgeModel):
         with torch.no_grad():
             emb = gen.quantizer.get_output_from_indices(vq_code.transpose(1, 2))
             emb = emb.transpose(1, 2)
-            emb = fc(emb.transpose(1, 2)).transpose(1, 2)   # [B, 1024, T]
-            feats = emb.transpose(1, 2).contiguous()        # [B, T, 1024]
+            emb = fc(emb.transpose(1, 2)).transpose(1, 2)  # [B, 1024, T]
+            feats = emb.transpose(1, 2).contiguous()  # [B, T, 1024]
 
             if not backbone_on_tt:
                 return gen(feats, vq=False)[0]
@@ -336,9 +346,17 @@ class ModelLoader(ForgeModel):
             import torch_xla
             import torch_xla.core.xla_model as xm
 
-            torch_xla.set_custom_compile_options({"optimization_level": 1})  # backbone GroupNorm
+            torch_xla.set_custom_compile_options(
+                {"optimization_level": 1}
+            )  # backbone GroupNorm
             dev = xm.xla_device()
-            backbone = gen.backbone.to(dtype=torch.bfloat16).to(dev)  # head left on CPU/fp32
+            backbone = gen.backbone.to(dtype=torch.bfloat16).to(
+                dev
+            )  # head left on CPU/fp32
             compiled = torch.compile(lambda x: backbone(x), backend="tt")
-            bb = compiled(feats.to(dtype=torch.bfloat16).to(dev)).to("cpu").to(torch.float32)
+            bb = (
+                compiled(feats.to(dtype=torch.bfloat16).to(dev))
+                .to("cpu")
+                .to(torch.float32)
+            )
             return gen.head(bb)[0]  # iSTFT head: complex/FFT -> CPU only
