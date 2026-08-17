@@ -140,10 +140,9 @@ class ModelLoader(ForgeModel):
         import torch
         from diffusers import AutoencoderTiny
 
-        self.taesd3 = (
-            AutoencoderTiny.from_pretrained(self.TAESD3_REPO, torch_dtype=torch.float32)
-            .eval()
-        )
+        self.taesd3 = AutoencoderTiny.from_pretrained(
+            self.TAESD3_REPO, torch_dtype=torch.float32
+        ).eval()
         return self.taesd3
 
     def decode_taesd3(self, latents, on_tt=False):
