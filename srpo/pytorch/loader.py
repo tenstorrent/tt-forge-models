@@ -190,10 +190,9 @@ class ModelLoader(ForgeModel):
         """Load the TAEF1 tiny FLUX autoencoder (preview VAE)."""
         from diffusers import AutoencoderTiny
 
-        self.taef1 = (
-            AutoencoderTiny.from_pretrained(self.TAEF1_REPO, torch_dtype=torch.float32)
-            .eval()
-        )
+        self.taef1 = AutoencoderTiny.from_pretrained(
+            self.TAEF1_REPO, torch_dtype=torch.float32
+        ).eval()
         return self.taef1
 
     def decode_taef1(self, latents, on_tt=False):
