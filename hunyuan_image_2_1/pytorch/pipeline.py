@@ -3,20 +3,22 @@
 # SPDX-License-Identifier: Apache-2.0
 """HunyuanImage 2.1 (Distilled) text-to-image pipeline running on Tenstorrent.
 
-Only the MMDiT transformer (the heavy net, ~17.45B) runs on the TT backend —
-tensor-parallel sharded across the device mesh and compiled with
-``torch.compile(backend="tt")``. The Qwen2.5-VL and ByT5 text encoders, the
-scheduler, and the VAE run on CPU in fp32. This mirrors the SD3 / Flux pipelines:
-precision-sensitive encoding + the VAE stay on CPU while the dominant compute is
-offloaded to TT.
+The Qwen2.5-VL encoder, the ByT5 glyph encoder and the MMDiT transformer run on
+TT in bf16; the scheduler and the VAE run on CPU in fp32. Qwen and the
+transformer are tensor-parallel sharded; ByT5 (0.22B) carries no shard spec, so
+SPMD replicates it across the mesh.
+
+Every TT model is loaded, compiled and uploaded once in ``setup()`` and stays
+resident: in bf16 the three together are ~13 GB of a chip's 32 GB. Repeat
+``generate()`` calls reuse both the weights and the compiled graphs.
 
 The math mirrors ``HunyuanImagePipeline.__call__`` (distilled: guider disabled →
 single conditional forward per step, distilled-guidance embedding, meanflow
 ``timestep_r``, ByT5 glyph stream).
 
-This is the reusable implementation that the runnable example
-(``examples/pytorch/hunyuan_image_2_1.py``) consumes as a thin wrapper.
-Per-component times go into ``self._perf`` after each ``generate()``.
+Consumed by the runnable example (``examples/pytorch/hunyuan_image_2_1.py``), the
+image-gen benchmark and the nightly PCC test. ``self._perf`` holds per-component
+times after each ``generate()``.
 """
 
 import re
@@ -36,7 +38,11 @@ from PIL import Image
 from transformers import ByT5Tokenizer, Qwen2Tokenizer
 
 from .loader import ModelLoader, ModelVariant
-from .src.model_utils import NUM_CHANNELS_LATENTS, VAE_SCALE_FACTOR
+from .src.model_utils import (
+    NUM_CHANNELS_LATENTS,
+    VAE_SCALE_FACTOR,
+    QwenPromptEmbedsWrapper,
+)
 
 REPO_ID = "hunyuanvideo-community/HunyuanImage-2.1-Distilled-Diffusers"
 PROMPT = (
@@ -46,6 +52,8 @@ PROMPT = (
     "expression as it paints an oil painting of the Mona Lisa, rendered in a "
     "photorealistic photographic style."
 )
+# The three TT components run bf16; the VAE stays fp32 on CPU.
+TT_DTYPE = torch.bfloat16
 SEED = 649151
 NUM_INFERENCE_STEPS = 8
 DISTILLED_GUIDANCE_SCALE = 3.5
@@ -87,11 +95,10 @@ class HunyuanImage21Config:
 
 
 class HunyuanImage21Pipeline:
-    """Transformer on TT (fp32, sharded); Qwen/ByT5/scheduler/VAE on CPU.
+    """Qwen + ByT5 + transformer on TT (bf16); scheduler + VAE on CPU (fp32).
 
-    Built once with ``setup()``; ``generate()`` can be called repeatedly. The
-    sharded transformer is placed + compiled in ``setup()`` and reused across
-    calls (kernel compile happens lazily on the first forward).
+    Built once with ``setup()``; ``generate()`` can be called repeatedly against
+    the already-resident models.
     """
 
     def __init__(self, config: HunyuanImage21Config):
@@ -99,36 +106,28 @@ class HunyuanImage21Pipeline:
         self._perf = {}
 
     def setup(self):
-        # SPMD mesh for the sharded transformer — the only module on TT.
+        # One mesh, shared by every TT component; the transformer's loader
+        # supplies the shape and Qwen's reports the same for a device count.
         enable_spmd()
         self.num_devices = xr.global_runtime_device_count()
-        tr_loader = ModelLoader(ModelVariant.TRANSFORMER)
-        self.mesh_shape, mesh_names = tr_loader.get_mesh_config(self.num_devices)
+        self.mesh_shape, mesh_names = ModelLoader(
+            ModelVariant.TRANSFORMER
+        ).get_mesh_config(self.num_devices)
         self.mesh = get_mesh(self.mesh_shape, mesh_names)
         logger.info(
             "[setup] mesh {} over {} device(s)", self.mesh_shape, self.num_devices
         )
 
-        # CPU components (fp32), loaded once and reused across calls.
-        self.text_encoder = ModelLoader(ModelVariant.TEXT_ENCODER).load_model(
-            dtype_override=torch.float32
+        self.load_models()
+        self.text_encoder = self._to_tt(
+            self.text_encoder, ModelVariant.TEXT_ENCODER, lambda m: m.encoder
         )
-        self.text_encoder_2 = ModelLoader(ModelVariant.TEXT_ENCODER_2).load_model(
-            dtype_override=torch.float32
+        self.text_encoder_2 = self._to_tt(
+            self.text_encoder_2, ModelVariant.TEXT_ENCODER_2
         )
-        self.vae = ModelLoader(ModelVariant.VAE).load_model(
-            dtype_override=torch.float32
+        self.transformer = self._to_tt(
+            self.transformer, ModelVariant.TRANSFORMER, lambda m: m
         )
-
-        # Transformer on TT (fp32, sharded). Register the "tt" backend + mesh
-        # sharding here; kernel compile happens lazily on the first forward.
-        dev = torch_xla.device()
-        transformer = tr_loader.load_model(dtype_override=torch.float32).to(dev)
-        specs = tr_loader.load_shard_spec(transformer)
-        assert specs, "transformer shard spec is empty — would run replicated/OOM"
-        for tensor, spec in specs.items():
-            xs.mark_sharding(tensor, self.mesh, spec)
-        self.tt_transformer = torch.compile(transformer, backend="tt")
 
         self.scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
             self.config.repo_id, subfolder="scheduler"
@@ -140,8 +139,47 @@ class HunyuanImage21Pipeline:
             self.config.repo_id, subfolder="tokenizer_2"
         )
 
+    def load_models(self):
+        # TT-bound models: load on CPU and compile here, then setup() uploads
+        # them. We wrap forward, not the module, so each attribute stays an
+        # nn.Module and callers can still wrap forward (e.g. the PCC check).
+        self.text_encoder = QwenPromptEmbedsWrapper(
+            ModelLoader(ModelVariant.TEXT_ENCODER).load_model(dtype_override=TT_DTYPE),
+            HIDDEN_STATE_SKIP_LAYER,
+            PROMPT_TEMPLATE_ENCODE_START_IDX,
+        )
+        self.text_encoder_2 = ModelLoader(ModelVariant.TEXT_ENCODER_2).load_model(
+            dtype_override=TT_DTYPE
+        )
+        self.transformer = ModelLoader(ModelVariant.TRANSFORMER).load_model(
+            dtype_override=TT_DTYPE
+        )
+        for module in (self.text_encoder, self.text_encoder_2, self.transformer):
+            module.forward = torch.compile(module.forward, backend="tt")
+
+        # VAE stays on CPU (0.41B).
+        self.vae = ModelLoader(ModelVariant.VAE).load_model(
+            dtype_override=torch.float32
+        )
+
+    def _to_tt(self, module, variant: ModelVariant, shard_from=None):
+        """Move a component to the device and apply its shard spec.
+
+        ``shard_from`` maps the moved module to the object the loader's spec is
+        written against; omit it to run replicated.
+        """
+        module = module.to(torch_xla.device())
+        if shard_from is not None:
+            specs = ModelLoader(variant).load_shard_spec(shard_from(module))
+            assert specs, f"{variant} shard spec is empty — would run replicated/OOM"
+            for tensor, spec in specs.items():
+                xs.mark_sharding(tensor, self.mesh, spec)
+        return module
+
     def _encode_qwen(self, prompt):
-        """Qwen2.5-VL text encoder — CPU (fp32)."""
+        """Qwen2.5-VL text encoder — TT (bf16, sharded)."""
+        logger.info("[STAGE] text_encoder (Qwen, sharded, bf16): TT")
+        dev = torch_xla.device()
         drop_idx = PROMPT_TEMPLATE_ENCODE_START_IDX
         tokens = self.tokenizer(
             [PROMPT_TEMPLATE_ENCODE.format(prompt)],
@@ -150,18 +188,22 @@ class HunyuanImage21Pipeline:
             truncation=True,
             return_tensors="pt",
         )
-        attention_mask = tokens.attention_mask
-        skip = HIDDEN_STATE_SKIP_LAYER
-        out = self.text_encoder(
-            input_ids=tokens.input_ids,
-            attention_mask=attention_mask,
-            output_hidden_states=True,
+
+        t0 = time.perf_counter()
+        # .cpu() is the sync point: it forces the graph to run and only returns
+        # once the result is on host, so the timer ends there.
+        prompt_embeds = (
+            self.text_encoder(tokens.input_ids.to(dev), tokens.attention_mask.to(dev))
+            .cpu()
+            .to(torch.float32)
         )
-        prompt_embeds = out.hidden_states[-(skip + 1)][:, drop_idx:].to(torch.float32)
-        return prompt_embeds, attention_mask[:, drop_idx:]
+        self._perf["components"]["text_encoder"] = time.perf_counter() - t0
+        return prompt_embeds, tokens.attention_mask[:, drop_idx:]
 
     def _encode_byt5(self, prompt):
-        """ByT5 glyph encoder — CPU (fp32)."""
+        """ByT5 glyph encoder — TT (bf16, replicated)."""
+        logger.info("[STAGE] text_encoder_2 (ByT5, bf16): TT")
+        dev = torch_xla.device()
         glyph_text = extract_glyph_text(prompt)
         if glyph_text is None:
             dim = self.text_encoder_2.config.d_model
@@ -179,10 +221,18 @@ class HunyuanImage21Pipeline:
             add_special_tokens=True,
             return_tensors="pt",
         )
-        prompt_embeds_2 = self.text_encoder_2(
-            input_ids=tokens.input_ids,
-            attention_mask=tokens.attention_mask.float(),
-        )[0].to(torch.float32)
+        # Encoder takes the float mask; the int mask flows downstream.
+        input_ids = tokens.input_ids
+        attention_mask = tokens.attention_mask.to(TT_DTYPE)
+
+        # out[0] is last_hidden_state, the only output, so no wrapper is needed.
+        t0 = time.perf_counter()
+        prompt_embeds_2 = (
+            self.text_encoder_2(input_ids.to(dev), attention_mask.to(dev))[0]
+            .cpu()
+            .to(torch.float32)
+        )
+        self._perf["components"]["text_encoder_2"] = time.perf_counter() - t0
         return prompt_embeds_2, tokens.attention_mask
 
     def generate(
@@ -190,7 +240,7 @@ class HunyuanImage21Pipeline:
         prompt: str = PROMPT,
         distilled_guidance_scale: float = DISTILLED_GUIDANCE_SCALE,
         num_inference_steps: int = NUM_INFERENCE_STEPS,
-        seed: Optional[int] = None,
+        seed: Optional[int] = SEED,
     ) -> torch.Tensor:
         """End-to-end generation. Returns pixels in [-1, 1], shape (1, 3, H, W)."""
         batch_size = 1
@@ -210,16 +260,9 @@ class HunyuanImage21Pipeline:
             else:
                 generator.seed()
 
-            # ──────────────────── Text encoders (CPU) ─────────────────────
-            logger.info("[STAGE] text_encoder (Qwen): CPU")
-            t0 = time.perf_counter()
+            # ──────────────────── Text encoders (TT) ──────────────────────
             prompt_embeds, prompt_embeds_mask = self._encode_qwen(prompt)
-            self._perf["components"]["text_encoder"] = time.perf_counter() - t0
-
-            logger.info("[STAGE] text_encoder_2 (ByT5): CPU")
-            t0 = time.perf_counter()
             prompt_embeds_2, prompt_embeds_mask_2 = self._encode_byt5(prompt)
-            self._perf["components"]["text_encoder_2"] = time.perf_counter() - t0
 
             # ──────────── Latents / timesteps / guidance (CPU) ────────────
             latents_h = int(self.config.height) // VAE_SCALE_FACTOR
@@ -241,12 +284,16 @@ class HunyuanImage21Pipeline:
                 * 1000.0
             )
 
-            # ─────── Transformer denoising loop (TT, fp32, sharded) ───────
+            # ─────── Transformer denoising loop (TT, bf16, sharded) ───────
             logger.info(
-                "[STAGE] transformer (sharded, fp32): start ({} steps)",
+                "[STAGE] transformer (sharded, bf16): start ({} steps)",
                 num_inference_steps,
             )
-            to_dev = lambda x: x.to(dev)  # inputs already fp32 / int
+            # The trajectory stays fp32 on host; floats cast to the TT dtype at
+            # the device boundary, ints (the masks) go as-is.
+            to_dev = lambda x: (
+                x.to(TT_DTYPE).to(dev) if x.is_floating_point() else x.to(dev)
+            )
 
             for i, t in enumerate(timesteps):
                 logger.info("[STEP] transformer step {}/{}", i + 1, num_inference_steps)
@@ -271,7 +318,7 @@ class HunyuanImage21Pipeline:
                 t0 = time.perf_counter()
                 # .cpu() is the sync point: it forces the graph to run and only
                 # returns once the result is on host, so the timer ends there.
-                noise_pred = self.tt_transformer(*tt_inputs).cpu().to(torch.float32)
+                noise_pred = self.transformer(*tt_inputs).cpu().to(torch.float32)
                 self._perf["steps"].append(time.perf_counter() - t0)
 
                 latents = self.scheduler.step(
