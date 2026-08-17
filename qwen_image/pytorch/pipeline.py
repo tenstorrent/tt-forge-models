@@ -46,6 +46,8 @@ from .src.model_utils import (
     TOKENIZER_MAX_LENGTH,
     TRUE_CFG_SCALE,
     WIDTH,
+    load_text_encoder,
+    load_transformer,
     shard_text_encoder_specs,
     shard_transformer_specs,
 )
@@ -100,6 +102,10 @@ class _DeviceDenoiser:
             xs.mark_sharding(tensor, mesh, spec)
         self._compiled = torch.compile(transformer, backend="tt")
 
+    def free(self):
+        """Drop the compiled module; config/dtype stay readable by the pipeline."""
+        self._compiled = None
+
     def __call__(self, **kwargs):
         moved = {
             k: (v.to(self._dev) if torch.is_tensor(v) else v) for k, v in kwargs.items()
@@ -116,9 +122,10 @@ class _DeviceDenoiser:
 class _DeviceVAEDecoder:
     """VAE decode on TT (replicated). Stashes the raw frame-0 pixels."""
 
-    def __init__(self, vae, perf):
+    def __init__(self, vae, perf, before_place=None):
         self._dev = torch_xla.device()
         self._perf = perf
+        self._before_place = before_place
         self.config = vae.config
         self.dtype = next(vae.parameters()).dtype
         self.temperal_downsample = vae.temperal_downsample
@@ -130,6 +137,10 @@ class _DeviceVAEDecoder:
         # Lazy device placement: keep the VAE off-device during the denoise loop
         # so it never coexists with the transformer's peak.
         if self._compiled is None:
+            # Denoising is over and the pipeline never reads self.transformer
+            # again, so drop it before the VAE lands.
+            if self._before_place is not None:
+                self._before_place()
             vae = self._vae.to(self._dev)
             self._compiled = torch.compile(
                 lambda z: vae.decode(z, return_dict=False)[0], backend="tt"
@@ -160,11 +171,15 @@ class QwenImageConfig:
 class QwenImagePipeline:
     """Text encoder + transformer (both sharded) and VAE (replicated) on TT.
 
-    Built once with ``setup()``; ``generate()`` can be called repeatedly. The
-    prompt embeddings and the placed modules are built on the first ``generate()``
-    and reused afterwards: the stack does not free a compiled module's device
-    memory, so re-placing per call would leave two full pipelines resident and
-    OOM the VAE decode.
+    Built once with ``setup()``; ``generate()`` can be called repeatedly.
+
+    Each component is loaded, placed, used and dropped in turn, so only one is
+    resident at a time and peak DRAM is ``max(component)`` rather than the sum.
+    The transformer is dropped before the VAE is placed: the pipeline does not
+    read it again once denoising is over.
+
+    NOTE: this is a work-in-progress attempt. The steady-state (second)
+    ``generate()`` still fails at the VAE decode -- see the commit message.
     """
 
     def __init__(self, config: QwenImageConfig):
@@ -179,7 +194,7 @@ class QwenImagePipeline:
         }
         # Raw per-forward times; collapsed into per-step entries in generate().
         self._forward_times = []
-        self._placed = False
+        self._denoiser = None
 
     def setup(self):
         enable_spmd()
@@ -195,13 +210,26 @@ class QwenImagePipeline:
         self.pipe = DiffusersQwenImagePipeline.from_pretrained(
             self.config.repo_id, torch_dtype=DTYPE
         )
-        self._raw_transformer = self.pipe.transformer
         self._raw_vae = self.pipe.vae
+        # The pipeline's own encoder/transformer are never used: both are loaded
+        # fresh per call so nothing holds them once they are dropped.
+        self.pipe.text_encoder = None
+        self.pipe.transformer = None
+        gc.collect()
+
+    def _free_denoiser(self):
+        """Drop the transformer before the VAE is placed."""
+        if self._denoiser is not None:
+            self._denoiser.free()
+            gc.collect()
+            torch_xla.sync()
+            logger.info("[STAGE] transformer: evicted")
 
     def _encode(self, prompt: str):
         """Place the sharded text encoder, encode both prompts, then evict it."""
         logger.info("[STAGE] text_encoder (sharded): start")
-        text_encoder = self.pipe.text_encoder
+        # Loaded fresh so no long-lived reference survives the del below.
+        text_encoder = load_text_encoder(DTYPE)
         self.pipe.text_encoder = _DeviceTextEncoder(text_encoder, self.mesh)
 
         # The masked-embedding extraction downstream of the encoder runs on host,
@@ -222,8 +250,9 @@ class QwenImagePipeline:
         )
         elapsed = time.perf_counter() - t0
 
-        # Evict the text encoder before the transformer is placed.
-        self.pipe.text_encoder = text_encoder.to("cpu")
+        # Drop it outright before the transformer is placed.
+        self.pipe.text_encoder = None
+        del text_encoder
         gc.collect()
         torch_xla.sync()
         logger.info("[STAGE] text_encoder: done")
@@ -248,22 +277,28 @@ class QwenImagePipeline:
         self._perf["total"] = None
         t_total_start = time.perf_counter()
 
-        if not self._placed:
-            self._embeds, encode_time = self._encode(prompt)
-            self.pipe.transformer = _DeviceDenoiser(
-                self._raw_transformer, self.mesh, self._forward_times
-            )
-            self._vae_wrapper = _DeviceVAEDecoder(self._raw_vae, self._perf)
-            self.pipe.vae = self._vae_wrapper
-            self._placed = True
-            self._perf["components"]["text_encoder"] = encode_time
+        # Encode per call: embeds must match this prompt, and the time belongs
+        # inside the measured pass.
+        embeds, encode_time = self._encode(prompt)
+        self._perf["components"]["text_encoder"] = encode_time
+
+        # Transformer loaded fresh, then freed before the VAE is placed.
+        transformer = load_transformer(DTYPE)
+        self._denoiser = _DeviceDenoiser(transformer, self.mesh, self._forward_times)
+        self.pipe.transformer = self._denoiser
+        del transformer
+
+        vae_wrapper = _DeviceVAEDecoder(
+            self._raw_vae, self._perf, before_place=self._free_denoiser
+        )
+        self.pipe.vae = vae_wrapper
 
         (
             prompt_embeds,
             prompt_embeds_mask,
             negative_prompt_embeds,
             negative_prompt_embeds_mask,
-        ) = self._embeds
+        ) = embeds
 
         logger.info(
             "[STAGE] transformer (sharded) + vae: start ({} steps)",
@@ -285,6 +320,15 @@ class QwenImagePipeline:
         )
         logger.info("[STAGE] transformer + vae: done")
 
+        pixels = vae_wrapper.last_pixels
+
+        # Drop the VAE too, so generate() returns with nothing resident.
+        self.pipe.vae = self._raw_vae.to("cpu")
+        del vae_wrapper
+        gc.collect()
+        torch_xla.sync()
+        logger.info("[STAGE] vae: evicted")
+
         per_step = 2 if TRUE_CFG_SCALE > 1.0 else 1
         self._perf["steps"].extend(
             sum(self._forward_times[i : i + per_step])
@@ -292,7 +336,7 @@ class QwenImagePipeline:
         )
 
         self._perf["total"] = time.perf_counter() - t_total_start
-        return self._vae_wrapper.last_pixels
+        return pixels
 
 
 def save_image(image: torch.Tensor, filepath: str = "output.png"):
