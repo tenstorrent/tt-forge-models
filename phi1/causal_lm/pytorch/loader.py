@@ -83,17 +83,13 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
+    def _load_tokenizer(self):
         """Load tokenizer for the current variant.
         Returns:
             The loaded tokenizer instance
         """
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name
         )
         self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -148,7 +144,7 @@ class ModelLoader(ForgeModel):
     def load_inputs_decode(self, dtype_override=None, batch_size=1):
         """Load decode-step inputs (single token + static KV cache)."""
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
         if self.config is None:
             self.load_config()
 
