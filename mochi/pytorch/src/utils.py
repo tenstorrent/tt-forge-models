@@ -8,6 +8,11 @@ from typing import Any
 
 import torch
 
+# Model identity. The loader carries it per-variant in
+# MochiConfig.pretrained_model_name; the e2e pipeline needs it directly for the
+# scheduler/tokenizer subfolders, which have no component loader here.
+REPO_ID = "genmo/mochi-1-preview"
+
 # Channel-wise standard deviations for VAE latent normalization
 # Source: Mochi VAE implementation (12 latent channels)
 VAE_STD_CHANNELS = [
