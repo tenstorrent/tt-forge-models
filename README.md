@@ -251,14 +251,11 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
+    def _load_tokenizer(self):
         """Load tokenizer for the current variant."""
-        tokenizer_kwargs = {"padding_side": "left"}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name,
+            padding_side="left",
         )
         return self.tokenizer
 
@@ -266,7 +263,7 @@ class ModelLoader(ForgeModel):
         """Load and return the BERT model instance for this instance's variant."""
         # Ensure tokenizer is loaded
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
         # Load model with dtype override if specified
         model_kwargs = {}
@@ -282,7 +279,7 @@ class ModelLoader(ForgeModel):
         """Load and return sample inputs for the BERT model with this instance's variant settings."""
         # Ensure tokenizer is initialized
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
         # Get max_length from the variant config
         max_length = self._variant_config.max_length

@@ -23,12 +23,13 @@ NOTE: LongCatImagePipeline requires diffusers >= 0.36 (LongCat classes landed
 in diffusers main, Dec 2025; first released in 0.36.0). See requirements.txt.
 
 NOTE: this is a ~14 B aggregate pipeline. The 6 B transformer and 7.7 B text
-encoder do not fit a single n150 (7 B/chip) device; the VAE does. Components
-are brought up on a single device first (SHARD_SPECS / TT_VISIBLE_DEVICES
-record the tensor-parallel plan for the multi-chip follow-up). Scaffolded
-CPU-only; per-component single-device results recorded in the bringup state.
+encoder do not fit a single n150 (7 B/chip) device; the VAE does. Both heavy
+components are brought up tensor-parallel on an 8-chip n300 llmbox --
+``get_mesh_config`` gives the ("batch", "model") mesh and ``load_shard_spec``
+the per-parameter partition specs. The VAE stays single-device (replicated).
 """
 
+import types
 from typing import Optional
 
 import torch
@@ -84,16 +85,17 @@ _COMPONENT_IO_SPEC = {
     },
 }
 
-# ---- shard plan (uniform chip count across the pipeline) --------------------
-# n150 (7B/chip cap): transformer needs 1 (6B fits), text_encoder 2, vae 1 -> uniform 2.
-# p150 (12B/chip cap): every component fits 1 -> uniform 1 (single device).
-# Default reflects the requested --arch n150 target.
-TT_VISIBLE_DEVICES = "0,1"  # n150 x2; use "0" for p150 single device
-SHARD_SPECS = {
-    "text_encoder": {"strategy": "tensor_parallel", "mesh": [1, 2]},
-    "transformer": {"strategy": "tensor_parallel", "mesh": [1, 2]},
-    "vae": {"strategy": "data_parallel"},
-}
+# ---- multichip SPMD tensor-parallel mesh (FSDP-style ("batch", "model")) -----
+# Both heavy components are weight-bound on a single chip and use a 2D
+# ("batch", "model") mesh (Megatron column/row weights spread over both axes).
+# The "model" axis is the tensor-parallel degree; it must divide both:
+#   transformer  : num_attention_heads = 24        -> 24 % model == 0
+#   text_encoder : num_attention_heads = 28,        -> 28 % model == 0 AND
+#                  num_key_value_heads = 4 (GQA)        model <= 4 (KV-head cap)
+# The intersection caps the model axis at 4, so on an 8-chip n300 llmbox the
+# mesh is (2, 4). The VAE fits a single chip and simply replicates on the mesh.
+MESH_SHAPES = {32: (8, 4), 8: (2, 4), 4: (1, 4), 2: (1, 2), 1: (1, 1)}
+MESH_NAMES = ("batch", "model")
 
 # ---- shape constants (from captured spec) ----------------------------------
 TE_SEQ_LEN = 553
@@ -155,6 +157,87 @@ class _LongCatTextEncoderWrapper(torch.nn.Module):
         return out.hidden_states[-1]
 
 
+def _single_block_forward_split(
+    self,
+    hidden_states,
+    encoder_hidden_states,
+    temb,
+    image_rotary_emb=None,
+    joint_attention_kwargs=None,
+):
+    """TP-friendly rewrite of LongCatImageSingleTransformerBlock.forward.
+
+    Mathematically identical to the stock forward, but replaces the fused
+    ``proj_out(cat([attn_output, mlp_hidden_states], dim=-1))`` with two
+    separate linears summed:
+
+        proj_out(cat([a, m])) == proj_out_attn(a) + proj_out_mlp(m)
+
+    where ``proj_out.weight`` [out, 3072+12288] is column-split into the attn
+    half [:, :3072] and the mlp half [:, 3072:]. This lets each half be a clean
+    row-parallel (None, "model") matmul aligned to its column-sharded operand
+    (attn heads / proj_mlp), so the single block can be tensor-parallel without
+    the block-interleaved concat that forced a gather + wide L1 overflow.
+    """
+    text_seq_len = encoder_hidden_states.shape[1]
+    hidden_states = torch.cat([encoder_hidden_states, hidden_states], dim=1)
+
+    residual = hidden_states
+    norm_hidden_states, gate = self.norm(hidden_states, emb=temb)
+    mlp_hidden_states = self.act_mlp(self.proj_mlp(norm_hidden_states))
+    joint_attention_kwargs = joint_attention_kwargs or {}
+    attn_output = self.attn(
+        hidden_states=norm_hidden_states,
+        image_rotary_emb=image_rotary_emb,
+        **joint_attention_kwargs,
+    )
+
+    proj = self.proj_out_attn(attn_output) + self.proj_out_mlp(mlp_hidden_states)
+    gate = gate.unsqueeze(1)
+    hidden_states = gate * proj
+    hidden_states = residual + hidden_states
+    if hidden_states.dtype == torch.float16:
+        hidden_states = hidden_states.clip(-65504, 65504)
+
+    encoder_hidden_states, hidden_states = (
+        hidden_states[:, :text_seq_len],
+        hidden_states[:, text_seq_len:],
+    )
+    return encoder_hidden_states, hidden_states
+
+
+def _split_single_block_proj_out(block) -> None:
+    """Split a single block's fused ``proj_out`` into attn + mlp halves in place.
+
+    The concatenated ``proj_out`` input is [attn_output (attn_dim) | mlp_hidden
+    (mlp_dim)], so proj_out.weight columns [:attn_dim] act on the attention
+    output and [attn_dim:] on the mlp hidden. We carve them into two Linears
+    (bias kept once on the attn half) and rebind the block's forward to the
+    concat-free variant. The original fused ``proj_out`` is removed so its
+    weight is not uploaded (replicated) to device.
+    """
+    old = block.proj_out  # Linear(attn_dim + mlp_dim -> out)
+    w = old.weight.data  # [out, attn_dim + mlp_dim]
+    out_features = old.out_features
+    attn_dim = block.attn.to_v.weight.shape[0]  # attention output feature dim
+    mlp_dim = w.shape[1] - attn_dim
+
+    attn_lin = torch.nn.Linear(
+        attn_dim, out_features, bias=old.bias is not None, dtype=w.dtype
+    )
+    attn_lin.weight.data.copy_(w[:, :attn_dim])
+    if old.bias is not None:
+        attn_lin.bias.data.copy_(old.bias.data)
+
+    mlp_lin = torch.nn.Linear(mlp_dim, out_features, bias=False, dtype=w.dtype)
+    mlp_lin.weight.data.copy_(w[:, attn_dim:])
+
+    block.proj_out_attn = attn_lin
+    block.proj_out_mlp = mlp_lin
+    del block.proj_out
+    block.forward = types.MethodType(_single_block_forward_split, block)
+
+
 class _LongCatTransformerWrapper(torch.nn.Module):
     """Adapt LongCatImageTransformer2DModel to a tensors-only forward.
 
@@ -166,6 +249,11 @@ class _LongCatTransformerWrapper(torch.nn.Module):
 
     def __init__(self, transformer):
         super().__init__()
+        # Rewrite each single block to a concat-free, tensor-parallel-friendly
+        # forward (split proj_out into attn + mlp halves) so the single blocks
+        # can be sharded instead of fully replicated (~5.7 GB) on every chip.
+        for block in getattr(transformer, "single_transformer_blocks", []):
+            _split_single_block_proj_out(block)
         self.transformer = transformer
         txt_ids = _prepare_pos_ids(
             modality_id=0, type="text", start=(0, 0), num_token=TR_TXT_SEQ
@@ -203,6 +291,228 @@ class _LongCatVAEDecoderWrapper(torch.nn.Module):
 
     def forward(self, latent):
         return self.vae.decode(latent, return_dict=False)[0]
+
+
+# ---------------------------------------------------------------------------
+# SPMD tensor-parallel shard specifications (Megatron 1D on the "model" axis)
+# Column-parallel weights (Q/K/V, gate/up, ff in): ("model", None)
+# Row-parallel weights    (O, down, ff out):       (None, "model")
+# Column bias -> ("model",); row bias / layernorm / stem -> (None,) or replicate.
+# The mesh may be 2D ((batch, model)); the "batch" axis stays unused for weights
+# (activation data-parallel), matching the flux2 Flux-family reference. 1D specs
+# avoid the cross-axis reshards that produce unsupported CollectivePermuteOps.
+# ---------------------------------------------------------------------------
+
+
+def _shard_text_encoder_specs(text_encoder) -> dict:
+    """Shard specs for the Qwen2.5-VL text encoder (Megatron 1D column/row).
+
+    ``text_encoder`` is the Qwen2_5_VLForConditionalGeneration held by
+    ``_LongCatTextEncoderWrapper``. Only the language model is exercised by the
+    forward (no pixel_values), so the vision tower / lm_head stay out of the
+    graph and are never uploaded. We navigate to the decoder and shard its
+    attention + MLP weights.
+    """
+    # Qwen2_5_VLForConditionalGeneration -> model -> language_model (decoder).
+    decoder = None
+    for path in ("model.language_model", "language_model", "model"):
+        obj = text_encoder
+        ok = True
+        for attr in path.split("."):
+            if hasattr(obj, attr):
+                obj = getattr(obj, attr)
+            else:
+                ok = False
+                break
+        if ok and hasattr(obj, "layers"):
+            decoder = obj
+            break
+    if decoder is None:
+        raise ValueError(
+            f"Could not locate decoder layers on {type(text_encoder).__name__}; "
+            "refusing to run fully replicated (would DRAM OOM)."
+        )
+
+    specs = {}
+    if hasattr(decoder, "embed_tokens"):
+        specs[decoder.embed_tokens.weight] = (None, None)
+
+    for layer in decoder.layers:
+        sa = layer.self_attn
+        for proj_name in ("q_proj", "k_proj", "v_proj"):
+            proj = getattr(sa, proj_name)
+            specs[proj.weight] = ("model", None)
+            if proj.bias is not None:
+                specs[proj.bias] = ("model",)
+        specs[sa.o_proj.weight] = (None, "model")
+        if sa.o_proj.bias is not None:
+            specs[sa.o_proj.bias] = (None,)
+
+        mlp = layer.mlp
+        specs[mlp.gate_proj.weight] = ("model", None)
+        specs[mlp.up_proj.weight] = ("model", None)
+        specs[mlp.down_proj.weight] = (None, "model")
+
+        specs[layer.input_layernorm.weight] = (None,)
+        specs[layer.post_attention_layernorm.weight] = (None,)
+
+    if hasattr(decoder, "norm"):
+        specs[decoder.norm.weight] = (None,)
+
+    return specs
+
+
+def _shard_attn_specs(attn, specs: dict) -> None:
+    """Column-shard Q/K/V (+ added_kv projections) and row-shard the outputs.
+
+    Per-head RMSNorms (norm_q/norm_k/...) shard on the head (model) axis; they
+    act per-head so they follow the Q/K sharding.
+    """
+    for proj_name in ("to_q", "to_k", "to_v", "add_q_proj", "add_k_proj", "add_v_proj"):
+        proj = getattr(attn, proj_name, None)
+        if proj is not None:
+            specs[proj.weight] = ("model", None)
+            if proj.bias is not None:
+                specs[proj.bias] = ("model",)
+    # to_out is an nn.ModuleList([Linear, Dropout]); to_add_out is a plain Linear.
+    to_out = getattr(attn, "to_out", None)
+    if to_out is not None:
+        out_lin = to_out[0] if isinstance(to_out, (torch.nn.ModuleList,)) else to_out
+        specs[out_lin.weight] = (None, "model")
+        if out_lin.bias is not None:
+            specs[out_lin.bias] = (None,)
+    to_add_out = getattr(attn, "to_add_out", None)
+    if to_add_out is not None:
+        specs[to_add_out.weight] = (None, "model")
+        if to_add_out.bias is not None:
+            specs[to_add_out.bias] = (None,)
+
+
+def _shard_ff_specs(ff, specs: dict) -> None:
+    """diffusers FeedForward = Sequential(GELU(proj), Dropout, Linear)."""
+    net = ff.net
+    if hasattr(net[0], "proj"):
+        specs[net[0].proj.weight] = ("model", None)
+        if net[0].proj.bias is not None:
+            specs[net[0].proj.bias] = ("model",)
+    specs[net[2].weight] = (None, "model")
+    if net[2].bias is not None:
+        specs[net[2].bias] = (None,)
+
+
+def _shard_modulation_linear(linear, specs: dict) -> None:
+    """Row-parallel a shared-input AdaLayerNorm modulation linear.
+
+    All AdaLayerNorm modulation linears (dual norm1/norm1_context, single norm,
+    final norm_out) take the SAME timestep embedding as input, so the compiler
+    const-evals them into one fused matmul by concatenating every (transposed)
+    weight into a single [3072, sum(out)] buffer -- ~6.87 GB in f32 across all
+    41 linears, materialized on ONE device -> DRAM OOM.
+
+    Row-parallel (None, "model") shards each weight on its shared in dim (3072),
+    so that fused buffer is sharded ~1/model per chip. Crucially, the matmul
+    output is all-reduced back to a REPLICATED activation, so the downstream
+    chunk() into modulation slices never lands on a sharded dim -- avoiding the
+    CollectivePermute that column-sharding these linears would trigger
+    (https://github.com/tenstorrent/tt-mlir/issues/3370). Bias is added after
+    the reduction and stays replicated.
+    """
+    if linear is None:
+        return
+    specs[linear.weight] = (None, "model")
+    if getattr(linear, "bias", None) is not None:
+        specs[linear.bias] = (None,)
+
+
+def _shard_single_block_specs(block, specs: dict) -> None:
+    """Shard one LongCatImageSingleTransformerBlock (Megatron column/row).
+
+    The block was rewritten by ``_split_single_block_proj_out`` into a
+    concat-free forward with ``proj_out_attn`` / ``proj_out_mlp``. Column-shard
+    the attention Q/K/V and ``proj_mlp``; row-shard both proj_out halves so each
+    matches its column-sharded operand. The AdaLayerNormZeroSingle modulation
+    linear (``norm.linear``) is handled by the caller via
+    ``_shard_modulation_linear`` (row-parallel, see NOTE 1).
+    """
+    attn = getattr(block, "attn", None)
+    if attn is not None:
+        for proj_name in ("to_q", "to_k", "to_v"):
+            proj = getattr(attn, proj_name, None)
+            if proj is not None:
+                specs[proj.weight] = ("model", None)
+                if proj.bias is not None:
+                    specs[proj.bias] = ("model",)
+
+    proj_mlp = getattr(block, "proj_mlp", None)
+    if proj_mlp is not None:
+        specs[proj_mlp.weight] = ("model", None)
+        if proj_mlp.bias is not None:
+            specs[proj_mlp.bias] = ("model",)
+
+    # proj_out split halves: row-parallel, matched to their column-sharded
+    # operands (attn heads / proj_mlp). Bias (kept on the attn half) replicates.
+    for out_name in ("proj_out_attn", "proj_out_mlp"):
+        out_lin = getattr(block, out_name, None)
+        if out_lin is not None:
+            specs[out_lin.weight] = (None, "model")
+            if out_lin.bias is not None:
+                specs[out_lin.bias] = (None,)
+
+
+def _shard_transformer_specs(transformer) -> dict:
+    """Shard specs for LongCatImageTransformer2DModel (Flux-style MMDiT).
+
+    10 dual-stream ``transformer_blocks`` (image + text streams) and 20
+    ``single_transformer_blocks``. Both block types shard their attention +
+    feed-forward matmuls; only the AdaLayerNorm modulation linears replicate.
+    See the design note below.
+    """
+    specs = {}
+
+    # NOTE 1 — AdaLayerNorm modulation linears (dual norm1/norm1_context, single
+    # norm, final norm_out) are ROW-parallel (see _shard_modulation_linear).
+    # Column-sharding them would make the chunk() modulation slice a sharded dim
+    # -> an unsupported CollectivePermuteOp (tt-mlir #3370); leaving them fully
+    # REPLICATED instead makes the compiler concat all 41 into one ~6.87 GB f32
+    # buffer on a single device -> DRAM OOM. Row-parallel shards the shared in
+    # dim (so the fused buffer shrinks ~1/model) while the all-reduced output
+    # stays replicated for the chunk().
+    #
+    # NOTE 2 — single-stream blocks were previously left FULLY REPLICATED (the
+    # bulk of the weight, ~5.7 GB) because LongCat's single block runs an
+    # explicit torch.cat([attn_out, mlp_hidden], dim=-1) before proj_out, whose
+    # block-interleaved layout a contiguous row-parallel proj_out could not
+    # match. ``_split_single_block_proj_out`` rewrites that block to sum two
+    # column-split proj_out halves instead of concatenating, so the single
+    # blocks are now sharded like the dual blocks.
+
+    # Dual-stream blocks: shard attention + both feed-forwards + modulation.
+    for block in getattr(transformer, "transformer_blocks", []):
+        if hasattr(block, "attn"):
+            _shard_attn_specs(block.attn, specs)
+        for ff_name in ("ff", "ff_context"):
+            ff = getattr(block, ff_name, None)
+            if ff is not None:
+                _shard_ff_specs(ff, specs)
+        for norm_name in ("norm1", "norm1_context"):
+            norm = getattr(block, norm_name, None)
+            if norm is not None and hasattr(norm, "linear"):
+                _shard_modulation_linear(norm.linear, specs)
+
+    # Single-stream blocks: shard attention + proj_mlp + split proj_out halves
+    # + modulation.
+    for block in getattr(transformer, "single_transformer_blocks", []):
+        _shard_single_block_specs(block, specs)
+        norm = getattr(block, "norm", None)
+        if norm is not None and hasattr(norm, "linear"):
+            _shard_modulation_linear(norm.linear, specs)
+
+    # Final AdaLayerNormContinuous modulation linear (shares the same input).
+    norm_out = getattr(transformer, "norm_out", None)
+    if norm_out is not None and hasattr(norm_out, "linear"):
+        _shard_modulation_linear(norm_out.linear, specs)
+
+    return specs
 
 
 class ModelVariant(StrEnum):
@@ -277,6 +587,34 @@ class ModelLoader(ForgeModel):
             return _LongCatVAEDecoderWrapper(vae.eval())
 
         raise ValueError(f"Unknown variant: {self._variant}")
+
+    def get_mesh_config(self, num_devices: int):
+        """Return (mesh_shape, mesh_names) for a ("batch", "model") 2D mesh.
+
+        Every component attaches to the same mesh for fabric uniformity; the
+        VAE replicates (load_shard_spec -> None). The "model" axis is capped at
+        4 by the text encoder's GQA (4 KV heads), so 8 chips map to (2, 4).
+        """
+        if num_devices not in MESH_SHAPES:
+            raise ValueError(
+                f"Unsupported device count: {num_devices}. "
+                f"Expected one of {sorted(MESH_SHAPES)}."
+            )
+        return MESH_SHAPES[num_devices], MESH_NAMES
+
+    def load_shard_spec(self, model):
+        """Return {param -> partition_spec} for the active component.
+
+        Expects the module returned by load_model():
+          TEXT_ENCODER -> _LongCatTextEncoderWrapper (specs from .text_encoder)
+          TRANSFORMER  -> _LongCatTransformerWrapper (specs from .transformer)
+          VAE          -> None (fits a single chip; replicate on the mesh)
+        """
+        if self._variant == ModelVariant.TEXT_ENCODER:
+            return _shard_text_encoder_specs(model.text_encoder)
+        if self._variant == ModelVariant.TRANSFORMER:
+            return _shard_transformer_specs(model.transformer)
+        return None
 
     def load_inputs(
         self,
