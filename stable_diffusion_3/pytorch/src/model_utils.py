@@ -358,3 +358,123 @@ class VAEDecoderWrapper(torch.nn.Module):
 
     def forward(self, z):
         return self.vae.decode(z, return_dict=False)[0]
+
+
+# ---------------------------------------------------------------------------
+# CLIP text encoder components (text_encoder, text_encoder_2)
+# ---------------------------------------------------------------------------
+#
+# Alongside the T5-XXL tower above, SD3 Medium conditions on two CLIP text
+# encoders, both ``CLIPTextModelWithProjection``:
+#
+#   text_encoder    CLIP-L/14   hidden 768,  12 layers, 123M params
+#   text_encoder_2  CLIP-G/14   hidden 1280, 32 layers, 694M params
+#
+# ``StableDiffusion3Pipeline._get_clip_prompt_embeds`` consumes each as::
+#
+#     out    = text_encoder(text_input_ids, output_hidden_states=True)
+#     pooled = out[0]                    # projected text_embeds
+#     embeds = out.hidden_states[-2]     # penultimate hidden state (clip_skip=None)
+#
+# so the component has *two* meaningful outputs, not one: the penultimate hidden
+# state (concatenated with the T5 stream into ``prompt_embeds``) and the pooled
+# projection (which becomes ``pooled_projections`` on the MMDiT). The wrapper
+# below returns both, in that order.
+
+# CLIP context length (tokenizer_max_length) and vocab size — identical for both
+# encoders (text_encoder/config.json, text_encoder_2/config.json).
+CLIP_MAX_SEQ_LEN = 77
+CLIP_VOCAB_SIZE = 49408
+
+# Subfolder in the SD3 Medium repo per CLIP tower.
+CLIP_L_SUBFOLDER = "text_encoder"
+CLIP_G_SUBFOLDER = "text_encoder_2"
+
+
+def load_clip_text_encoder(dtype: torch.dtype, subfolder: str):
+    """Load one CLIP tower from the SD3 Medium repo.
+
+    Args:
+        dtype: torch dtype for the returned module.
+        subfolder: ``"text_encoder"`` (CLIP-L) or ``"text_encoder_2"`` (CLIP-G).
+
+    Loads only the requested subfolder, so exercising a CLIP tower never
+    materializes the transformer, the VAE or the 4.7B T5 encoder.
+    """
+    from transformers import CLIPTextModelWithProjection
+
+    return CLIPTextModelWithProjection.from_pretrained(
+        REPO_ID,
+        subfolder=subfolder,
+        torch_dtype=dtype,
+        device_map="cpu",
+    ).eval()
+
+
+def load_clip_text_encoder_inputs(dtype: torch.dtype):
+    """Inputs for a CLIP tower: ``[input_ids]``.
+
+    Shape matches what ``_get_clip_prompt_embeds`` feeds the encoder: input_ids
+    (1, 77) int64, produced by the tokenizer with
+    ``padding="max_length", truncation=True``. ``dtype`` is unused — token ids
+    are always int64 — but is accepted for signature parity with the sibling
+    ``load_*_inputs`` helpers.
+    """
+    input_ids = torch.randint(
+        0, CLIP_VOCAB_SIZE, (1, CLIP_MAX_SEQ_LEN), dtype=torch.long
+    )
+    return [input_ids]
+
+
+class CLIPTextEncoderWrapper(torch.nn.Module):
+    """Run a CLIP tower as ``(input_ids) -> (penultimate_hidden, pooled)``.
+
+    Returns the two tensors the SD3 pipeline actually uses, so a compiled run
+    covers both paths through the tower: the penultimate hidden state (the
+    stream concatenated with T5 into ``prompt_embeds``) and the projected
+    pooled embedding (``pooled_projections`` on the MMDiT). Both are plain
+    tensors, so graph capture never sees the
+    ``CLIPTextModelOutput`` dataclass.
+
+    Note that ``pooled`` comes from the projection head, which is exactly why
+    both towers are loaded as ``CLIPTextModelWithProjection`` rather than
+    ``CLIPTextModel``: the bare model has no ``text_projection``, and SD3 feeds
+    the *projected* embedding to the transformer.
+    """
+
+    def __init__(self, encoder):
+        super().__init__()
+        self.encoder = encoder
+
+    def forward(self, input_ids):
+        out = self.encoder(
+            input_ids=input_ids, output_hidden_states=True, return_dict=True
+        )
+        return out.hidden_states[-2], out.text_embeds
+
+
+def shard_clip_text_encoder_specs(encoder) -> dict:
+    """Megatron-style tensor-parallel shard specs for a CLIP tower.
+
+    Mesh axes: ("batch", "model")
+    Column-parallel (q, k, v, fc1): ("model", "batch")
+    Row-parallel   (out_proj, fc2): ("batch", "model")
+
+    ``encoder`` is the raw ``CLIPTextModelWithProjection``. Embeddings, layer
+    norms and the projection head are left replicated. On a single device
+    (mesh (1, 1)) these specs are a no-op; they only take effect for
+    tensor-parallel runs. Mirrors ``shard_clip_text_encoder_specs`` in the
+    SD 1.5 loader, whose CLIP-L tower has the same block structure.
+    """
+    specs = {}
+    for layer in encoder.text_model.encoder.layers:
+        attn = layer.self_attn
+        specs[attn.q_proj.weight] = ("model", "batch")
+        specs[attn.k_proj.weight] = ("model", "batch")
+        specs[attn.v_proj.weight] = ("model", "batch")
+        specs[attn.out_proj.weight] = ("batch", "model")
+
+        specs[layer.mlp.fc1.weight] = ("model", "batch")
+        specs[layer.mlp.fc2.weight] = ("batch", "model")
+
+    return specs
