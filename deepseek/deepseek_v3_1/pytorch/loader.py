@@ -87,7 +87,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
+    def _load_tokenizer(self):
         """Load tokenizer for the current variant."""
         pretrained_model_name = self._variant_config.pretrained_model_name
         self.tokenizer = AutoTokenizer.from_pretrained(
