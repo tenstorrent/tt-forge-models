@@ -21,9 +21,9 @@ path) with an explicit CPU/TT device split, reusing the diffusers pipeline's own
 helper methods (``generate_prior_tokens``, ``encode_prompt``, ``prepare_latents``
 and the scheduler) so only the device split is bespoke:
 
-  - DiT transformer on Tenstorrent, tensor-parallel sharded on the
-    ``("batch", "model")`` mesh (Megatron column/row from
-    ``shard_transformer_specs``; see ``model_utils``).
+  - DiT transformer on Tenstorrent tensor-parallel sharded on the
+  ``("batch", "model")`` mesh (Megatron
+    column/row from ``shard_transformer_specs``; see ``model_utils``).
   - AR prior-token generation, T5 glyph encoding, the FlowMatchEuler scheduler
     and the VAE decode all stay on CPU.
 
@@ -34,11 +34,6 @@ Notes:
   - The prior-token-drop scatter is patched to an elementwise multiply
     (``_patch_prior_token_drop_scatter``) so the DiT forward lowers on TT -- the
     same patch the transformer component loader applies.
-  - fp32 LayerNorm: every ``nn.LayerNorm`` is optionally computed via an explicit
-    fp32 mean/var/rsqrt decomposition (``_force_fp32_layernorm``) rather than the
-    fused bf16 ``ttnn.layer_norm`` that loses precision on outlier activations.
-    Only affects image quality (the loop is not autoregressive so error does not
-    compound as sharply as Infinity), kept on by default to match the reference.
 """
 
 import os
@@ -46,7 +41,6 @@ from typing import Optional
 
 import numpy as np
 import torch
-import torch.nn as nn
 import torch_xla.core.xla_model as xm
 import torch_xla.distributed.spmd as xs
 import torch_xla.runtime as xr
@@ -82,29 +76,6 @@ def _enable_spmd() -> None:
     xr.use_spmd()
 
 
-def _force_fp32_layernorm(model):
-    """Compute every nn.LayerNorm in fp32 via an explicit mean/var/rsqrt
-    decomposition (NOT F.layer_norm, which folds back to a bf16 ttnn.layer_norm on
-    TT). GLM-Image's block norms are ``elementwise_affine=False`` (no weight/bias),
-    so this is a pure normalize; the fp32 path avoids the bf16 fused-LayerNorm
-    precision loss on outlier activations. Normalizes over the last dim."""
-    for mod in model.modules():
-        if isinstance(mod, nn.LayerNorm):
-
-            def _fwd(x, m=mod):
-                xf = x.float()
-                mu = xf.mean(-1, keepdim=True)
-                var = (xf - mu).pow(2).mean(-1, keepdim=True)
-                y = (xf - mu) * torch.rsqrt(var + m.eps)
-                if m.weight is not None:
-                    y = y * m.weight.float()
-                if m.bias is not None:
-                    y = y + m.bias.float()
-                return y.to(x.dtype)
-
-            mod.forward = _fwd
-
-
 class GlmImageConfig:
     def __init__(
         self,
@@ -115,7 +86,6 @@ class GlmImageConfig:
         max_sequence_length: int = 2048,
         shard: bool = True,
         transformer_on_tt: bool = True,
-        force_fp32_layernorm: bool = True,
     ):
         self.num_inference_steps = num_inference_steps
         self.guidance_scale = guidance_scale
@@ -126,27 +96,34 @@ class GlmImageConfig:
         # fits DRAM and the attention does not OOM).
         self.shard = shard
         self.transformer_on_tt = transformer_on_tt
-        self.force_fp32_layernorm = force_fp32_layernorm
 
 
 class GlmImagePipeline:
-    """GLM-Image pipeline: DiT sharded on TT, AR / T5 / scheduler / VAE on CPU."""
+    """GLM-Image pipeline: DiT sharded on TT, AR / T5 / scheduler / VAE on CPU.
+
+    Built once with ``setup()``; ``generate()`` can be called repeatedly. The
+    sharded DiT is placed + compiled in ``setup()`` and reused across calls
+    (kernel compile happens lazily on the first forward).
+    """
 
     def __init__(self, config: GlmImageConfig):
         self.config = config
 
     def setup(self):
         self.load_models()
-        if self.config.transformer_on_tt:
-            self.transformer = self.transformer.to(TRANSFORMER_DTYPE)
+        if not self.config.transformer_on_tt:
+            # CPU-only reference run: no device placement, no compile.
+            return
+
+        self.transformer = self.transformer.to(TRANSFORMER_DTYPE)
+        self.pipe.transformer = self.transformer
+        if self.config.shard:
+            self.shard_to_tt()
+        else:
+            self.transformer = self.transformer.to(xm.xla_device())
             self.pipe.transformer = self.transformer
-            if self.config.force_fp32_layernorm:
-                _force_fp32_layernorm(self.transformer)
-            if self.config.shard:
-                self.shard_to_tt()
-            else:
-                self.transformer = self.transformer.to(xm.xla_device())
-                self.pipe.transformer = self.transformer
+
+        self.transformer.forward = torch.compile(self.transformer.forward, backend="tt")
 
     def load_models(self):
         # The whole diffusers pipeline (tokenizer, processor, T5 text encoder,
@@ -191,7 +168,7 @@ class GlmImagePipeline:
 
           - AR prior-token generation -> CPU (vision-language encoder)
           - T5 glyph text encode      -> CPU
-          - DiT denoising loop (CFG)  -> TT (bf16, sharded)
+          - DiT denoising loop (CFG)  -> TT (bf16, sharded, torch.compile)
           - FlowMatchEuler step       -> CPU
           - VAE decode                -> CPU
 
@@ -322,6 +299,8 @@ class GlmImagePipeline:
             latent_input = _to_tt(latents, TRANSFORMER_DTYPE)
             timestep = _to_tt(t.expand(B) - 1)
 
+            # The _to_cpu cast materializes the compiled DiT output so the
+            # scheduler step below runs on CPU.
             noise_pred_cond = _to_cpu(
                 _dit(latent_input, eh_cond, drop_cond_tt, timestep)
             ).float()

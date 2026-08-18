@@ -245,3 +245,46 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.self_attn.o_proj.weight] = ("batch", "model")
 
         return shard_specs
+
+    # ------------------------------------------------------------------ #
+    # Audio tower (Whisper-style encoder + projector) on TT.
+    #
+    # The LM runs on TT; the audio tower still ran on CPU (host-precomputed
+    # inputs_embeds). ``encode_audio`` runs it on device: the Whisper encoder
+    # (audio_tower) on TT via torch.compile(backend="tt"); the reshape +
+    # multi_modal_projector on CPU. Build ``input_features`` with the processor's
+    # WhisperFeatureExtractor (no chat-template/tokenizer needed for the audio
+    # path). See tt-xla #5537.
+    # ------------------------------------------------------------------ #
+
+    def encode_audio(self, input_features, backbone_on_tt=False):
+        """Mel ``input_features`` [B, n_mels, frames] -> audio embeds [N, hidden].
+
+        With ``backbone_on_tt=True`` the Whisper audio tower runs on TT
+        (optimization_level=1); the reshape + projector stay on CPU.
+        """
+        model = self.model if self.model is not None else self.load_model()
+        audio_tower = model.audio_tower
+        projector = model.multi_modal_projector
+        inter = model.config.audio_config.intermediate_size
+
+        def _project(last_hidden):
+            return projector(last_hidden.reshape(-1, inter))
+
+        with torch.no_grad():
+            if not backbone_on_tt:
+                lh = audio_tower(input_features, return_dict=True).last_hidden_state
+                return _project(lh)
+
+            import torch_xla
+            import torch_xla.core.xla_model as xm
+
+            torch_xla.set_custom_compile_options({"optimization_level": 1})
+            dev = xm.xla_device()
+            at = audio_tower.to(dtype=torch.bfloat16).to(dev)
+            compiled = torch.compile(
+                lambda f: at(f, return_dict=True).last_hidden_state, backend="tt"
+            )
+            lh = compiled(input_features.to(dtype=torch.bfloat16).to(dev))
+            lh = lh.to("cpu").to(torch.float32)
+            return _project(lh)  # reshape + projector on CPU
