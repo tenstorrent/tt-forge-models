@@ -4,10 +4,11 @@
 """Stable Diffusion 3 Medium text-to-image pipeline running end-to-end on TT.
 
 The MMDiT transformer (the heavy net) runs on the Tenstorrent backend via
-``torch.compile(backend="tt")``; the three text encoders (two CLIP + T5),
-the scheduler and the VAE run on CPU. This mirrors the SD 1.5 / SDXL pipelines:
-precision-sensitive text encoding and the VAE stay on CPU while the dominant
-compute (the transformer) is offloaded to TT.
+``torch.compile(backend="tt")``; the scheduler and the VAE run on CPU. The
+three text encoders (two CLIP + T5) run on CPU by default, or on TT when
+``SD3Config(text_encoders_on_tt=True)`` — in which case they are placed, used
+and evicted before the transformer is placed, so they never co-reside with it
+on a single chip.
 
 The denoising loop, prompt encoding, latent preparation and VAE decode reuse
 the diffusers ``StableDiffusion3Pipeline`` helper methods directly, so the
@@ -32,10 +33,19 @@ from PIL import Image
 
 
 class SD3Config:
-    def __init__(self):
+    def __init__(self, text_encoders_on_tt=False):
         self.model_id = "stabilityai/stable-diffusion-3-medium-diffusers"
         self.height = 1024
         self.width = 1024
+        # Run the three text encoders (2x CLIP + T5) on TT as well. They are
+        # placed, used and evicted before the transformer is placed, so they do
+        # not co-reside with it on a single chip. bf16 encoding shifts the
+        # generation trajectory vs the fp32-CPU baseline but stays prompt-
+        # faithful; default stays CPU for exact upstream numerics.
+        self.text_encoders_on_tt = text_encoders_on_tt
+
+
+_TEXT_ENCODER_NAMES = ("text_encoder", "text_encoder_2", "text_encoder_3")
 
 
 class SD3Pipeline:
@@ -46,19 +56,30 @@ class SD3Pipeline:
         self.model_id = config.model_id
         self.height = config.height
         self.width = config.width
+        self.text_encoders_on_tt = config.text_encoders_on_tt
 
     def setup(self):
-        # The text encoders, scheduler and VAE stay on CPU in fp32; only the
-        # transformer is compiled for and moved to the TT device.
+        # The scheduler and VAE stay on CPU in fp32. The transformer runs on TT.
+        # When text_encoders_on_tt is set, the text encoders also run on TT
+        # (placed/evicted in generate() before the transformer is placed).
         self.pipe = StableDiffusion3Pipeline.from_pretrained(
             self.model_id, torch_dtype=torch.float32
         )
         self.pipe.to("cpu")
 
-        self.transformer = self.pipe.transformer
-        self.transformer = self.transformer.to(dtype=torch.bfloat16)
+        self.transformer = self.pipe.transformer.to(dtype=torch.bfloat16)
+        self._transformer_placed = False
+        if not self.text_encoders_on_tt:
+            # Default path: transformer resident on TT for the whole run.
+            self._place_transformer()
+
+    def _place_transformer(self):
+        """Compile + move the MMDiT transformer to the TT device (idempotent)."""
+        if self._transformer_placed:
+            return
         self.transformer.compile(backend="tt")
         self.transformer = self.transformer.to(xm.xla_device())
+        self._transformer_placed = True
 
     def generate(
         self,
@@ -100,7 +121,20 @@ class SD3Pipeline:
             else:
                 generator.seed()
 
-            # --- Text encoding (CLIP x2 + T5) on CPU ---
+            # --- Text encoding (CLIP x2 + T5): CPU, or TT then evict ---
+            enc_device = "cpu"
+            if self.text_encoders_on_tt:
+                # Place the encoders on TT (bf16) just for encoding.
+                for name in _TEXT_ENCODER_NAMES:
+                    enc = getattr(pipe, name, None)
+                    if enc is not None:
+                        setattr(
+                            pipe,
+                            name,
+                            enc.to(dtype=torch.bfloat16).to(xm.xla_device()),
+                        )
+                enc_device = xm.xla_device()
+
             t0 = time.perf_counter()
             (
                 prompt_embeds,
@@ -113,10 +147,24 @@ class SD3Pipeline:
                 prompt_3=None,
                 negative_prompt=negative_prompt,
                 do_classifier_free_guidance=do_cfg,
-                device="cpu",
+                device=enc_device,
                 num_images_per_prompt=1,
                 max_sequence_length=max_sequence_length,
             )
+
+            if self.text_encoders_on_tt:
+                # Embeddings back to CPU (also forces the device sync), then
+                # evict the encoders and place the transformer on TT.
+                _to_cpu = lambda x: None if x is None else cpu_cast(x)
+                prompt_embeds = _to_cpu(prompt_embeds)
+                negative_prompt_embeds = _to_cpu(negative_prompt_embeds)
+                pooled_prompt_embeds = _to_cpu(pooled_prompt_embeds)
+                negative_pooled_prompt_embeds = _to_cpu(negative_pooled_prompt_embeds)
+                for name in _TEXT_ENCODER_NAMES:
+                    enc = getattr(pipe, name, None)
+                    if enc is not None:
+                        setattr(pipe, name, enc.to("cpu"))
+                self._place_transformer()
             self._perf["components"]["text_encode"] = time.perf_counter() - t0
 
             if do_cfg:
