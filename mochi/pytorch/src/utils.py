@@ -8,6 +8,11 @@ from typing import Any
 
 import torch
 
+# Model identity. The loader carries it per-variant in
+# MochiConfig.pretrained_model_name; the e2e pipeline needs it directly for the
+# scheduler/tokenizer subfolders, which have no component loader here.
+REPO_ID = "genmo/mochi-1-preview"
+
 # Channel-wise standard deviations for VAE latent normalization
 # Source: Mochi VAE implementation (12 latent channels)
 VAE_STD_CHANNELS = [
@@ -282,11 +287,16 @@ def load_text_encoder_inputs(dtype: torch.dtype = torch.bfloat16) -> dict:
 
 ORIGINAL_LATENT_HEIGHT = 60  # 480 / 8
 ORIGINAL_LATENT_WIDTH = 106  # 848 / 8
-ORIGINAL_LATENT_DEPTH = 14  # (num_frames=84 - 1) // 6 + 1
+ORIGINAL_LATENT_DEPTH = 4  # (num_frames=24 - 1) // 6 + 1
 ORIGINAL_MAX_SEQ_LEN = 256
 ORIGINAL_TEXT_EMBED_DIM = 4096
 ORIGINAL_LATENT_CHANNELS = 12
 ORIGINAL_T5_VOCAB_SIZE = 32128
+# Transformer batch = (2 if guidance_scale > 1.0 else 1). The default
+# guidance_scale=4.5 enables classifier-free guidance, so the pipeline runs
+# torch.cat([latents] * 2) and the transformer sees cond+uncond in one batch.
+# The text encoder and VAE decoder stay at batch 1.
+ORIGINAL_CFG_BATCH = 2
 
 
 def load_transformer_inputs_full_res(
@@ -294,7 +304,7 @@ def load_transformer_inputs_full_res(
 ) -> list:
     """Original-resolution positional inputs for MochiTransformer3DModel."""
     hidden_states = torch.randn(
-        1,
+        ORIGINAL_CFG_BATCH,
         ORIGINAL_LATENT_CHANNELS,
         ORIGINAL_LATENT_DEPTH,
         ORIGINAL_LATENT_HEIGHT,
@@ -302,10 +312,12 @@ def load_transformer_inputs_full_res(
         dtype=dtype,
     )
     encoder_hidden_states = torch.randn(
-        1, ORIGINAL_MAX_SEQ_LEN, ORIGINAL_TEXT_EMBED_DIM, dtype=dtype
+        ORIGINAL_CFG_BATCH, ORIGINAL_MAX_SEQ_LEN, ORIGINAL_TEXT_EMBED_DIM, dtype=dtype
     )
-    timestep = torch.tensor([500], dtype=dtype)
-    encoder_attention_mask = torch.ones(1, ORIGINAL_MAX_SEQ_LEN, dtype=torch.bool)
+    timestep = torch.full((ORIGINAL_CFG_BATCH,), 500, dtype=dtype)
+    encoder_attention_mask = torch.ones(
+        ORIGINAL_CFG_BATCH, ORIGINAL_MAX_SEQ_LEN, dtype=torch.bool
+    )
     return [hidden_states, encoder_hidden_states, timestep, encoder_attention_mask]
 
 
@@ -331,7 +343,8 @@ def load_text_encoder_inputs_full_res(
     input_ids = torch.randint(
         0, ORIGINAL_T5_VOCAB_SIZE, (1, ORIGINAL_MAX_SEQ_LEN), dtype=torch.long
     )
-    attention_mask = torch.ones(1, ORIGINAL_MAX_SEQ_LEN, dtype=torch.long)
+    # The pipeline casts the mask to bool before calling the encoder.
+    attention_mask = torch.ones(1, ORIGINAL_MAX_SEQ_LEN, dtype=torch.bool)
     return [input_ids, attention_mask]
 
 
