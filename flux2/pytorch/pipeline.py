@@ -104,7 +104,8 @@ class _DeviceVAEDecoder:
     postprocess.
     """
 
-    def __init__(self, vae, mesh, perf):
+    def __init__(self, vae, perf):
+        # No mesh: the VAE runs replicated, so it needs no shard annotations.
         self._dev = torch_xla.device()
         self._perf = perf
         self.config = vae.config
@@ -238,7 +239,7 @@ class Flux2TTPipeline:
         self.pipe.transformer = _DeviceDenoiser(
             self._raw_transformer, self.mesh, self._perf
         )
-        vae_wrapper = _DeviceVAEDecoder(self._raw_vae, self.mesh, self._perf)
+        vae_wrapper = _DeviceVAEDecoder(self._raw_vae, self._perf)
         self.pipe.vae = vae_wrapper
 
         generator = torch.Generator().manual_seed(seed) if seed is not None else None
