@@ -2,13 +2,13 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Component loaders and wrappers for HunyuanImage 2.1 (Distilled).
+Component loaders and wrappers for HunyuanImage 2.1.
 
-Model: hunyuanvideo-community/HunyuanImage-2.1-Distilled-Diffusers
+Model: hunyuanvideo-community/HunyuanImage-2.1-Diffusers
 Components:
   - text_encoder:   Qwen2.5-VL-7B-Instruct encoder (8.29B)
   - text_encoder_2: ByT5 encoder                   (0.22B)
-  - transformer:    HunyuanImageTransformer2DModel (MMDiT) (17.45B)
+  - transformer:    HunyuanImageTransformer2DModel (MMDiT) (17.43B)
   - vae:            AutoencoderKLHunyuanImage      (0.41B)
 """
 
@@ -18,7 +18,7 @@ import torch
 # Model identity
 # ---------------------------------------------------------------------------
 
-REPO_ID = "hunyuanvideo-community/HunyuanImage-2.1-Distilled-Diffusers"
+REPO_ID = "hunyuanvideo-community/HunyuanImage-2.1-Diffusers"
 DTYPE = torch.float32
 
 # ---------------------------------------------------------------------------
@@ -151,7 +151,12 @@ class QwenPromptEmbedsWrapper(torch.nn.Module):
 
 
 class HunyuanImage21TransformerWrapper(torch.nn.Module):
-    """Simplify HunyuanImageTransformer2DModel forward to tensor-only inputs/outputs."""
+    """Simplify HunyuanImageTransformer2DModel forward to tensor-only inputs/outputs.
+
+    ``guidance_embeds=False`` and ``use_meanflow=False``, so ``guidance`` and
+    ``timestep_r`` are always None — passing a ``timestep_r`` tensor would fault
+    on ``time_proj_r is None``. Guidance comes from CFG instead.
+    """
 
     def __init__(self, transformer):
         super().__init__()
@@ -161,8 +166,6 @@ class HunyuanImage21TransformerWrapper(torch.nn.Module):
         self,
         hidden_states,
         timestep,
-        timestep_r,
-        guidance,
         encoder_hidden_states,
         encoder_attention_mask,
         encoder_hidden_states_2,
@@ -171,8 +174,8 @@ class HunyuanImage21TransformerWrapper(torch.nn.Module):
         return self.transformer(
             hidden_states=hidden_states,
             timestep=timestep,
-            timestep_r=timestep_r,
-            guidance=guidance,
+            timestep_r=None,
+            guidance=None,
             encoder_hidden_states=encoder_hidden_states,
             encoder_attention_mask=encoder_attention_mask,
             encoder_hidden_states_2=encoder_hidden_states_2,
