@@ -1,24 +1,24 @@
 # SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-"""HunyuanImage 2.1 (Distilled) text-to-image pipeline running on Tenstorrent.
+"""HunyuanImage 2.1 text-to-image pipeline running on Tenstorrent.
 
 The Qwen2.5-VL encoder, the ByT5 glyph encoder and the MMDiT transformer run on
-TT in bf16; the scheduler and the VAE run on CPU in fp32. Qwen and the
-transformer are tensor-parallel sharded; ByT5 (0.22B) carries no shard spec, so
-SPMD replicates it across the mesh.
+TT in bf16; the scheduler, the guider combine and the VAE run on CPU in fp32.
+Qwen and the transformer are tensor-parallel sharded; ByT5 (0.22B) carries no
+shard spec, so SPMD replicates it across the mesh.
 
 Every TT model is loaded, compiled and uploaded once in ``setup()`` and stays
 resident: in bf16 the three together are ~13 GB of a chip's 32 GB. Repeat
 ``generate()`` calls reuse both the weights and the compiled graphs.
 
-The math mirrors ``HunyuanImagePipeline.__call__`` (distilled: guider disabled →
-single conditional forward per step, distilled-guidance embedding, meanflow
-``timestep_r``, ByT5 glyph stream).
+The math mirrors ``HunyuanImagePipeline.__call__``: guidance is real CFG from the
+repo's ``guider``/``ocr_guider``, so the transformer runs twice per step (cond +
+uncond) and the predictions are combined on the host.
 
 Consumed by the runnable example (``examples/pytorch/hunyuan_image_2_1.py``), the
 image-gen benchmark and the nightly PCC test. ``self._perf`` holds per-component
-times after each ``generate()``.
+times after each ``generate()``; one ``steps`` entry covers both forwards.
 """
 
 import re
@@ -31,10 +31,12 @@ import torch_xla
 import torch_xla.distributed.spmd as xs
 import torch_xla.runtime as xr
 from diffusers import FlowMatchEulerDiscreteScheduler
+from diffusers.guiders import AdaptiveProjectedMixGuidance
+from diffusers.guiders.adaptive_projected_guidance_mix import MomentumBuffer
+from diffusers.image_processor import VaeImageProcessor
 from diffusers.utils.torch_utils import randn_tensor
 from infra.utilities.torch_multichip_utils import enable_spmd, get_mesh
 from loguru import logger
-from PIL import Image
 from transformers import ByT5Tokenizer, Qwen2Tokenizer
 
 from .loader import ModelLoader, ModelVariant
@@ -44,7 +46,7 @@ from .src.model_utils import (
     QwenPromptEmbedsWrapper,
 )
 
-REPO_ID = "hunyuanvideo-community/HunyuanImage-2.1-Distilled-Diffusers"
+REPO_ID = "hunyuanvideo-community/HunyuanImage-2.1-Diffusers"
 PROMPT = (
     "A cute, cartoon-style anthropomorphic penguin plush toy with fluffy fur, "
     "standing in a painting studio, wearing a red knitted scarf and a red beret "
@@ -55,8 +57,8 @@ PROMPT = (
 # The three TT components run bf16; the VAE stays fp32 on CPU.
 TT_DTYPE = torch.bfloat16
 SEED = 649151
-NUM_INFERENCE_STEPS = 8
-DISTILLED_GUIDANCE_SCALE = 3.5
+NUM_INFERENCE_STEPS = 10  # 10 for now, will be boosted to 50 later
+NEGATIVE_PROMPT = None  # -> "", which gives a zero ByT5 glyph stream
 HEIGHT = 2048
 WIDTH = 2048
 
@@ -139,6 +141,14 @@ class HunyuanImage21Pipeline:
             self.config.repo_id, subfolder="tokenizer_2"
         )
 
+        # Both loaded: selection depends on the prompt's glyph stream.
+        self.guider = AdaptiveProjectedMixGuidance.from_pretrained(
+            self.config.repo_id, subfolder="guider"
+        )
+        self.ocr_guider = AdaptiveProjectedMixGuidance.from_pretrained(
+            self.config.repo_id, subfolder="ocr_guider"
+        )
+
     def load_models(self):
         # TT-bound models: load on CPU and compile here, then setup() uploads
         # them. We wrap forward, not the module, so each attribute stays an
@@ -176,9 +186,10 @@ class HunyuanImage21Pipeline:
                 xs.mark_sharding(tensor, self.mesh, spec)
         return module
 
-    def _encode_qwen(self, prompt):
-        """Qwen2.5-VL text encoder — TT (bf16, sharded)."""
-        logger.info("[STAGE] text_encoder (Qwen, sharded, bf16): TT")
+    def _encode_qwen(self, prompt, role="cond"):
+        """Qwen2.5-VL text encoder — TT (bf16, sharded). Called twice per
+        ``generate()``; the recorded time accumulates across both."""
+        logger.info("[STAGE] text_encoder (Qwen, sharded, bf16): TT [{}]", role)
         dev = torch_xla.device()
         drop_idx = PROMPT_TEMPLATE_ENCODE_START_IDX
         tokens = self.tokenizer(
@@ -197,8 +208,30 @@ class HunyuanImage21Pipeline:
             .cpu()
             .to(torch.float32)
         )
-        self._perf["components"]["text_encoder"] = time.perf_counter() - t0
+        self._perf["components"]["text_encoder"] = self._perf["components"].get(
+            "text_encoder", 0.0
+        ) + (time.perf_counter() - t0)
         return prompt_embeds, tokens.attention_mask[:, drop_idx:]
+
+    def _select_guider(self, prompt_embeds_2):
+        """Mirror HunyuanImagePipeline's guider selection, fallback included."""
+        if not torch.all(prompt_embeds_2 == 0) and self.ocr_guider is not None:
+            guider, which = self.ocr_guider, "ocr_guider (glyph stream non-zero)"
+        elif self.guider is not None:
+            guider, which = self.guider, "guider (glyph stream all zero)"
+        else:
+            guider, which = (
+                AdaptiveProjectedMixGuidance(enabled=False),
+                "disabled fallback (no guider in repo)",
+            )
+        logger.info(
+            "[guider] {} | num_conditions={} guidance_scale={} apg_start_step={}",
+            which,
+            guider.num_conditions,
+            guider.guidance_scale,
+            guider.adaptive_projected_guidance_start_step,
+        )
+        return guider
 
     def _encode_byt5(self, prompt):
         """ByT5 glyph encoder — TT (bf16, replicated)."""
@@ -238,7 +271,7 @@ class HunyuanImage21Pipeline:
     def generate(
         self,
         prompt: str = PROMPT,
-        distilled_guidance_scale: float = DISTILLED_GUIDANCE_SCALE,
+        negative_prompt: Optional[str] = NEGATIVE_PROMPT,
         num_inference_steps: int = NUM_INFERENCE_STEPS,
         seed: Optional[int] = SEED,
     ) -> torch.Tensor:
@@ -264,6 +297,17 @@ class HunyuanImage21Pipeline:
             prompt_embeds, prompt_embeds_mask = self._encode_qwen(prompt)
             prompt_embeds_2, prompt_embeds_mask_2 = self._encode_byt5(prompt)
 
+            # Selected off the conditional glyph stream, before the negative
+            # encode — same order as the stock pipeline.
+            guider = self._select_guider(prompt_embeds_2)
+
+            # Constant across steps, so encoded once.
+            neg_embeds = neg_mask = neg_embeds_2 = neg_mask_2 = None
+            if guider._enabled and guider.num_conditions > 1:
+                neg_prompt = negative_prompt if negative_prompt is not None else ""
+                neg_embeds, neg_mask = self._encode_qwen(neg_prompt, role="uncond")
+                neg_embeds_2, neg_mask_2 = self._encode_byt5(neg_prompt)
+
             # ──────────── Latents / timesteps / guidance (CPU) ────────────
             latents_h = int(self.config.height) // VAE_SCALE_FACTOR
             latents_w = int(self.config.width) // VAE_SCALE_FACTOR
@@ -277,12 +321,6 @@ class HunyuanImage21Pipeline:
             self.scheduler.set_timesteps(sigmas=sigmas, device="cpu")
             timesteps = self.scheduler.timesteps
             self.scheduler.set_begin_index(0)
-            guidance = (
-                torch.tensor(
-                    [distilled_guidance_scale] * batch_size, dtype=torch.float32
-                )
-                * 1000.0
-            )
 
             # ─────── Transformer denoising loop (TT, bf16, sharded) ───────
             logger.info(
@@ -298,27 +336,48 @@ class HunyuanImage21Pipeline:
             for i, t in enumerate(timesteps):
                 logger.info("[STEP] transformer step {}/{}", i + 1, num_inference_steps)
                 timestep = t.expand(batch_size).to(latents.dtype)
-                # meanflow: refiner timestep = next timestep (0 on the last step).
-                if i == len(timesteps) - 1:
-                    timestep_r = torch.tensor([0.0])
-                else:
-                    timestep_r = timesteps[i + 1]
-                timestep_r = timestep_r.expand(batch_size).to(latents.dtype)
 
-                tt_inputs = [
-                    to_dev(latents),
-                    to_dev(timestep),
-                    to_dev(timestep_r),
-                    to_dev(guidance),
-                    to_dev(prompt_embeds),
-                    to_dev(prompt_embeds_mask),
-                    to_dev(prompt_embeds_2),
-                    to_dev(prompt_embeds_mask_2),
-                ]
+                guider.set_state(
+                    step=i, num_inference_steps=num_inference_steps, timestep=t
+                )
+                # Fresh APG momentum buffer per generate(); diffusers does this
+                # inside prepare_inputs(), which this pipeline does not call.
+                if i == 0 and guider.adaptive_projected_guidance_momentum is not None:
+                    guider.momentum_buffer = MomentumBuffer(
+                        guider.adaptive_projected_guidance_momentum
+                    )
+
+                def _denoise(embeds, mask, embeds_2, mask_2):
+                    # .cpu() is the sync point: forces the graph to run.
+                    return (
+                        self.transformer(
+                            to_dev(latents),
+                            to_dev(timestep),
+                            to_dev(embeds),
+                            to_dev(mask),
+                            to_dev(embeds_2),
+                            to_dev(mask_2),
+                        )
+                        .cpu()
+                        .to(torch.float32)
+                    )
+
+                # Identical shapes, so both forwards share one compiled graph.
                 t0 = time.perf_counter()
-                # .cpu() is the sync point: it forces the graph to run and only
-                # returns once the result is on host, so the timer ends there.
-                noise_pred = self.transformer(*tt_inputs).cpu().to(torch.float32)
+                pred_cond = _denoise(
+                    prompt_embeds,
+                    prompt_embeds_mask,
+                    prompt_embeds_2,
+                    prompt_embeds_mask_2,
+                )
+                if guider.num_conditions > 1:
+                    pred_uncond = _denoise(
+                        neg_embeds, neg_mask, neg_embeds_2, neg_mask_2
+                    )
+                else:
+                    pred_uncond = None
+                noise_pred = guider.forward(pred_cond, pred_uncond).pred
+                # One entry per step, covering both forwards.
                 self._perf["steps"].append(time.perf_counter() - t0)
 
                 latents = self.scheduler.step(
@@ -339,12 +398,9 @@ class HunyuanImage21Pipeline:
 
 
 def save_image(image: torch.Tensor, filepath: str = "output.png"):
-    """Rescale ([-1,1]→[0,255]), reshape and save the pipeline output as PNG."""
-    image = (
-        (torch.clamp(image / 2 + 0.5, 0.0, 1.0) * 255.0).round().to(dtype=torch.uint8)
-    )
-    image_np = image.cpu().squeeze().numpy()
-    assert image_np.ndim == 3, "Image must be 3D"
-    if image_np.shape[0] == 3:
-        image_np = image_np.transpose(1, 2, 0)
-    Image.fromarray(image_np).save(filepath)
+    """Save the pipeline output (range [-1, 1], BCHW) as a PNG.
+
+    Uses the same ``VaeImageProcessor`` path as ``HunyuanImagePipeline``.
+    """
+    processor = VaeImageProcessor(vae_scale_factor=VAE_SCALE_FACTOR)
+    processor.postprocess(image, output_type="pil")[0].save(filepath)
