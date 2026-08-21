@@ -2,8 +2,9 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Mochi-1 preview pipeline: DiT tensor-parallel on TT, T5-XXL text encoder,
-scheduler and VAE on CPU.
+"""Mochi-1 preview pipeline: DiT tensor-parallel on TT, T5-XXL text encoder on
+TT (replicated across the mesh — it carries no shard spec), scheduler and VAE
+on CPU.
 
 Mirrors ``MochiPipeline.__call__``. guidance_scale=4.5 for this checkpoint ->
 CFG is enabled, so the DiT sees a batch-2 ``cat([uncond, cond])`` input on
@@ -105,6 +106,7 @@ class Mochi1Config:
         guidance_scale: float = GUIDANCE_SCALE,
         shard: bool = True,
         transformer_on_tt: bool = True,
+        text_encoder_on_tt: bool = True,
     ):
         self.num_inference_steps = num_inference_steps
         self.height = height
@@ -113,13 +115,16 @@ class Mochi1Config:
         self.guidance_scale = guidance_scale
         self.shard = shard
         self.transformer_on_tt = transformer_on_tt
+        self.text_encoder_on_tt = text_encoder_on_tt
 
 
 class Mochi1Pipeline:
-    """DiT sharded on TT; text encoder, scheduler and VAE stay on CPU."""
+    """DiT (sharded) and T5-XXL text encoder (replicated) on TT; scheduler and
+    VAE stay on CPU."""
 
     def __init__(self, config: Mochi1Config):
         self.config = config
+        self.mesh = None  # set when sharded; shared by every TT component
         self.mesh_shape = None  # set when sharded; read by the benchmark harness
         self._perf = None  # per-stage/per-step timings from the last generate()
 
@@ -138,13 +143,26 @@ class Mochi1Pipeline:
         # attention.py.
         patch_static_attn_processor()
 
+        # One mesh, shared by every TT component. SPMD has to be enabled before
+        # the first device op, so this runs ahead of any .to(xla_device()).
+        if self.config.shard and (
+            self.config.transformer_on_tt or self.config.text_encoder_on_tt
+        ):
+            self._init_mesh()
+
+        # forward, not the module, so each component stays an nn.Module and
+        # callers can still wrap forward (e.g. the nightly PCC check).
+        if self.config.text_encoder_on_tt:
+            # No shard spec — SPMD replicates T5-XXL across the mesh.
+            self.text_encoder = self._place_on_tt(self.text_encoder)
+            self.text_encoder.forward = torch.compile(
+                self.text_encoder.forward, backend="tt"
+            )
+
         if self.config.transformer_on_tt:
-            if self.config.shard:
-                self.shard_to_tt()
-            else:
-                self.transformer = self.transformer.to(xm.xla_device())
-            # forward, not the module, so self.transformer stays an nn.Module and
-            # callers can still wrap forward (e.g. the nightly PCC check).
+            self.transformer = self._place_on_tt(
+                self.transformer, shard_transformer_specs
+            )
             self.transformer.forward = torch.compile(
                 self.transformer.forward, backend="tt"
             )
@@ -165,7 +183,8 @@ class Mochi1Pipeline:
     def load_tokenizer(self):
         self.tokenizer = T5Tokenizer.from_pretrained(REPO_ID, subfolder="tokenizer")
 
-    def shard_to_tt(self):
+    def _init_mesh(self):
+        """Enable SPMD and build the (batch, model) mesh all components share."""
         _enable_spmd()
         num_devices = xr.global_runtime_device_count()
         if num_devices not in MESH_SHAPES:
@@ -177,9 +196,26 @@ class Mochi1Pipeline:
             np.array(range(num_devices)), MESH_SHAPES[num_devices], MESH_NAMES
         )
         self.mesh_shape = tuple(self.mesh.mesh_shape)
-        self.transformer = self.transformer.to(xm.xla_device())
-        for tensor, spec in shard_transformer_specs(self.transformer).items():
-            xs.mark_sharding(tensor, self.mesh, spec)
+        logger.info("[setup] mesh {} over {} device(s)", self.mesh_shape, num_devices)
+
+    def _place_on_tt(self, module, shard_spec_fn=None):
+        """Move a component to the device and apply its shard spec; omit
+        ``shard_spec_fn`` to run replicated across the mesh."""
+        module = module.to(xm.xla_device())
+        if self.mesh is not None and shard_spec_fn is not None:
+            specs = shard_spec_fn(module)
+            assert (
+                specs
+            ), f"{type(module).__name__} shard spec is empty — would run replicated"
+            for tensor, spec in specs.items():
+                xs.mark_sharding(tensor, self.mesh, spec)
+        return module
+
+    def _to_encoder_device(self, x):
+        return x.to(xm.xla_device()) if self.config.text_encoder_on_tt else x
+
+    def _from_encoder_device(self, x):
+        return x.to("cpu") if self.config.text_encoder_on_tt else x
 
     def _get_t5_prompt_embeds(self, prompt: list):
         """Mirrors MochiPipeline._get_t5_prompt_embeds (num_videos_per_prompt==1
@@ -194,10 +230,17 @@ class Mochi1Pipeline:
         )
         # T5 gets a bool mask, not the int mask.
         prompt_attention_mask = text_inputs.attention_mask.bool()
-        prompt_embeds = self.text_encoder(
-            text_inputs.input_ids, attention_mask=prompt_attention_mask
-        )[0]
-        return prompt_embeds.to(dtype=self.text_encoder.dtype), prompt_attention_mask
+
+        logger.info("[STAGE] text_encoder (T5-XXL, replicated, bf16)")
+        # out[0] is last_hidden_state, the only output, so no wrapper is needed.
+        # .to("cpu") is the sync point on TT.
+        prompt_embeds = self._from_encoder_device(
+            self.text_encoder(
+                self._to_encoder_device(text_inputs.input_ids),
+                self._to_encoder_device(prompt_attention_mask),
+            )[0]
+        )
+        return prompt_embeds.to(dtype=DTYPE), prompt_attention_mask
 
     def _encode_prompt(self, prompt: str, negative_prompt: Optional[str]):
         """Mirrors encode_prompt with CFG enabled (force_zeros_for_empty_prompt is
@@ -252,7 +295,7 @@ class Mochi1Pipeline:
             negative_prompt_embeds,
             negative_prompt_attention_mask,
         ) = self._encode_prompt(prompt, negative_prompt)
-        perf["components"]["text_encode"] = time.perf_counter() - t0
+        perf["components"]["text_encoder"] = time.perf_counter() - t0
 
         # Latents are sampled in fp32, then cast to the DiT dtype.
         latent_shape = (
