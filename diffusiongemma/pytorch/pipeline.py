@@ -72,15 +72,12 @@ def cache_to_device(cache, device):
 
 def free_tt_graphs():
     """Fully release baked TT graph weights (`.to('cpu')`/`del` free only activations): reset
-    dynamo and null the torch_xla GraphInputMatcher tensors.
-    Safe because each staged component is an independent model (nothing else pins its weights).
+    dynamo and null the torch_xla GraphInputMatcher tensors. Safe because each staged
+    component is an independent model (nothing else pins its weights).
 
-    Deliberately does NOT call xr.clear_computation_cache(). That wipes the compiled-executable
-    cache, so the next call cannot reuse a graph it already built and pays a full recompile --
-    measured as RUN2/RUN1 = 1.06x (751.6s vs 794.5s) on the 26B model, where the staged design
-    should give ~4x. zimage/flux evict with a plain `del` + gc and keep the cache, which is why
-    their rebuilds are cheap. The refcount-dropping work above is what actually releases the
-    weights; the cache holds executables, not parameter buffers.
+    Deliberately does NOT call xr.clear_computation_cache(): that wipes the compiled-executable
+    cache, so the next residency cannot reuse a graph it already built. Dropping the refcounts
+    above is what releases the weights -- the cache holds executables, not parameter buffers.
     """
     from torch_xla._dynamo.dynamo_bridge import GraphInputMatcher
 
@@ -359,8 +356,7 @@ class DiffusionGemmaPipeline:
         """Build the drive-with-TT encoder/decoder forwards; one component resident at a time.
 
         ``encoder_iters`` > 1 repeats the prefill inside the encoder's residency, timing each
-        into ``encoder_times``. Required for a warm number: the encoder is freed before this
-        forward returns, so calling it N times would evict and recompile N times.
+        into ``encoder_times``: the forward frees the encoder, so repeating it would recompile.
         """
         from transformers import DynamicCache  # 5.12.0, after the caller's swap
 
@@ -388,8 +384,8 @@ class DiffusionGemmaPipeline:
                 to_device(kw["position_ids"], xla),
             )
             mm_tokens = to_device(kw.get("mm_token_type_ids"), xla)
-            # Iter 1 is the functional prefill and carries the compile. .to("cpu") forces
-            # the sync, else the time covers tracing only (XLA is async).
+            # Iter 1 is the real prefill and carries the compile; .to("cpu") forces the
+            # sync, else this times tracing only (XLA is async).
             iter_start = time.perf_counter()
             lhs = enc_tt(*enc_args, pkv, mm_tokens)
             xm.mark_step()
@@ -397,9 +393,8 @@ class DiffusionGemmaPipeline:
             if encoder_times is not None:
                 encoder_times.append(time.perf_counter() - iter_start)
 
-            # Warm iters: encoder still resident, so the graph is reused. Each needs a fresh
-            # DynamicCache (prefill mutates it; reusing it would reshape -> recompile and
-            # corrupt the decoder's cache). Outputs discarded, so generation is unchanged.
+            # Warm iters reuse the resident graph. Fresh DynamicCache each (prefill mutates
+            # it), outputs discarded -- so generation is unchanged.
             for extra in range(1, max(1, encoder_iters)):
                 iter_start = time.perf_counter()
                 warm_lhs = enc_tt(*enc_args, DynamicCache(), mm_tokens)
