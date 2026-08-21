@@ -2,9 +2,9 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Component loaders and wrappers for HunyuanVideo 1.5 (480p t2v distilled).
+Component loaders and wrappers for HunyuanVideo 1.5 (480p t2v base).
 
-Model: hunyuanvideo-community/HunyuanVideo-1.5-Diffusers-480p_t2v_distilled
+Model: hunyuanvideo-community/HunyuanVideo-1.5-Diffusers-480p_t2v
 Components:
   - text_encoder:   Qwen2.5-VL encoder (7.07B)
   - text_encoder_2: ByT5 encoder (0.22B)
@@ -18,7 +18,7 @@ import torch
 # Model identity
 # ---------------------------------------------------------------------------
 
-REPO_ID = "hunyuanvideo-community/HunyuanVideo-1.5-Diffusers-480p_t2v_distilled"
+REPO_ID = "hunyuanvideo-community/HunyuanVideo-1.5-Diffusers-480p_t2v"
 DTYPE = torch.bfloat16
 
 # ---------------------------------------------------------------------------
@@ -37,7 +37,7 @@ TEXT_EMBED_DIM = 3584  # Qwen2.5-VL hidden_state dim
 TEXT_EMBED_2_DIM = 1472  # ByT5 hidden_state dim
 
 IMAGE_EMBED_DIM = 1152  # transformer.config.image_embed_dim
-IMAGE_EMBED_SEQ = 64  # pipeline.vision_num_semantic_tokens default
+IMAGE_EMBED_SEQ = 729  # HunyuanVideo15Pipeline.vision_num_semantic_tokens
 
 TEXT_TOKEN_MAX_LEN = 1108  # Qwen2.5-VL tokenized prompt length
 TEXT_TOKEN_2_MAX_LEN = 256  # ByT5 tokenizer_2_max_length default
