@@ -224,6 +224,53 @@ class OmniGenTransformerWrapper(torch.nn.Module):
         )[0]
 
 
+class _SplitGateUpFeedForward(torch.nn.Module):
+    """Numerically-identical rewrite of ``OmniGenFeedForward`` that splits the
+    fused ``gate_up_proj`` into separate ``gate_proj`` / ``up_proj`` linears.
+
+    ``OmniGenFeedForward`` packs both projections into one Linear whose output is
+    ``chunk(2, dim=-1)``-ed into ``[gate, up]`` (weight rows ``[0:inter]`` feed
+    ``gate``, rows ``[inter:2*inter]`` feed ``up``). Column-parallel Megatron
+    sharding of that *fused* weight along its output dim would split the
+    ``[gate; up]`` concat across devices, so ``SiLU(gate) * up`` would pair
+    channels living on different devices -- incorrect. Splitting first lets each
+    projection be column-parallel independently, so every device holds the same
+    intermediate-channel range of both ``gate`` and ``up`` and the elementwise
+    product stays local. ``down_proj`` (row-parallel) is reused unchanged.
+    """
+
+    def __init__(self, mlp):
+        super().__init__()
+        fused = mlp.gate_up_proj  # Linear(hidden, 2 * intermediate), bias=False
+        two_inter, hidden = fused.weight.shape
+        assert two_inter % 2 == 0, "gate_up_proj output must be 2 * intermediate"
+        inter = two_inter // 2
+        has_bias = fused.bias is not None
+
+        gate_w, up_w = fused.weight.data.chunk(2, dim=0)  # rows [0:inter], [inter:]
+        self.gate_proj = torch.nn.Linear(
+            hidden, inter, bias=has_bias, device=gate_w.device, dtype=gate_w.dtype
+        )
+        self.up_proj = torch.nn.Linear(
+            hidden, inter, bias=has_bias, device=up_w.device, dtype=up_w.dtype
+        )
+        with torch.no_grad():
+            self.gate_proj.weight.copy_(gate_w)
+            self.up_proj.weight.copy_(up_w)
+            if has_bias:
+                gate_b, up_b = fused.bias.data.chunk(2, dim=0)
+                self.gate_proj.bias.copy_(gate_b)
+                self.up_proj.bias.copy_(up_b)
+
+        self.down_proj = mlp.down_proj
+        self.activation_fn = mlp.activation_fn
+
+    def forward(self, hidden_states):
+        gate = self.gate_proj(hidden_states)
+        up = self.up_proj(hidden_states)
+        return self.down_proj(up * self.activation_fn(gate))
+
+
 # ---------------------------------------------------------------------------
 # SPMD shard specifications
 # ---------------------------------------------------------------------------
@@ -273,6 +320,54 @@ def _shard_resnet_block_2d(block, specs: dict) -> None:
             specs[block.conv_shortcut.bias] = (None,)
 
 
+def _shard_mid_block_attention(attn, specs: dict) -> None:
+    """Shard specs for an AutoencoderKL mid-block Attention (single-axis).
+
+    The VAE keeps its channel dim on the "model" axis everywhere (see
+    `_shard_resnet_block_2d`), so the attention must stay on that same axis.
+    Using the transformer's two-axis pattern here — ("model", "batch") /
+    ("batch", "model") — puts the channel dim on "batch" inside the attention
+    and on "model" in the surrounding convs. Shardy then has to reshard that
+    dim across axes of different sizes (batch=8, model=4 on a 32-device mesh),
+    which it lowers to an `sdy.collective_permute` whose operand and result
+    local shapes differ, and the verifier rejects it.
+
+    Megatron pair on "model" only:
+      to_q / to_k / to_v → column-parallel ("model", None), bias ("model",)
+      to_out[0]          → row-parallel    (None, "model"), bias replicated
+
+    The mid-block attention is single-head (heads = in_channels //
+    attention_head_dim = 1), so "model" splits the head dim rather than heads.
+    That is still exact: Q@K^T and scores@V contract over the sharded dim, so
+    each device produces a partial sum that Shardy closes with an all_reduce.
+    `group_norm` stays replicated — group statistics need the full channel dim.
+    """
+    if hasattr(attn, "group_norm") and attn.group_norm is not None:
+        specs[attn.group_norm.weight] = (None,)
+        if attn.group_norm.bias is not None:
+            specs[attn.group_norm.bias] = (None,)
+
+    for proj_name in ("to_q", "to_k", "to_v"):
+        if hasattr(attn, proj_name):
+            proj = getattr(attn, proj_name)
+            specs[proj.weight] = ("model", None)
+            if proj.bias is not None:
+                specs[proj.bias] = ("model",)
+
+    if hasattr(attn, "to_out"):
+        out = attn.to_out
+        target = (
+            out[0]
+            if isinstance(out, (torch.nn.Sequential, torch.nn.ModuleList))
+            else out
+        )
+        specs[target.weight] = (None, "model")
+        # bias replicated: the row-parallel output is already replicated after
+        # the all_reduce, so a sharded bias would be summed N times.
+        if target.bias is not None:
+            specs[target.bias] = (None,)
+
+
 def shard_vae_specs(vae) -> dict:
     """Shard specs for AutoencoderKL (decoder-only path).
 
@@ -283,7 +378,8 @@ def shard_vae_specs(vae) -> dict:
       Row-parallel   (second conv in resnet, exit conv):
         weight (None, "model", None, None), bias (None,)
       Replicated (conv_shortcut): all dims None for both weight and bias.
-    Norm / attention specs mirror the transformer conventions.
+    The mid-block attention stays on the same single "model" axis — see
+    `_shard_mid_block_attention`. Norms are replicated.
     """
     specs = {}
 
@@ -303,26 +399,7 @@ def shard_vae_specs(vae) -> dict:
         for attn in getattr(mid_block, "attentions", []) or []:
             if attn is None:
                 continue
-            if hasattr(attn, "group_norm") and attn.group_norm is not None:
-                specs[attn.group_norm.weight] = (None,)
-                if attn.group_norm.bias is not None:
-                    specs[attn.group_norm.bias] = (None,)
-            for proj_name in ("to_q", "to_k", "to_v"):
-                if hasattr(attn, proj_name):
-                    proj = getattr(attn, proj_name)
-                    specs[proj.weight] = ("model", "batch")
-                    if proj.bias is not None:
-                        specs[proj.bias] = ("model",)
-            if hasattr(attn, "to_out"):
-                out = attn.to_out
-                target = (
-                    out[0]
-                    if isinstance(out, (torch.nn.Sequential, torch.nn.ModuleList))
-                    else out
-                )
-                specs[target.weight] = ("batch", "model")
-                if target.bias is not None:
-                    specs[target.bias] = ("batch",)
+            _shard_mid_block_attention(attn, specs)
 
     for up_block in getattr(decoder, "up_blocks", []) or []:
         for resnet in getattr(up_block, "resnets", []) or []:
@@ -355,6 +432,9 @@ def shard_vae_encoder_specs(vae) -> dict:
         weight (None, "model", None, None), bias (None,)
       Replicated (conv_shortcut, norms, post-encoder quant_conv): all None.
 
+    The mid-block attention is sharded on the same single "model" axis — see
+    `_shard_mid_block_attention` for why a "batch"/"model" pair breaks here.
+
     `quant_conv` is a small 1x1 Conv2d (`2*latent_channels -> 2*latent_channels`)
     that re-projects the encoder's (mean, logvar) parameters. Sharding it
     would force resharding right before the distribution is constructed,
@@ -386,26 +466,7 @@ def shard_vae_encoder_specs(vae) -> dict:
         for attn in getattr(mid_block, "attentions", []) or []:
             if attn is None:
                 continue
-            if hasattr(attn, "group_norm") and attn.group_norm is not None:
-                specs[attn.group_norm.weight] = (None,)
-                if attn.group_norm.bias is not None:
-                    specs[attn.group_norm.bias] = (None,)
-            for proj_name in ("to_q", "to_k", "to_v"):
-                if hasattr(attn, proj_name):
-                    proj = getattr(attn, proj_name)
-                    specs[proj.weight] = ("model", "batch")
-                    if proj.bias is not None:
-                        specs[proj.bias] = ("model",)
-            if hasattr(attn, "to_out"):
-                out = attn.to_out
-                target = (
-                    out[0]
-                    if isinstance(out, (torch.nn.Sequential, torch.nn.ModuleList))
-                    else out
-                )
-                specs[target.weight] = ("batch", "model")
-                if target.bias is not None:
-                    specs[target.bias] = ("batch",)
+            _shard_mid_block_attention(attn, specs)
 
     if hasattr(encoder, "conv_norm_out"):
         specs[encoder.conv_norm_out.weight] = (None,)
@@ -466,10 +527,15 @@ def shard_transformer_specs(transformer) -> dict:
             if target.bias is not None:
                 specs[target.bias] = ("batch",)
 
+        # MLP is rewritten to _SplitGateUpFeedForward (fused gate_up_proj split
+        # into gate_proj / up_proj) so each column-parallel shard keeps the same
+        # intermediate-channel range of gate and up -- see _SplitGateUpFeedForward.
         mlp = block.mlp
-        specs[mlp.gate_up_proj.weight] = ("model", "batch")
-        if mlp.gate_up_proj.bias is not None:
-            specs[mlp.gate_up_proj.bias] = ("model",)
+        for proj_name in ("gate_proj", "up_proj"):
+            proj = getattr(mlp, proj_name)
+            specs[proj.weight] = ("model", "batch")
+            if proj.bias is not None:
+                specs[proj.bias] = ("model",)
         specs[mlp.down_proj.weight] = ("batch", "model")
         if mlp.down_proj.bias is not None:
             specs[mlp.down_proj.bias] = ("batch",)
