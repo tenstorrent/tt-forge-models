@@ -355,8 +355,8 @@ class DiffusionGemmaPipeline:
     def _staged_forwards(self, vocab_size, encoder_iters=1, encoder_times=None):
         """Build the drive-with-TT encoder/decoder forwards; one component resident at a time.
 
-        ``encoder_iters`` > 1 repeats the prefill inside the encoder's residency, timing each
-        into ``encoder_times``: the forward frees the encoder, so repeating it would recompile.
+        ``encoder_iters`` > 1 repeats the prefill inside the residency, timing each into
+        ``encoder_times``: this forward frees the encoder, so repeating it would rebuild.
         """
         from transformers import DynamicCache  # 5.12.0, after the caller's swap
 
@@ -384,8 +384,8 @@ class DiffusionGemmaPipeline:
                 to_device(kw["position_ids"], xla),
             )
             mm_tokens = to_device(kw.get("mm_token_type_ids"), xla)
-            # Iter 1 is the real prefill and carries the compile; .to("cpu") forces the
-            # sync, else this times tracing only (XLA is async).
+            # Iter 1 is the real prefill and carries the build; .to("cpu") forces the sync
+            # (XLA is async, so a bare timer would measure tracing).
             iter_start = time.perf_counter()
             lhs = enc_tt(*enc_args, pkv, mm_tokens)
             xm.mark_step()
@@ -394,7 +394,7 @@ class DiffusionGemmaPipeline:
                 encoder_times.append(time.perf_counter() - iter_start)
 
             # Warm iters reuse the resident graph. Fresh DynamicCache each (prefill mutates
-            # it), outputs discarded -- so generation is unchanged.
+            # it); outputs discarded, so generation is unchanged.
             for extra in range(1, max(1, encoder_iters)):
                 iter_start = time.perf_counter()
                 warm_lhs = enc_tt(*enc_args, DynamicCache(), mm_tokens)
