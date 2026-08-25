@@ -3,19 +3,18 @@
 # SPDX-License-Identifier: Apache-2.0
 """Qwen-Image text-to-image pipeline running on Tenstorrent.
 
-Every compute module runs on TT under the diffusers ``QwenImagePipeline``: the
-Qwen2.5-VL text encoder and the ~20B MMDiT transformer are tensor-parallel
-sharded, the VAE decoder is replicated; tokenizer and scheduler stay on host.
+Under the diffusers ``QwenImagePipeline``: the Qwen2.5-VL text encoder and the
+~20B MMDiT transformer are tensor-parallel sharded, the VAE decoder replicated;
+tokenizer and scheduler stay on host.
 
 Residency is STAGED -- each module is loaded, run and freed before the next is
-placed, so peak DRAM is ``max(component)``. Eviction also discards that
-component's compiled graph (the executable pins the weight buffers), so a
-warmup-then-time loop across ``generate()`` calls would measure recompilation.
-Warm cost is instead taken inside one residency: iteration 1 carries the build,
-2..N are cache hits, and the result is always iteration 1's.
+placed, so peak DRAM is ``max(component)``. Eviction discards the component's
+compiled graph with its weights (the executable pins the weight buffers), so a
+warmup-then-time loop across ``generate()`` calls would time recompilation.
+Warm is instead measured inside one residency: iteration 1 carries the build,
+2..N are cache hits, and the returned result is always iteration 1's.
 
-Per-component cold/warm times, per-step times and compile counters land in
-``self._perf``.
+Times, per-step times and compile counters land in ``self._perf``.
 """
 
 import gc
@@ -57,9 +56,8 @@ from .src.model_utils import (
 def _compile_counters():
     """``(compile_seconds, graphs_compiled)`` accumulated process-wide so far.
 
-    ``CompileTime`` is a torch-xla *metric*: ``data[0]`` is the number of
-    compilations and ``data[1]`` their total time in nanoseconds. It is absent
-    until the first compile happens, hence the ``None`` guard.
+    torch-xla's ``CompileTime`` metric is ``[count, total_ns, ...]``, and is
+    absent until the first compile.
     """
     data = met.metric_data("CompileTime")
     if not data:
@@ -68,11 +66,9 @@ def _compile_counters():
 
 
 class _StageCounters:
-    """Records the compile cost of one staged residency as a delta.
+    """Compile time and graph count of one staged residency, as a delta.
 
-    Attributing compile time and graph count per stage is what makes the warm
-    numbers falsifiable: a warm iteration must add ZERO graphs, and the assert
-    in ``generate()`` checks exactly that rather than trusting the timings.
+    Makes the warm numbers falsifiable: a warm iteration must add zero graphs.
     """
 
     def __init__(self, sink, name):
@@ -101,14 +97,13 @@ def _graphs_compiled():
 class _DeviceTextEncoder:
     """Text encoder on TT (tensor-parallel sharded); returns hidden_states[-1].
 
-    Stands in for ``QwenImagePipeline.text_encoder``, so it exposes the ``config``
-    and ``dtype`` attributes the pipeline reads off the real module.
+    Stands in for ``QwenImagePipeline.text_encoder``, hence the ``config`` /
+    ``dtype`` passthrough.
     """
 
     def __init__(self, text_encoder, mesh, forward_times):
         self._dev = torch_xla.device()
-        # One entry per forward, in call order: [0] carries the compile, the rest
-        # are cache hits taken while the encoder is still resident.
+        # Per forward, in call order; [0] carries the compile.
         self._forward_times = forward_times
         self.dtype = next(text_encoder.parameters()).dtype
         self.config = text_encoder.config
@@ -130,8 +125,8 @@ class _DeviceTextEncoder:
             ),
             output_hidden_states=True,
         )
-        # Only hidden_states[-1] is consumed downstream. .cpu() is the sync point:
-        # XLA is async, so without it the timer would measure graph tracing.
+        # .cpu() is the sync point: XLA is async, so without it the timer would
+        # measure tracing. Only hidden_states[-1] is consumed downstream.
         hidden = out.hidden_states[-1].cpu()
         self._forward_times.append(time.perf_counter() - t0)
         return SimpleNamespace(hidden_states=(hidden,))
@@ -143,14 +138,12 @@ class _DeviceDenoiser:
     def __init__(self, transformer, mesh, forward_times, graph_counts):
         self._dev = torch_xla.device()
         self._forward_times = forward_times
-        # Cumulative graphs-compiled sampled after each forward. Lets generate()
-        # prove that warm steps added none, instead of inferring it from timings.
+        # Cumulative graphs-compiled after each forward; warm steps must add none.
         self._graph_counts = graph_counts
         self.config = transformer.config
         self.dtype = next(transformer.parameters()).dtype
         self.cache_context = transformer.cache_context
-        # Lets free() report whether the module was really collected instead of
-        # just logging that eviction was attempted.
+        # So free() can report whether the module was actually collected.
         self._module_ref = weakref.ref(transformer)
 
         transformer = transformer.to(self._dev)
@@ -163,10 +156,9 @@ class _DeviceDenoiser:
     def free(self):
         """Release the transformer's device memory; config/dtype stay readable.
 
-        ``cache_context`` is a bound method of the transformer, so it pins the
-        module through ``__self__``: dropping only ``_compiled`` leaves the
-        weights resident and eviction becomes a no-op. Safe to null here -- the
-        denoise loop that reads it is over.
+        ``cache_context`` is a bound method, so it pins the module through
+        ``__self__``: dropping only ``_compiled`` leaves the weights resident and
+        eviction is a silent no-op. Safe to null -- the denoise loop is over.
         """
         self._compiled = None
         self.cache_context = None
@@ -176,8 +168,7 @@ class _DeviceDenoiser:
             k: (v.to(self._dev) if torch.is_tensor(v) else v) for k, v in kwargs.items()
         }
         t0 = time.perf_counter()
-        # return_dict=False -> 1-tuple; .cpu() is the sync point: it forces the
-        # graph to run and only returns once the result is on host.
+        # return_dict=False -> 1-tuple; .cpu() below is the sync point.
         (sample,) = self._compiled(**moved)
         sample = sample.cpu()
         self._forward_times.append(time.perf_counter() - t0)
@@ -188,11 +179,10 @@ class _DeviceDenoiser:
 class _DeviceVAEDecoder:
     """VAE decode on TT (replicated), placed and freed inside one decode.
 
-    The decode slices the singleton temporal dim IN-GRAPH. Left in, the 5D output
-    has two singleton dims that each tile-pad to 32 (1024x): at 1328x1328 bf16 a
-    10,581,504 B result would ask for 10,835,460,096 B contiguous. Slicing to 4D
-    on device drops that to 32x; the host re-expands to 5D so the pipeline's
-    ``decode(...)[0][:, :, 0]`` still reads correctly.
+    The singleton temporal dim is sliced IN-GRAPH. Left in, the 5D output has two
+    singleton dims that each tile-pad to 32 (1024x): at 1328x1328 bf16 a
+    10,581,504 B result would request 10,835,460,096 B contiguous. The host
+    re-expands to 5D so the pipeline's ``decode(...)[0][:, :, 0]`` still reads.
     """
 
     def __init__(self, vae, perf, warm_iters=1, before_place=None):
@@ -207,20 +197,18 @@ class _DeviceVAEDecoder:
         self.last_pixels = None
 
     def decode(self, latents, return_dict=False):
-        # Denoising is over and the pipeline never reads self.transformer again,
-        # so evict it before this decode allocates.
+        # Denoising is over; evict the transformer before this decode allocates.
         if self._before_place is not None:
             self._before_place()
 
         vae = self._vae.to(self._dev)
-        # [:, :, 0] inside the graph: see the class docstring for the 1024x pad.
         compiled = torch.compile(
             lambda z: vae.decode(z, return_dict=False)[0][:, :, 0], backend="tt"
         )
         z = latents.to(self._dev)
 
         # Iteration 1 carries the build, 2..N are cache hits. Decode is pure, so
-        # repeating is safe and the image is always iteration 1's.
+        # repeating is safe; the image is always iteration 1's.
         times = []
         image = None
         for i in range(self._warm_iters):
@@ -235,16 +223,12 @@ class _DeviceVAEDecoder:
         if len(times) > 1:
             self._perf["warm"]["vae"] = sum(times[1:]) / len(times[1:])
 
-        # Freed here: eviction takes the compiled graph with it, which is the
-        # whole point of staging. Peak DRAM stays max(component).
         del compiled, vae, z
         self._vae = self._vae.to("cpu")
         gc.collect()
         torch_xla.sync()
 
         self.last_pixels = image
-        # Host-side re-expand to the 5D shape the pipeline slices; the device
-        # never materialises the padded tensor.
         return (image.unsqueeze(2),)
 
 
@@ -260,8 +244,8 @@ class QwenImageConfig:
         self.height = height
         self.width = width
         self.max_sequence_length = TOKENIZER_MAX_LENGTH
-        # Forwards repeated inside one residency to expose warm cost. 1 disables
-        # warm measurement; the functional result is iteration 1 either way.
+        # Forwards repeated inside one residency to expose warm cost; 1 disables
+        # warm measurement. The functional result is iteration 1 either way.
         self.warm_iters = warm_iters
         # Applied globally by the caller; carried here for reference.
         self.compile_options = compile_options or {}
@@ -270,45 +254,36 @@ class QwenImageConfig:
 class QwenImagePipeline:
     """Text encoder + transformer (both sharded) and VAE (replicated) on TT.
 
-    Built once with ``setup()``. Each component is loaded, run and freed in turn
-    -- encoder, then transformer, then VAE -- so peak DRAM is
-    ``max(encoder, transformer, vae)``. The prompt is re-encoded per call, so the
-    encoder's cost lands inside every measured pass.
-
-    Eviction discards each compiled graph, so a second ``generate()`` recompiles
-    everything and is NOT a warm pass. Warm comes from repeating each forward
-    inside its own residency (``config.warm_iters``).
+    Built once with ``setup()``; each component is then loaded, run and freed in
+    turn per ``generate()``. A second ``generate()`` recompiles everything and is
+    NOT a warm pass -- see the module docstring.
     """
 
-    # Overridable so a test can swap in wrappers that add PCC checks without
-    # duplicating the staging logic. See
-    # ``tests/torch/models/qwen_image/test_pipeline.py``.
+    # Overridable so a test can subclass in PCC checks without duplicating the
+    # staging logic (tt-xla tests/torch/models/qwen_image/test_pipeline.py).
     TEXT_ENCODER_CLS = _DeviceTextEncoder
     DENOISER_CLS = _DeviceDenoiser
     VAE_CLS = _DeviceVAEDecoder
 
     def __init__(self, config: QwenImageConfig):
         self.config = config
-        # Persistent perf dict: the device wrappers hold this reference, so it is
-        # cleared in place (never reassigned) between calls.
+        # The device wrappers hold this reference, so it is cleared in place
+        # (never reassigned) between calls.
         self._perf = {
             "components": {},
             "steps": [],
             "step_metric_name": "transformer_step",
             "total": None,
             # Cold = the iteration that carried the compile; warm = mean of the
-            # cache-hit iterations taken while that component was still resident.
+            # cache-hit iterations, taken while the component was still resident.
             "cold": {},
             "warm": {},
-            # Per-stage compile time and graph count, so cost is attributed from
-            # counters instead of assumed (compile is usually not the bottleneck).
+            # Per-stage compile time and graph count.
             "counters": {},
         }
         # Raw per-forward times; collapsed into per-step entries in generate().
         self._forward_times = []
-        # Cumulative graph count sampled after each transformer forward.
         self._graph_counts = []
-        # Raw per-forward encoder times; [0] carries the compile.
         self._encode_times = []
         self._denoiser = None
 
@@ -327,8 +302,8 @@ class QwenImagePipeline:
             self.config.repo_id, torch_dtype=DTYPE
         )
         self._raw_vae = self.pipe.vae
-        # The pipeline's own encoder/transformer are never used: both are loaded
-        # fresh per call so nothing holds them once they are dropped.
+        # Never used: both are loaded fresh per call so nothing long-lived holds
+        # them once they are dropped.
         self.pipe.text_encoder = None
         self.pipe.transformer = None
         gc.collect()
@@ -340,9 +315,8 @@ class QwenImagePipeline:
             self._denoiser.free()
             gc.collect()
             torch_xla.sync()
-            # Report the outcome, not the attempt: a surviving referrer here means
-            # the weights are still on device and the VAE decode will run without
-            # the headroom this eviction is supposed to give it.
+            # Report the outcome, not the attempt: a surviving referrer means the
+            # weights are still on device and the VAE decode loses its headroom.
             if module_ref() is None:
                 logger.info("[STAGE] transformer: evicted (module collected)")
             else:
@@ -355,15 +329,13 @@ class QwenImagePipeline:
         """Place the sharded text encoder, encode both prompts, then evict it."""
         logger.info("[STAGE] text_encoder (sharded): start")
         self._encode_times.clear()
-        # Loaded fresh so no long-lived reference survives the del below.
         with _StageCounters(self._perf["counters"], "text_encoder"):
             text_encoder = load_text_encoder(DTYPE)
             self.pipe.text_encoder = self.TEXT_ENCODER_CLS(
                 text_encoder, self.mesh, self._encode_times
             )
 
-            # The masked-embedding extraction downstream of the encoder runs on
-            # host, so encode against CPU tensors.
+            # The masked-embedding extraction downstream runs on host.
             cpu = torch.device("cpu")
             t0 = time.perf_counter()
             prompt_embeds, prompt_embeds_mask = self.pipe.encode_prompt(
@@ -372,9 +344,8 @@ class QwenImagePipeline:
                 num_images_per_prompt=1,
                 max_sequence_length=self.config.max_sequence_length,
             )
-            # Same padded shape as the positive prompt, so this second forward
-            # reuses the graph: it is the encoder's warm sample, taken while the
-            # encoder is still resident.
+            # Same padded shape, so this second forward reuses the graph: it is
+            # the encoder's warm sample, taken while it is still resident.
             (
                 negative_prompt_embeds,
                 negative_prompt_embeds_mask,
@@ -392,8 +363,8 @@ class QwenImagePipeline:
             if warm:
                 self._perf["warm"]["text_encoder"] = sum(warm) / len(warm)
 
-        # Dropped before the transformer is placed, and verified rather than
-        # assumed: the later decode fails on DRAM contiguity by only ~20 MB.
+        # Dropped before the transformer is placed. Verified, not assumed: the
+        # later decode fails on DRAM contiguity by only ~20 MB.
         encoder_ref = weakref.ref(text_encoder)
         self.pipe.text_encoder = None
         del text_encoder
@@ -431,20 +402,19 @@ class QwenImagePipeline:
         self._perf["total"] = None
         t_total_start = time.perf_counter()
 
-        # Encode per call: embeds must match this prompt, and the time belongs
-        # inside the measured pass.
+        # Per call: embeds must match this prompt, and the cost belongs inside
+        # the measured pass.
         embeds, encode_time = self._encode(prompt)
         self._perf["components"]["text_encoder"] = encode_time
 
-        # Release the previous call's transformer before the next one is built, so
-        # two never coexist on device (the assignment below would otherwise keep
-        # the old denoiser alive while the new one is being placed).
+        # Release the previous call's transformer first, so two never coexist on
+        # device while the new one is being placed.
         self._denoiser = None
         self.pipe.transformer = None
         gc.collect()
         torch_xla.sync()
 
-        # Transformer loaded fresh, then freed before the VAE is placed.
+        # Loaded fresh, then freed before the VAE is placed.
         transformer = load_transformer(DTYPE)
         self._denoiser = self.DENOISER_CLS(
             transformer, self.mesh, self._forward_times, self._graph_counts
@@ -452,8 +422,7 @@ class QwenImagePipeline:
         self.pipe.transformer = self._denoiser
         del transformer
 
-        # Rebuilt per call: the VAE is staged like everything else, so it is placed
-        # for its decode and freed before generate() returns.
+        # Rebuilt per call: placed for its decode, freed before generate() returns.
         vae_wrapper = self.VAE_CLS(
             self._raw_vae,
             self._perf,
@@ -492,8 +461,8 @@ class QwenImagePipeline:
 
         pixels = vae_wrapper.last_pixels
 
-        # The VAE freed itself at the end of its decode; the encoder and
-        # transformer went before it, so generate() returns with nothing resident.
+        # The VAE freed itself at the end of its decode, so generate() returns
+        # with nothing resident.
         self.pipe.vae = None
         del vae_wrapper
         gc.collect()
@@ -505,9 +474,8 @@ class QwenImagePipeline:
             sum(self._forward_times[i : i + per_step])
             for i in range(0, len(self._forward_times), per_step)
         )
-        # Step 1 carries the transformer compile; 2..N are cache hits taken while
-        # the transformer is resident, which is the only warm number that means
-        # anything for a staged pipeline.
+        # Step 1 carries the compile; 2..N are cache hits taken while the
+        # transformer is resident.
         steps = self._perf["steps"]
         if steps:
             self._perf["cold"]["transformer_step"] = steps[0]
@@ -516,8 +484,7 @@ class QwenImagePipeline:
                     len(steps) - 1
                 )
 
-        # Cumulative graphs per denoise forward -- diagnostic, not a pass/fail
-        # criterion: warm is established by the in-residency repeats.
+        # Diagnostic only; warm is established by the in-residency repeats.
         counts = self._graph_counts
         if len(counts) > per_step:
             self._perf["counters"]["warm_steps"] = {
