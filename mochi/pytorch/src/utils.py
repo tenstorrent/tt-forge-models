@@ -8,6 +8,11 @@ from typing import Any
 
 import torch
 
+# Model identity. The loader carries it per-variant in
+# MochiConfig.pretrained_model_name; the e2e pipeline needs it directly for the
+# scheduler/tokenizer subfolders, which have no component loader here.
+REPO_ID = "genmo/mochi-1-preview"
+
 # Channel-wise standard deviations for VAE latent normalization
 # Source: Mochi VAE implementation (12 latent channels)
 VAE_STD_CHANNELS = [
@@ -282,11 +287,16 @@ def load_text_encoder_inputs(dtype: torch.dtype = torch.bfloat16) -> dict:
 
 ORIGINAL_LATENT_HEIGHT = 60  # 480 / 8
 ORIGINAL_LATENT_WIDTH = 106  # 848 / 8
-ORIGINAL_LATENT_DEPTH = 14  # (num_frames=84 - 1) // 6 + 1
+ORIGINAL_LATENT_DEPTH = 4  # (num_frames=24 - 1) // 6 + 1
 ORIGINAL_MAX_SEQ_LEN = 256
 ORIGINAL_TEXT_EMBED_DIM = 4096
 ORIGINAL_LATENT_CHANNELS = 12
 ORIGINAL_T5_VOCAB_SIZE = 32128
+# Transformer batch = (2 if guidance_scale > 1.0 else 1). The default
+# guidance_scale=4.5 enables classifier-free guidance, so the pipeline runs
+# torch.cat([latents] * 2) and the transformer sees cond+uncond in one batch.
+# The text encoder and VAE decoder stay at batch 1.
+ORIGINAL_CFG_BATCH = 2
 
 
 def load_transformer_inputs_full_res(
@@ -294,7 +304,7 @@ def load_transformer_inputs_full_res(
 ) -> list:
     """Original-resolution positional inputs for MochiTransformer3DModel."""
     hidden_states = torch.randn(
-        1,
+        ORIGINAL_CFG_BATCH,
         ORIGINAL_LATENT_CHANNELS,
         ORIGINAL_LATENT_DEPTH,
         ORIGINAL_LATENT_HEIGHT,
@@ -302,10 +312,12 @@ def load_transformer_inputs_full_res(
         dtype=dtype,
     )
     encoder_hidden_states = torch.randn(
-        1, ORIGINAL_MAX_SEQ_LEN, ORIGINAL_TEXT_EMBED_DIM, dtype=dtype
+        ORIGINAL_CFG_BATCH, ORIGINAL_MAX_SEQ_LEN, ORIGINAL_TEXT_EMBED_DIM, dtype=dtype
     )
-    timestep = torch.tensor([500], dtype=dtype)
-    encoder_attention_mask = torch.ones(1, ORIGINAL_MAX_SEQ_LEN, dtype=torch.bool)
+    timestep = torch.full((ORIGINAL_CFG_BATCH,), 500, dtype=dtype)
+    encoder_attention_mask = torch.ones(
+        ORIGINAL_CFG_BATCH, ORIGINAL_MAX_SEQ_LEN, dtype=torch.bool
+    )
     return [hidden_states, encoder_hidden_states, timestep, encoder_attention_mask]
 
 
@@ -331,7 +343,8 @@ def load_text_encoder_inputs_full_res(
     input_ids = torch.randint(
         0, ORIGINAL_T5_VOCAB_SIZE, (1, ORIGINAL_MAX_SEQ_LEN), dtype=torch.long
     )
-    attention_mask = torch.ones(1, ORIGINAL_MAX_SEQ_LEN, dtype=torch.long)
+    # The pipeline casts the mask to bool before calling the encoder.
+    attention_mask = torch.ones(1, ORIGINAL_MAX_SEQ_LEN, dtype=torch.bool)
     return [input_ids, attention_mask]
 
 
@@ -392,6 +405,55 @@ def shard_transformer_specs(transformer) -> dict:
         if block.ff_context is not None:
             specs[block.ff_context.net[0].proj.weight] = ("model", None)
             specs[block.ff_context.net[2].weight] = (None, "model")
+
+    return specs
+
+
+def shard_text_encoder_specs(encoder) -> dict:
+    """Build tensor -> partition_spec dict for the T5 v1.1-XXL text encoder.
+
+    Megatron column->row per block, on the "model" axis only — same rule as
+    shard_transformer_specs. T5 projections are bias-free, so only weights are
+    sharded; embeddings, norms and the relative-attention bias stay replicated.
+
+    Column-parallel (q, k, v, wi_0, wi_1): ("model", None)
+    Row-parallel    (o, wo):               (None, "model")
+
+    Accepts either the T5EncoderModel or its inner T5Stack.
+    """
+    specs: dict = {}
+
+    if hasattr(encoder, "shared"):
+        specs[encoder.shared.weight] = (None, None)
+
+    stack = getattr(encoder, "encoder", encoder)
+    if hasattr(stack, "embed_tokens"):
+        specs[stack.embed_tokens.weight] = (None, None)
+
+    for block in stack.block:
+        sa_layer = block.layer[0]
+        sa = sa_layer.SelfAttention
+        specs[sa.q.weight] = ("model", None)
+        specs[sa.k.weight] = ("model", None)
+        specs[sa.v.weight] = ("model", None)
+        specs[sa.o.weight] = (None, "model")
+        # Only block 0 carries it; [num_buckets, heads] stays replicated.
+        if getattr(sa, "relative_attention_bias", None) is not None:
+            specs[sa.relative_attention_bias.weight] = (None, None)
+        specs[sa_layer.layer_norm.weight] = (None,)
+
+        ff_layer = block.layer[-1]
+        dense = ff_layer.DenseReluDense
+        # T5 v1.1 is gated (wi_0/wi_1); v1.0 has a single wi.
+        if hasattr(dense, "wi_0"):
+            specs[dense.wi_0.weight] = ("model", None)
+            specs[dense.wi_1.weight] = ("model", None)
+        else:
+            specs[dense.wi.weight] = ("model", None)
+        specs[dense.wo.weight] = (None, "model")
+        specs[ff_layer.layer_norm.weight] = (None,)
+
+    specs[stack.final_layer_norm.weight] = (None,)
 
     return specs
 

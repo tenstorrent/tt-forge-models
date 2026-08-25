@@ -4,7 +4,7 @@
 
 """Utility functions for Pyramid Flow model loading."""
 
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import torch
 
@@ -16,6 +16,11 @@ _HF_REPO = "rain1011/pyramid-flow-miniflux"
 # Variant -> the DiT subfolder inside the repo (each has config.json +
 # diffusion_pytorch_model.safetensors). 768p is the default bringup target.
 _DIT_SUBFOLDER = "diffusion_transformer_768p"
+# The CLIP half of the two-encoder text stack (`text_encoder` / `tokenizer`).
+# miniFLUX pairs it with a T5-XXL encoder in `text_encoder_2`, which is not
+# exposed here - see `load_text_encoder` for why.
+_CLIP_SUBFOLDER = "text_encoder"
+_CLIP_TOKENIZER_SUBFOLDER = "tokenizer"
 
 
 # ============================================================================
@@ -44,6 +49,31 @@ DIT_CONFIG = dict(
 # Internal-patch dimension is hard-coded to 2 in PyramidFluxTransformer; latent
 # channels visible to the user are `in_channels // (patch * patch)`.
 _INTERNAL_PATCH = 2
+
+# CLIP-L text encoder config, matching
+# https://huggingface.co/rain1011/pyramid-flow-miniflux/blob/main/text_encoder/config.json
+# (openai/clip-vit-large-patch14). Used only for the offline fallback below.
+CLIP_CONFIG = dict(
+    hidden_size=768,
+    intermediate_size=3072,
+    num_hidden_layers=12,
+    num_attention_heads=12,
+    max_position_embeddings=77,
+    vocab_size=49408,
+    hidden_act="quick_gelu",
+    layer_norm_eps=1e-05,
+    projection_dim=768,
+    bos_token_id=0,
+    eos_token_id=2,
+    pad_token_id=1,
+)
+
+# The prompt the e2e Pyramid Flow bringup runs use, so device numbers here are
+# comparable with the full text-to-video pair.
+PROMPT = (
+    "A red double-decker bus driving along a sunny coastal road, "
+    "waves breaking on the beach below"
+)
 
 # Smoke-test latent shape (single pyramid stage).
 _SMOKE_TEMP = 1
@@ -76,6 +106,48 @@ def load_transformer(dtype: torch.dtype) -> PyramidFluxTransformer:
     except Exception:
         model = PyramidFluxTransformer(**DIT_CONFIG).to(dtype=dtype)
     return model.eval()
+
+
+class ClipTextEncoderWrapper(torch.nn.Module):
+    """Tensors-only CLIP text encoder returning the pooled embedding.
+
+    Mirrors `FluxTextEncoderWithMask._get_clip_prompt_embeds` in the upstream
+    Pyramid Flow pipeline: the DiT consumes CLIP's `pooler_output` as its
+    `pooled_projections` input, so the pooled vector - not the sequence of
+    hidden states - is the tensor worth comparing against CPU.
+    """
+
+    def __init__(self, text_encoder):
+        super().__init__()
+        self.text_encoder = text_encoder
+
+    def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
+        return self.text_encoder(input_ids, output_hidden_states=False).pooler_output
+
+
+def load_text_encoder(dtype: torch.dtype) -> ClipTextEncoderWrapper:
+    """
+    Load the CLIP half of the miniFLUX text stack, wrapped for tensor I/O.
+
+    Only CLIP is exposed. miniFLUX's other encoder is a 4.76B T5-XXL
+    (`text_encoder_2`), which compiles and executes on device but lands at
+    PCC 0.86 against the CPU reference, so it is not a passing component yet -
+    see the loader docstring.
+
+    Falls back to a randomly-initialised model with the real config if the
+    weights cannot be downloaded, matching `load_transformer`.
+    """
+    from transformers import CLIPTextConfig, CLIPTextModel
+
+    try:
+        model = CLIPTextModel.from_pretrained(
+            _HF_REPO,
+            subfolder=_CLIP_SUBFOLDER,
+            torch_dtype=dtype,
+        )
+    except Exception:
+        model = CLIPTextModel(CLIPTextConfig(**CLIP_CONFIG)).to(dtype=dtype)
+    return ClipTextEncoderWrapper(model.eval()).eval()
 
 
 # ============================================================================
@@ -126,3 +198,39 @@ def load_transformer_inputs(dtype: torch.dtype) -> Dict[str, Any]:
         "pooled_projections": pooled_projections,
         "timestep_ratio": timestep_ratio,
     }
+
+
+def load_text_encoder_inputs(dtype: torch.dtype) -> List[torch.Tensor]:
+    """
+    Tokenize the bringup prompt for the CLIP text encoder.
+
+    `dtype` is unused - CLIP takes integer token ids - but the signature is kept
+    uniform with `load_transformer_inputs`. Input ids are padded to CLIP's fixed
+    77-token context, which is what the upstream pipeline does.
+
+    If the tokenizer cannot be downloaded, falls back to deterministic synthetic
+    ids so compilation / op-coverage analysis still runs offline.
+    """
+    max_length = CLIP_CONFIG["max_position_embeddings"]
+    try:
+        from transformers import CLIPTokenizer
+
+        tokenizer = CLIPTokenizer.from_pretrained(
+            _HF_REPO, subfolder=_CLIP_TOKENIZER_SUBFOLDER
+        )
+        input_ids = tokenizer(
+            [PROMPT],
+            padding="max_length",
+            max_length=max_length,
+            truncation=True,
+            return_tensors="pt",
+        ).input_ids
+    except Exception:
+        generator = torch.Generator().manual_seed(0)
+        input_ids = torch.randint(
+            0,
+            CLIP_CONFIG["vocab_size"],
+            (_SMOKE_BATCH, max_length),
+            generator=generator,
+        )
+    return [input_ids]
