@@ -194,19 +194,139 @@ class _VibeVoiceLogitsWrapper(torch.nn.Module):
         return out.logits
 
 
+# ----------------------------------------------------------------------
+# Per-component wrappers for the single-device component tests.
+#
+# Each takes plain tensors and returns one tensor, so the graph test can
+# compare CPU against TT without a pytree comparator. They are thin views onto
+# submodules of the *pretrained* TTS model - PCC against a random-weight model
+# would not say anything about the real pipeline.
+# ----------------------------------------------------------------------
+
+
+class _AcousticEncoder(torch.nn.Module):
+    """Voice-prompt waveform -> acoustic VAE latents (causal conv VAE)."""
+
+    def __init__(self, model):
+        super().__init__()
+        self.encoder = model.model.acoustic_tokenizer.encoder
+
+    def forward(self, audio):
+        return self.encoder(audio)
+
+
+class _AcousticDecoder(torch.nn.Module):
+    """One acoustic latent frame -> waveform chunk."""
+
+    def __init__(self, model):
+        super().__init__()
+        self.decoder = model.model.acoustic_tokenizer.decoder
+
+    def forward(self, latents):
+        return self.decoder(latents)
+
+
+class _SemanticEncoder(torch.nn.Module):
+    """Audio chunk -> semantic features."""
+
+    def __init__(self, model):
+        super().__init__()
+        self.encoder = model.model.semantic_tokenizer.encoder
+
+    def forward(self, audio):
+        return self.encoder(audio)
+
+
+class _Connectors(torch.nn.Module):
+    """Both SpeechConnectors, summed into the LM embedding space.
+
+    Run together rather than separately because that is how the decode loop
+    uses them - ``acoustic_embed + semantic_embed`` forms one diffusion
+    embedding - and because each on its own is only ~2.4M params.
+    """
+
+    def __init__(self, model):
+        super().__init__()
+        self.acoustic = model.model.acoustic_connector
+        self.semantic = model.model.semantic_connector
+
+    def forward(self, acoustic_latent, semantic_feature):
+        return self.acoustic(acoustic_latent) + self.semantic(semantic_feature)
+
+
+class _DiffusionHead(torch.nn.Module):
+    """One denoise step of the prediction head, conditioned on LM hidden state."""
+
+    def __init__(self, model):
+        super().__init__()
+        self.head = model.model.prediction_head
+
+    def forward(self, noisy, timestep, condition):
+        return self.head(noisy, timestep, condition=condition)
+
+
+class _LmPrefill(torch.nn.Module):
+    """Qwen2.5 decoder over the conditioning prompt, plus the LM head."""
+
+    def __init__(self, model):
+        super().__init__()
+        self.lm = model.model.language_model
+        self.head = model.lm_head
+
+    def forward(self, inputs_embeds):
+        out = self.lm(inputs_embeds=inputs_embeds, use_cache=False, return_dict=True)
+        return self.head(out.last_hidden_state)
+
+
 class ModelVariant(StrEnum):
     """Available VibeVoice model variants."""
 
+    #: Whole model, random weights, logits-only forward - the compiler-bringup
+    #: path driven by the generic inference harness.
     VIBEVOICE_1_5B = "1.5B"
+
+    #: Individual components of the TTS pipeline, pretrained weights. Used by
+    #: the single-device component tests; see ``_COMPONENT_WRAPPER``.
+    ACOUSTIC_ENCODER = "AcousticEncoder"
+    ACOUSTIC_DECODER = "AcousticDecoder"
+    SEMANTIC_ENCODER = "SemanticEncoder"
+    CONNECTORS = "Connectors"
+    DIFFUSION_HEAD = "DiffusionHead"
+    LM_PREFILL = "LmPrefill"
+
+
+#: variant -> wrapper class. Membership in this map is what makes a variant a
+#: component variant rather than the whole-model bringup variant.
+_COMPONENT_WRAPPER = {
+    ModelVariant.ACOUSTIC_ENCODER: _AcousticEncoder,
+    ModelVariant.ACOUSTIC_DECODER: _AcousticDecoder,
+    ModelVariant.SEMANTIC_ENCODER: _SemanticEncoder,
+    ModelVariant.CONNECTORS: _Connectors,
+    ModelVariant.DIFFUSION_HEAD: _DiffusionHead,
+    ModelVariant.LM_PREFILL: _LmPrefill,
+}
+
+
+#: Sample counts taken from the reference run rather than invented, so the
+#: component tests exercise the shapes the real pipeline produces.
+#:
+#: The voice prompt ``en-Alice_woman.wav`` is 222480 samples, which the acoustic
+#: tokenizer compresses 3200:1 into 70 latent frames; the conditioning prompt
+#: tokenizes to 128 positions. One decode step consumes one latent frame and
+#: emits one 3200-sample chunk. The diffusion head runs at batch 2 because the
+#: CFG path concatenates the conditional and negative branches.
+_VOICE_PROMPT_SAMPLES = 222480
+_CHUNK_SAMPLES = 3200
+_PROMPT_TOKENS = 128
+_CFG_BATCH = 2
 
 
 class ModelLoader(ForgeModel):
     """VibeVoice model loader implementation."""
 
     _VARIANTS = {
-        ModelVariant.VIBEVOICE_1_5B: ModelConfig(
-            pretrained_model_name="microsoft/VibeVoice-1.5B",
-        ),
+        variant: ModelConfig(pretrained_model_name="microsoft/VibeVoice-1.5B")
+        for variant in ModelVariant
     }
 
     DEFAULT_VARIANT = ModelVariant.VIBEVOICE_1_5B
@@ -250,7 +370,11 @@ class ModelLoader(ForgeModel):
         return self.config
 
     def load_model(self, dtype_override=torch.bfloat16, **kwargs):
-        """Load and return the VibeVoice model instance (random weights).
+        """Load and return the VibeVoice model instance.
+
+        For the component variants this returns that single component of the
+        **pretrained** pipeline, wrapped to a tensors-only forward. For
+        ``VIBEVOICE_1_5B`` it returns the whole model with **random** weights.
 
         Args:
             dtype_override: dtype to cast the whole model to. The upstream
@@ -260,8 +384,18 @@ class ModelLoader(ForgeModel):
                 forward. Defaults to bfloat16.
 
         Returns:
-            torch.nn.Module: The VibeVoice model instance.
+            torch.nn.Module: The VibeVoice model or component instance.
         """
+        wrapper = _COMPONENT_WRAPPER.get(self._variant)
+        if wrapper is not None:
+            # The checkpoint is monolithic - there is no per-component subfolder
+            # to load from - so the whole 2.7B model is built and the component
+            # taken out of it. Real weights are the point: PCC against a
+            # randomly initialised component would not tell us anything about
+            # the pipeline it is part of.
+            model = self.load_tts_model(dtype_override=dtype_override)
+            return wrapper(model).eval()
+
         VibeVoiceForConditionalGeneration, _ = _import_vibevoice()
 
         config = self._load_config()
@@ -273,17 +407,70 @@ class ModelLoader(ForgeModel):
         # non-tensor leaves in VibeVoiceCausalLMOutputWithPast).
         return _VibeVoiceLogitsWrapper(model.eval()).eval()
 
+    def load_component_inputs(self, batch_size=1, dtype_override=torch.bfloat16):
+        """Synthetic tensors at the shapes the real pipeline produces.
+
+        Returned as a list in the wrapper's forward argument order.
+        """
+        if self.config is None:
+            self._load_config()
+
+        acoustic_dim = self.config.acoustic_vae_dim
+        semantic_dim = self.config.semantic_vae_dim
+        hidden = self.config.decoder_config.hidden_size
+        v = self._variant
+
+        if v == ModelVariant.ACOUSTIC_ENCODER:
+            return [
+                torch.randn(batch_size, 1, _VOICE_PROMPT_SAMPLES, dtype=dtype_override)
+            ]
+        if v == ModelVariant.SEMANTIC_ENCODER:
+            return [torch.randn(batch_size, 1, _CHUNK_SAMPLES, dtype=dtype_override)]
+        if v == ModelVariant.ACOUSTIC_DECODER:
+            return [torch.randn(batch_size, acoustic_dim, 1, dtype=dtype_override)]
+        if v == ModelVariant.CONNECTORS:
+            return [
+                torch.randn(batch_size, 1, acoustic_dim, dtype=dtype_override),
+                torch.randn(batch_size, 1, semantic_dim, dtype=dtype_override),
+            ]
+        if v == ModelVariant.DIFFUSION_HEAD:
+            return [
+                torch.randn(_CFG_BATCH, acoustic_dim, dtype=dtype_override),
+                # Float, not int. TimestepEmbedder.timestep_embedding() ends
+                # with `embedding.to(t.dtype)`, so an integer timestep casts the
+                # whole sinusoidal embedding to that integer dtype and the
+                # following Linear fails with "long int != BFloat16". The real
+                # call site casts to the model dtype too: `t.repeat(...).to(x)`.
+                torch.full((_CFG_BATCH,), 500.0, dtype=dtype_override),
+                torch.randn(_CFG_BATCH, hidden, dtype=dtype_override),
+            ]
+        if v == ModelVariant.LM_PREFILL:
+            return [
+                torch.randn(batch_size, _PROMPT_TOKENS, hidden, dtype=dtype_override)
+            ]
+        raise ValueError(f"{v} is not a component variant")
+
     def load_inputs(self, batch_size=1, seq_len=32, dtype_override=torch.bfloat16):
         """Load and return sample inputs for the VibeVoice model.
 
-        The bringup forward path keeps ``speech_tensors=None`` so the model
-        behaves as a Qwen2.5 causal LM with a single (unused) semantic
-        connector call. ``speech_semantic_tensors`` is therefore required but
-        its result is not consumed downstream.
+        For component variants this delegates to
+        :meth:`load_component_inputs`, which returns a list in forward-argument
+        order.
+
+        For ``VIBEVOICE_1_5B`` the bringup forward path keeps
+        ``speech_tensors=None`` so the model behaves as a Qwen2.5 causal LM with
+        a single (unused) semantic connector call.
+        ``speech_semantic_tensors`` is therefore required but its result is not
+        consumed downstream.
 
         Returns:
-            dict: Input tensors that can be fed to the model.
+            dict | list: Input tensors that can be fed to the model.
         """
+        if self._variant in _COMPONENT_WRAPPER:
+            return self.load_component_inputs(
+                batch_size=batch_size, dtype_override=dtype_override
+            )
+
         if self.config is None:
             self._load_config()
 
