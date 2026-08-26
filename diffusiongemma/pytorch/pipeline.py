@@ -20,6 +20,7 @@ import copy
 import gc
 import math
 import os
+import time
 from types import SimpleNamespace
 
 import numpy as np
@@ -71,8 +72,12 @@ def cache_to_device(cache, device):
 
 def free_tt_graphs():
     """Fully release baked TT graph weights (`.to('cpu')`/`del` free only activations): reset
-    dynamo, null the torch_xla GraphInputMatcher tensors, clear the C++ computation cache.
-    Safe because each staged component is an independent model (nothing else pins its weights).
+    dynamo and null the torch_xla GraphInputMatcher tensors. Safe because each staged
+    component is an independent model (nothing else pins its weights).
+
+    Deliberately does NOT call xr.clear_computation_cache(): that wipes the compiled-executable
+    cache, so the next residency cannot reuse a graph it already built. Dropping the refcounts
+    above is what releases the weights -- the cache holds executables, not parameter buffers.
     """
     from torch_xla._dynamo.dynamo_bridge import GraphInputMatcher
 
@@ -92,8 +97,11 @@ def free_tt_graphs():
                                 d.clear()
         except ReferenceError:
             continue
-    xr.clear_computation_cache()
     gc.collect()
+
+
+# Public name for the staged-residency eviction step.
+evict_component = free_tt_graphs
 
 
 class TTEncoder(torch.nn.Module):
@@ -344,8 +352,12 @@ class DiffusionGemmaPipeline:
             xs.mark_sharding(tensor, self.mesh, spec)
         return model
 
-    def _staged_forwards(self, vocab_size):
-        """Build the drive-with-TT encoder/decoder forwards; one component resident at a time."""
+    def _staged_forwards(self, vocab_size, encoder_iters=1, encoder_times=None):
+        """Build the drive-with-TT encoder/decoder forwards; one component resident at a time.
+
+        ``encoder_iters`` > 1 repeats the prefill inside the residency, timing each into
+        ``encoder_times``: this forward frees the encoder, so repeating it would rebuild.
+        """
         from transformers import DynamicCache  # 5.12.0, after the caller's swap
 
         xla = self.xla
@@ -366,20 +378,38 @@ class DiffusionGemmaPipeline:
             enc_model = self._load_sharded(ModelVariant.ENCODER)
             enc_tt = torch.compile(TTEncoder(enc_model), backend="tt")
             pkv = DynamicCache()
-            lhs = enc_tt(
+            enc_args = (
                 to_device(kw["input_ids"], xla),
                 to_device(kw["attention_mask"], xla),
                 to_device(kw["position_ids"], xla),
-                pkv,
-                to_device(kw.get("mm_token_type_ids"), xla),
             )
-            # Cache to host + FREE the encoder; the decoder loads lazily in decoder_forward.
+            mm_tokens = to_device(kw.get("mm_token_type_ids"), xla)
+            # Iter 1 is the real prefill and carries the build; .to("cpu") forces the sync
+            # (XLA is async, so a bare timer would measure tracing).
+            iter_start = time.perf_counter()
+            lhs = enc_tt(*enc_args, pkv, mm_tokens)
             xm.mark_step()
+            lhs_host = lhs.to("cpu")
+            if encoder_times is not None:
+                encoder_times.append(time.perf_counter() - iter_start)
+
+            # Warm iters reuse the resident graph. Fresh DynamicCache each (prefill mutates
+            # it); outputs discarded, so generation is unchanged.
+            for extra in range(1, max(1, encoder_iters)):
+                iter_start = time.perf_counter()
+                warm_lhs = enc_tt(*enc_args, DynamicCache(), mm_tokens)
+                xm.mark_step()
+                warm_lhs.to("cpu")
+                if encoder_times is not None:
+                    encoder_times.append(time.perf_counter() - iter_start)
+                del warm_lhs
+
+            # Cache to host + FREE the encoder; the decoder loads lazily in decoder_forward.
             tt_pkv["host"] = cache_to_device(pkv, "cpu")
             del enc_tt, enc_model, pkv
             free_tt_graphs()
             return SimpleNamespace(
-                last_hidden_state=lhs.to("cpu"), past_key_values=tt_pkv["host"]
+                last_hidden_state=lhs_host, past_key_values=tt_pkv["host"]
             )
 
         def decoder_forward(**kw):
@@ -391,6 +421,7 @@ class DiffusionGemmaPipeline:
                 stage["dec_model"] = dec_model
                 stage["dec_tt"] = torch.compile(TTDecoder(dec_model), backend="tt")
                 tt_pkv["pkv"] = cache_to_device(tt_pkv["host"], xla)
+                stage["step"] = 0
             # Consistent self-conditioning (zeros + mask=False on step 1) -> one TT graph.
             bs, canvas = kw["decoder_input_ids"].shape
             if kw.get("self_conditioning_logits") is None:
@@ -400,6 +431,7 @@ class DiffusionGemmaPipeline:
                 scm = torch.zeros(bs, dtype=torch.bool)
             else:
                 scm = torch.ones(bs, dtype=torch.bool)
+            stage["step"] = stage.get("step", 0) + 1
             logits = stage["dec_tt"](
                 to_device(kw["decoder_input_ids"], xla),
                 to_device(kw["decoder_position_ids"], xla),
@@ -408,7 +440,8 @@ class DiffusionGemmaPipeline:
                 to_device(scm, xla),
                 tt_pkv["pkv"],
             )
-            return SimpleNamespace(logits=logits.to("cpu"))  # drive with the TT output
+            out = logits.to("cpu")  # forces sync
+            return SimpleNamespace(logits=out)  # drive with the TT output
 
         return encoder_forward, decoder_forward
 
