@@ -5,11 +5,17 @@
 LTX-2.3 DiT transformer loader for text-to-video (+audio) generation.
 
 Unlike the diffusers-based ``ltx2`` family loader, this loader drives the
-*native* ``ltx_core`` transformer code vendored under ``src/ltx_core/`` (see
-``src/SRC_VENDORED_FROM.txt``). The 22B LTX-2.3 audio-video DiT is built
-straight from the checkpoint's embedded transformer config via
+*native* ``ltx_core`` source, which is consumed as a pinned git submodule at
+``third_party/LTX-2`` (upstream ships LTX-2 and LTX-2.3 from one repo; they
+differ by checkpoint, not by repository). The 22B LTX-2.3 audio-video DiT is
+built straight from the checkpoint's embedded transformer config via
 ``LTXModelConfigurator.from_config`` with random weights -- no checkpoint is
 downloaded and no HF pipeline is instantiated.
+
+The submodule files are used **unmodified**. The four TT bring-up changes are
+applied here as runtime patches (see ``_apply_runtime_patches``), each guarded
+against upstream drift, and the missing ``torchaudio`` dependency is covered by
+a loud ``sys.modules`` stub.
 
 Repository: https://github.com/Lightricks/LTX-2
 Weights:    https://huggingface.co/Lightricks/LTX-2.3
@@ -37,8 +43,12 @@ like the diffusers ``ltx2`` reference. The reduced-layer CPU forward used to
 validate the plumbing overrides ``num_layers`` to a small value.
 """
 
+import importlib
+import inspect
 import os
 import sys
+import textwrap
+import types
 from typing import Optional
 
 import torch
@@ -54,10 +64,256 @@ from ...config import (
     StrEnum,
 )
 
-# Vendored ltx_core lives under src/; add it to sys.path before importing.
-_SRC_DIR = os.path.join(os.path.dirname(__file__), "src")
-if _SRC_DIR not in sys.path:
-    sys.path.insert(0, _SRC_DIR)
+# ── Upstream source: pinned git submodule ────────────────────────────────────
+_SUBMODULE_HINT = (
+    "The LTX-2 submodule is not checked out. Run:\n"
+    "  git submodule update --init third_party/LTX-2"
+)
+
+
+def _ltx_core_pkg_dir():
+    """Absolute path to the upstream ``ltx_core`` package in the submodule.
+
+    Resolved from this file's location: the loader lives at
+    ``<repo>/ltx2_3/pytorch/loader.py`` and the submodule at
+    ``<repo>/third_party/LTX-2``. Returns ``None`` if the submodule has not
+    been checked out.
+    """
+    repo_root = os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    )
+    pkg = os.path.join(
+        repo_root, "third_party", "LTX-2", "packages", "ltx-core", "src", "ltx_core"
+    )
+    return pkg if os.path.isdir(pkg) else None
+
+
+def _register_bare_package(name, path):
+    """Register a bare package at ``path`` in ``sys.modules`` (no ``__init__``).
+
+    ``ltx_core/__init__.py`` is empty upstream, so skipping it costs nothing;
+    setting ``__path__`` explicitly lets every sub-package resolve normally with
+    its own real ``__init__.py`` intact, without mutating ``sys.path`` (which
+    would otherwise leak the submodule's ``src/`` dir into every import).
+    """
+    existing = sys.modules.get(name)
+    if existing is None or list(getattr(existing, "__path__", []) or [])[:1] != [path]:
+        mod = types.ModuleType(name)
+        mod.__path__ = [path]
+        sys.modules[name] = mod
+
+
+class _TorchaudioStub(types.ModuleType):
+    """Stand-in for ``torchaudio``, which is not installed in the TT venv.
+
+    ``ltx_core/model/audio_vae/ops.py`` imports ``torchaudio`` at module level
+    for ``AudioProcessor`` (waveform -> mel), which is *not* on the audio-VAE
+    encode/decode or vocoder paths this bring-up traces. Rather than patch the
+    import out of upstream, register a stub that satisfies the import and
+    raises loudly the moment anything actually touches it.
+    """
+
+    def __getattr__(self, attr):
+        if attr.startswith("__") and attr.endswith("__"):
+            # importlib and dynamo's skipfiles check probe module dunders
+            # (``__file__`` above all) on everything in ``sys.modules``. Those
+            # probes must miss quietly, like a namespace package -- raising here
+            # aborts tracing of every model that merely has the stub loaded.
+            raise AttributeError(attr)
+        raise RuntimeError(
+            f"torchaudio.{attr} was accessed, but torchaudio is not installed in "
+            "this environment. The LTX-2.3 loader stubs it because the traced "
+            "audio-VAE / vocoder paths never use it; a real dependency on "
+            "torchaudio needs it installed."
+        )
+
+
+# ── Runtime patches over the pinned upstream source ──────────────────────────
+def _indent_block(text, indent):
+    """Re-indent a patch block authored at zero baseline to ``indent``.
+
+    Patch texts are written with their first line flush and continuation lines
+    relative to it, so one literal matches the statement at whatever depth
+    ``inspect.getsource`` + ``textwrap.dedent`` leave it.
+    """
+    head, _, tail = text.partition("\n")
+    return head if not tail else head + "\n" + textwrap.indent(tail, indent)
+
+
+def _statement_indent(src, old_text, flag):
+    """Leading whitespace of the line ``old_text`` starts on, in ``src``."""
+    head = old_text.partition("\n")[0]
+    indents = {
+        line[: len(line) - len(line.lstrip())]
+        for line in src.splitlines()
+        if line.strip() and line.lstrip().startswith(head)
+    }
+    if len(indents) != 1:
+        raise RuntimeError(
+            f"patch drift ({flag}): expected the patched statement to start on "
+            f"exactly one indentation level, found {sorted(indents)} -- the "
+            "pinned ltx_core source has changed; re-derive this patch."
+        )
+    return indents.pop()
+
+
+def _patch_method_source(cls, method_name, old_text, new_text, flag):
+    """Recompile one upstream method with an exact-text substitution.
+
+    Upstream method bodies are deliberately NOT copied into this file: the body
+    is read back from the pinned submodule with ``inspect.getsource``, the exact
+    ``old_text`` is substituted, and the result is compiled against the defining
+    module's globals so free names still resolve upstream. That keeps the patch
+    a reviewable one-hunk diff *and* gives it a drift guard for free -- if
+    ``old_text`` is no longer present, the pin has moved and the patch must be
+    re-derived rather than silently becoming a no-op.
+    """
+    original = cls.__dict__.get(method_name)
+    if original is None:
+        raise RuntimeError(
+            f"patch drift ({flag}): {cls.__name__}.{method_name} no longer exists "
+            "in the pinned ltx_core source -- re-derive this patch."
+        )
+    if getattr(original, flag, False):
+        return
+
+    src = textwrap.dedent(inspect.getsource(original))
+    indent = _statement_indent(src, old_text, flag)
+    old_block = _indent_block(old_text, indent)
+    new_block = _indent_block(new_text, indent)
+    if src.count(old_block) != 1:
+        raise RuntimeError(
+            f"patch drift ({flag}): expected exactly one occurrence of the patched "
+            f"text in {cls.__name__}.{method_name}, found {src.count(old_block)} -- "
+            "the pinned ltx_core source has changed; re-derive this patch."
+        )
+
+    module = sys.modules[cls.__module__]
+    namespace = {}
+    exec(  # noqa: S102 - recompiling upstream source with one audited edit
+        compile(
+            src.replace(old_block, new_block),
+            f"<tt-forge patch {flag} of {cls.__module__}.{cls.__qualname__}>",
+            "exec",
+        ),
+        module.__dict__,
+        namespace,
+    )
+    patched = namespace[method_name]
+    patched.__qualname__ = original.__qualname__
+    setattr(patched, flag, True)
+    setattr(cls, method_name, patched)
+
+
+# Patch 1 -- STFT-as-conv reformulation (vocoder).
+# TTNN lowers the strided ``F.conv1d`` over the full ~21k-sample width into a
+# ``ttnn.conv2d`` whose L1 footprint overflows ("Not enough L1 memory", in fp32
+# and bf16 alike, no fallback config helps). The effective compute is one small
+# ``(n_frames x win_length) @ (win_length x n_freqs*2)`` matmul, so frame
+# explicitly with ``F.unfold`` and matmul the fixed basis. ``conv1d`` is
+# cross-correlation (no kernel flip) and unfold preserves window order, so this
+# is numerically identical to the original conv.
+_STFT_OLD = "spec = F.conv1d(y, self.forward_basis, stride=self.hop_length, padding=0)"
+_STFT_NEW = """frames = F.unfold(
+    y.unsqueeze(2),  # (B, 1, 1, T_pad)
+    kernel_size=(1, self.win_length),
+    stride=(1, self.hop_length),
+)  # (B, win_length, n_frames)
+basis = self.forward_basis.reshape(self.forward_basis.shape[0], self.win_length)
+spec = torch.matmul(basis.to(frames.dtype), frames)"""
+
+# Patch 2 -- honour ``_forge_compute_dtype`` in ``VocoderWithBWE.forward``.
+# Upstream runs the whole pass in fp32 (bf16 accumulation over 108 sequential
+# convs degrades spectral metrics 40-90%). Two problems on TT: CPU
+# autocast-to-fp32 is a no-op, so fp32 activations meet bf16 bias ("Input type
+# (float) and bias type (BFloat16) should be the same"), and the fp32 activation
+# footprint overflows device L1 on the conv stack. When the loader stamps a
+# compute dtype, disable autocast and cast the input to match the weights.
+_VOCODER_OLD = """with torch.autocast(device_type=mel_spec.device.type, dtype=torch.float32):
+    x = self.vocoder(mel_spec.float())"""
+_VOCODER_NEW = """compute_dtype = getattr(self, "_forge_compute_dtype", torch.float32)
+with torch.autocast(
+    device_type=mel_spec.device.type,
+    dtype=compute_dtype,
+    enabled=compute_dtype == torch.float32,
+):
+    x = self.vocoder(mel_spec.to(compute_dtype))"""
+
+# Patch 3 -- force the traceable RoPE frequency-grid generator.
+# ``double_precision_rope`` (set by ``frequencies_precision: float64``) selects
+# ``generate_freq_grid_np``, which runs float64 numpy inside the traced forward
+# and breaks dynamo ("'ndarray' object has no attribute 'div'"). The grid depends
+# only on scalar hyper-parameters and TT executes in bf16, so the float64->float32
+# difference is washed out; forcing the torch-native generator keeps the forward
+# a single graph.
+_ROPE_OLD = (
+    "freq_grid_generator = generate_freq_grid_np if self.double_precision_rope "
+    "else generate_freq_grid_pytorch"
+)
+_ROPE_NEW = "freq_grid_generator = generate_freq_grid_pytorch"
+
+# Patch 4 -- honour ``_forge_weights_dtype`` in ``VideoDecoder.forward``.
+# ``next(self.parameters())`` is not traceable by dynamo (free-variable
+# NameError). Read the stamped constant when present, else fall back to the
+# original eager lookup so standalone use is unchanged.
+_DECODER_DTYPE_OLD = "weights_dtype = next(self.parameters()).dtype"
+_DECODER_DTYPE_NEW = """weights_dtype = getattr(self, "_forge_weights_dtype", None)
+if weights_dtype is None:
+    weights_dtype = next(self.parameters()).dtype"""
+
+
+def _apply_runtime_patches():
+    """Apply the four TT bring-up patches to the pinned upstream classes.
+
+    Idempotent: each patch flags the method it installs and returns early on a
+    second call.
+
+    Note on the one dropped patch: the vendored tree also stripped
+    ``channels_last_3d`` (a cuDNN-only layout) out of
+    ``model/video_vae/memory_efficient_decode.py``. That module is an *opt-in*
+    ``ModuleOps`` (``MEMORY_EFFICIENT_DECODE``) that ``VideoDecoderConfigurator``
+    does not install, so nothing this loader builds ever reaches it. It is left
+    unpatched rather than carrying a runtime patch for dead code; re-derive it
+    from the pinned source if the memory-efficient decode path is ever enabled.
+    """
+    from ltx_core.model.audio_vae.vocoder import VocoderWithBWE, _STFTFn
+    from ltx_core.model.transformer.transformer_args import (
+        TransformerArgsPreprocessor,
+    )
+    from ltx_core.model.video_vae.video_vae import VideoDecoder
+
+    _patch_method_source(_STFTFn, "forward", _STFT_OLD, _STFT_NEW, "_tt_unfold_stft")
+    _patch_method_source(
+        VocoderWithBWE, "forward", _VOCODER_OLD, _VOCODER_NEW, "_tt_compute_dtype"
+    )
+    _patch_method_source(
+        TransformerArgsPreprocessor,
+        "_prepare_positional_embeddings",
+        _ROPE_OLD,
+        _ROPE_NEW,
+        "_tt_torch_freq_grid",
+    )
+    _patch_method_source(
+        VideoDecoder,
+        "forward",
+        _DECODER_DTYPE_OLD,
+        _DECODER_DTYPE_NEW,
+        "_tt_weights_dtype",
+    )
+
+
+def _bootstrap_ltx_core():
+    """Point ``ltx_core`` at the submodule, stub torchaudio, apply the patches."""
+    pkg_dir = _ltx_core_pkg_dir()
+    if pkg_dir is None:
+        raise ImportError(_SUBMODULE_HINT)
+
+    importlib.invalidate_caches()
+    _register_bare_package("ltx_core", pkg_dir)
+    sys.modules.setdefault("torchaudio", _TorchaudioStub("torchaudio"))
+
+
+_bootstrap_ltx_core()
 
 from ltx_core.guidance.perturbations import BatchedPerturbationConfig  # noqa: E402
 from ltx_core.model.transformer.modality import Modality  # noqa: E402
@@ -78,6 +334,8 @@ from ltx_core.model.audio_vae.model_configurator import (  # noqa: E402
     AudioEncoderConfigurator,
     VocoderConfigurator,
 )
+
+_apply_runtime_patches()
 
 _HF_REPO = "Lightricks/LTX-2.3"
 
@@ -252,7 +510,12 @@ _AUDIO_VAE_CONFIG = {
             }
         },
         "preprocessing": {
-            "stft": {"filter_length": 1024, "hop_length": 160, "win_length": 1024, "causal": True},
+            "stft": {
+                "filter_length": 1024,
+                "hop_length": 160,
+                "win_length": 1024,
+                "causal": True,
+            },
             "mel": {"n_mel_channels": 64, "mel_fmin": 0, "mel_fmax": 8000},
         },
     }
@@ -660,7 +923,7 @@ class ModelLoader(ForgeModel):
         """Megatron-style TP map over the transformer blocks. Non-sharded dim is
         ``None`` (replicated).
 
-        Module names are taken from the vendored ``BasicAVTransformerBlock``
+        Module names are taken from the upstream ``BasicAVTransformerBlock``
         (transformer.py): per-block attentions ``attn1`` / ``attn2`` (video),
         ``audio_attn1`` / ``audio_attn2`` (audio), and the AV cross-attentions
         ``audio_to_video_attn`` / ``video_to_audio_attn``; feed-forwards ``ff``
