@@ -132,3 +132,29 @@ class ModelLoader(ForgeModel):
             prompt_embeds = prompt_embeds.to(dtype_override)
 
         return [latent_model_input, timesteps, prompt_embeds, added_cond_kwargs]
+
+    def decode_vae(self, latents, on_tt=False):
+        """Decode SDXL VAE latents -> image tensor in [-1, 1].
+
+        With ``on_tt=True`` the AutoencoderKL decoder runs on TT via
+        ``torch.compile(backend="tt")`` with ``optimization_level=1`` (the
+        composite ttnn.group_norm lowering the VAE group norms need). The full
+        SDXL AutoencoderKL decodes correctly on device (verified vs the CPU
+        golden), unlike the SD1.5/SD3 AutoencoderKL. ``load_model`` must run first.
+        """
+        if self.pipeline is None:
+            self.load_model()
+        vae = self.pipeline.vae
+        with torch.no_grad():
+            if not on_tt:
+                return vae.decode(latents).sample
+
+            import torch_xla
+            import torch_xla.core.xla_model as xm
+
+            torch_xla.set_custom_compile_options({"optimization_level": 1})
+            dev = xm.xla_device()
+            vae_dev = vae.to(dtype=torch.bfloat16).to(dev)
+            compiled = torch.compile(lambda z: vae_dev.decode(z).sample, backend="tt")
+            out = compiled(latents.to(dtype=torch.bfloat16).to(dev))
+            return out.to("cpu").to(torch.float32)
