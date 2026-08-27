@@ -32,6 +32,7 @@ from typing import Optional
 
 import torch
 import torch_xla
+import torch_xla.debug.metrics as met
 from diffusers import FlowMatchEulerDiscreteScheduler
 from loguru import logger
 from PIL import Image
@@ -53,6 +54,47 @@ from .src.model_utils import (
     load_vae,
     tokenize_prompt,
 )
+
+
+def _compile_counters():
+    """``(compile_seconds, graphs_compiled)`` accumulated process-wide so far.
+
+    torch-xla's ``CompileTime`` metric is ``[count, total_ns, ...]``, and is
+    absent until the first compile.
+    """
+    data = met.metric_data("CompileTime")
+    if not data:
+        return 0.0, 0
+    return (data[1] / 1e9 if len(data) > 1 else 0.0), data[0]
+
+
+def _graphs_compiled():
+    return _compile_counters()[1]
+
+
+class _StageCounters:
+    """Compile time and graph count of one staged residency, as a delta.
+
+    Makes the warm numbers falsifiable: a warm iteration must add zero graphs.
+    """
+
+    def __init__(self, sink, name):
+        self._sink = sink
+        self._name = name
+
+    def __enter__(self):
+        self._t0 = time.perf_counter()
+        self._before = _compile_counters()
+        return self
+
+    def __exit__(self, *exc):
+        after = _compile_counters()
+        self._sink[self._name] = {
+            "wall_s": time.perf_counter() - self._t0,
+            "compile_s": after[0] - self._before[0],
+            "graphs_compiled": after[1] - self._before[1],
+        }
+        return False
 
 
 def calculate_shift(image_seq_len, base_seq=256, max_seq=4096, base=0.5, max_=1.15):
@@ -111,6 +153,7 @@ class ZImageConfig:
         width: int = WIDTH,
         compile_options: Optional[dict] = None,
         vae_tiling: bool = True,
+        warm_iters: int = 0,
     ):
         self.repo_id = REPO_ID
         self.height = height
@@ -118,6 +161,15 @@ class ZImageConfig:
         self.vae_scale_factor = VAE_SCALE_FACTOR
         # Forwarded for parity with the other imagegen pipelines; unused inline.
         self.compile_options = compile_options or {}
+        # Extra in-residency forwards per one-shot component, used to obtain a
+        # warm number while the component is still on device. 0 = inert, and the
+        # path is then byte-identical to pre-instrumentation behaviour, so the
+        # demo and PCC paths are unaffected. Only the benchmark sets it.
+        # The text encoder needs none: it ALREADY runs two forwards per residency
+        # (prompt, then the empty negative prompt -- both padded to 512 by
+        # tokenize_prompt, so the same graph), and the shipped code merely summed
+        # them into one timer.
+        self.warm_iters = warm_iters
         # Tiled VAE decode keeps the 1280x720 decode activations small so the
         # host-side spike during decode stays bounded. Flip off to revert to a
         # single full-frame decode.
@@ -132,6 +184,22 @@ class ZImageTTPipeline:
     module is loaded inside ``generate()`` and freed at the end of its stage, so
     nothing carries over between calls.
     """
+
+    # Every component is loaded, run and freed inside generate(), and eviction
+    # discards the compiled graph with the weights -- so a second generate() call
+    # rebuilds from scratch and timing it reports a cold cycle as warm. The
+    # benchmark harness reads this to skip its outer warmup pass.
+    benchmark_staged_residency = True
+
+    # Substitution seams. generate() instantiates these attributes rather than the
+    # classes directly, so a consumer can swap in a subclass without copying
+    # generate(). The PCC e2e uses this to intercept each component's forward and
+    # compare against a CPU twin, instead of duplicating the whole pipeline --
+    # residency, eviction, staging and the warm machinery stay in this one file.
+    # Default values keep behaviour identical.
+    TEXT_ENCODER_CLS = TextEncoderWrapper
+    TRANSFORMER_CLS = TransformerWrapper
+    VAE_CLS = VaeDecodeWrapper
 
     def __init__(self, config: ZImageConfig):
         self.config = config
@@ -174,7 +242,14 @@ class ZImageTTPipeline:
             "steps": [],
             "step_metric_name": "transformer_step",
             "total": None,
+            # Staged-residency additions. components[] keeps its existing meaning
+            # (the functional total) so the published <name>_s does not move.
+            "cold": {},
+            "warm": {},
+            "counters": {},
         }
+        # Per-step graph counts, so warm steps are SELECTED rather than assumed.
+        step_graphs = []
         t_total_start = time.perf_counter()
 
         with torch.no_grad():
@@ -182,13 +257,26 @@ class ZImageTTPipeline:
             # Loaded here (not in setup) and fully released at the end of the
             # stage so its ~7.5 GB never overlaps the transformer or VAE.
             logger.info("[STAGE] text_encoder: start")
-            text_encoder = TextEncoderWrapper(load_text_encoder(DTYPE)).eval()
+            text_encoder = self.TEXT_ENCODER_CLS(load_text_encoder(DTYPE)).eval()
             text_encoder = text_encoder.to(self._device)
             te_compiled = torch.compile(text_encoder, backend="tt")
-            t0 = time.perf_counter()
-            cap_pos = self._encode(prompt, te_compiled)
-            cap_neg = self._encode(NEGATIVE_PROMPT, te_compiled) if do_cfg else None
-            self._perf["components"]["text_encoder"] = time.perf_counter() - t0
+            with _StageCounters(self._perf["counters"], "text_encoder"):
+                t0 = time.perf_counter()
+                # COLD: first forward in this residency, carries the build.
+                t_enc = time.perf_counter()
+                cap_pos = self._encode(prompt, te_compiled)
+                self._perf["cold"]["text_encoder"] = time.perf_counter() - t_enc
+                # WARM, free: the negative prompt is a second forward inside the
+                # SAME residency with identical padded shapes, so it reuses the
+                # graph. No synthetic repeat needed.
+                if do_cfg:
+                    t_enc = time.perf_counter()
+                    cap_neg = self._encode(NEGATIVE_PROMPT, te_compiled)
+                    self._perf["warm"]["text_encoder"] = time.perf_counter() - t_enc
+                else:
+                    cap_neg = None
+                # Unchanged meaning: the functional total of both forwards.
+                self._perf["components"]["text_encoder"] = time.perf_counter() - t0
             del te_compiled, text_encoder
             gc.collect()
             torch_xla.sync()
@@ -228,7 +316,7 @@ class ZImageTTPipeline:
 
             # ── Denoising loop (transformer), then free ───────────────────
             logger.info("[STAGE] transformer: start ({} steps)", num_inference_steps)
-            transformer = TransformerWrapper(load_transformer(DTYPE)).eval()
+            transformer = self.TRANSFORMER_CLS(load_transformer(DTYPE)).eval()
             transformer = transformer.to(self._device)
             tf_compiled = torch.compile(transformer, backend="tt")
             for i, t in enumerate(timesteps):
@@ -244,6 +332,7 @@ class ZImageTTPipeline:
                 else:
                     pred = pos
                 self._perf["steps"].append(time.perf_counter() - t0)
+                step_graphs.append(_graphs_compiled())
 
                 noise_pred = (-pred).squeeze(2)
                 latents = self.scheduler.step(
@@ -258,20 +347,58 @@ class ZImageTTPipeline:
 
             # ── VAE decode → raw pixels in [-1, 1], then free ─────────────
             logger.info("[STAGE] vae: start")
-            vae_wrapper = VaeDecodeWrapper(load_vae(DTYPE)).eval()
+            vae_wrapper = self.VAE_CLS(load_vae(DTYPE)).eval()
             if self.config.vae_tiling and hasattr(vae_wrapper.vae, "enable_tiling"):
                 # Tiled decode bounds the 1280x720 decode activations (and their
                 # host staging) to a single tile instead of the full frame.
                 vae_wrapper.vae.enable_tiling()
             vae_wrapper = vae_wrapper.to(self._device)
             vae_compiled = torch.compile(vae_wrapper, backend="tt")
-            t0 = time.perf_counter()
-            image = vae_compiled(latents.to(self._device)).cpu().float()
-            self._perf["components"]["vae"] = time.perf_counter() - t0
+            with _StageCounters(self._perf["counters"], "vae"):
+                t0 = time.perf_counter()
+                image = vae_compiled(latents.to(self._device)).cpu().float()
+                vae_cold = time.perf_counter() - t0
+                self._perf["cold"]["vae"] = vae_cold
+                # Unchanged meaning: the functional decode only.
+                self._perf["components"]["vae"] = vae_cold
+                # WARM: the VAE has no natural second forward, so repeat it here
+                # while still resident. Outputs are discarded, so the returned
+                # image is identical at any warm_iters -- inert at 0.
+                warm_times = []
+                for _ in range(self.config.warm_iters):
+                    t_w = time.perf_counter()
+                    extra = vae_compiled(latents.to(self._device)).cpu().float()
+                    warm_times.append(time.perf_counter() - t_w)
+                    del extra
+                if warm_times:
+                    self._perf["warm"]["vae"] = sum(warm_times) / len(warm_times)
             del vae_compiled, vae_wrapper
             gc.collect()
             torch_xla.sync()
             logger.info("[STAGE] vae: done")
+
+        # ---- transformer step cold/warm -------------------------------------
+        # Warm steps are SELECTED, not assumed at index 1. Measured on this model:
+        # step 2 still compiled in one call (uncached +3) and was warm in the next,
+        # so a fixed steps[1:] mean can fold a build-carrying step into "warm" and
+        # overstate it. A step is warm only if it added no graphs.
+        steps = self._perf["steps"]
+        if steps:
+            self._perf["cold"]["transformer_step"] = steps[0]
+            warm_steps = [
+                t
+                for i, t in enumerate(steps)
+                if i > 0 and step_graphs[i] == step_graphs[i - 1]
+            ]
+            if warm_steps:
+                self._perf["warm"]["transformer_step"] = sum(warm_steps) / len(
+                    warm_steps
+                )
+            self._perf["counters"]["transformer_warm_steps"] = {
+                "warm_steps": len(warm_steps),
+                "total_steps": len(steps),
+                "graphs_compiled": step_graphs[-1] - step_graphs[0],
+            }
 
         self._perf["total"] = time.perf_counter() - t_total_start
         return image
