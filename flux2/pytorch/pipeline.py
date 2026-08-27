@@ -31,6 +31,7 @@ from typing import Optional
 
 import torch
 import torch_xla
+import torch_xla.debug.metrics as met
 import torch_xla.distributed.spmd as xs
 import torch_xla.runtime as xr
 from diffusers import Flux2Pipeline
@@ -56,6 +57,18 @@ from .src.model_utils import (
 NUM_INFERENCE_STEPS = 50
 
 
+def _compile_counters():
+    """``(compile_seconds, graphs_compiled)`` accumulated process-wide so far."""
+    data = met.metric_data("CompileTime")
+    if not data:
+        return 0.0, 0
+    return (data[1] / 1e9 if len(data) > 1 else 0.0), data[0]
+
+
+def _graphs_compiled():
+    return _compile_counters()[1]
+
+
 class _DeviceDenoiser:
     """Routes Flux2Pipeline's transformer calls to the TP-sharded model on TT.
 
@@ -65,6 +78,7 @@ class _DeviceDenoiser:
     def __init__(self, transformer, mesh, perf):
         self._dev = torch_xla.device()
         self._perf = perf
+        self._warm_iters = warm_iters
         self.config = transformer.config
         self.dtype = next(transformer.parameters()).dtype
 
@@ -90,6 +104,8 @@ class _DeviceDenoiser:
         else:
             result = out.cpu()
         self._perf["steps"].append(time.perf_counter() - t0)
+        # Per-step graph count, so warm steps are selected rather than assumed.
+        self._perf.setdefault("step_graphs", []).append(_graphs_compiled())
         return result
 
 
@@ -104,7 +120,7 @@ class _DeviceVAEDecoder:
     postprocess.
     """
 
-    def __init__(self, vae, perf):
+    def __init__(self, vae, perf, warm_iters=0):
         # No mesh: the VAE runs replicated, so it needs no shard annotations.
         self._dev = torch_xla.device()
         self._perf = perf
@@ -128,7 +144,20 @@ class _DeviceVAEDecoder:
         # host — the compiled lambda always returns a tensor, so no guard needed.
         out = self._compiled(latents.to(self._dev))
         image = out.cpu()
-        self._perf["components"]["vae"] = time.perf_counter() - t0
+        vae_cold = time.perf_counter() - t0
+        # components[] keeps its existing meaning: the functional decode only.
+        self._perf["components"]["vae"] = vae_cold
+        self._perf.setdefault("cold", {})["vae"] = vae_cold
+        # WARM: no natural second decode, so repeat while still resident. Outputs
+        # discarded, so last_pixels is identical at any warm_iters. Inert at 0.
+        _warm = []
+        for _ in range(self._warm_iters):
+            _t = time.perf_counter()
+            _extra = self._compiled(latents.to(self._dev)).cpu()
+            _warm.append(time.perf_counter() - _t)
+            del _extra
+        if _warm:
+            self._perf.setdefault("warm", {})["vae"] = sum(_warm) / len(_warm)
         self.last_pixels = image
         return (image,)
 
@@ -139,12 +168,16 @@ class Flux2Config:
         height: int = HEIGHT,
         width: int = WIDTH,
         compile_options: Optional[dict] = None,
+        warm_iters: int = 0,
     ):
         self.repo_id = REPO_ID
         self.height = height
         self.width = width
         # Forwarded for parity with the other imagegen pipelines; unused inline.
         self.compile_options = compile_options or {}
+        # Extra in-residency forwards per one-shot component. 0 = inert, so the
+        # demo and PCC paths are byte-identical to pre-instrumentation behaviour.
+        self.warm_iters = warm_iters
 
 
 class Flux2TTPipeline:
@@ -158,6 +191,19 @@ class Flux2TTPipeline:
     def __init__(self, config: Flux2Config):
         self.config = config
         self._perf = {}
+
+    # Every component is evicted inside generate() -- the 24B encoder explicitly,
+    # transformer and VAE by reassignment next call -- and eviction discards the
+    # compiled graph. A second generate() rebuilds, so the harness must skip its
+    # outer warmup pass.
+    benchmark_staged_residency = True
+
+    def _intercept(self, name, compiled):
+        """Hook on each component's COMPILED callable. Identity by default.
+
+        Keeps a PCC golden comparison OUTSIDE the traced graph.
+        """
+        return compiled
 
     def setup(self):
         # Enables SPMD + shardy annotations; required so tt-mlir gets shardy
@@ -198,6 +244,10 @@ class Flux2TTPipeline:
             "steps": [],
             "step_metric_name": "transformer_step",
             "total": None,
+            "cold": {},
+            "warm": {},
+            "counters": {},
+            "step_graphs": [],
         }
         t_total_start = time.perf_counter()
 
@@ -214,7 +264,9 @@ class Flux2TTPipeline:
         assert te_specs, "text-encoder shard spec is empty — descent failed (would OOM)"
         for tensor, spec in te_specs.items():
             xs.mark_sharding(tensor, self.mesh, spec)
-        te_compiled = torch.compile(encoder_wrapper, backend="tt")
+        te_compiled = self._intercept(
+            "text_encoder", torch.compile(encoder_wrapper, backend="tt")
+        )
 
         t0 = time.perf_counter()
         with torch.no_grad():
@@ -222,7 +274,22 @@ class Flux2TTPipeline:
         # .cpu() forces execution and blocks until the embeds are on host, so it
         # is the sync point that ends this component's timer.
         prompt_embeds = prompt_embeds.cpu()
-        self._perf["components"]["text_encoder"] = time.perf_counter() - t0
+        te_cold = time.perf_counter() - t0
+        self._perf["components"]["text_encoder"] = te_cold
+        self._perf.setdefault("cold", {})["text_encoder"] = te_cold
+        # WARM: this encoder runs ONE forward per residency and is evicted at the
+        # end of the stage, so a warm number needs a synthetic repeat here while
+        # the graph still exists. Discarded, so prompt_embeds is unchanged.
+        _warm = []
+        for _ in range(self.config.warm_iters):
+            _t = time.perf_counter()
+            with torch.no_grad():
+                _extra = te_compiled(input_ids.to(dev), attention_mask.to(dev))
+            _extra = _extra.cpu()
+            _warm.append(time.perf_counter() - _t)
+            del _extra
+        if _warm:
+            self._perf.setdefault("warm", {})["text_encoder"] = sum(_warm) / len(_warm)
 
         # Free the 24B encoder from device before placing the 32B denoiser.
         self.pipe.text_encoder = text_encoder.to("cpu")
@@ -239,7 +306,9 @@ class Flux2TTPipeline:
         self.pipe.transformer = _DeviceDenoiser(
             self._raw_transformer, self.mesh, self._perf
         )
-        vae_wrapper = _DeviceVAEDecoder(self._raw_vae, self._perf)
+        vae_wrapper = _DeviceVAEDecoder(
+            self._raw_vae, self._perf, warm_iters=self.config.warm_iters
+        )
         self.pipe.vae = vae_wrapper
 
         generator = torch.Generator().manual_seed(seed) if seed is not None else None
@@ -253,6 +322,24 @@ class Flux2TTPipeline:
             generator=generator,
         )
         logger.info("[STAGE] transformer + vae: done")
+
+        # Warm steps are SELECTED by graph count, not assumed at index 1.
+        steps = self._perf["steps"]
+        sg = self._perf.get("step_graphs") or []
+        if steps and len(sg) == len(steps):
+            self._perf["cold"]["transformer_step"] = steps[0]
+            warm_steps = [
+                t for i, t in enumerate(steps) if i > 0 and sg[i] == sg[i - 1]
+            ]
+            if warm_steps:
+                self._perf["warm"]["transformer_step"] = sum(warm_steps) / len(
+                    warm_steps
+                )
+            self._perf["counters"]["transformer_warm_steps"] = {
+                "warm_steps": len(warm_steps),
+                "total_steps": len(steps),
+                "graphs_compiled": sg[-1] - sg[0],
+            }
 
         self._perf["total"] = time.perf_counter() - t_total_start
         # Raw VAE pixels in [-1, 1], shape (1, 3, H, W).
