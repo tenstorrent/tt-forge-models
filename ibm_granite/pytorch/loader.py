@@ -2,20 +2,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-EXAONE 4.5 model loader implementation.
+IBM Granite 4.1 30B model loader implementation.
 """
 
 import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
-
-# NOTE: `transformers` is intentionally NOT imported at module top level.
-# EXAONE 4.5 gained native support in transformers >= 5.8.0 (see requirements.txt;
-# model_type "exaone4_5"). The Hub checkpoint has no auto_map, so
-# trust_remote_code cannot load it on older installs. The test runner upgrades
-# transformers at test time and purges it from sys.modules. A top-level import
-# would bind the Auto* classes to whatever transformers was loaded during pytest
-# collection, leaving stale class objects whose in-memory mappings omit
-# exaone4_5. So the Auto* classes are imported lazily in the methods.
 
 from ...base import ForgeModel
 from ...config import (
@@ -30,22 +22,22 @@ from ...config import (
 
 
 class ModelVariant(StrEnum):
-    """Available EXAONE 4.5 model variants for causal language modeling."""
+    """Available IBM Granite model variants for causal language modeling."""
 
-    EXAONE_4_5_33B = "EXAONE_4_5_33B"
+    GRANITE_4_1_30B = "granite-4.1-30b"
 
 
 class ModelLoader(ForgeModel):
-    """EXAONE 4.5 model loader implementation for causal language modeling tasks."""
+    """IBM Granite 4.1 30B model loader for causal language modeling tasks."""
 
     _VARIANTS = {
-        ModelVariant.EXAONE_4_5_33B: LLMModelConfig(
-            pretrained_model_name="LGAI-EXAONE/EXAONE-4.5-33B",
+        ModelVariant.GRANITE_4_1_30B: LLMModelConfig(
+            pretrained_model_name="ibm-granite/granite-4.1-30b",
             max_length=256,
         ),
     }
 
-    DEFAULT_VARIANT = ModelVariant.EXAONE_4_5_33B
+    DEFAULT_VARIANT = ModelVariant.GRANITE_4_1_30B
 
     sample_text = "Who are you?"
 
@@ -74,7 +66,7 @@ class ModelLoader(ForgeModel):
         if variant is None:
             variant = cls.DEFAULT_VARIANT
         return ModelInfo(
-            model="EXAONE",
+            model="IBM Granite",
             variant=variant,
             group=ModelGroup.GENERALITY,
             task=ModelTask.NLP_CAUSAL_LM,
@@ -88,32 +80,25 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded tokenizer instance
         """
-        # Lazy import so it binds to the pinned transformers (see module note).
-        from transformers import AutoTokenizer
-
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name
         )
 
-        # EXAONE's tokenizer ships without a pad token; reuse EOS so padding works.
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
         return self.tokenizer
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load and return the EXAONE 4.5 model instance for this instance's variant.
+        """Load and return the IBM Granite model instance for this instance's variant.
 
         Args:
             dtype_override: Optional torch.dtype to override the model's default dtype.
                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
-            torch.nn.Module: The EXAONE 4.5 model for causal language modeling.
+            torch.nn.Module: The IBM Granite model for causal language modeling.
         """
-        # Lazy import so it binds to the pinned transformers (see module note).
-        from transformers import AutoModelForMultimodalLM
-
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
@@ -124,7 +109,7 @@ class ModelLoader(ForgeModel):
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
 
-        model = AutoModelForMultimodalLM.from_pretrained(
+        model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name, **model_kwargs
         )
         model.eval()
@@ -133,7 +118,7 @@ class ModelLoader(ForgeModel):
         return model
 
     def load_inputs(self, dtype_override=None, batch_size=1):
-        """Load and return sample inputs for the EXAONE 4.5 model with this instance's variant settings.
+        """Load and return sample inputs for the IBM Granite model with this instance's variant settings.
 
         Args:
             dtype_override: Optional torch.dtype to override the model inputs' default dtype.
@@ -168,13 +153,23 @@ class ModelLoader(ForgeModel):
 
     def get_mesh_config(self, num_devices: int):
         """Return mesh shape and axis names for tensor parallel."""
-
-        mesh_shape = (2, num_devices // 2)
+        if self.config.num_attention_heads % num_devices == 0:
+            mesh_shape = (1, num_devices)
+        elif (
+            self.config.num_attention_heads % (num_devices // 2) == 0
+            and num_devices % 2 == 0
+        ):
+            mesh_shape = (2, num_devices // 2)
+        else:
+            raise ValueError(
+                f"Cannot evenly distribute {self.config.num_attention_heads} heads "
+                f"across {num_devices} devices"
+            )
         return mesh_shape, ("batch", "model")
 
     def load_shard_spec(self, model):
         shard_specs = {}
-        for layer in model.model.language_model.layers:
+        for layer in model.model.layers:
             shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
             shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
@@ -188,9 +183,6 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         """Load and return the configuration for the model variant."""
-        # Lazy import so it binds to the pinned transformers (see module note).
-        from transformers import AutoConfig
-
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name
         )

@@ -147,7 +147,7 @@ class ModelLoader(ForgeModel):
         if self._variant == ModelVariant.TEXT_ENCODER:
             return shard_text_encoder_specs(model, self._model_axis_size)
         if self._variant == ModelVariant.VISION_LANGUAGE_ENCODER:
-            return shard_vision_language_encoder_specs(model.vlm)
+            return shard_vision_language_encoder_specs(model.vlm, self._model_axis_size)
         if self._variant == ModelVariant.TRANSFORMER:
             return shard_transformer_specs(model.transformer)
         if self._variant == ModelVariant.VAE:
