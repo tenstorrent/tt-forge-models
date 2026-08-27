@@ -191,15 +191,26 @@ class ZImageTTPipeline:
     # benchmark harness reads this to skip its outer warmup pass.
     benchmark_staged_residency = True
 
-    # Substitution seams. generate() instantiates these attributes rather than the
-    # classes directly, so a consumer can swap in a subclass without copying
-    # generate(). The PCC e2e uses this to intercept each component's forward and
-    # compare against a CPU twin, instead of duplicating the whole pipeline --
-    # residency, eviction, staging and the warm machinery stay in this one file.
-    # Default values keep behaviour identical.
+    # Substitution seams for the module classes. generate() instantiates these
+    # attributes rather than the classes directly, so a consumer can swap in a
+    # subclass without copying generate(). Defaults keep behaviour identical.
     TEXT_ENCODER_CLS = TextEncoderWrapper
     TRANSFORMER_CLS = TransformerWrapper
     VAE_CLS = VaeDecodeWrapper
+
+    def _intercept(self, name, compiled):
+        """Hook applied to each component's COMPILED callable. Identity by default.
+
+        This is the seam the PCC e2e uses, not the ``*_CLS`` ones. Z-Image compiles
+        the whole wrapper module (``torch.compile(TextEncoderWrapper(...))``), so a
+        check placed in the wrapper's ``forward`` would run INSIDE the traced graph
+        and fail with "Cannot copy out of meta tensor" the moment it touches a CPU
+        twin. Wrapping the compiled callable instead keeps the comparison outside
+        the graph, where host tensors are real.
+
+        ``name`` is one of "text_encoder", "transformer", "vae".
+        """
+        return compiled
 
     def __init__(self, config: ZImageConfig):
         self.config = config
@@ -259,7 +270,9 @@ class ZImageTTPipeline:
             logger.info("[STAGE] text_encoder: start")
             text_encoder = self.TEXT_ENCODER_CLS(load_text_encoder(DTYPE)).eval()
             text_encoder = text_encoder.to(self._device)
-            te_compiled = torch.compile(text_encoder, backend="tt")
+            te_compiled = self._intercept(
+                "text_encoder", torch.compile(text_encoder, backend="tt")
+            )
             with _StageCounters(self._perf["counters"], "text_encoder"):
                 t0 = time.perf_counter()
                 # COLD: first forward in this residency, carries the build.
@@ -318,7 +331,9 @@ class ZImageTTPipeline:
             logger.info("[STAGE] transformer: start ({} steps)", num_inference_steps)
             transformer = self.TRANSFORMER_CLS(load_transformer(DTYPE)).eval()
             transformer = transformer.to(self._device)
-            tf_compiled = torch.compile(transformer, backend="tt")
+            tf_compiled = self._intercept(
+                "transformer", torch.compile(transformer, backend="tt")
+            )
             for i, t in enumerate(timesteps):
                 logger.info("[STEP] transformer step {}/{}", i + 1, num_inference_steps)
                 timestep = ((1000 - t.expand(1)) / 1000).to(DTYPE)
@@ -353,7 +368,9 @@ class ZImageTTPipeline:
                 # host staging) to a single tile instead of the full frame.
                 vae_wrapper.vae.enable_tiling()
             vae_wrapper = vae_wrapper.to(self._device)
-            vae_compiled = torch.compile(vae_wrapper, backend="tt")
+            vae_compiled = self._intercept(
+                "vae", torch.compile(vae_wrapper, backend="tt")
+            )
             with _StageCounters(self._perf["counters"], "vae"):
                 t0 = time.perf_counter()
                 image = vae_compiled(latents.to(self._device)).cpu().float()
