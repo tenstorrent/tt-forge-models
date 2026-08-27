@@ -162,14 +162,18 @@ class ModelLoader(ForgeModel):
     def get_mesh_config(self, num_devices: int):
         """Mesh config for tensor-parallel sharding of the Infinity transformer.
 
-        Uses the mochi-style 2D mesh ``(1, 8)`` with axis names
-        ``(None, "model")``: the 8-wide ``model`` axis (index 1) carries the
-        tensor parallelism and the size-1 axis is named ``None`` so no partition
-        spec ever references it. ``load_inputs`` uses ``batch_size=1`` so there
-        is no data-parallel axis. An 8-wide ``model`` axis splits the 16
-        attention heads 2-per-device, shrinking the O(L^2) self-attention score
-        tensor from ``[1, 16, L, L]`` to ``[1, 2, L, L]`` -- the buffer that
-        OOM'd when attention was replicated.
+        Uses the mochi-style 2D mesh ``(1, num_devices)`` with axis names
+        ``(None, "model")``: the ``model`` axis (index 1) carries the tensor
+        parallelism and the size-1 axis is named ``None`` so no partition spec
+        ever references it. ``load_inputs`` uses ``batch_size=1`` so there is no
+        data-parallel axis. The ``model`` axis splits the 16 attention heads
+        evenly across devices (4-per-device on 4 devices, 2-per-device on 8),
+        shrinking the O(L^2) self-attention score tensor from ``[1, 16, L, L]``
+        to ``[1, 16 // num_devices, L, L]`` -- the buffer that OOM'd when
+        attention was replicated.
+
+        Only device counts that evenly divide the 16 attention heads are
+        supported (the head-parallel shard spec requires it).
 
         Args:
             num_devices: Total devices visible to the runtime.
@@ -177,11 +181,18 @@ class ModelLoader(ForgeModel):
         Returns:
             tuple: ``(mesh_shape, axis_names)``.
         """
-        if num_devices == 8:
-            mesh_shape = (1, 8)
+        num_heads = 16
+        if num_devices in (4, 8):
+            mesh_shape = (1, num_devices)
         else:
             raise ValueError(
-                f"Infinity sharding currently supports 8 devices, got {num_devices}."
+                f"Infinity sharding currently supports 4 or 8 devices, "
+                f"got {num_devices}."
+            )
+        if num_heads % num_devices != 0:
+            raise ValueError(
+                f"Infinity head-parallel sharding needs num_devices to divide "
+                f"the {num_heads} attention heads, got {num_devices}."
             )
         return mesh_shape, (None, "model")
 
@@ -196,7 +207,7 @@ class ModelLoader(ForgeModel):
         ``mat_kv`` -> ``mat_k/mat_v``) precisely so a single partition spec can
         place matching per-head q/k/v on the same device -- sharding the fused
         qkv-major weight directly is numerically wrong (PCC ~ -0.18). Mesh is
-        the mochi ``(1, 8)`` / ``(None, "model")``.
+        the mochi ``(1, num_devices)`` / ``(None, "model")``.
 
         Per-head scale (``scale_mul_1H11``), the concatenated bias buffers,
         norms, lvl/positional embeddings and the tiny head are left replicated;
