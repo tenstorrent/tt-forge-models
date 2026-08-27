@@ -76,6 +76,57 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
+    def _sanitize_spm_null_piece(self):
+        """Make InternLM2's ``tokenizer.model`` loadable under sentencepiece>=0.2.
+
+        The checkpoint's SentencePiece model contains a single NORMAL piece whose
+        surface is a literal null character. sentencepiece>=0.2.0 rejects it with
+        ``RuntimeError: piece must not include null character``; transformers
+        4.46.3 catches that inside ``_from_pretrained`` and silently returns
+        ``False`` from ``AutoTokenizer.from_pretrained`` -- so the loader ends up
+        with ``self.tokenizer = False`` and later hits
+        ``'bool' object has no attribute 'apply_chat_template'``.
+
+        Pinning sentencepiece<0.2 is not viable (no cp312 wheel; the sdist build
+        fails), so instead we rewrite that one piece in the cached model file to a
+        unique non-null placeholder. The token id is preserved, and the null
+        piece never appears in real text, so tokenization/logits are unchanged.
+        The rewrite is idempotent (the null byte is gone after the first pass).
+        """
+        from huggingface_hub import hf_hub_download
+
+        spm_path = hf_hub_download(
+            self._variant_config.pretrained_model_name, "tokenizer.model"
+        )
+        with open(spm_path, "rb") as f:
+            blob = f.read()
+
+        # Wire-format of a 1-byte NUL piece string (field 1, len 1, value 0x00).
+        # If it's absent the file was already sanitized (or never affected).
+        if b"\x0a\x01\x00" not in blob:
+            return
+
+        try:
+            from sentencepiece import sentencepiece_model_pb2 as spb
+        except Exception:
+            from transformers.utils import sentencepiece_model_pb2 as spb
+
+        model = spb.ModelProto()
+        model.ParseFromString(blob)
+        existing = {p.piece for p in model.pieces}
+        changed = False
+        for piece in model.pieces:
+            if "\x00" in piece.piece:
+                placeholder = "<0x00_nul>"
+                while placeholder in existing:
+                    placeholder += "_"
+                existing.add(placeholder)
+                piece.piece = placeholder
+                changed = True
+        if changed:
+            with open(spm_path, "wb") as f:
+                f.write(model.SerializeToString())
+
     def _load_tokenizer(self):
         """Load tokenizer for the current variant.
 
@@ -83,6 +134,8 @@ class ModelLoader(ForgeModel):
             The loaded tokenizer instance
         """
         from transformers import AutoTokenizer
+
+        self._sanitize_spm_null_piece()
 
         tokenizer_kwargs = {"trust_remote_code": True, "use_fast": False}
 
