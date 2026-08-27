@@ -182,17 +182,9 @@ class InfinityPipeline:
         else:
             self.model = self.model.to(xm.xla_device())
         self._move_rope_cache_to_tt()
-        # One static graph per scale (the packed sequence grows each scale), so
-        # the default recompile limit of 8 would be hit part-way through the
-        # schedule -- and Dynamo would then skip the frame and silently fall back
-        # to eager (i.e. lazy-tensor) execution for the remaining scales.
         torch._dynamo.config.recompile_limit = max(
             torch._dynamo.config.recompile_limit, len(self.scale_schedule) + 8
         )
-        # forward, not the module, so self.step stays an nn.Module. dynamic=False:
-        # the tt backend compiles static shapes and every scale's length is known,
-        # so let each scale specialize instead of letting automatic_dynamic_shapes
-        # produce a dynamic graph on the second scale.
         self.step.forward = torch.compile(
             self.step.forward, backend="tt", dynamic=False
         )

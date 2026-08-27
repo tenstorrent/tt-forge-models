@@ -424,20 +424,59 @@ def shard_text_encoder_specs(encoder, model_axis_size: int = 1) -> dict:
     return specs
 
 
-def shard_vision_language_encoder_specs(vlm) -> dict:
+def _heads_divide_model_axis(config, model_axis_size: int) -> bool:
+    """Whether attention can be head-parallel across a model axis this wide.
+
+    q/k/v produce num_heads * head_dim (num_key_value_heads * head_dim for the
+    GQA k/v projections), which the model reshapes to (B, T, heads, head_dim).
+    Splitting those output dims across the model axis is only valid when whole
+    heads land on each device. When they do not, the sharding of the flat
+    heads*head_dim dim has no whole-axis image on the reshaped tensor and
+    Shardy falls back to *sub-axis* shardings ("model":(1)2 on the head dim,
+    "model":(2)2 on head_dim). tt-mlir's sdy -> stablehlo CCL lowering keys off
+    the full mesh-axis size and cannot lower a sub-axis collective, so the
+    sdy.all_slice survives the pipeline and trips the sdy.manual_computation
+    verifier ("operates on axis ... already bound by a parent
+    sdy.manual_computation op"). See tt-mlir ShardyCCLToStableHLOCCLPatterns.
+    """
+    if model_axis_size <= 1:
+        return True
+    if config is None:
+        return False
+    n_heads = getattr(config, "num_attention_heads", None)
+    if not n_heads:
+        return False
+    n_kv_heads = getattr(config, "num_key_value_heads", None) or n_heads
+    return n_heads % model_axis_size == 0 and n_kv_heads % model_axis_size == 0
+
+
+def shard_vision_language_encoder_specs(vlm, model_axis_size: int = 1) -> dict:
     """Shard specs for GlmImageForConditionalGeneration.
 
     Column-parallel (qkv, q, k, v, gate_up, fc1): ("model", "batch")
     Row-parallel   (proj/o, down_proj, fc2):       ("batch", "model")
     Replicated norms / embeddings as required.
+
+    Attention is only made head-parallel when whole heads land on each device
+    (see _heads_divide_model_axis); otherwise q/k/v/o are left replicated and
+    only the feed-forward stays tensor-parallel. This GLM language model has
+    32 query heads but 2 key/value heads, so on a 4-wide model axis the
+    attention block stays replicated.
     """
     specs = {}
 
     model = getattr(vlm, "model", vlm)
 
+    vlm_config = getattr(vlm, "config", None)
+
     # Visual tower (ViT-style)
     visual = getattr(model, "visual", None)
     if visual is not None:
+        visual_head_parallel = _heads_divide_model_axis(
+            getattr(visual, "config", None)
+            or getattr(vlm_config, "vision_config", None),
+            model_axis_size,
+        )
         if hasattr(visual, "embeddings") and hasattr(
             visual.embeddings, "position_embedding"
         ):
@@ -456,12 +495,13 @@ def shard_vision_language_encoder_specs(vlm) -> dict:
                 specs[block.norm2.bias] = ("batch",)
 
             attn = block.attn
-            specs[attn.qkv.weight] = ("model", "batch")
-            if attn.qkv.bias is not None:
-                specs[attn.qkv.bias] = ("model",)
-            specs[attn.proj.weight] = ("batch", "model")
-            if attn.proj.bias is not None:
-                specs[attn.proj.bias] = ("batch",)
+            if visual_head_parallel:
+                specs[attn.qkv.weight] = ("model", "batch")
+                if attn.qkv.bias is not None:
+                    specs[attn.qkv.bias] = ("model",)
+                specs[attn.proj.weight] = ("batch", "model")
+                if attn.proj.bias is not None:
+                    specs[attn.proj.bias] = ("batch",)
 
             mlp = block.mlp
             specs[mlp.fc1.weight] = ("model", "batch")
@@ -474,21 +514,28 @@ def shard_vision_language_encoder_specs(vlm) -> dict:
     # Language model (decoder-only)
     language_model = getattr(model, "language_model", None)
     if language_model is not None:
+        text_head_parallel = _heads_divide_model_axis(
+            getattr(language_model, "config", None)
+            or getattr(vlm_config, "text_config", None),
+            model_axis_size,
+        )
+
         if hasattr(language_model, "embed_tokens"):
             specs[language_model.embed_tokens.weight] = (None, "batch")
 
         for layer in getattr(language_model, "layers", []) or []:
             sa = layer.self_attn
-            specs[sa.q_proj.weight] = ("model", "batch")
-            if sa.q_proj.bias is not None:
-                specs[sa.q_proj.bias] = ("model",)
-            specs[sa.k_proj.weight] = ("model", "batch")
-            if sa.k_proj.bias is not None:
-                specs[sa.k_proj.bias] = ("model",)
-            specs[sa.v_proj.weight] = ("model", "batch")
-            if sa.v_proj.bias is not None:
-                specs[sa.v_proj.bias] = ("model",)
-            specs[sa.o_proj.weight] = ("batch", "model")
+            if text_head_parallel:
+                specs[sa.q_proj.weight] = ("model", "batch")
+                if sa.q_proj.bias is not None:
+                    specs[sa.q_proj.bias] = ("model",)
+                specs[sa.k_proj.weight] = ("model", "batch")
+                if sa.k_proj.bias is not None:
+                    specs[sa.k_proj.bias] = ("model",)
+                specs[sa.v_proj.weight] = ("model", "batch")
+                if sa.v_proj.bias is not None:
+                    specs[sa.v_proj.bias] = ("model",)
+                specs[sa.o_proj.weight] = ("batch", "model")
 
             mlp = layer.mlp
             specs[mlp.gate_up_proj.weight] = ("model", "batch")
