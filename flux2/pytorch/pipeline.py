@@ -78,7 +78,6 @@ class _DeviceDenoiser:
     def __init__(self, transformer, mesh, perf):
         self._dev = torch_xla.device()
         self._perf = perf
-        self._warm_iters = warm_iters
         self.config = transformer.config
         self.dtype = next(transformer.parameters()).dtype
 
@@ -124,6 +123,7 @@ class _DeviceVAEDecoder:
         # No mesh: the VAE runs replicated, so it needs no shard annotations.
         self._dev = torch_xla.device()
         self._perf = perf
+        self._warm_iters = warm_iters
         self.config = vae.config
         self.dtype = next(vae.parameters()).dtype
         self.bn = vae.bn  # stays on CPU; pipeline reads it host-side for denorm
