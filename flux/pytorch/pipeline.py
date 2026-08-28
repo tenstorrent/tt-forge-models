@@ -230,6 +230,12 @@ class FluxTTPipeline:
     # generate() therefore rebuilds, so the harness must skip its outer warmup.
     benchmark_staged_residency = True
 
+    # Substitution seams for the plain-callable wrappers. generate()
+    # instantiates these attributes rather than the classes directly, so the
+    # PCC e2e can swap in checking subclasses without copying generate().
+    DENOISER_CLS = _DeviceDenoiser
+    VAE_CLS = _DeviceVAEDecoder
+
     def setup(self):
         # Enables SPMD + shardy annotations; required so the StableHLO handed to
         # tt-mlir carries the @Sharding custom calls the presharded args need.
@@ -264,6 +270,11 @@ class FluxTTPipeline:
         compiled graph, so a later call rebuilds rather than reusing it.
         """
         wrapper = wrapper_cls(module).eval()
+        # Hook while the wrapper is still on HOST. The PCC e2e computes its golden
+        # here so the check costs no second copy of the encoder -- placing first
+        # and loading a twin later would double this component's peak, which
+        # matters because the staging exists to keep peak at max(component).
+        self._pre_place(name, wrapper, input_ids)
         module = module.to(dev)
         compiled = self._intercept(name, torch.compile(wrapper, backend="tt"))
         t0 = time.perf_counter()
@@ -288,6 +299,13 @@ class FluxTTPipeline:
         module = module.to("cpu")
         del compiled, wrapper
         return module, out, dt
+
+    def _pre_place(self, name, wrapper, input_ids):
+        """Hook called with the wrapper still on host, before device placement.
+
+        No-op by default. See _encode for why the PCC path needs it.
+        """
+        return None
 
     def _intercept(self, name, compiled):
         """Hook applied to each component's COMPILED callable. Identity by default.
@@ -355,10 +373,10 @@ class FluxTTPipeline:
             "[STAGE] transformer (sharded) + vae: start ({} steps)",
             num_inference_steps,
         )
-        self.pipe.transformer = _DeviceDenoiser(
+        self.pipe.transformer = self.DENOISER_CLS(
             self._raw_transformer, self.mesh, self._perf
         )
-        vae_wrapper = _DeviceVAEDecoder(
+        vae_wrapper = self.VAE_CLS(
             self._raw_vae, self._perf, warm_iters=self.config.warm_iters
         )
         self.pipe.vae = vae_wrapper

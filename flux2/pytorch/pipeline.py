@@ -198,6 +198,19 @@ class Flux2TTPipeline:
     # outer warmup pass.
     benchmark_staged_residency = True
 
+    # Substitution seams for the plain-callable wrappers. generate()
+    # instantiates these attributes rather than the classes directly, so the
+    # PCC e2e can swap in checking subclasses without copying generate().
+    DENOISER_CLS = _DeviceDenoiser
+    VAE_CLS = _DeviceVAEDecoder
+
+    def _pre_place(self, name, wrapper, *inputs):
+        """Hook called with the wrapper still on host, before device placement.
+
+        No-op by default. See the text_encoder stage for why the PCC path needs it.
+        """
+        return None
+
     def _intercept(self, name, compiled):
         """Hook on each component's COMPILED callable. Identity by default.
 
@@ -257,6 +270,10 @@ class Flux2TTPipeline:
         encoder_wrapper = Mistral3TextEncoderWrapper(text_encoder).eval()
         input_ids, attention_mask = tokenize_prompt(prompt)
 
+        # Hook while the wrapper is still on HOST. The PCC e2e computes its golden
+        # here so the check costs no second copy of the 24B encoder -- placing
+        # first and loading a twin later would double this component's peak.
+        self._pre_place("text_encoder", encoder_wrapper, input_ids, attention_mask)
         text_encoder = text_encoder.to(dev)
         if hasattr(text_encoder, "tie_weights"):
             text_encoder.tie_weights()
@@ -303,10 +320,10 @@ class Flux2TTPipeline:
             "[STAGE] transformer (sharded) + vae: start ({} steps)",
             num_inference_steps,
         )
-        self.pipe.transformer = _DeviceDenoiser(
+        self.pipe.transformer = self.DENOISER_CLS(
             self._raw_transformer, self.mesh, self._perf
         )
-        vae_wrapper = _DeviceVAEDecoder(
+        vae_wrapper = self.VAE_CLS(
             self._raw_vae, self._perf, warm_iters=self.config.warm_iters
         )
         self.pipe.vae = vae_wrapper
