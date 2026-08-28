@@ -5,8 +5,12 @@
 InternLM2 chat causal LM model loader implementation.
 """
 
-import torch
+import os
+import shutil
+import tempfile
 from typing import Optional
+
+import torch
 
 # transformers is imported inside the methods so it binds to the pinned 4.46.3
 # after RequirementsManager swaps it in, not the repo default at collection time.
@@ -43,6 +47,16 @@ class ModelLoader(ForgeModel):
 
     sample_text = "Who are you?"
 
+    # Tokenizer files staged into a local copy. Do not snapshot the weight
+    # shards -- a full internlm2-chat-20b download is tens of GB.
+    _TOKENIZER_FILES = (
+        "tokenizer.model",
+        "tokenizer_config.json",
+        "special_tokens_map.json",
+        "tokenization_internlm2.py",
+        "tokenization_internlm2_fast.py",
+    )
+
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
 
@@ -54,6 +68,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self.config = None
         self.model = None
+        self._tokenizer_tmpdir = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -76,8 +91,8 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _sanitize_spm_null_piece(self):
-        """Make InternLM2's ``tokenizer.model`` loadable under sentencepiece>=0.2.
+    def _sanitize_spm_null_piece(self, spm_path: str) -> None:
+        """Rewrite a null-char SentencePiece piece in ``spm_path`` in place.
 
         The checkpoint's SentencePiece model contains a single NORMAL piece whose
         surface is a literal null character. sentencepiece>=0.2.0 rejects it with
@@ -88,16 +103,13 @@ class ModelLoader(ForgeModel):
         ``'bool' object has no attribute 'apply_chat_template'``.
 
         Pinning sentencepiece<0.2 is not viable (no cp312 wheel; the sdist build
-        fails), so instead we rewrite that one piece in the cached model file to a
-        unique non-null placeholder. The token id is preserved, and the null
-        piece never appears in real text, so tokenization/logits are unchanged.
-        The rewrite is idempotent (the null byte is gone after the first pass).
-        """
-        from huggingface_hub import hf_hub_download
+        fails), so instead we rewrite that one piece to a unique non-null
+        placeholder. The token id is preserved, and the null piece never appears
+        in real text, so tokenization/logits are unchanged. The rewrite is
+        idempotent (the null byte is gone after the first pass).
 
-        spm_path = hf_hub_download(
-            self._variant_config.pretrained_model_name, "tokenizer.model"
-        )
+        ``spm_path`` must be a caller-owned local copy, never an HF cache blob.
+        """
         with open(spm_path, "rb") as f:
             blob = f.read()
 
@@ -127,6 +139,33 @@ class ModelLoader(ForgeModel):
             with open(spm_path, "wb") as f:
                 f.write(model.SerializeToString())
 
+    def _prepare_tokenizer_dir(self) -> str:
+        """Stage tokenizer files in a writable local dir; leave the HF cache alone.
+
+        ``snapshot_download`` returns the shared cache snapshot, whose files are
+        typically symlinks into ``blobs/``. Copying via ``os.path.realpath``
+        dereferences those links so the cache is never written, including when
+        the cache is read-only or shared over NFS. The temp dir is kept on
+        ``self`` so ``vocab_file`` stays valid for the tokenizer's lifetime.
+        """
+        from huggingface_hub import snapshot_download
+
+        snapshot = snapshot_download(
+            self._variant_config.pretrained_model_name,
+            allow_patterns=list(self._TOKENIZER_FILES),
+        )
+
+        self._tokenizer_tmpdir = tempfile.TemporaryDirectory(
+            prefix="internlm2-tokenizer-"
+        )
+        tmp = self._tokenizer_tmpdir.name
+        for name in self._TOKENIZER_FILES:
+            src = os.path.join(snapshot, name)
+            shutil.copy2(os.path.realpath(src), os.path.join(tmp, name))
+
+        self._sanitize_spm_null_piece(os.path.join(tmp, "tokenizer.model"))
+        return tmp
+
     def _load_tokenizer(self):
         """Load tokenizer for the current variant.
 
@@ -135,12 +174,10 @@ class ModelLoader(ForgeModel):
         """
         from transformers import AutoTokenizer
 
-        self._sanitize_spm_null_piece()
-
-        tokenizer_kwargs = {"trust_remote_code": True, "use_fast": False}
+        tokenizer_dir = self._prepare_tokenizer_dir()
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            tokenizer_dir, trust_remote_code=True, use_fast=False
         )
 
         return self.tokenizer
