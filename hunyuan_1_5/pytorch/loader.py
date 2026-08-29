@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-HunyuanVideo 1.5 (480p t2v distilled) component loader.
+HunyuanVideo 1.5 (480p t2v base) component loader.
 
 Each variant corresponds to one independently loadable component:
   - TextEncoder   → Qwen2.5-VL encoder (text_encoder)       params=7.07B
@@ -37,6 +37,7 @@ from .src.model_utils import (
     NUM_CHANNELS_LATENTS,
     NUM_LATENT_FRAMES,
     QWEN_VOCAB_SIZE,
+    REPO_ID,
     TEXT_EMBED_2_DIM,
     TEXT_EMBED_DIM,
     TEXT_TOKEN_2_MAX_LEN,
@@ -54,7 +55,7 @@ from .src.model_utils import (
     shard_transformer_specs,
 )
 
-_REPO_ID = "hunyuanvideo-community/HunyuanVideo-1.5-Diffusers-480p_t2v_distilled"
+_REPO_ID = REPO_ID  # the component loaders resolve the checkpoint from this
 
 
 class ModelVariant(StrEnum):
