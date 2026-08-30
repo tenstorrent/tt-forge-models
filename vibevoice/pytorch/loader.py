@@ -203,16 +203,87 @@ class _VibeVoiceLogitsWrapper(torch.nn.Module):
 # would not say anything about the real pipeline.
 # ----------------------------------------------------------------------
 
+#: Samples per chunk in the chunked acoustic encode. Must be a whole number of
+#: latent frames (the acoustic tokenizer compresses 3200:1), so 32000 = 10
+#: frames. It is the largest measured length that does not overflow L1 in
+#: ``ttnn.pad``: 3200, 12800 and 32000 all pass on n150, 64000 does not.
+_ENCODE_CHUNK_SAMPLES = 32000
+
+
+class _StreamingConvCache:
+    """Minimal stand-in for upstream's ``VibeVoiceTokenizerStreamingCache``.
+
+    Same ``get``/``set`` contract, but keyed on the layer id alone instead of
+    ``(layer_id, sample_index)``. Upstream reaches the per-sample keys through
+    ``sample_indices.tolist()``, which forces a device sync and a graph break
+    under ``torch.compile``; the chunked encode always presents the same batch
+    in the same order, so storing the batched tensor whole is equivalent
+    (upstream splits on ``set`` and ``torch.stack``s back on ``get``).
+    """
+
+    def __init__(self):
+        self._states = {}
+
+    def get(self, layer_id, sample_indices=None):
+        return self._states.get(layer_id)
+
+    def set(self, layer_id, sample_indices, states):
+        self._states[layer_id] = states
+
 
 class _AcousticEncoder(torch.nn.Module):
-    """Voice-prompt waveform -> acoustic VAE latents (causal conv VAE)."""
+    """Voice-prompt waveform -> acoustic VAE latents (causal conv VAE).
 
-    def __init__(self, model):
+    Encoded in ``chunk_samples``-sample chunks rather than in one pass. The
+    component itself is correct on TT (PCC 0.9998), but ``ttnn.pad`` overflows
+    L1 somewhere in (32000, 64000] input samples — the full 222480-sample
+    prompt grows the circular buffers to 8115264 B against a 1499136 B limit —
+    so the input length, not the component, is the constraint.
+
+    Chunking uses upstream's streaming conv cache, which gives each ``SConv1d``
+    the tail of the previous chunk as left context instead of padding. That is
+    not interchangeable with chunking naively: encoding each chunk
+    independently reads **PCC 0.9616** against the single full-length encode,
+    with ``max|err| = 126`` spiking at every chunk-start frame, because each
+    chunk re-pads causally from zero and its leading frames lose the context
+    they would have had. With the cache the chunked encode is exact —
+    **PCC 1.00000000**, ``max|err| = 3.8e-05`` in float32, i.e. rounding.
+    """
+
+    def __init__(self, model, chunk_samples=_ENCODE_CHUNK_SAMPLES):
         super().__init__()
         self.encoder = model.model.acoustic_tokenizer.encoder
+        self.chunk_samples = chunk_samples
 
     def forward(self, audio):
-        return self.encoder(audio)
+        length = audio.shape[-1]
+        if length <= self.chunk_samples:
+            # Short enough to pad in one go; take the plain non-streaming path
+            # so the frame count still comes from upstream's own ceil.
+            return self.encoder(audio)
+
+        # The streaming path has no equivalent of non-streaming's
+        # ``extra_padding``, so it needs every chunk to be a whole number of
+        # latent frames. Right-pad up to a chunk multiple: all chunks then
+        # share one shape (one graph on TT) and the frame count matches what
+        # the full-length encode produces for this input.
+        n_chunks = -(-length // self.chunk_samples)
+        audio = torch.nn.functional.pad(
+            audio, (0, n_chunks * self.chunk_samples - length)
+        )
+
+        cache = _StreamingConvCache()
+        sample_indices = [0] * audio.shape[0]
+        latents = [
+            self.encoder(
+                audio[..., i * self.chunk_samples : (i + 1) * self.chunk_samples],
+                cache=cache,
+                sample_indices=sample_indices,
+                use_cache=True,
+            )
+            for i in range(n_chunks)
+        ]
+        return torch.cat(latents, dim=-1)
 
 
 class _AcousticDecoder(torch.nn.Module):
