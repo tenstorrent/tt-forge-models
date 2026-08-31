@@ -3,15 +3,17 @@
 # SPDX-License-Identifier: Apache-2.0
 """HiDream-I1-Full text-to-image pipeline running on Tenstorrent.
 
-Only the Sparse-MoE MM-DiT transformer (~17 B) runs on TT in bf16, tensor-parallel
-sharded across the device mesh; the CLIP-L / CLIP-G / T5-XXL / Llama-3.1-8B text
-encoders, the UniPC scheduler and the VAE all stay on CPU. Every component is
-bfloat16, the dtype the model ships in.
+The CLIP-L and CLIP-G text encoders, the Sparse-MoE MM-DiT transformer (~17 B)
+and the VAE decoder run on TT in bf16, the dtype the model ships in. Only the
+transformer is tensor-parallel sharded across the device mesh; the CLIPs and the
+VAE carry no shard spec, so SPMD replicates them. The T5-XXL and Llama-3.1-8B
+encoders stay on CPU for now (see ``load_models``), as do the UniPC scheduler and
+the host-side trajectory.
 
-The transformer is loaded, MoE-swapped, sharded, uploaded and compiled once in
-``setup()`` and stays resident, so repeat ``generate()`` calls reuse both the
-weights and the compiled graphs. The CPU components load lazily on first use and
-are cached for the same reason.
+Every TT component is loaded, sharded, uploaded and compiled once in ``setup()``
+and stays resident — the sharded DiT plus the replicated CLIPs and VAE are ~10 GB
+of each chip's 32 GB — so ``generate()`` is pure compute and repeat calls reuse
+both the weights and the compiled graphs.
 
 The math mirrors ``HiDreamImagePipeline.__call__`` at batch_size=1, one image per
 prompt: CFG doubles the DiT batch, HiDream predicts the negated flow so the sign
@@ -63,8 +65,7 @@ GUIDANCE_SCALE = 5.0
 HEIGHT = 1024
 WIDTH = 1024
 DEFAULT_SAMPLE_SIZE = 128  # HiDreamImagePipeline.default_sample_size
-# The transformer runs bf16 on TT; the CPU components run bf16 too, the dtype the
-# model ships in.
+# Every TT component runs bf16, the dtype the model ships in.
 TT_DTYPE = torch.bfloat16
 
 # Stand-in config for enable_sparse_mlp: create_a2a_from_deepseek_v3_moe looks up
@@ -91,7 +92,12 @@ def _strip_cpu_golden(ff) -> None:
 
 
 class HiDreamI1Config:
-    def __init__(self, height: int = HEIGHT, width: int = WIDTH):
+    def __init__(
+        self,
+        height: int = HEIGHT,
+        width: int = WIDTH,
+        compile_options: Optional[dict] = None,
+    ):
         self.repo_id = REPO_ID
         self.llama_id = LLAMA_ID
         self.height = height
@@ -99,23 +105,27 @@ class HiDreamI1Config:
         self.max_sequence_length = MAX_SEQ_LEN
         self.default_sample_size = DEFAULT_SAMPLE_SIZE
         self.vae_scale_factor = VAE_SCALE
+        # Harness-set compile options; used to preserve them around the
+        # VAE-only opt_level switch in generate().
+        self.compile_options = compile_options or {}
 
 
 class HiDreamI1Pipeline:
-    """Transformer on TT (bf16, sharded); text encoders, scheduler and VAE on CPU.
+    """CLIP encoders + transformer + VAE decoder on TT (bf16); T5, Llama and the
+    UniPC scheduler on CPU.
 
     Built once with ``setup()``; ``generate()`` can be called repeatedly against
-    the already-resident transformer.
+    the already-resident models.
     """
 
     def __init__(self, config: HiDreamI1Config):
         self.config = config
         self.repo_id = config.repo_id
         self._perf = {}
-        self._cpu_models = {}
 
     def setup(self):
-        # SPMD mesh for the sharded transformer — the only module that runs on TT.
+        # One mesh, shared by every TT component; the transformer's loader
+        # supplies the shape, and it is the only sharded component.
         enable_spmd()
         self.num_devices = xr.global_runtime_device_count()
         self.mesh_shape, mesh_names = ModelLoader(
@@ -131,19 +141,41 @@ class HiDreamI1Pipeline:
         self.load_tokenizers()
 
     def load_models(self):
-        """Place the transformer on TT; leave the CPU components to lazy load.
+        """Load every component on CPU, then upload and compile the TT ones.
 
-        The transformer is the only TT-bound module. We wrap ``forward``, not the
-        module, so it stays an ``nn.Module`` and callers can wrap ``forward``
-        again (e.g. the nightly PCC check).
+        T5 and Llama stay on the host — see the note below — so they are neither
+        compiled nor uploaded.
+
+        We wrap ``forward``, not the module, so each TT component stays an
+        ``nn.Module`` and callers can wrap ``forward`` again (e.g. the nightly
+        PCC check).
+
+        Only the transformer (17 B) carries a shard spec; without one SPMD would
+        replicate it onto every chip and OOM. CLIP-L (0.12 B), CLIP-G (0.70 B)
+        and the VAE (0.08 B) are small enough to replicate.
         """
-        dev = torch_xla.device()
-        tr_loader = ModelLoader(ModelVariant.TRANSFORMER)
-        transformer = tr_loader.load_model(dtype_override=TT_DTYPE)
+        self.text_encoder = self._to_tt(ModelVariant.TEXT_ENCODER)
+        self.text_encoder_2 = self._to_tt(ModelVariant.TEXT_ENCODER_2)
+        # T5-XXL and Llama stay on CPU. In bf16 on TT both fall well short of the
+        # PCC gate against their own bf16 CPU twins — T5 to 0.761719 on the
+        # prompt, Llama to 0.828125 on the negative one — and fp32 lifts neither
+        # (0.761571 / 0.833107), so this is not a precision drop.
+        # T5:    https://github.com/tenstorrent/tt-xla/issues/6018
+        # Llama: https://github.com/tenstorrent/tt-xla/issues/6019
+        self.text_encoder_3 = self._on_cpu(ModelVariant.TEXT_ENCODER_3)
+        self.text_encoder_4 = self._on_cpu(ModelVariant.TEXT_ENCODER_4)
+        self.transformer = self._to_tt(
+            ModelVariant.TRANSFORMER, sharded=True, prepare=self._swap_moe
+        )
+        self.vae = self._to_tt(ModelVariant.VAE)
 
-        # Swap the MoE blocks before .to(dev): the swap stacks the per-expert
-        # Linears into new parameters. cluster_axis=1 — the mesh is (1, N), so
-        # axis 0 would dispatch nowhere.
+    def _swap_moe(self, transformer):
+        """Swap the DiT's MoE blocks, before the device upload.
+
+        The swap stacks the per-expert Linears into new parameters, so it has to
+        run on CPU. cluster_axis=1 — the mesh is (1, N), so axis 0 would dispatch
+        nowhere.
+        """
         transformer = enable_sparse_mlp(
             transformer,
             mesh=self.mesh_shape,
@@ -152,24 +184,43 @@ class HiDreamI1Pipeline:
         )
         for module in transformer.modules():
             _strip_cpu_golden(module)
+        return transformer
 
-        transformer = transformer.to(dev)
-        specs = tr_loader.load_shard_spec(transformer)
-        assert specs, "transformer shard spec is empty — would run replicated/OOM"
-        for tensor, spec in specs.items():
-            xs.mark_sharding(tensor, self.mesh, spec)
+    def _on_cpu(self, variant: ModelVariant):
+        """Load a component that stays on the host — no compile, no upload."""
+        logger.info("[load] {} ({}, CPU)", variant, TT_DTYPE)
+        return ModelLoader(variant).load_model(dtype_override=TT_DTYPE)
 
-        transformer.forward = torch.compile(transformer.forward, backend="tt")
-        self.transformer = transformer
+    def _to_tt(self, variant: ModelVariant, sharded: bool = False, prepare=None):
+        """Load a component, compile its forward and upload it to the mesh.
 
-    def _cpu_model(self, variant: ModelVariant, dtype=TT_DTYPE):
-        """Lazily load and cache a CPU component (text encoders and the VAE)."""
-        if variant not in self._cpu_models:
-            logger.info("[load] CPU model: {} ({})", variant, dtype)
-            self._cpu_models[variant] = ModelLoader(variant).load_model(
-                dtype_override=dtype
-            )
-        return self._cpu_models[variant]
+        ``prepare`` runs on the CPU module before the upload. The loader's shard
+        spec is written against the wrapper ``load_model`` returns, which is what
+        we hold here; without ``sharded`` the module runs replicated.
+        """
+        logger.info(
+            "[load] {} ({}, {})",
+            variant,
+            TT_DTYPE,
+            "sharded" if sharded else "replicated",
+        )
+        module = ModelLoader(variant).load_model(dtype_override=TT_DTYPE)
+        if prepare is not None:
+            module = prepare(module)
+
+        module.forward = torch.compile(module.forward, backend="tt")
+        module = module.to(torch_xla.device())
+        if sharded:
+            specs = ModelLoader(variant).load_shard_spec(module)
+            assert specs, f"{variant} shard spec is empty — would run replicated/OOM"
+            for tensor, spec in specs.items():
+                xs.mark_sharding(tensor, self.mesh, spec)
+        return module
+
+    def _add_component_time(self, name: str, seconds: float) -> None:
+        """Accumulate a component's time — under CFG each encoder runs twice."""
+        components = self._perf["components"]
+        components[name] = components.get(name, 0.0) + seconds
 
     def load_scheduler(self):
         # model_index.json pins UniPCMultistepScheduler for HiDream-I1-Full.
@@ -193,9 +244,10 @@ class HiDreamI1Pipeline:
         # padding="max_length" would raise without it.
         self.tokenizer_4.pad_token = self.tokenizer_4.eos_token
 
-    def _get_clip_prompt_embeds(self, tokenizer, variant: ModelVariant, prompt: str):
-        """CLIP-L / CLIP-G pooled embedding — CPU (bf16)."""
+    def _get_clip_prompt_embeds(self, tokenizer, encoder, name: str, prompt: str):
+        """CLIP-L / CLIP-G pooled embedding — TT (bf16, replicated)."""
         prompt = [prompt] if isinstance(prompt, str) else prompt
+        dev = torch_xla.device()
 
         text_inputs = tokenizer(
             prompt,
@@ -205,10 +257,15 @@ class HiDreamI1Pipeline:
             return_tensors="pt",
         )
         # CLIPPooledWrapper == text_encoder(input_ids, output_hidden_states=True)[0].
-        return self._cpu_model(variant)(text_inputs.input_ids)
+        # .cpu() is the sync point: it forces the graph to run and only returns
+        # once the result is on host, so the timer ends there.
+        t0 = time.perf_counter()
+        embeds = encoder(text_inputs.input_ids.to(dev)).cpu()
+        self._add_component_time(name, time.perf_counter() - t0)
+        return embeds
 
     def _get_t5_prompt_embeds(self, prompt: str):
-        """T5-XXL encoder — CPU (bf16)."""
+        """T5-XXL encoder — CPU (bf16); see load_models for why it is not on TT."""
         prompt = [prompt] if isinstance(prompt, str) else prompt
 
         text_inputs = self.tokenizer_3(
@@ -222,12 +279,13 @@ class HiDreamI1Pipeline:
             return_tensors="pt",
         )
         # T5EncoderWrapper == text_encoder_3(input_ids, attention_mask=...)[0].
-        return self._cpu_model(ModelVariant.TEXT_ENCODER_3)(
-            text_inputs.input_ids, text_inputs.attention_mask
-        )
+        t0 = time.perf_counter()
+        embeds = self.text_encoder_3(text_inputs.input_ids, text_inputs.attention_mask)
+        self._add_component_time("text_encoder_3", time.perf_counter() - t0)
+        return embeds
 
     def _get_llama3_prompt_embeds(self, prompt: str):
-        """Llama-3.1-8B encoder — CPU (bf16)."""
+        """Llama-3.1-8B encoder — CPU (bf16); see load_models for why not on TT."""
         prompt = [prompt] if isinstance(prompt, str) else prompt
 
         text_inputs = self.tokenizer_4(
@@ -241,9 +299,10 @@ class HiDreamI1Pipeline:
             return_tensors="pt",
         )
         # LlamaStackedHiddenWrapper == stack(hidden_states[1:], dim=0) -> (32,1,128,4096).
-        return self._cpu_model(ModelVariant.TEXT_ENCODER_4)(
-            text_inputs.input_ids, text_inputs.attention_mask
-        )
+        t0 = time.perf_counter()
+        embeds = self.text_encoder_4(text_inputs.input_ids, text_inputs.attention_mask)
+        self._add_component_time("text_encoder_4", time.perf_counter() - t0)
+        return embeds
 
     def encode_prompt(
         self,
@@ -253,30 +312,28 @@ class HiDreamI1Pipeline:
     ):
         """Mirror HiDreamImagePipeline.encode_prompt at batch_size=1, 1 image/prompt."""
         logger.info(
-            "[STAGE] text encoders (CLIP-L, CLIP-G, T5, Llama): CPU (not on TT)"
+            "[STAGE] text encoders (CLIP-L, CLIP-G replicated): TT; (T5, Llama): CPU"
         )
         if do_classifier_free_guidance:
             negative_prompt = negative_prompt or ""
 
-        t0 = time.perf_counter()
-
         pooled_prompt_embeds_1 = self._get_clip_prompt_embeds(
-            self.tokenizer, ModelVariant.TEXT_ENCODER, prompt
+            self.tokenizer, self.text_encoder, "text_encoder", prompt
         )
         negative_pooled_prompt_embeds_1 = (
             self._get_clip_prompt_embeds(
-                self.tokenizer, ModelVariant.TEXT_ENCODER, negative_prompt
+                self.tokenizer, self.text_encoder, "text_encoder", negative_prompt
             )
             if do_classifier_free_guidance
             else None
         )
 
         pooled_prompt_embeds_2 = self._get_clip_prompt_embeds(
-            self.tokenizer_2, ModelVariant.TEXT_ENCODER_2, prompt
+            self.tokenizer_2, self.text_encoder_2, "text_encoder_2", prompt
         )
         negative_pooled_prompt_embeds_2 = (
             self._get_clip_prompt_embeds(
-                self.tokenizer_2, ModelVariant.TEXT_ENCODER_2, negative_prompt
+                self.tokenizer_2, self.text_encoder_2, "text_encoder_2", negative_prompt
             )
             if do_classifier_free_guidance
             else None
@@ -308,8 +365,6 @@ class HiDreamI1Pipeline:
             if do_classifier_free_guidance
             else None
         )
-
-        self._perf["components"]["text_encoders"] = time.perf_counter() - t0
 
         return (
             prompt_embeds_t5,
@@ -358,7 +413,7 @@ class HiDreamI1Pipeline:
             width = int(width * scale // division * division)
             height = int(height * scale // division * division)
 
-            # ──────────────────── Text encoders (CPU) ─────────────────────
+            # ──────────────────── Text encoders (TT) ──────────────────────
             (
                 prompt_embeds_t5,
                 negative_prompt_embeds_t5,
@@ -442,15 +497,23 @@ class HiDreamI1Pipeline:
                 )[0]
             logger.info("[STAGE] transformer: done")
 
-            # ────────────────────── VAE decode (CPU) ──────────────────────
-            logger.info("[STAGE] vae: CPU (not on TT)")
+            # ─────────────── VAE decode (TT, bf16, replicated) ────────────
+            logger.info("[STAGE] vae (bf16, replicated): TT")
+            vae_config = self.vae.vae.config
+            latents = (latents / vae_config.scaling_factor) + vae_config.shift_factor
+
+            # opt_level=1 keeps ttir.group_norm -> ttnn.group_norm; opt_level=0
+            # decomposes GroupNorm (reshape+mean+sub) which OOMs the decoder.
+            # https://github.com/tenstorrent/tt-xla/issues/4710
+            torch_xla.set_custom_compile_options(
+                {**self.config.compile_options, "optimization_level": 1}
+            )
             t0 = time.perf_counter()
-            vae = self._cpu_model(ModelVariant.VAE)
-            latents = (
-                latents / vae.vae.config.scaling_factor
-            ) + vae.vae.config.shift_factor
-            image = vae(latents)
+            image = self.vae(to_dev(latents)).cpu()
             self._perf["components"]["vae"] = time.perf_counter() - t0
+            # Restore the harness options (un-merge the VAE opt_level bump) so a
+            # repeat generate() compiles the other components as before.
+            torch_xla.set_custom_compile_options(self.config.compile_options)
             logger.info("[STAGE] vae: done")
 
             self._perf["total"] = time.perf_counter() - t_total_start
