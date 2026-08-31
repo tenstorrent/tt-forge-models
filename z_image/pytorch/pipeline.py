@@ -176,6 +176,27 @@ class ZImageConfig:
         self.vae_tiling = vae_tiling
 
 
+def _populate_rope_cache(transformer, device) -> None:
+    """Build the RoPE frequency table BEFORE compiling, not on first forward.
+
+    ``diffusers`` RopeEmbedder.__call__ does ``if self.freqs_cis is None:`` and
+    fills the cache on first use (transformer_z_image.py:344). The first forward
+    therefore compiles under a "freqs_cis is None" guard that the SAME forward
+    then falsifies, so the next forward rebuilds -- measured as the unexplained
+    +3 graphs on denoise step 2. Precomputing is deterministic and produces the
+    identical table, so the output is unchanged; it only moves the work out of
+    the traced region. Guarded by hasattr so a diffusers version without this
+    attribute is a silent no-op rather than a crash.
+    """
+    rope = getattr(transformer, "rope_embedder", None)
+    if rope is None or getattr(rope, "freqs_cis", None) is not None:
+        return
+    if not hasattr(rope, "precompute_freqs_cis"):
+        return
+    freqs = rope.precompute_freqs_cis(rope.axes_dims, rope.axes_lens, theta=rope.theta)
+    rope.freqs_cis = [f.to(device) for f in freqs]
+
+
 class ZImageTTPipeline:
     """Z-Image text-to-image pipeline with every module on a single TT chip.
 
@@ -221,6 +242,28 @@ class ZImageTTPipeline:
             self.config.repo_id, subfolder="scheduler"
         )
         self._device = torch_xla.device()
+        self._freeze_model_output_registry()
+
+    @staticmethod
+    def _freeze_model_output_registry():
+        """Import every model class up front so no LATER import can invalidate an
+        already-compiled graph.
+
+        transformers registers each ``ModelOutput`` subclass as a pytree node in
+        ``__init_subclass__`` (utils/generic.py:375), i.e. at IMPORT time, and
+        dynamo bakes ``len(_registered_model_output_types) == N`` into the guards
+        of anything compiled while the module is traced. Staged residency loads
+        each component lazily inside generate(), so the transformer's and VAE's
+        imports grow that set AFTER the text encoder has compiled -- and the
+        encoder's next forward then fails the guard and rebuilds (measured: one
+        rebuild, 52.7s against a 0.9s warm forward).
+
+        Importing costs no weights and no device memory, so this does not affect
+        the staging strategy. Models that load everything before compiling (e.g.
+        HunyuanImage-2.1) never hit this; it is specific to lazy staging.
+        """
+        from diffusers import AutoencoderKL, ZImageTransformer2DModel  # noqa: F401
+        from transformers import Qwen3Model  # noqa: F401
 
     def _encode(self, prompt: str, encoder) -> torch.Tensor:
         input_ids, attention_mask = tokenize_prompt(prompt)
@@ -331,6 +374,7 @@ class ZImageTTPipeline:
             logger.info("[STAGE] transformer: start ({} steps)", num_inference_steps)
             transformer = self.TRANSFORMER_CLS(load_transformer(DTYPE)).eval()
             transformer = transformer.to(self._device)
+            _populate_rope_cache(transformer.transformer, self._device)
             tf_compiled = self._intercept(
                 "transformer", torch.compile(transformer, backend="tt")
             )
