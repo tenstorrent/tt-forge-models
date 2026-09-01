@@ -199,6 +199,7 @@ class FluxConfig:
         width: int = WIDTH,
         compile_options: Optional[dict] = None,
         warm_iters: int = 0,
+        evict_encoders: bool = False,
     ):
         self.repo_id = REPO_ID
         self.height = height
@@ -208,6 +209,12 @@ class FluxConfig:
         # is then byte-identical to pre-instrumentation behaviour, so the demo
         # and PCC paths are unaffected. Only the benchmark sets it.
         self.warm_iters = warm_iters
+        # Keep the text encoders on device between calls. They are replicated,
+        # so T5 costs 9.12 GiB on every chip -- but all four components together
+        # are only 15.05 GiB of 31.83 (51%), and evicting cost a full rebuild
+        # every call: measured T5 84.63s evicting vs 0.24s resident (353x), call
+        # wall 105.49s -> 15.94s. Set True to restore the old evicting path.
+        self.evict_encoders = evict_encoders
         # Forwarded for parity with the other imagegen pipelines; unused inline.
         self.compile_options = compile_options or {}
 
@@ -223,6 +230,9 @@ class FluxTTPipeline:
     def __init__(self, config: FluxConfig):
         self.config = config
         self._perf = {}
+        # name -> (compiled, wrapper, module). Holding all three keeps both the
+        # compiled graph and its weights alive; dropping either forces a rebuild.
+        self._encoder_cache = {}
 
     # Every component is evicted inside generate() -- text encoders explicitly
     # (.to("cpu") + del compiled), transformer and VAE by reassignment next call --
@@ -260,23 +270,31 @@ class FluxTTPipeline:
         self._raw_vae = self.pipe.vae
 
     def _encode(self, wrapper_cls, module, input_ids, dev, name=None):
-        """Place a replicated text encoder on device, encode, evict.
+        """Place a replicated text encoder on device, encode, and KEEP it there.
 
-        Returns ``(cpu_module, embeds, elapsed_seconds)``.
+        Returns ``(module, embeds, elapsed_seconds)``.
 
-        Unlike Z-Image's encoder this runs ONE forward per residency, so a warm
-        number needs a synthetic repeat: the encoder is evicted at the end of
-        this call (``.to("cpu")`` + ``del compiled``), and eviction discards the
-        compiled graph, so a later call rebuilds rather than reusing it.
+        The encoder and its compiled graph are cached on first use, so a second
+        generate() reuses both instead of rebuilding. Previously this evicted
+        (``.to("cpu")`` + ``del compiled``), which discarded the graph with the
+        weights and made every later call pay a full rebuild -- measured T5
+        84.63s evicting vs 0.24s resident. Set ``evict_encoders`` to restore
+        the old behaviour on a part where the memory matters.
         """
-        wrapper = wrapper_cls(module).eval()
-        # Hook while the wrapper is still on HOST. The PCC e2e computes its golden
-        # here so the check costs no second copy of the encoder -- placing first
-        # and loading a twin later would double this component's peak, which
-        # matters because the staging exists to keep peak at max(component).
-        self._pre_place(name, wrapper, input_ids)
-        module = module.to(dev)
-        compiled = self._intercept(name, torch.compile(wrapper, backend="tt"))
+        cached = self._encoder_cache.get(name) if name else None
+        if cached is not None:
+            compiled, wrapper, module = cached
+        else:
+            wrapper = wrapper_cls(module).eval()
+            # Hook while the wrapper is still on HOST. The PCC e2e computes its
+            # golden here so the check costs no second copy of the encoder --
+            # placing first and loading a twin later would double this
+            # component's peak.
+            self._pre_place(name, wrapper, input_ids)
+            module = module.to(dev)
+            compiled = self._intercept(name, torch.compile(wrapper, backend="tt"))
+            if name and not self.config.evict_encoders:
+                self._encoder_cache[name] = (compiled, wrapper, module)
         t0 = time.perf_counter()
         with torch.no_grad():
             out = compiled(input_ids.to(dev))
@@ -296,8 +314,11 @@ class FluxTTPipeline:
                 del extra
             if warm:
                 self._perf.setdefault("warm", {})[name] = sum(warm) / len(warm)
-        module = module.to("cpu")
-        del compiled, wrapper
+        if self.config.evict_encoders:
+            # Old path: eviction discards the compiled graph along with the
+            # weights, so the next call rebuilds both.
+            module = module.to("cpu")
+            del compiled, wrapper
         return module, out, dt
 
     def _pre_place(self, name, wrapper, input_ids):
