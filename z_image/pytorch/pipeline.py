@@ -15,9 +15,12 @@ runs unchanged on any Blackhole host (it uses one chip even when more are
 visible, because SPMD is never enabled). Its weights exceed the DRAM a single
 Wormhole chip provides, so it OOMs there and is Blackhole-only.
 
-Memory strategy: the ~6.2B transformer, the Qwen3 text encoder and the VAE do
-not all fit resident at once (issue #4756), so each is loaded → placed → used →
-freed in turn, keeping peak DRAM ≈ max(component).
+Memory strategy: all three components stay resident by default -- measured
+co-resident at 23.221 GiB of 31.83 (73.0%) on a Blackhole, with no OOM -- so a
+second generate() reuses their compiled graphs instead of rebuilding them. Set
+``evict_components`` to load → place → use → free each in turn, keeping peak
+DRAM ≈ max(component), for a part where they do not all fit (a single Wormhole
+cannot hold this model at all, issue #4756).
 
 This is the reusable implementation that both the runnable example
 (``examples/pytorch/z_image.py``) and the benchmark harness
@@ -154,6 +157,7 @@ class ZImageConfig:
         compile_options: Optional[dict] = None,
         vae_tiling: bool = True,
         warm_iters: int = 0,
+        evict_components: bool = False,
     ):
         self.repo_id = REPO_ID
         self.height = height
@@ -170,6 +174,14 @@ class ZImageConfig:
         # tokenize_prompt, so the same graph), and the shipped code merely summed
         # them into one timer.
         self.warm_iters = warm_iters
+        # Keep each component on device between calls. Measured co-resident:
+        # 23.221 GiB of 31.83 (73.0%) with no OOM. Evicting discards the compiled
+        # graph along with the weights, so every later call rebuilt from scratch
+        # and the benchmark's second pass measured that rebuild rather than warm
+        # performance (issue #6010). Set True to restore the staged behaviour on
+        # a part where the memory does not fit -- a single Wormhole, for example,
+        # cannot hold this model at all (issue #4756).
+        self.evict_components = evict_components
         # Tiled VAE decode keeps the 1280x720 decode activations small so the
         # host-side spike during decode stays bounded. Flip off to revert to a
         # single full-frame decode.
@@ -215,6 +227,9 @@ class ZImageTTPipeline:
     def __init__(self, config: ZImageConfig):
         self.config = config
         self._perf = {}
+        # name -> (compiled, module). Holding BOTH keeps the graph and its
+        # weights alive; dropping either forces a rebuild on the next call.
+        self._resident = {}
 
     def setup(self):
         self.scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
@@ -290,11 +305,17 @@ class ZImageTTPipeline:
             # Loaded here (not in setup) and fully released at the end of the
             # stage so its ~7.5 GB never overlaps the transformer or VAE.
             logger.info("[STAGE] text_encoder: start")
-            text_encoder = self.TEXT_ENCODER_CLS(load_text_encoder(DTYPE)).eval()
-            text_encoder = text_encoder.to(self._device)
-            te_compiled = self._intercept(
-                "text_encoder", torch.compile(text_encoder, backend="tt")
-            )
+            cached = self._resident.get("text_encoder")
+            if cached is not None:
+                te_compiled, text_encoder = cached
+            else:
+                text_encoder = self.TEXT_ENCODER_CLS(load_text_encoder(DTYPE)).eval()
+                text_encoder = text_encoder.to(self._device)
+                te_compiled = self._intercept(
+                    "text_encoder", torch.compile(text_encoder, backend="tt")
+                )
+                if not self.config.evict_components:
+                    self._resident["text_encoder"] = (te_compiled, text_encoder)
             with _StageCounters(self._perf["counters"], "text_encoder"):
                 t0 = time.perf_counter()
                 # COLD: first forward in this residency, carries the build.
@@ -312,9 +333,10 @@ class ZImageTTPipeline:
                     cap_neg = None
                 # Unchanged meaning: the functional total of both forwards.
                 self._perf["components"]["text_encoder"] = time.perf_counter() - t0
-            del te_compiled, text_encoder
-            gc.collect()
-            torch_xla.sync()
+            if self.config.evict_components:
+                del te_compiled, text_encoder
+                gc.collect()
+                torch_xla.sync()
             logger.info("[STAGE] text_encoder: done")
 
             # ── Latents (fp32 on CPU) ─────────────────────────────────────
@@ -351,11 +373,17 @@ class ZImageTTPipeline:
 
             # ── Denoising loop (transformer), then free ───────────────────
             logger.info("[STAGE] transformer: start ({} steps)", num_inference_steps)
-            transformer = self.TRANSFORMER_CLS(load_transformer(DTYPE)).eval()
-            transformer = transformer.to(self._device)
-            tf_compiled = self._intercept(
-                "transformer", torch.compile(transformer, backend="tt")
-            )
+            cached = self._resident.get("transformer")
+            if cached is not None:
+                tf_compiled, transformer = cached
+            else:
+                transformer = self.TRANSFORMER_CLS(load_transformer(DTYPE)).eval()
+                transformer = transformer.to(self._device)
+                tf_compiled = self._intercept(
+                    "transformer", torch.compile(transformer, backend="tt")
+                )
+                if not self.config.evict_components:
+                    self._resident["transformer"] = (tf_compiled, transformer)
             for i, t in enumerate(timesteps):
                 logger.info("[STEP] transformer step {}/{}", i + 1, num_inference_steps)
                 timestep = ((1000 - t.expand(1)) / 1000).to(DTYPE)
@@ -375,24 +403,33 @@ class ZImageTTPipeline:
                 latents = self.scheduler.step(
                     noise_pred.to(torch.float32), t, latents, return_dict=False
                 )[0]
-            # Free the transformer (~12 GB) + its compiled graph before the VAE
-            # decode so the decode stage runs with only the VAE resident.
-            del tf_compiled, transformer
-            gc.collect()
-            torch_xla.sync()
+            if self.config.evict_components:
+                # Staged path: free the transformer (~12 GB) and its compiled
+                # graph before the VAE decode, so the decode runs alone.
+                del tf_compiled, transformer
+                gc.collect()
+                torch_xla.sync()
             logger.info("[STAGE] transformer: done")
 
             # ── VAE decode → raw pixels in [-1, 1], then free ─────────────
             logger.info("[STAGE] vae: start")
-            vae_wrapper = self.VAE_CLS(load_vae(DTYPE)).eval()
-            if self.config.vae_tiling and hasattr(vae_wrapper.vae, "enable_tiling"):
-                # Tiled decode bounds the 1280x720 decode activations (and their
-                # host staging) to a single tile instead of the full frame.
-                vae_wrapper.vae.enable_tiling()
-            vae_wrapper = vae_wrapper.to(self._device)
-            vae_compiled = self._intercept(
-                "vae", torch.compile(vae_wrapper, backend="tt")
-            )
+            cached = self._resident.get("vae")
+            if cached is not None:
+                vae_compiled, vae_wrapper = cached
+            else:
+                vae_wrapper = self.VAE_CLS(load_vae(DTYPE)).eval()
+                if self.config.vae_tiling and hasattr(
+                    vae_wrapper.vae, "enable_tiling"
+                ):
+                    # Tiled decode bounds the 1280x720 decode activations (and
+                    # their host staging) to a single tile, not the full frame.
+                    vae_wrapper.vae.enable_tiling()
+                vae_wrapper = vae_wrapper.to(self._device)
+                vae_compiled = self._intercept(
+                    "vae", torch.compile(vae_wrapper, backend="tt")
+                )
+                if not self.config.evict_components:
+                    self._resident["vae"] = (vae_compiled, vae_wrapper)
             with _StageCounters(self._perf["counters"], "vae"):
                 t0 = time.perf_counter()
                 image = vae_compiled(latents.to(self._device)).cpu().float()
@@ -411,9 +448,10 @@ class ZImageTTPipeline:
                     del extra
                 if warm_times:
                     self._perf["warm"]["vae"] = sum(warm_times) / len(warm_times)
-            del vae_compiled, vae_wrapper
-            gc.collect()
-            torch_xla.sync()
+            if self.config.evict_components:
+                del vae_compiled, vae_wrapper
+                gc.collect()
+                torch_xla.sync()
             logger.info("[STAGE] vae: done")
 
         # ---- transformer step cold/warm -------------------------------------
