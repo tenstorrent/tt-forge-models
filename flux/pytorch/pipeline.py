@@ -219,6 +219,27 @@ class FluxConfig:
         self.compile_options = compile_options or {}
 
 
+def _pin_execution_device_to_cpu(pipe) -> None:
+    """Force ``pipe._execution_device`` to CPU, idempotently.
+
+    Swaps in a per-instance subclass overriding the property, so the stock
+    pipeline keeps allocating its host-side tensors on CPU exactly as it did
+    when the encoders were evicted. Cheap and reversible; no diffusers patch.
+    """
+    if getattr(type(pipe), "_tt_cpu_exec_device", False):
+        return
+    base = type(pipe)
+    pinned = type(
+        f"{base.__name__}CpuExecDevice",
+        (base,),
+        {
+            "_execution_device": property(lambda self: torch.device("cpu")),
+            "_tt_cpu_exec_device": True,
+        },
+    )
+    pipe.__class__ = pinned
+
+
 class FluxTTPipeline:
     """FluxPipeline with every module on TT, transformer tensor-parallel sharded.
 
@@ -401,6 +422,22 @@ class FluxTTPipeline:
             self._raw_vae, self._perf, warm_iters=self.config.warm_iters
         )
         self.pipe.vae = vae_wrapper
+
+        # Pin the pipeline's execution device to CPU.
+        #
+        # diffusers derives _execution_device from DiffusionPipeline.device, which
+        # returns the device of the FIRST non-CPU nn.Module component
+        # (pipeline_utils.py:614). The shipped path moved both text encoders back
+        # to CPU, and _DeviceDenoiser/_DeviceVAEDecoder are plain classes rather
+        # than nn.Modules, so nothing was left on device and it reported CPU.
+        # Keeping the encoders resident makes it report the XLA device instead,
+        # and FluxPipeline.__call__ uses it to allocate latents, timesteps,
+        # guidance and image ids -- silently moving all of them onto the device
+        # and changing the numerics (measured: the VAE decode output shifted by
+        # up to 1.562e-02, and the PCC e2e's CPU twin died on an XLA tensor).
+        # Residency is a memory decision; it must not change where the host-side
+        # bookkeeping tensors live.
+        _pin_execution_device_to_cpu(self.pipe)
 
         generator = torch.Generator().manual_seed(seed) if seed is not None else None
         self.pipe(
