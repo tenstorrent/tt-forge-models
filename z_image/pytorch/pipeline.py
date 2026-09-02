@@ -194,11 +194,11 @@ class ZImageTTPipeline:
     nothing carries over between calls.
     """
 
-    # Every component is loaded, run and freed inside generate(), and eviction
-    # discards the compiled graph with the weights -- so a second generate() call
-    # rebuilds from scratch and timing it reports a cold cycle as warm. The
-    # benchmark harness reads this to skip its outer warmup pass.
-    benchmark_staged_residency = True
+    # Components stay resident (see ZImageConfig.evict_components), so a second
+    # generate() reuses their compiled graphs and is genuinely warm. The harness
+    # therefore runs its normal warmup + steady pair and publishes the steady
+    # pass. Flip to True alongside evict_components if a part needs staging.
+    benchmark_staged_residency = False
 
     # Substitution seams for the module classes. generate() instantiates these
     # attributes rather than the classes directly, so a consumer can swap in a

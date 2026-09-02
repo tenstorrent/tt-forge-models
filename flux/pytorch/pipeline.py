@@ -252,7 +252,9 @@ class FluxTTPipeline:
     # (.to("cpu") + del compiled), transformer and VAE by reassignment next call --
     # and eviction discards the compiled graph with the weights. A second
     # generate() therefore rebuilds, so the harness must skip its outer warmup.
-    benchmark_staged_residency = True
+    # Text encoders stay resident (see FluxConfig.evict_encoders), so a second
+    # generate() is genuinely warm and the harness runs warmup + steady.
+    benchmark_staged_residency = False
 
     # Substitution seams for the plain-callable wrappers. generate()
     # instantiates these attributes rather than the classes directly, so the
