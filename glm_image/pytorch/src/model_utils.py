@@ -606,23 +606,35 @@ def _shard_resnet_block_2d(block, specs: dict) -> None:
         # `conv2_out + shortcut_out` requires the shortcut to also be
         # replicated, so we don't shard it.
 
+      norm1 / norm2 (replicated):
+        weight (None,)
+        bias   (None,)
+        # These are per-channel GroupNorm params, so their only dim IS the
+        # channel dim the convs split on "model". Pinning them to "batch"
+        # instead puts the same logical dim on two different mesh axes, and
+        # Shardy closes the gap with an `sdy.collective_permute` whose operand
+        # and result local shapes differ (C/batch vs C/model) — rejected by the
+        # verifier, and unsupported by tt-mlir's ShardyToStableHLO lowering
+        # (tenstorrent/tt-mlir#3370). Replicated needs no collective at all:
+        # Shardy just slices them locally to match the activation.
+
     Spatial dims (kH, kW) are NEVER sharded — that would require a halo
     exchange (neighbor_pad / slice_reshard) collective which TTIR/TTNN MLIR
     does not currently expose. Channel sharding is the only viable strategy.
     """
     if hasattr(block, "norm1"):
-        specs[block.norm1.weight] = ("batch",)
+        specs[block.norm1.weight] = (None,)
         if block.norm1.bias is not None:
-            specs[block.norm1.bias] = ("batch",)
+            specs[block.norm1.bias] = (None,)
 
     specs[block.conv1.weight] = ("model", None, None, None)
     if block.conv1.bias is not None:
         specs[block.conv1.bias] = ("model",)
 
     if hasattr(block, "norm2"):
-        specs[block.norm2.weight] = ("batch",)
+        specs[block.norm2.weight] = (None,)
         if block.norm2.bias is not None:
-            specs[block.norm2.bias] = ("batch",)
+            specs[block.norm2.bias] = (None,)
 
     specs[block.conv2.weight] = (None, "model", None, None)
     if block.conv2.bias is not None:
@@ -632,6 +644,50 @@ def _shard_resnet_block_2d(block, specs: dict) -> None:
         specs[block.conv_shortcut.weight] = (None, None, None, None)
         if block.conv_shortcut.bias is not None:
             specs[block.conv_shortcut.bias] = (None,)
+
+
+def _shard_mid_block_attention(attn, specs: dict) -> None:
+    """Shard specs for an AutoencoderKL mid-block Attention (single-axis).
+
+    The VAE keeps its channel dim on the "model" axis everywhere (see
+    `_shard_resnet_block_2d`), so the attention must stay on that same axis.
+    Using the transformer's two-axis pattern here — ("model", "batch") /
+    ("batch", "model") — puts the channel dim on "batch" inside the attention
+    and on "model" in the surrounding convs. Shardy then has to reshard that
+    dim across axes of different sizes, which it lowers to an
+    `sdy.collective_permute` whose operand and result local shapes differ; the
+    verifier rejects it and tt-mlir cannot lower it (tenstorrent/tt-mlir#3370).
+
+    Megatron pair on "model" only:
+      to_q / to_k / to_v → column-parallel ("model", None), bias ("model",)
+      to_out[0]          → row-parallel    (None, "model"), bias replicated
+
+    `group_norm` stays replicated — group statistics need the full channel dim.
+    """
+    if hasattr(attn, "group_norm") and attn.group_norm is not None:
+        specs[attn.group_norm.weight] = (None,)
+        if attn.group_norm.bias is not None:
+            specs[attn.group_norm.bias] = (None,)
+
+    for proj_name in ("to_q", "to_k", "to_v"):
+        if hasattr(attn, proj_name):
+            proj = getattr(attn, proj_name)
+            specs[proj.weight] = ("model", None)
+            if proj.bias is not None:
+                specs[proj.bias] = ("model",)
+
+    if hasattr(attn, "to_out"):
+        out = attn.to_out
+        target = (
+            out[0]
+            if isinstance(out, (torch.nn.Sequential, torch.nn.ModuleList))
+            else out
+        )
+        specs[target.weight] = (None, "model")
+        # bias replicated: the row-parallel output is already replicated after
+        # the all_reduce, so a sharded bias would be summed N times.
+        if target.bias is not None:
+            specs[target.bias] = (None,)
 
 
 def shard_vae_specs(vae) -> dict:
@@ -660,8 +716,14 @@ def shard_vae_specs(vae) -> dict:
         # must match the post-all_reduce replicated state of conv2 so the
         # residual add doesn't need a re-shard.
 
-    Norm / mid-block attention specs are replicated along the "batch" axis
-    only, mirroring the conventions used elsewhere in the pipeline.
+    The whole decoder keeps its channel dim on the single "model" axis. Norms
+    (resnet norm1/norm2, attention group_norm, conv_norm_out) are per-channel
+    1-D params, so they are REPLICATED rather than sharded on "batch": pinning
+    the channel dim to "batch" here and to "model" in the convs forces Shardy
+    to reshard across mesh axes of different sizes, which lowers to an
+    `sdy.collective_permute` that tt-mlir cannot handle
+    (tenstorrent/tt-mlir#3370). The mid-block attention stays on the same
+    single "model" axis — see `_shard_mid_block_attention`.
     """
     specs = {}
 
@@ -681,26 +743,7 @@ def shard_vae_specs(vae) -> dict:
         for attn in getattr(mid_block, "attentions", []) or []:
             if attn is None:
                 continue
-            if hasattr(attn, "group_norm") and attn.group_norm is not None:
-                specs[attn.group_norm.weight] = ("batch",)
-                if attn.group_norm.bias is not None:
-                    specs[attn.group_norm.bias] = ("batch",)
-            for proj_name in ("to_q", "to_k", "to_v"):
-                if hasattr(attn, proj_name):
-                    proj = getattr(attn, proj_name)
-                    specs[proj.weight] = ("model", "batch")
-                    if proj.bias is not None:
-                        specs[proj.bias] = ("model",)
-            if hasattr(attn, "to_out"):
-                out = attn.to_out
-                target = (
-                    out[0]
-                    if isinstance(out, (torch.nn.Sequential, torch.nn.ModuleList))
-                    else out
-                )
-                specs[target.weight] = ("batch", "model")
-                if target.bias is not None:
-                    specs[target.bias] = ("batch",)
+            _shard_mid_block_attention(attn, specs)
 
     for up_block in getattr(decoder, "up_blocks", []) or []:
         for resnet in getattr(up_block, "resnets", []) or []:
@@ -711,9 +754,9 @@ def shard_vae_specs(vae) -> dict:
                 specs[upsampler.conv.bias] = ("model",)
 
     if hasattr(decoder, "conv_norm_out"):
-        specs[decoder.conv_norm_out.weight] = ("batch",)
+        specs[decoder.conv_norm_out.weight] = (None,)
         if decoder.conv_norm_out.bias is not None:
-            specs[decoder.conv_norm_out.bias] = ("batch",)
+            specs[decoder.conv_norm_out.bias] = (None,)
 
     if hasattr(decoder, "conv_out"):
         specs[decoder.conv_out.weight] = (None, "model", None, None)
