@@ -11,6 +11,10 @@ Components:
   - vae:          AutoencoderKLWan (3D causal VAE)
 """
 
+import html
+import re
+
+import ftfy
 import torch
 
 # ---------------------------------------------------------------------------
@@ -48,6 +52,32 @@ KV_CACHE_SIZE = LOCAL_ATTN_SIZE * FRAME_SEQ_LENGTH  # 9360
 
 # UMT5 vocabulary size (Embedding(256384, 4096) from model architecture)
 UMT5_VOCAB_SIZE = 256384
+
+# ---------------------------------------------------------------------------
+# Prompt text cleaning
+# ---------------------------------------------------------------------------
+#
+# Vendored from krea/krea-realtime-video's encoders.py. The upstream pipeline
+# code resolves this via importlib against the diffusers dynamic-module cache
+# path for the *transformer* (trust_remote_code) subfolder, but encoders.py
+# lives at the repo root, one level above that subfolder, so diffusers never
+# mirrors it there and the importlib lookup always fails. Vendoring the
+# (6-line) helper directly avoids guessing a cached-module path that does not
+# exist.
+
+
+def basic_clean(text):
+    text = ftfy.fix_text(text)
+    return html.unescape(html.unescape(text)).strip()
+
+
+def whitespace_clean(text):
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def prompt_clean(text):
+    return whitespace_clean(basic_clean(text))
+
 
 # ---------------------------------------------------------------------------
 # Component loaders

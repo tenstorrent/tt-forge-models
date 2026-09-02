@@ -42,6 +42,7 @@ from .src.model_utils import (
     load_text_encoder,
     load_transformer,
     load_vae,
+    prompt_clean,
     shard_transformer_specs,
 )
 from .src.modified_model import apply_krea_static_patches
@@ -125,10 +126,7 @@ class KreaRealtimePipeline:
             WAN_REPO_ID, subfolder="tokenizer"
         )
         self.video_processor = VideoProcessor(vae_scale_factor=VAE_SCALE_FACTOR)
-        enc_mod = importlib.import_module(
-            type(self.transformer).__module__.rsplit(".", 1)[0] + ".encoders"
-        )
-        self._prompt_clean = enc_mod.prompt_clean
+        self._prompt_clean = prompt_clean
 
         self._num_heads = self.transformer.config.num_heads
         self._head_dim = self.transformer.config.dim // self._num_heads
