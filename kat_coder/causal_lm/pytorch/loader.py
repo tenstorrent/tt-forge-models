@@ -10,6 +10,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from typing import Optional
 
 from ....base import ForgeModel
+from ....tools.conv_overrides import slice_depthwise_conv1d_channels
 from ....config import (
     LLMModelConfig,
     ModelInfo,
@@ -27,58 +28,6 @@ class ModelVariant(StrEnum):
     KAT_CODER_V2_5_DEV = "KAT-Coder-V2.5-Dev"
 
 
-class ShiftMulAddCausalConv1d(torch.nn.Module):
-    """Drop-in replacement for the GatedDeltaNet depthwise ``nn.Conv1d``.
-
-    TTNN lowers a depthwise conv1d through ``conv2d_DRAM``, which reshapes the
-    input to ``[N, 1, L, C]``. Two tt-metal constraints then collide:
-
-    * 1D depthwise convs only support height sharding ("1d depthwise convs
-      support only height sharding" in ``conv2d_utils.cpp``), and the height
-      dim is ``N*H*W = L + K - 1``. With a short prompt that is under one tile,
-      so ``determine_parallel_config`` puts the whole op on a *single* core,
-      holding all ``conv_dim`` channels.
-    * DRAM auto-slicing cannot relieve it: slices must be tile-aligned, so an
-      output shorter than 32 admits exactly one slice.
-
-    The result is a per-core L1 overflow ("DRAM Auto slice could not find valid
-    slice configuration ... on output dimension 17") that no sharding of the
-    weight can fix, because every L1 term scales with ``conv_dim`` and the op
-    is stuck on one core.
-
-    A depthwise conv is just ``out[c, t] = sum_i w[c, i] * x[c, t - K + 1 + i]``,
-    so K shifted broadcast multiplies and K-1 adds compute the same thing with
-    no conv op at all. The rewrite is elementwise, shards cleanly on the channel
-    axis, and stays cheap regardless of sequence length or device count.
-
-    ``weight`` is the *same* Parameter object as the conv it replaces, so
-    ``load_shard_spec`` entries keyed on ``conv1d.weight`` remain valid, as do
-    the ``causal_conv1d_*`` code paths that read ``conv1d.weight`` directly.
-    """
-
-    def __init__(self, conv: torch.nn.Conv1d):
-        super().__init__()
-        if conv.bias is not None:
-            raise ValueError("Expected a bias-free depthwise conv1d")
-        if conv.groups != conv.in_channels or conv.in_channels != conv.out_channels:
-            raise ValueError("Expected a depthwise conv1d (groups == channels)")
-        # [channels, 1, kernel_size]; shared with the module being replaced.
-        self.weight = conv.weight
-        self.kernel_size = conv.kernel_size[0]
-        self.padding = conv.padding[0]
-
-    def forward(self, x):
-        # Output length matches nn.Conv1d(padding=P): L + 2*P - K + 1.
-        k, p = self.kernel_size, self.padding
-        out_len = x.shape[-1] + 2 * p - k + 1
-        xp = torch.nn.functional.pad(x, (p, p))
-        w = self.weight.squeeze(1)  # [channels, kernel_size]
-        out = w[:, 0].unsqueeze(-1) * xp[..., :out_len]
-        for i in range(1, k):
-            out = out + w[:, i].unsqueeze(-1) * xp[..., i : i + out_len]
-        return out
-
-
 class ModelLoader(ForgeModel):
     """KAT-Coder model loader implementation for causal language modeling tasks."""
 
@@ -92,6 +41,13 @@ class ModelLoader(ForgeModel):
     DEFAULT_VARIANT = ModelVariant.KAT_CODER_V2_5_DEV
 
     sample_text = "Who are you?"
+
+    # Same Gated DeltaNet conv as Qwen 3.6 35B-A3B: 8192 channels, kernel 4.
+    # ttnn can only DRAM-slice height/width; a short prompt (output dim 17)
+    # has no spatial split and overflows L1. 4096 still aborts on this TP+MoE
+    # compile (~1.4MB free L1); 1024 is the verified fallback from Qwen 3.6
+    # (tenstorrent/tt-forge-models#912).
+    CONV_CHANNEL_CHUNK = 1024
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         """Initialize ModelLoader with specified variant.
@@ -167,27 +123,10 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
         model.config.use_cache = False
-        # self._rewrite_depthwise_convs(model)
+        slice_depthwise_conv1d_channels(model, self.CONV_CHANNEL_CHUNK)
         self.config = model.config
         self.model = model
-        print("self, model:", self.model)
         return model
-
-    @staticmethod
-    def _rewrite_depthwise_convs(model):
-        """Swap every GatedDeltaNet ``conv1d`` for the shift-multiply-add form.
-
-        See ShiftMulAddCausalConv1d for why the conv op cannot run here. The
-        replacement keeps the original weight Parameter, so both load_shard_spec
-        and load_activation_shard_spec (which keys on the module object, picked
-        up after this swap) continue to work unchanged.
-        """
-        for layer in model.model.layers:
-            la = getattr(layer, "linear_attn", None)
-            if la is None:
-                continue
-            if isinstance(getattr(la, "conv1d", None), torch.nn.Conv1d):
-                la.conv1d = ShiftMulAddCausalConv1d(la.conv1d)
 
     def load_inputs(self, dtype_override=None, batch_size=1):
         """Load and return sample inputs for the KAT-Coder model with this instance's variant settings.
