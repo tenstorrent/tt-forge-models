@@ -174,13 +174,10 @@ class ZImageConfig:
         # tokenize_prompt, so the same graph), and the shipped code merely summed
         # them into one timer.
         self.warm_iters = warm_iters
-        # Keep each component on device between calls. Measured co-resident:
-        # 23.221 GiB of 31.83 (73.0%) with no OOM. Evicting discards the compiled
-        # graph along with the weights, so every later call rebuilt from scratch
-        # and the benchmark's second pass measured that rebuild rather than warm
-        # performance (issue #6010). Set True to restore the staged behaviour on
-        # a part where the memory does not fit -- a single Wormhole, for example,
-        # cannot hold this model at all (issue #4756).
+        # Keep components on device between calls (23.2 GiB of 31.8, 73%).
+        # Evicting discards the compiled graph with the weights, so every later
+        # call rebuilds (#6010). True restores staging where memory is tight
+        # (a single Wormhole cannot hold this model at all, #4756).
         self.evict_components = evict_components
         # Tiled VAE decode keeps the 1280x720 decode activations small so the
         # host-side spike during decode stays bounded. Flip off to revert to a
@@ -227,8 +224,7 @@ class ZImageTTPipeline:
     def __init__(self, config: ZImageConfig):
         self.config = config
         self._perf = {}
-        # name -> (compiled, module). Holding BOTH keeps the graph and its
-        # weights alive; dropping either forces a rebuild on the next call.
+        # name -> (compiled, module); both refs are needed to avoid a rebuild.
         self._resident = {}
 
     def setup(self):
@@ -404,8 +400,7 @@ class ZImageTTPipeline:
                     noise_pred.to(torch.float32), t, latents, return_dict=False
                 )[0]
             if self.config.evict_components:
-                # Staged path: free the transformer (~12 GB) and its compiled
-                # graph before the VAE decode, so the decode runs alone.
+                # Staged path: free the transformer (~12 GB) before the decode.
                 del tf_compiled, transformer
                 gc.collect()
                 torch_xla.sync()
@@ -421,8 +416,7 @@ class ZImageTTPipeline:
                 if self.config.vae_tiling and hasattr(
                     vae_wrapper.vae, "enable_tiling"
                 ):
-                    # Tiled decode bounds the 1280x720 decode activations (and
-                    # their host staging) to a single tile, not the full frame.
+                    # Tiled decode bounds the 1280x720 activations to one tile.
                     vae_wrapper.vae.enable_tiling()
                 vae_wrapper = vae_wrapper.to(self._device)
                 vae_compiled = self._intercept(

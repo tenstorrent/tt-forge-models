@@ -209,23 +209,17 @@ class FluxConfig:
         # is then byte-identical to pre-instrumentation behaviour, so the demo
         # and PCC paths are unaffected. Only the benchmark sets it.
         self.warm_iters = warm_iters
-        # Keep the text encoders on device between calls. They are replicated,
-        # so T5 costs 9.12 GiB on every chip -- but all four components together
-        # are only 15.05 GiB of 31.83 (51%), and evicting cost a full rebuild
-        # every call: measured T5 84.63s evicting vs 0.24s resident (353x), call
-        # wall 105.49s -> 15.94s. Set True to restore the old evicting path.
+        # Keep the text encoders on device between calls: all four components
+        # are 15.05 GiB of 31.83 (51%), and evicting cost a full rebuild every
+        # call (T5 84.63s evicting vs 0.24s resident). True restores evicting.
         self.evict_encoders = evict_encoders
         # Forwarded for parity with the other imagegen pipelines; unused inline.
         self.compile_options = compile_options or {}
 
 
 def _pin_execution_device_to_cpu(pipe) -> None:
-    """Force ``pipe._execution_device`` to CPU, idempotently.
-
-    Swaps in a per-instance subclass overriding the property, so the stock
-    pipeline keeps allocating its host-side tensors on CPU exactly as it did
-    when the encoders were evicted. Cheap and reversible; no diffusers patch.
-    """
+    """Force ``pipe._execution_device`` to CPU via a per-instance subclass,
+    so host-side tensors are allocated where they were before residency."""
     if getattr(type(pipe), "_tt_cpu_exec_device", False):
         return
     base = type(pipe)
@@ -251,8 +245,7 @@ class FluxTTPipeline:
     def __init__(self, config: FluxConfig):
         self.config = config
         self._perf = {}
-        # name -> (compiled, wrapper, module). Holding all three keeps both the
-        # compiled graph and its weights alive; dropping either forces a rebuild.
+        # name -> (compiled, wrapper, module); all three refs avoid a rebuild.
         self._encoder_cache = {}
 
     # Every component is evicted inside generate() -- text encoders explicitly
@@ -423,20 +416,12 @@ class FluxTTPipeline:
         )
         self.pipe.vae = vae_wrapper
 
-        # Pin the pipeline's execution device to CPU.
-        #
-        # diffusers derives _execution_device from DiffusionPipeline.device, which
-        # returns the device of the FIRST non-CPU nn.Module component
-        # (pipeline_utils.py:614). The shipped path moved both text encoders back
-        # to CPU, and _DeviceDenoiser/_DeviceVAEDecoder are plain classes rather
-        # than nn.Modules, so nothing was left on device and it reported CPU.
-        # Keeping the encoders resident makes it report the XLA device instead,
-        # and FluxPipeline.__call__ uses it to allocate latents, timesteps,
-        # guidance and image ids -- silently moving all of them onto the device
-        # and changing the numerics (measured: the VAE decode output shifted by
-        # up to 1.562e-02, and the PCC e2e's CPU twin died on an XLA tensor).
-        # Residency is a memory decision; it must not change where the host-side
-        # bookkeeping tensors live.
+        # diffusers derives _execution_device from DiffusionPipeline.device,
+        # which returns the first non-CPU nn.Module (pipeline_utils.py:614).
+        # Evicting left nothing on device, so it reported CPU; keeping the
+        # encoders resident flips it to XLA, and FluxPipeline.__call__ uses it to
+        # allocate latents/timesteps/guidance/ids -- which changed the VAE output
+        # by 1.562e-02 and broke the PCC twin. Residency must not move those.
         _pin_execution_device_to_cpu(self.pipe)
 
         generator = torch.Generator().manual_seed(seed) if seed is not None else None
