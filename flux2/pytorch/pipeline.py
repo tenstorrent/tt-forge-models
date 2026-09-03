@@ -130,11 +130,10 @@ class _DeviceVAEDecoder:
         out = self._compiled(latents.to(self._dev))
         image = out.cpu()
         vae_cold = time.perf_counter() - t0
-        # components[] keeps its existing meaning: the functional decode only.
         self._perf["components"]["vae"] = vae_cold
         self._perf.setdefault("cold", {})["vae"] = vae_cold
         # WARM: no natural second decode, so repeat while still resident. Outputs
-        # discarded, so last_pixels is identical at any warm_iters. Inert at 0.
+        # are discarded, so last_pixels is identical at any warm_iters.
         _warm = []
         for _ in range(self._warm_iters):
             _t = time.perf_counter()
@@ -160,8 +159,9 @@ class Flux2Config:
         self.width = width
         # Forwarded for parity with the other imagegen pipelines; unused inline.
         self.compile_options = compile_options or {}
-        # Extra in-residency forwards per one-shot component. 0 = inert, so the
-        # demo and PCC paths are byte-identical to pre-instrumentation behaviour.
+        # Extra in-residency forwards per one-shot component, to get a warm
+        # number while it is still on device. 0 = inert; only the benchmark
+        # sets it.
         self.warm_iters = warm_iters
 
 
@@ -177,15 +177,14 @@ class Flux2TTPipeline:
         self.config = config
         self._perf = {}
 
-    # Every component is evicted inside generate() -- the 24B encoder explicitly,
-    # transformer and VAE by reassignment next call -- and eviction discards the
-    # compiled graph. A second generate() rebuilds, so the harness must skip its
-    # outer warmup pass.
+    # 29.97 GiB of weights alone (94% of the 4-chip budget), so components
+    # cannot all stay resident: each is evicted inside generate(), which
+    # discards its compiled graph. A second generate() would rebuild, so the
+    # harness runs a single call and warm cost is measured in-residency.
     benchmark_staged_residency = True
 
-    # Substitution seams for the plain-callable wrappers. generate()
-    # instantiates these attributes rather than the classes directly, so the
-    # PCC e2e can swap in checking subclasses without copying generate().
+    # Substitution seams: generate() instantiates these attributes rather than
+    # the classes directly, so the PCC e2e can swap in checking subclasses.
     DENOISER_CLS = _DeviceDenoiser
     VAE_CLS = _DeviceVAEDecoder
 
@@ -253,9 +252,8 @@ class Flux2TTPipeline:
         encoder_wrapper = Mistral3TextEncoderWrapper(text_encoder).eval()
         input_ids, attention_mask = tokenize_prompt(prompt)
 
-        # Hook while the wrapper is still on HOST. The PCC e2e computes its golden
-        # here so the check costs no second copy of the 24B encoder -- placing
-        # first and loading a twin later would double this component's peak.
+        # Hook while the wrapper is still on HOST: the PCC e2e computes its
+        # golden here, so the check costs no second copy of the 24B encoder.
         self._pre_place("text_encoder", encoder_wrapper, input_ids, attention_mask)
         text_encoder = text_encoder.to(dev)
         if hasattr(text_encoder, "tie_weights"):
@@ -323,8 +321,7 @@ class Flux2TTPipeline:
         )
         logger.info("[STAGE] transformer + vae: done")
 
-        # Step 1 carries the transformer build; the rest are warm. Measured on
-        # this model: zero graphs compiled after step 1 across all 50 steps.
+        # Step 1 carries the transformer build; the rest are warm.
         steps = self._perf["steps"]
         if steps:
             self._perf["cold"]["transformer_step"] = steps[0]
