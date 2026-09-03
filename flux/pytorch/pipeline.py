@@ -13,9 +13,9 @@ backend via ``torch.compile(backend="tt")``:
   - transformer (FluxTransformer2DModel)   → tensor-parallel sharded (model axis)
   - VAE decoder (AutoencoderKL)            → replicated
 
-Memory strategy (peak ≈ max(component) rather than the sum): the CLIP and T5
-encoders are each placed → used → evicted before the transformer is placed, and
-the VAE is placed lazily at first decode (after the denoise loop).
+Memory strategy: all four components are 15.05 GiB of 31.83 (51%) and stay
+resident, so later calls reuse their compiled graphs. The VAE is still placed
+lazily at first decode so it does not inflate the denoiser's peak DRAM.
 
 This is the reusable implementation that both the runnable example
 (``examples/pytorch/flux1.py``) and the benchmark harness
@@ -24,7 +24,6 @@ into ``self._perf`` after each ``generate()`` (CLIP → components["text_encoder
 T5 → components["text_encoder_2"], transformer → steps, VAE → components["vae"]).
 """
 
-import gc
 import time
 from contextlib import contextmanager
 from typing import Optional
@@ -109,11 +108,10 @@ class _DeviceVAEDecoder:
     pipeline's PIL postprocess.
     """
 
-    def __init__(self, vae, perf, warm_iters=0):
+    def __init__(self, vae, perf):
         # No mesh: the VAE runs replicated, so it needs no shard annotations.
         self._dev = torch_xla.device()
         self._perf = perf
-        self._warm_iters = warm_iters
         self.config = vae.config
         self.dtype = next(vae.parameters()).dtype
         self._vae = vae
@@ -133,21 +131,7 @@ class _DeviceVAEDecoder:
         # host — the compiled lambda always returns a tensor, so no guard needed.
         out = self._compiled(latents.to(self._dev))
         image = out.cpu()
-        vae_cold = time.perf_counter() - t0
-        # components[] keeps its existing meaning: the functional decode only.
-        self._perf["components"]["vae"] = vae_cold
-        self._perf.setdefault("cold", {})["vae"] = vae_cold
-        # WARM: the VAE has no natural second forward, so repeat it here while
-        # still resident. Outputs are discarded, so last_pixels -- and therefore
-        # the returned image -- is identical at any warm_iters. Inert at 0.
-        warm = []
-        for _ in range(self._warm_iters):
-            t_w = time.perf_counter()
-            extra = self._compiled(latents.to(self._dev)).cpu()
-            warm.append(time.perf_counter() - t_w)
-            del extra
-        if warm:
-            self._perf.setdefault("warm", {})["vae"] = sum(warm) / len(warm)
+        self._perf["components"]["vae"] = time.perf_counter() - t0
         self.last_pixels = image
         return (image,)
 
@@ -158,21 +142,10 @@ class FluxConfig:
         height: int = HEIGHT,
         width: int = WIDTH,
         compile_options: Optional[dict] = None,
-        warm_iters: int = 0,
-        evict_encoders: bool = False,
     ):
         self.repo_id = REPO_ID
         self.height = height
         self.width = width
-        # Extra in-residency forwards per one-shot component, to obtain a warm
-        # number while the component is still on device. 0 = inert, and the path
-        # is then byte-identical to pre-instrumentation behaviour, so the demo
-        # and PCC paths are unaffected. Only the benchmark sets it.
-        self.warm_iters = warm_iters
-        # Keep the text encoders on device between calls: all four components
-        # are 15.05 GiB of 31.83 (51%), and evicting cost a full rebuild every
-        # call (T5 84.63s evicting vs 0.24s resident). True restores evicting.
-        self.evict_encoders = evict_encoders
         # Forwarded for parity with the other imagegen pipelines; unused inline.
         self.compile_options = compile_options or {}
 
@@ -197,9 +170,8 @@ def _pin_execution_device_to_cpu(pipe) -> None:
 class FluxTTPipeline:
     """FluxPipeline with every module on TT, transformer tensor-parallel sharded.
 
-    Built once with ``setup()``; ``generate()`` can be called repeatedly. The raw
-    transformer / VAE modules are kept so the TT wrappers are rebuilt fresh on
-    each call (the benchmark harness runs a warmup pass followed by a steady one).
+    Built once with ``setup()``; ``generate()`` can be called repeatedly. Every
+    component is kept on device, so later calls reuse its compiled graph.
     """
 
     def __init__(self, config: FluxConfig):
@@ -208,17 +180,12 @@ class FluxTTPipeline:
         # name -> (compiled, wrapper, module); all three refs avoid a rebuild.
         self._encoder_cache = {}
 
-    # Every component is evicted inside generate() -- text encoders explicitly
-    # (.to("cpu") + del compiled), transformer and VAE by reassignment next call --
-    # and eviction discards the compiled graph with the weights. A second
-    # generate() therefore rebuilds, so the harness must skip its outer warmup.
-    # Text encoders stay resident (see FluxConfig.evict_encoders), so a second
-    # generate() is genuinely warm and the harness runs warmup + steady.
+    # Components stay resident, so a second generate() is genuinely warm and the
+    # harness runs its normal warmup + steady pair.
     benchmark_staged_residency = False
 
-    # Substitution seams for the plain-callable wrappers. generate()
-    # instantiates these attributes rather than the classes directly, so the
-    # PCC e2e can swap in checking subclasses without copying generate().
+    # Substitution seams: generate() instantiates these attributes rather than
+    # the classes directly, so the PCC e2e can swap in checking subclasses.
     DENOISER_CLS = _DeviceDenoiser
     VAE_CLS = _DeviceVAEDecoder
 
@@ -246,30 +213,23 @@ class FluxTTPipeline:
         self._raw_vae = self.pipe.vae
 
     def _encode(self, wrapper_cls, module, input_ids, dev, name=None):
-        """Place a replicated text encoder on device, encode, and KEEP it there.
+        """Place a replicated text encoder on device and encode.
 
-        Returns ``(module, embeds, elapsed_seconds)``.
-
-        The encoder and its compiled graph are cached on first use, so a second
-        generate() reuses both instead of rebuilding. Previously this evicted
-        (``.to("cpu")`` + ``del compiled``), which discarded the graph with the
-        weights and made every later call pay a full rebuild -- measured T5
-        84.63s evicting vs 0.24s resident. Set ``evict_encoders`` to restore
-        the old behaviour on a part where the memory matters.
+        Returns ``(module, embeds, elapsed_seconds)``. The encoder and its
+        compiled graph are cached on first use, so a second generate() reuses
+        both instead of rebuilding.
         """
         cached = self._encoder_cache.get(name) if name else None
         if cached is not None:
             compiled, wrapper, module = cached
         else:
             wrapper = wrapper_cls(module).eval()
-            # Hook while the wrapper is still on HOST. The PCC e2e computes its
-            # golden here so the check costs no second copy of the encoder --
-            # placing first and loading a twin later would double this
-            # component's peak.
+            # Hook while the wrapper is still on HOST: the PCC e2e computes
+            # its golden here, so the check costs no second copy of the encoder.
             self._pre_place(name, wrapper, input_ids)
             module = module.to(dev)
             compiled = self._intercept(name, torch.compile(wrapper, backend="tt"))
-            if name and not self.config.evict_encoders:
+            if name:
                 self._encoder_cache[name] = (compiled, wrapper, module)
         t0 = time.perf_counter()
         with torch.no_grad():
@@ -277,24 +237,6 @@ class FluxTTPipeline:
         torch_xla.sync()
         out = out.cpu().to(DTYPE)
         dt = time.perf_counter() - t0
-        if name:
-            self._perf.setdefault("cold", {})[name] = dt
-            warm = []
-            for _ in range(self.config.warm_iters):
-                t_w = time.perf_counter()
-                with torch.no_grad():
-                    extra = compiled(input_ids.to(dev))
-                torch_xla.sync()
-                extra = extra.cpu()
-                warm.append(time.perf_counter() - t_w)
-                del extra
-            if warm:
-                self._perf.setdefault("warm", {})[name] = sum(warm) / len(warm)
-        if self.config.evict_encoders:
-            # Old path: eviction discards the compiled graph along with the
-            # weights, so the next call rebuilds both.
-            module = module.to("cpu")
-            del compiled, wrapper
         return module, out, dt
 
     def _pre_place(self, name, wrapper, input_ids):
@@ -325,14 +267,14 @@ class FluxTTPipeline:
             "steps": [],
             "step_metric_name": "transformer_step",
             "total": None,
-            # components[] keeps its existing meaning (the functional total),
-            # so the published <name>_s does not move.
+            # Per-component cold/warm split, alongside the functional total in
+            # components[].
             "cold": {},
             "warm": {},
         }
         t_total_start = time.perf_counter()
 
-        # ── Stage 1: text encoders (CLIP, T5, replicated) → embeds, evict ─────
+        # ── Stage 1: text encoders (CLIP, T5, replicated) → embeds ───────────
         logger.info("[STAGE] clip_text_encoder: start")
         (
             self.pipe.text_encoder,
@@ -359,7 +301,6 @@ class FluxTTPipeline:
             dev,
             name="text_encoder_2",
         )
-        gc.collect()
         torch_xla.sync()
         logger.info("[STAGE] t5_text_encoder: done")
 
@@ -371,17 +312,13 @@ class FluxTTPipeline:
         self.pipe.transformer = self.DENOISER_CLS(
             self._raw_transformer, self.mesh, self._perf
         )
-        vae_wrapper = self.VAE_CLS(
-            self._raw_vae, self._perf, warm_iters=self.config.warm_iters
-        )
+        vae_wrapper = self.VAE_CLS(self._raw_vae, self._perf)
         self.pipe.vae = vae_wrapper
 
-        # diffusers derives _execution_device from DiffusionPipeline.device,
-        # which returns the first non-CPU nn.Module (pipeline_utils.py:614).
-        # Evicting left nothing on device, so it reported CPU; keeping the
-        # encoders resident flips it to XLA, and FluxPipeline.__call__ uses it to
-        # allocate latents/timesteps/guidance/ids -- which changed the VAE output
-        # by 1.562e-02 and broke the PCC twin. Residency must not move those.
+        # Required: FluxPipeline.__call__ allocates latents/timesteps/guidance/
+        # ids on _execution_device, which diffusers derives from the first
+        # non-CPU module (pipeline_utils.py:614). With components resident that
+        # is XLA, and moving those host tensors shifts the VAE output.
         _pin_execution_device_to_cpu(self.pipe)
 
         generator = torch.Generator().manual_seed(seed) if seed is not None else None
@@ -398,9 +335,8 @@ class FluxTTPipeline:
         )
         logger.info("[STAGE] transformer + vae: done")
 
-        # ---- transformer step cold/warm ---------------------------------
-        # The transformer stays resident, so only the first step of the first
-        # call carries a build; every later step is warm.
+        # Step 1 of the first call carries the transformer build; the rest are
+        # warm.
         steps = self._perf["steps"]
         if steps:
             self._perf["cold"]["transformer_step"] = steps[0]
