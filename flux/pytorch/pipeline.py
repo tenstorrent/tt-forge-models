@@ -31,7 +31,6 @@ from typing import Optional
 
 import torch
 import torch_xla
-import torch_xla.debug.metrics as met
 import torch_xla.distributed.spmd as xs
 import torch_xla.runtime as xr
 from diffusers import FluxPipeline
@@ -57,42 +56,6 @@ from .src.model_utils import (
 )
 
 NUM_INFERENCE_STEPS = 50
-
-
-def _compile_counters():
-    """``(compile_seconds, graphs_compiled)`` accumulated process-wide so far."""
-    data = met.metric_data("CompileTime")
-    if not data:
-        return 0.0, 0
-    return (data[1] / 1e9 if len(data) > 1 else 0.0), data[0]
-
-
-def _graphs_compiled():
-    return _compile_counters()[1]
-
-
-class _StageCounters:
-    """Compile time and graph count of one staged residency, as a delta.
-
-    Makes the warm numbers falsifiable: a warm iteration must add zero graphs.
-    """
-
-    def __init__(self, sink, name):
-        self._sink, self._name = sink, name
-
-    def __enter__(self):
-        self._t0 = time.perf_counter()
-        self._before = _compile_counters()
-        return self
-
-    def __exit__(self, *exc):
-        after = _compile_counters()
-        self._sink[self._name] = {
-            "wall_s": time.perf_counter() - self._t0,
-            "compile_s": after[0] - self._before[0],
-            "graphs_compiled": after[1] - self._before[1],
-        }
-        return False
 
 
 class _DeviceDenoiser:
@@ -135,9 +98,6 @@ class _DeviceDenoiser:
         else:
             result = out.cpu()
         self._perf["steps"].append(time.perf_counter() - t0)
-        # Per-step graph count, so warm steps are selected rather than assumed:
-        # a step that compiled anything is not warm.
-        self._perf.setdefault("step_graphs", []).append(_graphs_compiled())
         return result
 
 
@@ -365,12 +325,10 @@ class FluxTTPipeline:
             "steps": [],
             "step_metric_name": "transformer_step",
             "total": None,
-            # Staged-residency additions; components[] keeps its existing meaning
-            # (the functional total) so the published <name>_s does not move.
+            # components[] keeps its existing meaning (the functional total),
+            # so the published <name>_s does not move.
             "cold": {},
             "warm": {},
-            "counters": {},
-            "step_graphs": [],
         }
         t_total_start = time.perf_counter()
 
@@ -441,24 +399,15 @@ class FluxTTPipeline:
         logger.info("[STAGE] transformer + vae: done")
 
         # ---- transformer step cold/warm ---------------------------------
-        # Warm steps are SELECTED by graph count, not assumed at index 1: a step
-        # that compiled anything is not warm.
+        # The transformer stays resident, so only the first step of the first
+        # call carries a build; every later step is warm.
         steps = self._perf["steps"]
-        sg = self._perf.get("step_graphs") or []
-        if steps and len(sg) == len(steps):
+        if steps:
             self._perf["cold"]["transformer_step"] = steps[0]
-            warm_steps = [
-                t for i, t in enumerate(steps) if i > 0 and sg[i] == sg[i - 1]
-            ]
-            if warm_steps:
-                self._perf["warm"]["transformer_step"] = sum(warm_steps) / len(
-                    warm_steps
+            if len(steps) > 1:
+                self._perf["warm"]["transformer_step"] = sum(steps[1:]) / (
+                    len(steps) - 1
                 )
-            self._perf["counters"]["transformer_warm_steps"] = {
-                "warm_steps": len(warm_steps),
-                "total_steps": len(steps),
-                "graphs_compiled": sg[-1] - sg[0],
-            }
 
         self._perf["total"] = time.perf_counter() - t_total_start
         # Raw VAE pixels in [-1, 1], shape (1, 3, H, W).

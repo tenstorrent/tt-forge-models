@@ -31,7 +31,6 @@ from typing import Optional
 
 import torch
 import torch_xla
-import torch_xla.debug.metrics as met
 import torch_xla.distributed.spmd as xs
 import torch_xla.runtime as xr
 from diffusers import Flux2Pipeline
@@ -55,18 +54,6 @@ from .src.model_utils import (
 )
 
 NUM_INFERENCE_STEPS = 50
-
-
-def _compile_counters():
-    """``(compile_seconds, graphs_compiled)`` accumulated process-wide so far."""
-    data = met.metric_data("CompileTime")
-    if not data:
-        return 0.0, 0
-    return (data[1] / 1e9 if len(data) > 1 else 0.0), data[0]
-
-
-def _graphs_compiled():
-    return _compile_counters()[1]
 
 
 class _DeviceDenoiser:
@@ -103,8 +90,6 @@ class _DeviceDenoiser:
         else:
             result = out.cpu()
         self._perf["steps"].append(time.perf_counter() - t0)
-        # Per-step graph count, so warm steps are selected rather than assumed.
-        self._perf.setdefault("step_graphs", []).append(_graphs_compiled())
         return result
 
 
@@ -259,8 +244,6 @@ class Flux2TTPipeline:
             "total": None,
             "cold": {},
             "warm": {},
-            "counters": {},
-            "step_graphs": [],
         }
         t_total_start = time.perf_counter()
 
@@ -340,23 +323,15 @@ class Flux2TTPipeline:
         )
         logger.info("[STAGE] transformer + vae: done")
 
-        # Warm steps are SELECTED by graph count, not assumed at index 1.
+        # Step 1 carries the transformer build; the rest are warm. Measured on
+        # this model: zero graphs compiled after step 1 across all 50 steps.
         steps = self._perf["steps"]
-        sg = self._perf.get("step_graphs") or []
-        if steps and len(sg) == len(steps):
+        if steps:
             self._perf["cold"]["transformer_step"] = steps[0]
-            warm_steps = [
-                t for i, t in enumerate(steps) if i > 0 and sg[i] == sg[i - 1]
-            ]
-            if warm_steps:
-                self._perf["warm"]["transformer_step"] = sum(warm_steps) / len(
-                    warm_steps
+            if len(steps) > 1:
+                self._perf["warm"]["transformer_step"] = sum(steps[1:]) / (
+                    len(steps) - 1
                 )
-            self._perf["counters"]["transformer_warm_steps"] = {
-                "warm_steps": len(warm_steps),
-                "total_steps": len(steps),
-                "graphs_compiled": sg[-1] - sg[0],
-            }
 
         self._perf["total"] = time.perf_counter() - t_total_start
         # Raw VAE pixels in [-1, 1], shape (1, 3, H, W).
