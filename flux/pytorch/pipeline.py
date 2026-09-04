@@ -13,9 +13,9 @@ backend via ``torch.compile(backend="tt")``:
   - transformer (FluxTransformer2DModel)   → tensor-parallel sharded (model axis)
   - VAE decoder (AutoencoderKL)            → replicated
 
-Memory strategy (peak ≈ max(component) rather than the sum): the CLIP and T5
-encoders are each placed → used → evicted before the transformer is placed, and
-the VAE is placed lazily at first decode (after the denoise loop).
+Memory strategy: all four components are 15.05 GiB of 31.83 (51%) and stay
+resident, so later calls reuse their compiled graphs. The VAE is still placed
+lazily at first decode so it does not inflate the denoiser's peak DRAM.
 
 This is the reusable implementation that both the runnable example
 (``examples/pytorch/flux1.py``) and the benchmark harness
@@ -24,7 +24,6 @@ into ``self._perf`` after each ``generate()`` (CLIP → components["text_encoder
 T5 → components["text_encoder_2"], transformer → steps, VAE → components["vae"]).
 """
 
-import gc
 import time
 from contextlib import contextmanager
 from typing import Optional
@@ -151,17 +150,44 @@ class FluxConfig:
         self.compile_options = compile_options or {}
 
 
+def _pin_execution_device_to_cpu(pipe) -> None:
+    """Force ``pipe._execution_device`` to CPU via a per-instance subclass,
+    so host-side tensors are allocated where they were before residency."""
+    if getattr(type(pipe), "_tt_cpu_exec_device", False):
+        return
+    base = type(pipe)
+    pinned = type(
+        f"{base.__name__}CpuExecDevice",
+        (base,),
+        {
+            "_execution_device": property(lambda self: torch.device("cpu")),
+            "_tt_cpu_exec_device": True,
+        },
+    )
+    pipe.__class__ = pinned
+
+
 class FluxTTPipeline:
     """FluxPipeline with every module on TT, transformer tensor-parallel sharded.
 
-    Built once with ``setup()``; ``generate()`` can be called repeatedly. The raw
-    transformer / VAE modules are kept so the TT wrappers are rebuilt fresh on
-    each call (the benchmark harness runs a warmup pass followed by a steady one).
+    Built once with ``setup()``; ``generate()`` can be called repeatedly. Every
+    component is kept on device, so later calls reuse its compiled graph.
     """
 
     def __init__(self, config: FluxConfig):
         self.config = config
         self._perf = {}
+        # name -> (compiled, wrapper, module); all three refs avoid a rebuild.
+        self._encoder_cache = {}
+
+    # Components stay resident, so a second generate() is genuinely warm and the
+    # harness runs its normal warmup + steady pair.
+    benchmark_staged_residency = False
+
+    # Substitution seams: generate() instantiates these attributes rather than
+    # the classes directly, so the PCC e2e can swap in checking subclasses.
+    DENOISER_CLS = _DeviceDenoiser
+    VAE_CLS = _DeviceVAEDecoder
 
     def setup(self):
         # Enables SPMD + shardy annotations; required so the StableHLO handed to
@@ -186,23 +212,47 @@ class FluxTTPipeline:
         self._raw_transformer = self.pipe.transformer
         self._raw_vae = self.pipe.vae
 
-    def _encode(self, wrapper_cls, module, input_ids, dev):
-        """Place a replicated text encoder on device, encode, evict.
+    def _encode(self, wrapper_cls, module, input_ids, dev, name=None):
+        """Place a replicated text encoder on device and encode.
 
-        Returns ``(cpu_module, embeds, elapsed_seconds)``.
+        Returns ``(module, embeds, elapsed_seconds)``. The encoder and its
+        compiled graph are cached on first use, so a second generate() reuses
+        both instead of rebuilding.
         """
-        wrapper = wrapper_cls(module).eval()
-        module = module.to(dev)
-        compiled = torch.compile(wrapper, backend="tt")
+        cached = self._encoder_cache.get(name) if name else None
+        if cached is not None:
+            compiled, wrapper, module = cached
+        else:
+            wrapper = wrapper_cls(module).eval()
+            # Hook while the wrapper is still on HOST: the PCC e2e computes
+            # its golden here, so the check costs no second copy of the encoder.
+            self._pre_place(name, wrapper, input_ids)
+            module = module.to(dev)
+            compiled = self._intercept(name, torch.compile(wrapper, backend="tt"))
+            if name:
+                self._encoder_cache[name] = (compiled, wrapper, module)
         t0 = time.perf_counter()
         with torch.no_grad():
             out = compiled(input_ids.to(dev))
         torch_xla.sync()
         out = out.cpu().to(DTYPE)
         dt = time.perf_counter() - t0
-        module = module.to("cpu")
-        del compiled, wrapper
         return module, out, dt
+
+    def _pre_place(self, name, wrapper, input_ids):
+        """Hook called with the wrapper still on host, before device placement.
+
+        No-op by default. See _encode for why the PCC path needs it.
+        """
+        return None
+
+    def _intercept(self, name, compiled):
+        """Hook applied to each component's COMPILED callable. Identity by default.
+
+        The seam the PCC e2e uses: wrapping the compiled callable keeps a golden
+        comparison OUTSIDE the traced graph, where host tensors are real.
+        """
+        return compiled
 
     def generate(
         self,
@@ -217,17 +267,25 @@ class FluxTTPipeline:
             "steps": [],
             "step_metric_name": "transformer_step",
             "total": None,
+            # Per-component cold/warm split, alongside the functional total in
+            # components[].
+            "cold": {},
+            "warm": {},
         }
         t_total_start = time.perf_counter()
 
-        # ── Stage 1: text encoders (CLIP, T5, replicated) → embeds, evict ─────
+        # ── Stage 1: text encoders (CLIP, T5, replicated) → embeds ───────────
         logger.info("[STAGE] clip_text_encoder: start")
         (
             self.pipe.text_encoder,
             pooled_prompt_embeds,
             self._perf["components"]["text_encoder_1"],
         ) = self._encode(
-            ClipTextEncoderWrapper, self.pipe.text_encoder, tokenize_clip(prompt), dev
+            ClipTextEncoderWrapper,
+            self.pipe.text_encoder,
+            tokenize_clip(prompt),
+            dev,
+            name="text_encoder_1",
         )
         logger.info("[STAGE] clip_text_encoder: done")
 
@@ -241,8 +299,8 @@ class FluxTTPipeline:
             self.pipe.text_encoder_2,
             tokenize_t5(prompt, max_sequence_length=MAX_SEQUENCE_LENGTH),
             dev,
+            name="text_encoder_2",
         )
-        gc.collect()
         torch_xla.sync()
         logger.info("[STAGE] t5_text_encoder: done")
 
@@ -251,11 +309,17 @@ class FluxTTPipeline:
             "[STAGE] transformer (sharded) + vae: start ({} steps)",
             num_inference_steps,
         )
-        self.pipe.transformer = _DeviceDenoiser(
+        self.pipe.transformer = self.DENOISER_CLS(
             self._raw_transformer, self.mesh, self._perf
         )
-        vae_wrapper = _DeviceVAEDecoder(self._raw_vae, self._perf)
+        vae_wrapper = self.VAE_CLS(self._raw_vae, self._perf)
         self.pipe.vae = vae_wrapper
+
+        # Required: FluxPipeline.__call__ allocates latents/timesteps/guidance/
+        # ids on _execution_device, which diffusers derives from the first
+        # non-CPU module (pipeline_utils.py:614). With components resident that
+        # is XLA, and moving those host tensors shifts the VAE output.
+        _pin_execution_device_to_cpu(self.pipe)
 
         generator = torch.Generator().manual_seed(seed) if seed is not None else None
         self.pipe(
@@ -270,6 +334,16 @@ class FluxTTPipeline:
             generator=generator,
         )
         logger.info("[STAGE] transformer + vae: done")
+
+        # Step 1 of the first call carries the transformer build; the rest are
+        # warm.
+        steps = self._perf["steps"]
+        if steps:
+            self._perf["cold"]["transformer_step"] = steps[0]
+            if len(steps) > 1:
+                self._perf["warm"]["transformer_step"] = sum(steps[1:]) / (
+                    len(steps) - 1
+                )
 
         self._perf["total"] = time.perf_counter() - t_total_start
         # Raw VAE pixels in [-1, 1], shape (1, 3, H, W).
