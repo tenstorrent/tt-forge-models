@@ -1,0 +1,8 @@
+# google/gemma-4-12B is a Gemma4UnifiedForConditionalGeneration, which lives in
+# transformers.models.gemma4_unified. The multimodal (image / audio / video)
+# paths were brought up and PCC-verified against 5.10.4, and the loader's
+# _strip_mask_gather_checks() AST-matches the three torch_compilable_check
+# merge assertions as they are written in that release. Pin it: on a version
+# where those checks are restructured the strip degrades to a no-op and the
+# multimodal paths OOM (130 MB L1 image / 72 MB L1 audio / 15.8 GB DRAM video).
+transformers==5.10.4
