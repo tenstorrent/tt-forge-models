@@ -251,22 +251,29 @@ class ModelLoader(ForgeModel):
     #
     # The LM runs on TT; the audio tower still ran on CPU (host-precomputed
     # inputs_embeds). ``encode_audio`` runs it on device: the Whisper encoder
-    # (audio_tower) on TT via torch.compile(backend="tt"); the reshape +
-    # multi_modal_projector on CPU. Build ``input_features`` with the processor's
-    # WhisperFeatureExtractor (no chat-template/tokenizer needed for the audio
-    # path). See tt-xla #5537.
+    # (audio_tower) on TT via torch.compile(backend="tt"), and with
+    # ``projector_on_tt`` the trailing reshape + multi_modal_projector too, so the
+    # whole audio front-end is on device. Build ``input_features`` with the
+    # processor's WhisperFeatureExtractor (no chat-template/tokenizer needed for
+    # the audio path). See tt-xla #5537.
     # ------------------------------------------------------------------ #
 
-    def encode_audio(self, input_features, backbone_on_tt=False):
+    def encode_audio(self, input_features, backbone_on_tt=False, projector_on_tt=False):
         """Mel ``input_features`` [B, n_mels, frames] -> audio embeds [N, hidden].
 
         With ``backbone_on_tt=True`` the Whisper audio tower runs on TT
-        (optimization_level=1); the reshape + projector stay on CPU.
+        (optimization_level=1). With ``projector_on_tt=True`` the trailing
+        reshape + ``multi_modal_projector`` run on TT as well, leaving nothing in
+        the audio front-end on host. ``projector_on_tt`` implies the tower is on
+        device, since the tower's output is what feeds it.
         """
         model = self.model if self.model is not None else self.load_model()
         audio_tower = model.audio_tower
         projector = model.multi_modal_projector
         inter = model.config.audio_config.intermediate_size
+
+        if projector_on_tt:
+            backbone_on_tt = True
 
         def _project(last_hidden):
             return projector(last_hidden.reshape(-1, inter))
@@ -286,5 +293,19 @@ class ModelLoader(ForgeModel):
                 lambda f: at(f, return_dict=True).last_hidden_state, backend="tt"
             )
             lh = compiled(input_features.to(dtype=torch.bfloat16).to(dev))
-            lh = lh.to("cpu").to(torch.float32)
-            return _project(lh)  # reshape + projector on CPU
+
+            if not projector_on_tt:
+                # Match the projector's own dtype rather than hardcoding fp32:
+                # load_model() returns the model in bf16, so a fp32 cast here
+                # makes linear_1 raise "expected m1 and m2 to have the same
+                # dtype, but got: float != c10::BFloat16".
+                lh = lh.to("cpu").to(next(projector.parameters()).dtype)
+                return _project(lh)  # reshape + projector on CPU
+
+            # Reshape + projector on device too. Compiled separately from the
+            # tower so the tower's graph is unchanged and still cache-hits.
+            proj = projector.to(dtype=torch.bfloat16).to(dev)
+            compiled_proj = torch.compile(
+                lambda x: proj(x.reshape(-1, inter)), backend="tt"
+            )
+            return compiled_proj(lh).to("cpu").to(torch.float32)
