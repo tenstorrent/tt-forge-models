@@ -465,7 +465,9 @@ def shard_vae_decoder_specs(decoder) -> dict:
       conv1 (CogVideoXCausalConv3d): column-parallel on out_channels
       conv2 (CogVideoXCausalConv3d): row-parallel on in_channels, bias replicated
       norm2 (MochiChunkedGroupNorm3D): channel-sharded
-    norm1, top-level conv_in, proj_out, and per-up-block proj are left replicated.
+    Each up-block's proj (unpatchify linear) is column-parallel so the 8-D
+    unpatchify transpose stays channel-sharded.
+    norm1, top-level conv_in, and proj_out are left replicated.
     """
     specs: dict = {}
 
@@ -493,11 +495,23 @@ def shard_vae_decoder_specs(decoder) -> dict:
     for resnet in decoder.block_in.resnets:
         shard_resnet(resnet)
 
-    # up_blocks (MochiUpBlock3D) — resnets per block; up_block.proj
-    # (unpatchify linear) is left replicated.
+    # up_blocks (MochiUpBlock3D).
     for up_block in decoder.up_blocks:
         for resnet in up_block.resnets:
             shard_resnet(resnet)
+
+        # proj: column-parallel on out_features = out_channels * st * sh * sw.
+        # The unpatchify reshapes that axis to (out_channels, st, sh, sw) with
+        # out_channels outermost, so a contiguous shard covers whole
+        # (st, sh, sw) groups whenever out_channels % mesh("model") == 0 —
+        # true for every supported mesh, since the smallest out_channels is
+        # 128 and the widest model axis is 8. Keeping the split here means the
+        # reshape/permute/reshape unpatchify chain, whose 8-D intermediate is
+        # the largest tensor in the decoder, stays sharded across devices
+        # instead of being materialised whole on each one.
+        specs[up_block.proj.weight] = ("model", None)
+        if up_block.proj.bias is not None:
+            specs[up_block.proj.bias] = ("model",)
 
     # block_out (MochiMidBlock3D).
     for resnet in decoder.block_out.resnets:
