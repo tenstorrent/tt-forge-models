@@ -216,8 +216,8 @@ class ZImageTTPipeline:
             "steps": [],
             "step_metric_name": "transformer_step",
             "total": None,
-            # Per-component cold/warm split, alongside the functional total in
-            # components[].
+            # The text encoder runs twice per residency, so its two forwards
+            # are reported separately; the harness derives everything else.
             "cold": {},
             "warm": {},
         }
@@ -338,16 +338,6 @@ class ZImageTTPipeline:
             image = vae_compiled(latents.to(self._device)).cpu().float()
             self._perf["components"]["vae"] = time.perf_counter() - t0
             logger.info("[STAGE] vae: done")
-
-        # Step 1 of the first call carries the transformer build; the rest are
-        # warm.
-        steps = self._perf["steps"]
-        if steps:
-            self._perf["cold"]["transformer_step"] = steps[0]
-            if len(steps) > 1:
-                self._perf["warm"]["transformer_step"] = sum(steps[1:]) / (
-                    len(steps) - 1
-                )
 
         self._perf["total"] = time.perf_counter() - t_total_start
         return image

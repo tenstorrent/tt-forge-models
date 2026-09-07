@@ -267,10 +267,6 @@ class FluxTTPipeline:
             "steps": [],
             "step_metric_name": "transformer_step",
             "total": None,
-            # Per-component cold/warm split, alongside the functional total in
-            # components[].
-            "cold": {},
-            "warm": {},
         }
         t_total_start = time.perf_counter()
 
@@ -334,16 +330,6 @@ class FluxTTPipeline:
             generator=generator,
         )
         logger.info("[STAGE] transformer + vae: done")
-
-        # Step 1 of the first call carries the transformer build; the rest are
-        # warm.
-        steps = self._perf["steps"]
-        if steps:
-            self._perf["cold"]["transformer_step"] = steps[0]
-            if len(steps) > 1:
-                self._perf["warm"]["transformer_step"] = sum(steps[1:]) / (
-                    len(steps) - 1
-                )
 
         self._perf["total"] = time.perf_counter() - t_total_start
         # Raw VAE pixels in [-1, 1], shape (1, 3, H, W).
