@@ -61,10 +61,9 @@ NUM_INFERENCE_STEPS = 50
 def _staging(perf):
     """Accumulate host<->device weight movement into ``perf["staging"]``.
 
-    Placing and evicting a component is neither a forward nor host bookkeeping,
-    and at ~30 GiB per call it dwarfs both. Reported separately so the harness
-    can bill it to ``staging_overhead_s`` instead of ``cpu_overhead_s``, which is
-    what makes that metric mean the same thing here and on a resident pipeline.
+    Placing and evicting is neither a forward nor host bookkeeping, and at
+    ~30 GiB per call it dwarfs both. Billed to ``staging_overhead_s`` so
+    ``cpu_overhead_s`` means the same thing here and on a resident pipeline.
     """
     t0 = time.perf_counter()
     try:
@@ -151,8 +150,8 @@ class _DeviceVAEDecoder:
         vae_cold = time.perf_counter() - t0
         self._perf["components"]["vae"] = vae_cold
         self._perf.setdefault("cold", {})["vae"] = vae_cold
-        # WARM: no natural second decode, so repeat while still resident. Outputs
-        # are discarded, so last_pixels is identical at any warm_iters.
+        # WARM: no natural second decode, so repeat while still resident.
+        # Outputs are discarded, so last_pixels is unchanged.
         _warm = []
         for _ in range(self._warm_iters):
             _t = time.perf_counter()
@@ -180,8 +179,7 @@ class Flux2Config:
         # Forwarded for parity with the other imagegen pipelines; unused inline.
         self.compile_options = compile_options or {}
         # Extra in-residency forwards per one-shot component, to get a warm
-        # number while it is still on device. 0 = inert; only the benchmark
-        # sets it.
+        # number while it is still on device. 0 = inert.
         self.warm_iters = warm_iters
 
 
@@ -198,9 +196,8 @@ class Flux2TTPipeline:
         self._perf = {}
 
     # 29.97 GiB of weights alone (94% of the 4-chip budget), so components
-    # cannot all stay resident: each is evicted inside generate(), which
-    # discards its compiled graph. A second generate() would rebuild, so the
-    # harness runs a single call and warm cost is measured in-residency.
+    # cannot stay resident. Eviction discards the compiled graph, so the harness
+    # runs a single call and warm cost is measured in-residency.
     benchmark_staged_residency = True
 
     # Substitution seams: generate() instantiates these attributes rather than
@@ -263,8 +260,8 @@ class Flux2TTPipeline:
             "total": None,
             "cold": {},
             "warm": {},
-            # Weight movement, and time spent in the discarded warm repeats.
-            # Both are device work, so neither belongs in host overhead.
+            # Device work that is not a forward; neither belongs in host
+            # overhead.
             "staging": 0.0,
             "synthetic": 0.0,
         }

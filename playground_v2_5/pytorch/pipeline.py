@@ -74,8 +74,7 @@ class PlaygroundV25TTPipeline:
     """Playground v2.5 with every module on a single TT chip.
 
     Built once with ``setup()``; ``generate()`` can be called repeatedly. Each
-    module is placed on first use and kept on device, so later calls reuse its
-    compiled graph.
+    module is kept on device, so later calls reuse its compiled graph.
     """
 
     # Components stay resident, so a second generate() is genuinely warm and the
@@ -90,9 +89,7 @@ class PlaygroundV25TTPipeline:
         """Hook after each component's TT forward. No-op by default.
 
         The seam the PCC e2e uses: it runs a CPU twin on ``cpu_inputs`` -- the
-        same fp32 tensors the TT component consumed -- and asserts on PCC. Kept
-        outside the component so the comparison never enters a traced graph.
-
+        same fp32 tensors the TT component consumed -- outside the traced graph.
         ``name`` is one of "text_encoder_1", "text_encoder_2", "unet", "vae".
         """
         return None
@@ -103,8 +100,8 @@ class PlaygroundV25TTPipeline:
         self.load_tokenizers()
 
     def load_models(self):
-        # Load on CPU and only register the "tt" dynamo backend here; the move
-        # to xla_device happens in generate() right before the first forward.
+        # Load on CPU; the move to xla_device happens in generate() right
+        # before the first forward.
         self.text_encoder = ModelLoader(ModelVariant.TEXT_ENCODER).load_model(
             dtype_override=torch.float32
         )
