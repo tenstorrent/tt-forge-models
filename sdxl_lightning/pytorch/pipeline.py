@@ -3,25 +3,18 @@
 # SPDX-License-Identifier: Apache-2.0
 """SDXL-Lightning text-to-image pipeline running on Tenstorrent.
 
-Four compute modules run on the TT backend via ``model.compile(backend="tt")``;
-the tokenizers, scheduler and latent bookkeeping stay on CPU:
+Two CLIP text encoders, the UNet (bf16, looped) and the VAE decoder run on the TT
+backend via ``model.compile(backend="tt")``; tokenizers, scheduler and latent
+bookkeeping stay on CPU. It is a 4-step distilled model without CFG, so each step
+is one UNet forward. Every component is placed before its forward and its output
+cast back with ``.to("cpu")``, the sync point that ends its timer.
 
-  - CLIP text encoder    (CLIPTextModel)                → text_encoder_1
-  - CLIP text encoder 2  (CLIPTextModelWithProjection)  → text_encoder_2
-  - UNet                 (UNet2DConditionModel)         → looped, bf16
-  - VAE decoder          (AutoencoderKL)                → vae
+All four are 8.14 GiB of 31.83 (26%) and stay resident, so later calls reuse
+their compiled graphs.
 
-SDXL-Lightning is a 4-step distilled model and runs without CFG (batch stays 1),
-so each step is a single UNet forward.
-
-Memory strategy: all four components are 8.14 GiB of 31.83 (26%) and stay
-resident, so later calls reuse their compiled graphs.
-
-This is the reusable implementation that the runnable example
-(``examples/pytorch/sdxl_lightning.py``), the benchmark harness
-(``tests/benchmark/test_imagegen.py::test_sdxl_lightning``) and the PCC-gated
-e2e (``tests/torch/models/sdxl_lightning/``) all consume. Per-component times go
-into ``self._perf`` after each ``generate()``.
+Shared by the example (``examples/pytorch/sdxl_lightning.py``), the benchmark
+(``test_imagegen.py::test_sdxl_lightning``) and the PCC e2e
+(``tests/torch/models/sdxl_lightning/``); per-component times go into ``_perf``.
 """
 
 import time
@@ -85,9 +78,8 @@ class SDXLLightningTTPipeline:
     def _check(self, name, tt_out, *cpu_inputs):
         """Hook after each component's TT forward. No-op by default.
 
-        The seam the PCC e2e uses: it runs a CPU twin on ``cpu_inputs`` -- the
-        same fp32 tensors the TT component consumed -- outside the traced graph.
-        ``name`` is one of "text_encoder_1", "text_encoder_2", "unet", "vae".
+        The PCC e2e overrides it to run a CPU twin on ``cpu_inputs`` -- the same
+        fp32 tensors the TT component saw -- outside the traced graph.
         """
         return None
 
@@ -97,8 +89,7 @@ class SDXLLightningTTPipeline:
         self.load_tokenizers()
 
     def load_models(self):
-        # Load on CPU; the move to xla_device happens in generate() right
-        # before the first forward.
+        # Loaded on CPU; placed on device in generate().
         self.text_encoder = ModelLoader(ModelVariant.TEXT_ENCODER).load_model(
             dtype_override=torch.float32
         )
@@ -183,14 +174,12 @@ class SDXLLightningTTPipeline:
             ).input_ids.to(device="cpu")
             tokens_1_cpu = tokens_1
 
-            # CPU → TT
             if self.config.text_encoder_on_tt:
                 self.text_encoder = self.text_encoder.to(device)
                 tokens_1 = tokens_1.to(device=device)
 
             t0 = time.perf_counter()
             prompt_embeds_1 = self.text_encoder(tokens_1)
-            # TT → CPU (cpu cast forces sync — timer ends after this)
             if self.config.text_encoder_on_tt:
                 prompt_embeds_1 = prompt_embeds_1.to("cpu")
             self._perf["components"]["text_encoder_1"] = time.perf_counter() - t0
@@ -209,14 +198,12 @@ class SDXLLightningTTPipeline:
             ).input_ids.to(device="cpu")
             tokens_2_cpu = tokens_2
 
-            # CPU → TT
             if self.config.text_encoder_2_on_tt:
                 self.text_encoder_2 = self.text_encoder_2.to(device)
                 tokens_2 = tokens_2.to(device=device)
 
             t0 = time.perf_counter()
             prompt_embeds_2, pooled_prompt_embeds = self.text_encoder_2(tokens_2)
-            # TT → CPU (cpu cast forces sync — timer ends after this)
             if self.config.text_encoder_2_on_tt:
                 prompt_embeds_2 = prompt_embeds_2.to("cpu")
                 pooled_prompt_embeds = pooled_prompt_embeds.to("cpu")
@@ -276,8 +263,7 @@ class SDXLLightningTTPipeline:
 
                 latent_model_input = self.scheduler.scale_model_input(latents, t)
 
-                # CPU → TT (UNet runs in bf16 on TT). Only sample + timestep
-                # change per step; embeds/time_ids are hoisted above.
+                # Only sample + timestep change per step.
                 if self.config.unet_on_tt:
                     unet_sample = latent_model_input.to(torch.bfloat16).to(device)
                     unet_t = t.to(torch.bfloat16).to(device)
@@ -287,7 +273,6 @@ class SDXLLightningTTPipeline:
 
                 t0 = time.perf_counter()
                 noise_pred = self.unet(unet_sample, unet_t, unet_eh, unet_te, unet_ti)
-                # TT → CPU (cpu cast forces sync — timer ends after this)
                 if self.config.unet_on_tt:
                     noise_pred = noise_pred.to("cpu").to(torch.float32)
                 self._perf["steps"].append(time.perf_counter() - t0)
@@ -324,7 +309,6 @@ class SDXLLightningTTPipeline:
 
             t0 = time.perf_counter()
             image = self.vae(latents)
-            # TT → CPU (cpu cast forces sync — timer ends after this)
             if self.config.vae_on_tt:
                 image = image.to("cpu")
             self._perf["components"]["vae"] = time.perf_counter() - t0
