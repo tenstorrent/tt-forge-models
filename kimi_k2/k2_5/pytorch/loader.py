@@ -96,11 +96,8 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
+    def _load_tokenizer(self):
         """Load tokenizer for the current variant.
-
-        Args:
-            dtype_override: Unused; kept for API compatibility.
 
         Returns:
             The loaded tokenizer instance.

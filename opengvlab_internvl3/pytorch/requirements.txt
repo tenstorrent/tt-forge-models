@@ -1,0 +1,2 @@
+# InternVL3's tokenizer requires tiktoken for its tiktoken-based vocab file.
+tiktoken

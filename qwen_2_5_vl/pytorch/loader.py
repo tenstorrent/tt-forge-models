@@ -84,6 +84,7 @@ class ModelLoader(ForgeModel):
         """
         super().__init__(variant)
         self.processor = None
+        self.config = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -162,6 +163,7 @@ class ModelLoader(ForgeModel):
         )
         model.config.text_config.use_cache = False
         model.eval()
+        self.config = model.config
         model = Wrapper(model)
 
         return model
@@ -204,3 +206,74 @@ class ModelLoader(ForgeModel):
             inputs["pixel_values"] = inputs["pixel_values"].to(dtype_override)
 
         return inputs
+
+    def get_mesh_config(self, num_devices: int):
+        """Return mesh shape and axis names for tensor parallel."""
+        if num_devices == 32:  # Galaxy
+            mesh_shape = (4, 8)
+        else:
+            mesh_shape = (1, num_devices)
+
+        assert (
+            self.config.text_config.num_attention_heads % mesh_shape[1] == 0
+        ), "Attention heads must be divisible by the model axis size"
+        return mesh_shape, ("batch", "model")
+
+    def load_shard_spec(self, model):
+        """Tensor-parallel shard spec for the Qwen2.5 backbone (GQA, q/k/v bias)."""
+        hf = model.model
+        text_model = hf.model.language_model
+        visual = hf.model.visual
+
+        shard_specs = {text_model.embed_tokens.weight: ("model", "batch")}
+
+        # Language model.
+        for layer in text_model.layers:
+            attn = layer.self_attn
+            shard_specs[attn.q_proj.weight] = ("model", "batch")
+            shard_specs[attn.q_proj.bias] = ("model",)
+            shard_specs[attn.k_proj.weight] = ("model", "batch")
+            shard_specs[attn.k_proj.bias] = ("model",)
+            shard_specs[attn.v_proj.weight] = ("model", "batch")
+            shard_specs[attn.v_proj.bias] = ("model",)
+            shard_specs[attn.o_proj.weight] = ("batch", "model")
+
+            shard_specs[layer.mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.up_proj.weight] = ("model", "batch")
+            shard_specs[layer.mlp.down_proj.weight] = ("batch", "model")
+        shard_specs[hf.lm_head.weight] = ("model", "batch")
+
+        # Vision tower. The ViT uses a *fused* qkv Linear; column-parallel on the
+        # fused output + row-parallel on proj stays correct under Shardy. Its MLP
+        # is SwiGLU (gate/up/down), unlike Qwen2-VL's fc1/fc2.
+        for block in visual.blocks:
+            attn = block.attn
+            shard_specs[attn.qkv.weight] = ("model", "batch")
+            shard_specs[attn.qkv.bias] = ("model",)
+            shard_specs[attn.proj.weight] = ("batch", "model")
+            shard_specs[attn.proj.bias] = ("batch",)
+
+            shard_specs[block.mlp.gate_proj.weight] = ("model", "batch")
+            shard_specs[block.mlp.gate_proj.bias] = ("model",)
+            shard_specs[block.mlp.up_proj.weight] = ("model", "batch")
+            shard_specs[block.mlp.up_proj.bias] = ("model",)
+            shard_specs[block.mlp.down_proj.weight] = ("batch", "model")
+            shard_specs[block.mlp.down_proj.bias] = ("batch",)
+
+        # PatchMerger MLP: Sequential(Linear, GELU, Linear) -> column then row.
+        up, down = (m for m in visual.merger.mlp if isinstance(m, torch.nn.Linear))
+        shard_specs[up.weight] = ("model", "batch")
+        shard_specs[up.bias] = ("model",)
+        shard_specs[down.weight] = ("batch", "model")
+        shard_specs[down.bias] = ("batch",)
+
+        return shard_specs
+
+    def load_config(self):
+        """Load and return the configuration for the model variant."""
+        from transformers import AutoConfig
+
+        self.config = AutoConfig.from_pretrained(
+            self._variant_config.pretrained_model_name
+        )
+        return self.config

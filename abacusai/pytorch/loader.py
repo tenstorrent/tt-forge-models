@@ -74,20 +74,14 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
+    def _load_tokenizer(self):
         """Load tokenizer for the current variant.
-        Args:
-            dtype_override: Optional torch.dtype to override the tokenizer's default dtype.
 
         Returns:
             The loaded tokenizer instance
         """
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name
         )
 
         # Smaug's tokenizer ships without a pad token; reuse EOS so padding works.
@@ -109,7 +103,7 @@ class ModelLoader(ForgeModel):
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
         model_kwargs = {}
         if dtype_override is not None:
@@ -135,7 +129,7 @@ class ModelLoader(ForgeModel):
             dict: Input tensors that can be fed to the model.
         """
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
         max_length = self._variant_config.max_length
         if self.tokenizer.chat_template is not None:

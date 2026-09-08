@@ -6,13 +6,17 @@ import numpy as np
 import torch
 
 
-def get_detections(out_np, ratio, input_shape):
+def get_detections(out_np, ratio, input_shape, score_thr=0.1, nms_thr=0.45):
     """Run NMS on raw model output and return a list of detection dicts.
 
     Args:
         out_np: numpy array of shape [batch, n_anchors, 85].
         ratio: scale ratio from preproc, used to map boxes back to original image size.
         input_shape: (h, w) tuple used during preprocessing.
+        score_thr: confidence threshold for NMS. Defaults to 0.1 (demo/display).
+            Lower it (e.g. 0.01) for COCO mAP so low-confidence detections are
+            retained for recall/AP.
+        nms_thr: IoU threshold for NMS. Defaults to 0.45.
 
     Returns:
         List of dicts with keys: class_name, score, cls_ind, bbox ([x1,y1,x2,y2]).
@@ -30,7 +34,7 @@ def get_detections(out_np, ratio, input_shape):
     boxes_xyxy[:, 2] = boxes[:, 0] + boxes[:, 2] / 2.0
     boxes_xyxy[:, 3] = boxes[:, 1] + boxes[:, 3] / 2.0
     boxes_xyxy /= ratio
-    dets = multiclass_nms(boxes_xyxy, scores, nms_thr=0.45, score_thr=0.1)
+    dets = multiclass_nms(boxes_xyxy, scores, nms_thr=nms_thr, score_thr=score_thr)
 
     result = []
     if dets is not None:

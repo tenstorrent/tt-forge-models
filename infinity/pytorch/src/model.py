@@ -2426,6 +2426,26 @@ class CrossAttention(nn.Module):
                 softmax_scale=self.scale,
             ).reshape(B, Lq, -1)
             oup = oup.float()
+        elif B == 1 and N == int(max_seqlen_k):
+            # Single, unpadded sequence: the varlen pack/scatter is the identity
+            # (one segment, every key valid), so go straight to SDPA from the
+            # projections. Reaching k/v directly instead of through the packed
+            # 5-D ``kv_compact`` matters under tensor parallelism: the
+            # stack + index round trip made the partitioner all-gather the heads,
+            # so a [1, 16, N, C] key/value met a [1, 2, L, C] query and tt-mlir
+            # rejected it with "Query num heads must be divisible by key/value
+            # num heads". This chain -- linear -> view -> transpose -> SDPA -- is
+            # the one SelfAttention already uses, and it keeps the heads sharded.
+            # It also keeps ``cu_seqlens_k`` off the host: the ``.tolist()`` in
+            # the varlen fallback is a graph break in every cross-attention.
+            q_b = q_compact.view(B, Lq, self.num_heads, self.head_dim).transpose(1, 2)
+            k_b = k.unsqueeze(0).transpose(1, 2)
+            v_b = v.unsqueeze(0).transpose(1, 2)
+            oup = (
+                slow_attn(q_b, k_b, v_b, scale=self.scale)
+                .transpose(1, 2)
+                .reshape(B, Lq, -1)
+            )
         else:
             oup = flash_attn_varlen_kvpacked_func(
                 q=q_compact,

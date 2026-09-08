@@ -10,12 +10,14 @@ import torch
 REPO_ID = "Tongyi-MAI/Z-Image"
 DTYPE = torch.bfloat16
 
-# ZImagePipeline inference defaults
+# ZImagePipeline inference defaults (Tongyi-MAI/Z-Image official example:
+# num_inference_steps=50, guidance_scale=4, 1280x720, cfg_normalization=False).
+# Z-Image is the non-distilled foundation model and uses full CFG (not Turbo).
 PROMPT = "A red cube on a white table, studio lighting, sharp focus."
-NEGATIVE_PROMPT = "blurry, text, watermark"
+NEGATIVE_PROMPT = ""  # Source example uses an empty negative prompt with CFG.
 HEIGHT = 1280
 WIDTH = 720
-NUM_INFERENCE_STEPS = 4
+NUM_INFERENCE_STEPS = 50
 GUIDANCE_SCALE = 4.0
 SEED = 42
 CFG_NORMALIZATION = False
@@ -253,21 +255,30 @@ def _shard_zimage_block(block, specs: dict, *, has_modulation: bool) -> None:
         if norm is not None and hasattr(norm, "weight"):
             specs[norm.weight] = (None,)
 
+    # adaLN_modulation must stay REPLICATED. Its output is chunk(4)'d into
+    # (scale_msa, gate_msa, scale_mlp, gate_mlp) along the output feature dim and
+    # applied elementwise to the full hidden state. Column-sharding ("model", None)
+    # shards that same dim, so chunk() splits across the shard boundary and each
+    # device gets the wrong modulation slice -> silently wrong per layer, drops
+    # sharded PCC to ~0.87 (compounds over depth). Replicating it recovers PCC.
     if has_modulation and hasattr(block, "adaLN_modulation"):
         lin = block.adaLN_modulation[0]
-        specs[lin.weight] = ("model", None)
+        specs[lin.weight] = (None, None)
         if lin.bias is not None:
-            specs[lin.bias] = ("model",)
+            specs[lin.bias] = (None,)
 
 
 def _shard_final_layer(layer, specs: dict) -> None:
     specs[layer.linear.weight] = (None, None)
     if layer.linear.bias is not None:
         specs[layer.linear.bias] = (None,)
+    # Replicated for the same reason as the block adaLN_modulation above: its
+    # output is a per-feature scale applied elementwise to the full hidden state,
+    # so column-sharding it would scramble the modulation across devices.
     ada_lin = layer.adaLN_modulation[1]
-    specs[ada_lin.weight] = ("model", None)
+    specs[ada_lin.weight] = (None, None)
     if ada_lin.bias is not None:
-        specs[ada_lin.bias] = ("model",)
+        specs[ada_lin.bias] = (None,)
 
 
 def shard_transformer_specs(transformer) -> dict:

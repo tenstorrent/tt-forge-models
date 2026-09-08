@@ -62,7 +62,7 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
+    def _load_tokenizer(self):
         """Load and return tokenizer for the model."""
         tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name,
@@ -89,14 +89,14 @@ class ModelLoader(ForgeModel):
         model.generation_config.use_cache = False  # Disable KV cache
 
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
         return model
 
     def load_inputs(self, dtype_override=None):
         """Prepare and return tokenized inputs using the sample prompt."""
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
         messages = [{"role": "user", "content": self.sample_text}]
         input_ids = self.tokenizer.apply_chat_template(
