@@ -150,9 +150,11 @@ class PlaygroundV25TTPipeline:
         ).input_ids.to(device="cpu")
         if self.config.text_encoder_on_tt:
             tokens_1 = tokens_1.to(device=device)
+        t0 = time.perf_counter()
         embeds_1 = self.text_encoder(tokens_1)
         if self.config.text_encoder_on_tt:
             embeds_1 = embeds_1.to("cpu")
+        self._record_encode("text_encoder_1", time.perf_counter() - t0)
 
         tokens_2 = self.tokenizer_2(
             [text],
@@ -163,11 +165,22 @@ class PlaygroundV25TTPipeline:
         ).input_ids.to(device="cpu")
         if self.config.text_encoder_2_on_tt:
             tokens_2 = tokens_2.to(device=device)
+        t0 = time.perf_counter()
         embeds_2, pooled = self.text_encoder_2(tokens_2)
         if self.config.text_encoder_2_on_tt:
             embeds_2 = embeds_2.to("cpu")
             pooled = pooled.to("cpu")
+        self._record_encode("text_encoder_2", time.perf_counter() - t0)
         return torch.cat([embeds_1, embeds_2], dim=-1), pooled
+
+    def _record_encode(self, name, elapsed):
+        """The negative prompt's forward: adds to the stage total and is the warm
+        sample, the positive one having carried any build."""
+        perf = getattr(self, "_perf", None)
+        if not perf:
+            return
+        perf["components"][name] = perf["components"].get(name, 0.0) + elapsed
+        perf["warm"][name] = elapsed
 
     def generate(
         self,
@@ -189,6 +202,10 @@ class PlaygroundV25TTPipeline:
             "steps": [],
             "step_metric_name": "unet_step",
             "total": None,
+            # Each text encoder runs twice per call (positive, then negative), so
+            # the two forwards are reported separately as z_image's are.
+            "cold": {},
+            "warm": {},
         }
         t_total_start = time.perf_counter()
 
@@ -218,7 +235,9 @@ class PlaygroundV25TTPipeline:
             prompt_embeds_1 = self.text_encoder(tokens_1)
             if self.config.text_encoder_on_tt:
                 prompt_embeds_1 = prompt_embeds_1.to("cpu")
-            self._perf["components"]["text_encoder_1"] = time.perf_counter() - t0
+            positive = time.perf_counter() - t0
+            self._perf["components"]["text_encoder_1"] = positive
+            self._perf["cold"]["text_encoder_1"] = positive
 
             self._check("text_encoder_1", prompt_embeds_1, tokens_1_cpu)
             logger.info("[STAGE] Text encoder 1: done")
@@ -243,7 +262,9 @@ class PlaygroundV25TTPipeline:
             if self.config.text_encoder_2_on_tt:
                 prompt_embeds_2 = prompt_embeds_2.to("cpu")
                 pooled_prompt_embeds = pooled_prompt_embeds.to("cpu")
-            self._perf["components"]["text_encoder_2"] = time.perf_counter() - t0
+            positive = time.perf_counter() - t0
+            self._perf["components"]["text_encoder_2"] = positive
+            self._perf["cold"]["text_encoder_2"] = positive
 
             self._check(
                 "text_encoder_2",
