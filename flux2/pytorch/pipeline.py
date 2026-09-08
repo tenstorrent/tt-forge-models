@@ -200,8 +200,8 @@ class Flux2TTPipeline:
     # runs a single call and warm cost is measured in-residency.
     benchmark_staged_residency = True
 
-    # Substitution seams: generate() instantiates these attributes rather than
-    # the classes directly, so the PCC e2e can swap in checking subclasses.
+    # Swapped by the PCC e2e for checking subclasses; generate() uses these
+    # attributes, not the classes directly.
     DENOISER_CLS = _DeviceDenoiser
     VAE_CLS = _DeviceVAEDecoder
 

@@ -184,8 +184,8 @@ class FluxTTPipeline:
     # harness runs its normal warmup + steady pair.
     benchmark_staged_residency = False
 
-    # Substitution seams: generate() instantiates these attributes rather than
-    # the classes directly, so the PCC e2e can swap in checking subclasses.
+    # Swapped by the PCC e2e for checking subclasses; generate() uses these
+    # attributes, not the classes directly.
     DENOISER_CLS = _DeviceDenoiser
     VAE_CLS = _DeviceVAEDecoder
 

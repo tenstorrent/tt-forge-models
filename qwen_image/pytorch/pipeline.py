@@ -240,8 +240,8 @@ class QwenImagePipeline:
     # takes warm cost from the in-residency repeats.
     benchmark_staged_residency = True
 
-    # Overridable so a test can subclass in PCC checks without duplicating the
-    # staging logic (tt-xla tests/torch/models/qwen_image/test_pipeline.py).
+    # Swapped by the PCC e2e for checking subclasses; generate() uses these
+    # attributes, not the classes directly.
     TEXT_ENCODER_CLS = _DeviceTextEncoder
     DENOISER_CLS = _DeviceDenoiser
     VAE_CLS = _DeviceVAEDecoder

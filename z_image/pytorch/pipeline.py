@@ -135,9 +135,8 @@ class ZImageTTPipeline:
     # harness runs its normal warmup + steady pair.
     benchmark_staged_residency = False
 
-    # Substitution seams for the module classes. generate() instantiates these
-    # attributes rather than the classes directly, so a consumer can swap in a
-    # subclass without copying generate(). Defaults keep behaviour identical.
+    # Swapped by the PCC e2e for checking subclasses; generate() uses these
+    # attributes, not the classes directly.
     TEXT_ENCODER_CLS = TextEncoderWrapper
     TRANSFORMER_CLS = TransformerWrapper
     VAE_CLS = VaeDecodeWrapper
