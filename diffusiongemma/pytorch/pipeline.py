@@ -319,6 +319,10 @@ class DiffusionGemmaPipeline:
     encoder/decoder on TT and returns the decoded text.
     """
 
+    # Staged: each component is evicted before the next is placed, so a repeat call
+    # rebuilds. Cold and warm both come from the single call, before eviction.
+    benchmark_staged_residency = True
+
     def __init__(self, config: DiffusionGemmaConfig = None):
         self.config = config or DiffusionGemmaConfig()
         self.loader = None
