@@ -19,8 +19,8 @@ Times and per-step times land in ``self._perf``.
 
 import gc
 import time
-from contextlib import contextmanager
 import weakref
+from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Optional
 
@@ -214,7 +214,7 @@ class QwenImageConfig:
         height: int = HEIGHT,
         width: int = WIDTH,
         compile_options: Optional[dict] = None,
-        warm_iters: int = 1,
+        warm_iters: int = 0,
     ):
         self.repo_id = REPO_ID
         self.height = height
