@@ -299,7 +299,7 @@ class SDXLLightningTTPipeline:
             latents_cpu = latents
 
             # opt_level=1 (composite ttnn.group_norm) is only needed when the VAE
-            # runs on TT; by default it runs on CPU.
+            # runs on TT, which is the default.
             if self.config.vae_on_tt:
                 torch_xla.set_custom_compile_options(
                     {**self.config.compile_options, "optimization_level": 1}
