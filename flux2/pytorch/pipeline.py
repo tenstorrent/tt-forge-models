@@ -299,9 +299,8 @@ class Flux2TTPipeline:
         te_cold = time.perf_counter() - t0
         self._perf["components"]["text_encoder"] = te_cold
         self._perf.setdefault("cold", {})["text_encoder"] = te_cold
-        # WARM: this encoder runs ONE forward per residency and is evicted at the
-        # end of the stage, so a warm number needs a synthetic repeat here while
-        # the graph still exists. Discarded, so prompt_embeds is unchanged.
+        # WARM: one forward per residency, then evicted, so the warm number
+        # needs a repeat here. Discarded, so prompt_embeds is unchanged.
         _warm = []
         for _ in range(self.config.warm_iters):
             _t = time.perf_counter()
