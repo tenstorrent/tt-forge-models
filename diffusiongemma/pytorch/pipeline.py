@@ -21,6 +21,7 @@ import gc
 import math
 import os
 import time
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 import numpy as np
@@ -329,6 +330,18 @@ class DiffusionGemmaPipeline:
         self.cpu_model = None
         self.mesh = None
         self.xla = None
+        # Host<->device weight movement and graph teardown. Untimed it would land
+        # in cpu_overhead_s, which is what made set 2 incomparable in the first
+        # place; benchmarks read this as _perf["staging"].
+        self.staging_s = 0.0
+
+    @contextmanager
+    def _staging(self):
+        t0 = time.perf_counter()
+        try:
+            yield
+        finally:
+            self.staging_s += time.perf_counter() - t0
 
     def setup(self):
         enable_spmd()
@@ -376,11 +389,12 @@ class DiffusionGemmaPipeline:
 
         def encoder_forward(**kw):
             # Free the previous block's decoder (if any) so only one model is resident.
-            if stage["dec_tt"] is not None:
-                stage["dec_tt"] = stage["dec_model"] = None
-                free_tt_graphs()
-            enc_model = self._load_sharded(ModelVariant.ENCODER)
-            enc_tt = torch.compile(TTEncoder(enc_model), backend="tt")
+            with self._staging():
+                if stage["dec_tt"] is not None:
+                    stage["dec_tt"] = stage["dec_model"] = None
+                    free_tt_graphs()
+                enc_model = self._load_sharded(ModelVariant.ENCODER)
+                enc_tt = torch.compile(TTEncoder(enc_model), backend="tt")
             pkv = DynamicCache()
             enc_args = (
                 to_device(kw["input_ids"], xla),
@@ -409,9 +423,10 @@ class DiffusionGemmaPipeline:
                 del warm_lhs
 
             # Cache to host + FREE the encoder; the decoder loads lazily in decoder_forward.
-            tt_pkv["host"] = cache_to_device(pkv, "cpu")
-            del enc_tt, enc_model, pkv
-            free_tt_graphs()
+            with self._staging():
+                tt_pkv["host"] = cache_to_device(pkv, "cpu")
+                del enc_tt, enc_model, pkv
+                free_tt_graphs()
             return SimpleNamespace(
                 last_hidden_state=lhs_host, past_key_values=tt_pkv["host"]
             )
@@ -420,11 +435,16 @@ class DiffusionGemmaPipeline:
             # First decode step: encoder is freed, so load the decoder now (vocab-shard
             # lm_head/embed so decoder + logits fit) and restore the KV cache from host.
             if stage["dec_tt"] is None:
-                dec_model = self._load_sharded(ModelVariant.DIFFUSIONGEMMA_26B_A4B_IT)
-                xs.mark_sharding(dec_model.lm_head.weight, self.mesh, ("model", None))
-                stage["dec_model"] = dec_model
-                stage["dec_tt"] = torch.compile(TTDecoder(dec_model), backend="tt")
-                tt_pkv["pkv"] = cache_to_device(tt_pkv["host"], xla)
+                with self._staging():
+                    dec_model = self._load_sharded(
+                        ModelVariant.DIFFUSIONGEMMA_26B_A4B_IT
+                    )
+                    xs.mark_sharding(
+                        dec_model.lm_head.weight, self.mesh, ("model", None)
+                    )
+                    stage["dec_model"] = dec_model
+                    stage["dec_tt"] = torch.compile(TTDecoder(dec_model), backend="tt")
+                    tt_pkv["pkv"] = cache_to_device(tt_pkv["host"], xla)
                 stage["step"] = 0
             # Consistent self-conditioning (zeros + mask=False on step 1) -> one TT graph.
             bs, canvas = kw["decoder_input_ids"].shape
