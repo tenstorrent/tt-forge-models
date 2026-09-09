@@ -511,16 +511,14 @@ class DiffusionGemmaPipeline:
             )
 
         def decoder_forward(**kw):
-            # First decode step: encoder is freed, so load the decoder now (vocab-shard
-            # lm_head/embed so decoder + logits fit) and restore the KV cache from host.
-            # The loader only shards the head for the image variants, so mark it here.
+            # First decode step: encoder is freed, so load the decoder now and restore
+            # the KV cache from host. The loader's shard spec vocab-shards lm_head/embed
+            # inside _load_sharded, before the device placement, so the head is never
+            # materialised replicated.
             if stage["dec_tt"] is None:
                 with self._staging():
                     dec_model = self._load_sharded(
                         ModelVariant.DIFFUSIONGEMMA_26B_A4B_IT
-                    )
-                    xs.mark_sharding(
-                        dec_model.lm_head.weight, self.mesh, ("model", None)
                     )
                     stage["dec_model"] = dec_model
                     stage["dec_tt"] = torch.compile(TTDecoder(dec_model), backend="tt")

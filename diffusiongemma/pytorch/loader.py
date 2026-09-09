@@ -354,10 +354,9 @@ class ModelLoader(ForgeModel):
         return self._text_layers(model)
 
     def load_shard_spec(self, model):
-        """Shard the dense MLP (col->row) and expert-parallel MoE, plus the LM head
-        on the image variants. Attention is replicated: the global layers' 2 KV
-        heads can't shard the model axis, and head-sharding Q crashes the
-        repeat_kv reshard."""
+        """Shard the dense MLP (col->row), expert-parallel MoE, and the LM head.
+        Attention is replicated: the global layers' 2 KV heads can't shard the model
+        axis, and head-sharding Q crashes the repeat_kv reshard."""
         shard_specs = {}
         for layer in self._layers_for_variant(model):
             shard_specs[layer.mlp.gate_proj.weight] = ("model", None)
@@ -377,12 +376,16 @@ class ModelLoader(ForgeModel):
         # lm_head on top lands at 13.06 GiB -- 1.09 GiB over. Sharding it drops
         # weights to 8.80 GiB and the tilize to 0.17 GiB, which fits.
         #
-        # The text path fits without it and is left untouched on purpose: adding
-        # the shard there measured pcc 0.9604 -> 0.9487, under its 0.95 floor.
-        # Consumers that need the head sharded regardless (the staged pipeline's
-        # decoder residency) mark it themselves.
-        if self._MODALITY_BY_VARIANT.get(self._variant) in ("image", "image_only"):
-            lm_head = getattr(model, "lm_head", None)
-            if lm_head is not None:
-                shard_specs[lm_head.weight] = ("model", None)
+        # Applied to every variant that has a head, so the consumer's single
+        # mark_sharding pass covers it. Sharding it later, after the model is already
+        # on device, is too late: the replicated 1.375 GiB placement has happened by
+        # then and is what OOMs the staged decoder residency.
+        #
+        # Earlier this was image-only, on the belief that sharding it cost the text
+        # path pcc 0.9604 -> 0.9487. A control run on unmodified code disproved that:
+        # unmodified measured 0.94887, sharded 0.94870 -- a 0.00017 spread. That entry
+        # is simply nondeterministic around its floor (tt-xla#6054 discussion).
+        lm_head = getattr(model, "lm_head", None)
+        if lm_head is not None:
+            shard_specs[lm_head.weight] = ("model", None)
         return shard_specs
