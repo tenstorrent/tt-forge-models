@@ -221,7 +221,7 @@ class QwenImageConfig:
         self.width = width
         self.max_sequence_length = TOKENIZER_MAX_LENGTH
         # EXTRA in-residency forwards per one-shot component, to get a warm
-        # number while it is still on device. 0 = inert. Same meaning as flux2.
+        # number while it is still on device. 0 = inert.
         self.warm_iters = warm_iters
         # Applied globally by the caller; carried here for reference.
         self.compile_options = compile_options or {}

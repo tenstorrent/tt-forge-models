@@ -203,7 +203,7 @@ class PlaygroundV25TTPipeline:
             "step_metric_name": "unet_step",
             "total": None,
             # Each text encoder runs twice per call (positive, then negative), so
-            # the two forwards are reported separately as z_image's are.
+            # the two forwards are reported separately.
             "cold": {},
             "warm": {},
         }

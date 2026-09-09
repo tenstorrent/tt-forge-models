@@ -316,7 +316,7 @@ class DiffusionGemmaConfig:
         self.max_new_tokens = max_new_tokens
         self.seed = seed
         # EXTRA in-residency prefills, to get a warm encoder number before the
-        # encoder is freed. 0 = inert. Same meaning as flux2/qwen_image.
+        # encoder is freed. 0 = inert.
         self.warm_iters = warm_iters
 
 
@@ -354,8 +354,8 @@ class DiffusionGemmaPipeline:
             "total": None,
             "cold": {},
             "warm": {},
-            # Host<->device weight movement and graph teardown. Untimed it would
-            # land in cpu_overhead_s, which is what made set 2 incomparable.
+            # Host<->device weight movement and graph teardown; untimed it would
+            # land in cpu_overhead_s, which is meant to be host bookkeeping.
             "staging": 0.0,
             # Seconds burned in discarded in-residency warm repeats.
             "synthetic": 0.0,
