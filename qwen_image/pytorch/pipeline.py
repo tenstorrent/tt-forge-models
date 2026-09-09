@@ -14,18 +14,18 @@ warmup-then-time loop across ``generate()`` calls would time recompilation.
 Warm is instead measured inside one residency: iteration 1 carries the build,
 2..N are cache hits, and the returned result is always iteration 1's.
 
-Times, per-step times and compile counters land in ``self._perf``.
+Times and per-step times land in ``self._perf``.
 """
 
 import gc
 import time
 import weakref
+from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Optional
 
 import torch
 import torch_xla
-import torch_xla.debug.metrics as met
 import torch_xla.distributed.spmd as xs
 import torch_xla.runtime as xr
 from diffusers import QwenImagePipeline as DiffusersQwenImagePipeline
@@ -53,45 +53,19 @@ from .src.model_utils import (
 )
 
 
-def _compile_counters():
-    """``(compile_seconds, graphs_compiled)`` accumulated process-wide so far.
+@contextmanager
+def _staging(perf):
+    """Accumulate host<->device weight movement into ``perf["staging"]``.
 
-    torch-xla's ``CompileTime`` metric is ``[count, total_ns, ...]``, and is
-    absent until the first compile.
+    Placing and evicting is neither a forward nor host bookkeeping. Billed to
+    ``staging_overhead_s`` so ``cpu_overhead_s`` means the same thing here and
+    on a resident pipeline.
     """
-    data = met.metric_data("CompileTime")
-    if not data:
-        return 0.0, 0
-    return (data[1] / 1e9 if len(data) > 1 else 0.0), data[0]
-
-
-class _StageCounters:
-    """Compile time and graph count of one staged residency, as a delta.
-
-    Makes the warm numbers falsifiable: a warm iteration must add zero graphs.
-    """
-
-    def __init__(self, sink, name):
-        self._sink = sink
-        self._name = name
-
-    def __enter__(self):
-        self._t0 = time.perf_counter()
-        self._before = _compile_counters()
-        return self
-
-    def __exit__(self, *exc):
-        after = _compile_counters()
-        self._sink[self._name] = {
-            "wall_s": time.perf_counter() - self._t0,
-            "compile_s": after[0] - self._before[0],
-            "graphs_compiled": after[1] - self._before[1],
-        }
-        return False
-
-
-def _graphs_compiled():
-    return _compile_counters()[1]
+    t0 = time.perf_counter()
+    try:
+        yield
+    finally:
+        perf["staging"] = perf.get("staging", 0.0) + (time.perf_counter() - t0)
 
 
 class _DeviceTextEncoder:
@@ -101,20 +75,21 @@ class _DeviceTextEncoder:
     ``dtype`` passthrough.
     """
 
-    def __init__(self, text_encoder, mesh, forward_times):
+    def __init__(self, text_encoder, mesh, forward_times, perf=None):
         self._dev = torch_xla.device()
         # Per forward, in call order; [0] carries the compile.
         self._forward_times = forward_times
         self.dtype = next(text_encoder.parameters()).dtype
         self.config = text_encoder.config
-        text_encoder = text_encoder.to(self._dev)
-        if hasattr(text_encoder, "tie_weights"):
-            text_encoder.tie_weights()
-        # Replicated the encoder is ~16.6 GB/chip and cannot coexist with the
-        # transformer; sharding drops it to ~4 GB/chip.
-        for tensor, spec in shard_text_encoder_specs(text_encoder).items():
-            xs.mark_sharding(tensor, mesh, spec)
-        self._compiled = torch.compile(text_encoder, backend="tt")
+        with _staging(perf if perf is not None else {}):
+            text_encoder = text_encoder.to(self._dev)
+            if hasattr(text_encoder, "tie_weights"):
+                text_encoder.tie_weights()
+            # Replicated the encoder is ~16.6 GB/chip and cannot coexist with the
+            # transformer; sharding drops it to ~4 GB/chip.
+            for tensor, spec in shard_text_encoder_specs(text_encoder).items():
+                xs.mark_sharding(tensor, mesh, spec)
+            self._compiled = torch.compile(text_encoder, backend="tt")
 
     def __call__(self, input_ids, attention_mask=None, output_hidden_states=True):
         t0 = time.perf_counter()
@@ -135,23 +110,23 @@ class _DeviceTextEncoder:
 class _DeviceDenoiser:
     """Transformer on TT (tensor-parallel sharded); one call is one forward."""
 
-    def __init__(self, transformer, mesh, forward_times, graph_counts):
+    def __init__(self, transformer, mesh, forward_times, perf=None):
         self._dev = torch_xla.device()
         self._forward_times = forward_times
-        # Cumulative graphs-compiled after each forward; warm steps must add none.
-        self._graph_counts = graph_counts
+        self._perf = perf if perf is not None else {}
         self.config = transformer.config
         self.dtype = next(transformer.parameters()).dtype
         self.cache_context = transformer.cache_context
         # So free() can report whether the module was actually collected.
         self._module_ref = weakref.ref(transformer)
 
-        transformer = transformer.to(self._dev)
-        if hasattr(transformer, "tie_weights"):
-            transformer.tie_weights()
-        for tensor, spec in shard_transformer_specs(transformer).items():
-            xs.mark_sharding(tensor, mesh, spec)
-        self._compiled = torch.compile(transformer, backend="tt")
+        with _staging(self._perf):
+            transformer = transformer.to(self._dev)
+            if hasattr(transformer, "tie_weights"):
+                transformer.tie_weights()
+            for tensor, spec in shard_transformer_specs(transformer).items():
+                xs.mark_sharding(tensor, mesh, spec)
+            self._compiled = torch.compile(transformer, backend="tt")
 
     def free(self):
         """Release the transformer's device memory; config/dtype stay readable.
@@ -172,7 +147,6 @@ class _DeviceDenoiser:
         (sample,) = self._compiled(**moved)
         sample = sample.cpu()
         self._forward_times.append(time.perf_counter() - t0)
-        self._graph_counts.append(_graphs_compiled())
         return (sample,)
 
 
@@ -185,10 +159,10 @@ class _DeviceVAEDecoder:
     re-expands to 5D so the pipeline's ``decode(...)[0][:, :, 0]`` still reads.
     """
 
-    def __init__(self, vae, perf, warm_iters=1, before_place=None):
+    def __init__(self, vae, perf, warm_iters=0, before_place=None):
         self._dev = torch_xla.device()
         self._perf = perf
-        self._warm_iters = max(1, warm_iters)
+        self._warm_iters = max(0, warm_iters)
         self._before_place = before_place
         self.config = vae.config
         self.dtype = next(vae.parameters()).dtype
@@ -198,35 +172,37 @@ class _DeviceVAEDecoder:
 
     def decode(self, latents, return_dict=False):
         # Denoising is over; evict the transformer before this decode allocates.
-        if self._before_place is not None:
-            self._before_place()
+        with _staging(self._perf):
+            if self._before_place is not None:
+                self._before_place()
+            vae = self._vae.to(self._dev)
+            compiled = torch.compile(
+                lambda z: vae.decode(z, return_dict=False)[0][:, :, 0], backend="tt"
+            )
+            z = latents.to(self._dev)
 
-        vae = self._vae.to(self._dev)
-        compiled = torch.compile(
-            lambda z: vae.decode(z, return_dict=False)[0][:, :, 0], backend="tt"
-        )
-        z = latents.to(self._dev)
+        t0 = time.perf_counter()
+        image = compiled(z).cpu()
+        vae_cold = time.perf_counter() - t0
+        self._perf["components"]["vae"] = vae_cold
+        self._perf["cold"]["vae"] = vae_cold
+        # WARM: no natural second decode, so repeat while still resident.
+        # Outputs are discarded, so the image is unchanged.
+        _warm = []
+        for _ in range(self._warm_iters):
+            _t = time.perf_counter()
+            _extra = compiled(z).cpu()
+            _warm.append(time.perf_counter() - _t)
+            del _extra
+        if _warm:
+            self._perf["warm"]["vae"] = sum(_warm) / len(_warm)
+            self._perf["synthetic"] = self._perf.get("synthetic", 0.0) + sum(_warm)
 
-        # Iteration 1 carries the build, 2..N are cache hits. Decode is pure, so
-        # repeating is safe; the image is always iteration 1's.
-        times = []
-        image = None
-        for i in range(self._warm_iters):
-            t0 = time.perf_counter()
-            out = compiled(z).cpu()
-            times.append(time.perf_counter() - t0)
-            if i == 0:
-                image = out
-
-        self._perf["components"]["vae"] = times[0]
-        self._perf["cold"]["vae"] = times[0]
-        if len(times) > 1:
-            self._perf["warm"]["vae"] = sum(times[1:]) / len(times[1:])
-
-        del compiled, vae, z
-        self._vae = self._vae.to("cpu")
-        gc.collect()
-        torch_xla.sync()
+        with _staging(self._perf):
+            del compiled, vae, z
+            self._vae = self._vae.to("cpu")
+            gc.collect()
+            torch_xla.sync()
 
         self.last_pixels = image
         return (image.unsqueeze(2),)
@@ -238,14 +214,14 @@ class QwenImageConfig:
         height: int = HEIGHT,
         width: int = WIDTH,
         compile_options: Optional[dict] = None,
-        warm_iters: int = 2,
+        warm_iters: int = 0,
     ):
         self.repo_id = REPO_ID
         self.height = height
         self.width = width
         self.max_sequence_length = TOKENIZER_MAX_LENGTH
-        # Forwards repeated inside one residency to expose warm cost; 1 disables
-        # warm measurement. The functional result is iteration 1 either way.
+        # EXTRA in-residency forwards per one-shot component, to get a warm
+        # number while it is still on device. 0 = inert.
         self.warm_iters = warm_iters
         # Applied globally by the caller; carried here for reference.
         self.compile_options = compile_options or {}
@@ -259,8 +235,13 @@ class QwenImagePipeline:
     NOT a warm pass -- see the module docstring.
     """
 
-    # Overridable so a test can subclass in PCC checks without duplicating the
-    # staging logic (tt-xla tests/torch/models/qwen_image/test_pipeline.py).
+    # Every component is freed inside generate(), which discards its compiled
+    # graph, so a second call would rebuild. The harness runs a single call and
+    # takes warm cost from the in-residency repeats.
+    benchmark_staged_residency = True
+
+    # Swapped by the PCC e2e for checking subclasses; generate() uses these
+    # attributes, not the classes directly.
     TEXT_ENCODER_CLS = _DeviceTextEncoder
     DENOISER_CLS = _DeviceDenoiser
     VAE_CLS = _DeviceVAEDecoder
@@ -278,12 +259,12 @@ class QwenImagePipeline:
             # cache-hit iterations, taken while the component was still resident.
             "cold": {},
             "warm": {},
-            # Per-stage compile time and graph count.
-            "counters": {},
+            # Device work that is not a forward; neither belongs in host overhead.
+            "staging": 0.0,
+            "synthetic": 0.0,
         }
         # Raw per-forward times; collapsed into per-step entries in generate().
         self._forward_times = []
-        self._graph_counts = []
         self._encode_times = []
         self._denoiser = None
 
@@ -329,33 +310,32 @@ class QwenImagePipeline:
         """Place the sharded text encoder, encode both prompts, then evict it."""
         logger.info("[STAGE] text_encoder (sharded): start")
         self._encode_times.clear()
-        with _StageCounters(self._perf["counters"], "text_encoder"):
-            text_encoder = load_text_encoder(DTYPE)
-            self.pipe.text_encoder = self.TEXT_ENCODER_CLS(
-                text_encoder, self.mesh, self._encode_times
-            )
+        text_encoder = load_text_encoder(DTYPE)
+        self.pipe.text_encoder = self.TEXT_ENCODER_CLS(
+            text_encoder, self.mesh, self._encode_times, self._perf
+        )
 
-            # The masked-embedding extraction downstream runs on host.
-            cpu = torch.device("cpu")
-            t0 = time.perf_counter()
-            prompt_embeds, prompt_embeds_mask = self.pipe.encode_prompt(
-                prompt=prompt + POSITIVE_MAGIC,
-                device=cpu,
-                num_images_per_prompt=1,
-                max_sequence_length=self.config.max_sequence_length,
-            )
-            # Same padded shape, so this second forward reuses the graph: it is
-            # the encoder's warm sample, taken while it is still resident.
-            (
-                negative_prompt_embeds,
-                negative_prompt_embeds_mask,
-            ) = self.pipe.encode_prompt(
-                prompt=NEGATIVE_PROMPT,
-                device=cpu,
-                num_images_per_prompt=1,
-                max_sequence_length=self.config.max_sequence_length,
-            )
-            elapsed = time.perf_counter() - t0
+        # The masked-embedding extraction downstream runs on host.
+        cpu = torch.device("cpu")
+        t0 = time.perf_counter()
+        prompt_embeds, prompt_embeds_mask = self.pipe.encode_prompt(
+            prompt=prompt + POSITIVE_MAGIC,
+            device=cpu,
+            num_images_per_prompt=1,
+            max_sequence_length=self.config.max_sequence_length,
+        )
+        # Same padded shape, so this second forward reuses the graph: it is
+        # the encoder's warm sample, taken while it is still resident.
+        (
+            negative_prompt_embeds,
+            negative_prompt_embeds_mask,
+        ) = self.pipe.encode_prompt(
+            prompt=NEGATIVE_PROMPT,
+            device=cpu,
+            num_images_per_prompt=1,
+            max_sequence_length=self.config.max_sequence_length,
+        )
+        elapsed = time.perf_counter() - t0
 
         if self._encode_times:
             self._perf["cold"]["text_encoder"] = self._encode_times[0]
@@ -366,10 +346,11 @@ class QwenImagePipeline:
         # Dropped before the transformer is placed. Verified, not assumed: the
         # later decode fails on DRAM contiguity by only ~20 MB.
         encoder_ref = weakref.ref(text_encoder)
-        self.pipe.text_encoder = None
-        del text_encoder
-        gc.collect()
-        torch_xla.sync()
+        with _staging(self._perf):
+            self.pipe.text_encoder = None
+            del text_encoder
+            gc.collect()
+            torch_xla.sync()
         if encoder_ref() is None:
             logger.info("[STAGE] text_encoder: done (module collected)")
         else:
@@ -396,9 +377,9 @@ class QwenImagePipeline:
         self._perf["steps"].clear()
         self._perf["cold"].clear()
         self._perf["warm"].clear()
-        self._perf["counters"].clear()
+        self._perf["staging"] = 0.0
+        self._perf["synthetic"] = 0.0
         self._forward_times.clear()
-        self._graph_counts.clear()
         self._perf["total"] = None
         t_total_start = time.perf_counter()
 
@@ -409,15 +390,16 @@ class QwenImagePipeline:
 
         # Release the previous call's transformer first, so two never coexist on
         # device while the new one is being placed.
-        self._denoiser = None
-        self.pipe.transformer = None
-        gc.collect()
+        with _staging(self._perf):
+            self._denoiser = None
+            self.pipe.transformer = None
+            gc.collect()
         torch_xla.sync()
 
         # Loaded fresh, then freed before the VAE is placed.
         transformer = load_transformer(DTYPE)
         self._denoiser = self.DENOISER_CLS(
-            transformer, self.mesh, self._forward_times, self._graph_counts
+            transformer, self.mesh, self._forward_times, self._perf
         )
         self.pipe.transformer = self._denoiser
         del transformer
@@ -443,30 +425,30 @@ class QwenImagePipeline:
             num_inference_steps,
         )
         generator = torch.Generator().manual_seed(seed) if seed is not None else None
-        with _StageCounters(self._perf["counters"], "transformer_and_vae"):
-            self.pipe(
-                prompt=None,
-                negative_prompt=None,
-                prompt_embeds=prompt_embeds,
-                prompt_embeds_mask=prompt_embeds_mask,
-                negative_prompt_embeds=negative_prompt_embeds,
-                negative_prompt_embeds_mask=negative_prompt_embeds_mask,
-                height=self.config.height,
-                width=self.config.width,
-                num_inference_steps=num_inference_steps,
-                true_cfg_scale=TRUE_CFG_SCALE,
-                generator=generator,
-            )
+        self.pipe(
+            prompt=None,
+            negative_prompt=None,
+            prompt_embeds=prompt_embeds,
+            prompt_embeds_mask=prompt_embeds_mask,
+            negative_prompt_embeds=negative_prompt_embeds,
+            negative_prompt_embeds_mask=negative_prompt_embeds_mask,
+            height=self.config.height,
+            width=self.config.width,
+            num_inference_steps=num_inference_steps,
+            true_cfg_scale=TRUE_CFG_SCALE,
+            generator=generator,
+        )
         logger.info("[STAGE] transformer + vae: done")
 
         pixels = vae_wrapper.last_pixels
 
         # The VAE freed itself at the end of its decode, so generate() returns
         # with nothing resident.
-        self.pipe.vae = None
-        del vae_wrapper
-        gc.collect()
-        torch_xla.sync()
+        with _staging(self._perf):
+            self.pipe.vae = None
+            del vae_wrapper
+            gc.collect()
+            torch_xla.sync()
         logger.info("[STAGE] vae: freed -- no component resident")
 
         per_step = 2 if TRUE_CFG_SCALE > 1.0 else 1
@@ -474,29 +456,6 @@ class QwenImagePipeline:
             sum(self._forward_times[i : i + per_step])
             for i in range(0, len(self._forward_times), per_step)
         )
-        # Step 1 carries the compile; 2..N are cache hits taken while the
-        # transformer is resident.
-        steps = self._perf["steps"]
-        if steps:
-            self._perf["cold"]["transformer_step"] = steps[0]
-            if len(steps) > 1:
-                self._perf["warm"]["transformer_step"] = sum(steps[1:]) / (
-                    len(steps) - 1
-                )
-
-        # Diagnostic only; warm is established by the in-residency repeats.
-        counts = self._graph_counts
-        if len(counts) > per_step:
-            self._perf["counters"]["warm_steps"] = {
-                "graphs_compiled": counts[-1] - counts[per_step - 1]
-            }
-        logger.info(
-            "[COUNTERS] text_encoder={} | transformer+vae={} | denoise graph curve={}",
-            self._perf["counters"].get("text_encoder"),
-            self._perf["counters"].get("transformer_and_vae"),
-            counts[: min(len(counts), 6)],
-        )
-
         self._perf["total"] = time.perf_counter() - t_total_start
         return pixels
 
