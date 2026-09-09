@@ -126,6 +126,30 @@ class VAEDecoderWrapper(torch.nn.Module):
         return self.vae.decode(z, return_dict=False)[0]
 
 
+class QwenPromptEmbedsWrapper(torch.nn.Module):
+    """Qwen2.5-VL text encoder as (input_ids, attention_mask) -> prompt_embeds.
+
+    Picking the hidden state and dropping the prompt-template prefix inside the
+    forward (diffusers ``_get_qwen_prompt_embeds``) keeps all ~29 hidden states
+    out of the graph outputs.
+    """
+
+    def __init__(self, encoder, hidden_state_skip_layer: int, drop_idx: int):
+        super().__init__()
+        self.encoder = encoder
+        self.hidden_state_skip_layer = hidden_state_skip_layer
+        self.drop_idx = drop_idx
+
+    def forward(self, input_ids, attention_mask):
+        out = self.encoder(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            output_hidden_states=True,
+        )
+        skip = self.hidden_state_skip_layer
+        return out.hidden_states[-(skip + 1)][:, self.drop_idx :]
+
+
 class HunyuanImage21TransformerWrapper(torch.nn.Module):
     """Simplify HunyuanImageTransformer2DModel forward to tensor-only inputs/outputs."""
 

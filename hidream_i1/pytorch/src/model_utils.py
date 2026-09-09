@@ -440,6 +440,15 @@ def shard_hidream_transformer_specs(transformer) -> dict:
         # every device needs to see all expert scores to pick the same top-2
         # indices, so it must be replicated (not sharded). It's tiny (~10 KB)
         # so replication has negligible memory cost.
+        if hasattr(ff, "mlp"):
+            # Swapped by enable_sparse_mlp: the 4 experts are stacked into one
+            # tensor each, sharded on the expert dim (expert-parallel) instead
+            # of per-expert column/row-parallel.
+            experts = ff.mlp.experts
+            specs[experts.gate_proj] = (MESH_NAMES, None, None)
+            specs[experts.up_proj] = (MESH_NAMES, None, None)
+            specs[experts.down_proj] = (MESH_NAMES, None, None)
+            return
         for expert in ff.experts:
             _shard_swiglu(expert)
 
