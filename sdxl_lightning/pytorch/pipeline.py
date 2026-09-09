@@ -9,8 +9,10 @@ bookkeeping stay on CPU. It is a 4-step distilled model without CFG, so each ste
 is one UNet forward. Every component is placed before its forward and its output
 cast back with ``.to("cpu")``, the sync point that ends its timer.
 
-All four are 8.14 GiB of 31.83 (26%) and stay resident, so later calls reuse
-their compiled graphs.
+All four are 8.14 GiB and stay resident, so later calls reuse their compiled
+graphs. That is 26% of a Blackhole part's 31.83 GiB but ~68% of a Wormhole
+n150's 12 GiB, so the benchmark is pinned to p150-perf; running it on Wormhole
+would mean going back to evicting one component at a time.
 
 Shared by the example (``examples/pytorch/sdxl_lightning.py``), the benchmark
 (``test_imagegen.py::test_sdxl_lightning``) and the PCC e2e
