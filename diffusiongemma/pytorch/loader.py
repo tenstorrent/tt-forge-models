@@ -385,7 +385,24 @@ class ModelLoader(ForgeModel):
         # path pcc 0.9604 -> 0.9487. A control run on unmodified code disproved that:
         # unmodified measured 0.94887, sharded 0.94870 -- a 0.00017 spread. That entry
         # is simply nondeterministic around its floor (tt-xla#6054 discussion).
-        lm_head = getattr(model, "lm_head", None)
-        if lm_head is not None:
-            shard_specs[lm_head.weight] = ("model", None)
+        # lm_head and embed_tokens are ONE tied nn.Parameter in the checkpoint, but
+        # model.to(device) breaks the tie: afterwards they are two distinct device
+        # tensors, so marking lm_head alone leaves embed_tokens replicated at its full
+        # 262144 x 2816 bf16 = 1.375 GiB. That replicated copy is what OOMs the staged
+        # decoder residency. Shard both, by identity, wherever they exist -- the encoder
+        # variant has embed_tokens but no lm_head.
+        for holder, attr in (
+            (model, "lm_head"),
+            (getattr(getattr(model, "model", None), "decoder", None), "embed_tokens"),
+            (
+                getattr(getattr(model, "language_model", None), "embed_tokens", None),
+                None,
+            ),
+        ):
+            if holder is None:
+                continue
+            mod = holder if attr is None else getattr(holder, attr, None)
+            w = getattr(mod, "weight", None)
+            if w is not None:
+                shard_specs[w] = ("model", None)
         return shard_specs

@@ -22,6 +22,7 @@ which this repo can't import); ``setup()`` re-registers tt_moe against that swap
 
 import copy
 import gc
+import types
 import math
 import os
 import time
@@ -92,11 +93,42 @@ def free_tt_graphs():
     torch._dynamo.reset()
     for obj in gc.get_objects():
         try:
-            if (
-                isinstance(obj, torch.fx.GraphModule)
-                and getattr(obj, "xla_args", None) is not None
-            ):
-                obj.xla_args = None
+            if isinstance(obj, torch.fx.GraphModule):
+                if getattr(obj, "xla_args", None) is not None:
+                    obj.xla_args = None
+                # Dynamo LIFTS the traced module's parameters onto the
+                # GraphModule itself (keys "L__self___...") and keeps the
+                # original submodules under it, so nulling xla_args leaves every
+                # weight registered here -- and retain=true on every PJRT buffer
+                # makes a registered weight a live DRAM allocation.
+                #
+                # Measured on 8x WH, image path: without this, eviction left
+                # 2.44 GiB in 366 tensors (the 1.375 GiB replicated embed_tokens
+                # plus ~1.06 GiB of vision tower weights), which then OOMed the
+                # decoder on its 60 MiB KV cache. Text leaks only 0.006 GiB
+                # because its graph lifts no vision tower.
+                obj._parameters.clear()
+                obj._buffers.clear()
+                obj._modules.clear()
+            # ...and the compiled function's closure holds the same tensors
+            # again, independently. Measured: clearing either holder alone
+            # leaves the other, and DRAM does not move -- both must go in the
+            # same pass.
+            if isinstance(obj, types.CellType):
+                try:
+                    held = obj.cell_contents
+                except ValueError:
+                    continue  # empty cell
+                if isinstance(held, (list, tuple)) and any(
+                    isinstance(x, torch.Tensor) and x.device.type == "xla"
+                    for x in held
+                ):
+                    obj.cell_contents = None
+                elif isinstance(held, dict) and any(
+                    isinstance(v, torch.Tensor) and v.device.type == "xla"
+                    for v in held.values()
+                ):
+                    held.clear()
             if isinstance(obj, GraphInputMatcher):
                 for ref in gc.get_referrers(obj):
                     if isinstance(ref, tuple):
