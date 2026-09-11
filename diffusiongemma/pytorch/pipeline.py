@@ -20,6 +20,8 @@ import copy
 import gc
 import math
 import os
+import time
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 import numpy as np
@@ -71,8 +73,12 @@ def cache_to_device(cache, device):
 
 def free_tt_graphs():
     """Fully release baked TT graph weights (`.to('cpu')`/`del` free only activations): reset
-    dynamo, null the torch_xla GraphInputMatcher tensors, clear the C++ computation cache.
-    Safe because each staged component is an independent model (nothing else pins its weights).
+    dynamo and null the torch_xla GraphInputMatcher tensors. Safe because each staged
+    component is an independent model (nothing else pins its weights).
+
+    Deliberately does NOT call xr.clear_computation_cache(): that wipes the compiled-executable
+    cache, so the next residency cannot reuse a graph it already built. Dropping the refcounts
+    above is what releases the weights -- the cache holds executables, not parameter buffers.
     """
     from torch_xla._dynamo.dynamo_bridge import GraphInputMatcher
 
@@ -92,8 +98,11 @@ def free_tt_graphs():
                                 d.clear()
         except ReferenceError:
             continue
-    xr.clear_computation_cache()
     gc.collect()
+
+
+# Public name for the staged-residency eviction step.
+evict_component = free_tt_graphs
 
 
 class TTEncoder(torch.nn.Module):
@@ -298,9 +307,17 @@ def manual_generate(
 
 
 class DiffusionGemmaConfig:
-    def __init__(self, max_new_tokens: int = MAX_NEW_TOKENS, seed: int = SEED):
+    def __init__(
+        self,
+        max_new_tokens: int = MAX_NEW_TOKENS,
+        seed: int = SEED,
+        warm_iters: int = 0,
+    ):
         self.max_new_tokens = max_new_tokens
         self.seed = seed
+        # EXTRA in-residency prefills, to get a warm encoder number before the
+        # encoder is freed. 0 = inert.
+        self.warm_iters = warm_iters
 
 
 class DiffusionGemmaPipeline:
@@ -309,7 +326,15 @@ class DiffusionGemmaPipeline:
     ``setup()`` enables SPMD, re-registers tt_moe (against the caller's swapped-in transformers),
     loads the host driver model, and builds the device mesh. ``generate()`` runs the staged
     encoder/decoder on TT and returns the decoded text.
+
+    One pipeline serves the demo, the PCC-gated e2e test and the benchmark. The e2e test
+    subclasses it and overrides ``_check``; the benchmark reads ``_perf``. Neither
+    reimplements the staged residency, so neither can drift from what ships.
     """
+
+    # Staged: each component is evicted before the next is placed, so a repeat call
+    # rebuilds. Cold and warm both come from the single call, before eviction.
+    benchmark_staged_residency = True
 
     def __init__(self, config: DiffusionGemmaConfig = None):
         self.config = config or DiffusionGemmaConfig()
@@ -317,6 +342,37 @@ class DiffusionGemmaPipeline:
         self.cpu_model = None
         self.mesh = None
         self.xla = None
+        self.last_new_tokens = 0
+        self._reset_perf()
+
+    def _reset_perf(self):
+        """The schema tests/benchmark/utils.staged_perf_measurements() consumes."""
+        self._perf = {
+            "components": {},
+            "steps": [],
+            "step_metric_name": "decode_step",
+            "total": None,
+            "cold": {},
+            "warm": {},
+            # Host<->device weight movement and graph teardown; untimed it would
+            # land in cpu_overhead_s, which is meant to be host bookkeeping.
+            "staging": 0.0,
+            # Seconds burned in discarded in-residency warm repeats.
+            "synthetic": 0.0,
+        }
+
+    @contextmanager
+    def _staging(self):
+        t0 = time.perf_counter()
+        try:
+            yield
+        finally:
+            self._perf["staging"] += time.perf_counter() - t0
+
+    def _check(self, name, tt_out, golden_fn):
+        """PCC seam. A no-op here; the nightly e2e test overrides it and calls
+        ``golden_fn()`` for the CPU twin's output. Kept lazy so the shipped
+        pipeline never pays for a CPU forward of a 26B model."""
 
     def setup(self):
         enable_spmd()
@@ -345,10 +401,15 @@ class DiffusionGemmaPipeline:
         return model
 
     def _staged_forwards(self, vocab_size):
-        """Build the drive-with-TT encoder/decoder forwards; one component resident at a time."""
+        """Build the drive-with-TT encoder/decoder forwards; one component resident at a time.
+
+        Timers exclude the ``_staging()`` windows, so a stage's seconds are counted once:
+        weight movement in ``_perf["staging"]``, compute in ``components``/``steps``.
+        """
         from transformers import DynamicCache  # 5.12.0, after the caller's swap
 
         xla = self.xla
+        perf = self._perf
         tt_pkv = {
             "host": None,
             "pkv": None,
@@ -360,37 +421,70 @@ class DiffusionGemmaPipeline:
 
         def encoder_forward(**kw):
             # Free the previous block's decoder (if any) so only one model is resident.
-            if stage["dec_tt"] is not None:
-                stage["dec_tt"] = stage["dec_model"] = None
-                free_tt_graphs()
-            enc_model = self._load_sharded(ModelVariant.ENCODER)
-            enc_tt = torch.compile(TTEncoder(enc_model), backend="tt")
+            with self._staging():
+                if stage["dec_tt"] is not None:
+                    stage["dec_tt"] = stage["dec_model"] = None
+                    free_tt_graphs()
+                enc_model = self._load_sharded(ModelVariant.ENCODER)
+                enc_tt = torch.compile(TTEncoder(enc_model), backend="tt")
             pkv = DynamicCache()
-            lhs = enc_tt(
+            enc_args = (
                 to_device(kw["input_ids"], xla),
                 to_device(kw["attention_mask"], xla),
                 to_device(kw["position_ids"], xla),
-                pkv,
-                to_device(kw.get("mm_token_type_ids"), xla),
             )
-            # Cache to host + FREE the encoder; the decoder loads lazily in decoder_forward.
+            mm_tokens = to_device(kw.get("mm_token_type_ids"), xla)
+            # COLD: the real prefill, carrying the build. .to("cpu") forces the sync
+            # (XLA is async, so a bare timer would measure tracing).
+            t0 = time.perf_counter()
+            lhs = enc_tt(*enc_args, pkv, mm_tokens)
             xm.mark_step()
-            tt_pkv["host"] = cache_to_device(pkv, "cpu")
-            del enc_tt, enc_model, pkv
-            free_tt_graphs()
+            lhs_host = lhs.to("cpu")
+            cold = time.perf_counter() - t0
+            perf["components"]["encoder"] = cold
+            perf["cold"]["encoder"] = cold
+
+            self._check("encoder", lhs_host, lambda: self.cpu_model.model.encoder(**kw))
+
+            # WARM: reuse the resident graph. Fresh DynamicCache each (prefill mutates
+            # it); outputs discarded, so generation is unchanged.
+            warm = []
+            for _ in range(max(0, self.config.warm_iters)):
+                t0 = time.perf_counter()
+                warm_lhs = enc_tt(*enc_args, DynamicCache(), mm_tokens)
+                xm.mark_step()
+                warm_lhs.to("cpu")
+                warm.append(time.perf_counter() - t0)
+                del warm_lhs
+            if warm:
+                perf["warm"]["encoder"] = sum(warm) / len(warm)
+                perf["synthetic"] += sum(warm)
+
+            # Cache to host + FREE the encoder; the decoder loads lazily in decoder_forward.
+            with self._staging():
+                tt_pkv["host"] = cache_to_device(pkv, "cpu")
+                del enc_tt, enc_model, pkv
+                free_tt_graphs()
             return SimpleNamespace(
-                last_hidden_state=lhs.to("cpu"), past_key_values=tt_pkv["host"]
+                last_hidden_state=lhs_host, past_key_values=tt_pkv["host"]
             )
 
         def decoder_forward(**kw):
             # First decode step: encoder is freed, so load the decoder now (vocab-shard
             # lm_head/embed so decoder + logits fit) and restore the KV cache from host.
             if stage["dec_tt"] is None:
-                dec_model = self._load_sharded(ModelVariant.DIFFUSIONGEMMA_26B_A4B_IT)
-                xs.mark_sharding(dec_model.lm_head.weight, self.mesh, ("model", None))
-                stage["dec_model"] = dec_model
-                stage["dec_tt"] = torch.compile(TTDecoder(dec_model), backend="tt")
-                tt_pkv["pkv"] = cache_to_device(tt_pkv["host"], xla)
+                with self._staging():
+                    dec_model = self._load_sharded(
+                        ModelVariant.DIFFUSIONGEMMA_26B_A4B_IT
+                    )
+                    xs.mark_sharding(
+                        dec_model.lm_head.weight, self.mesh, ("model", None)
+                    )
+                    stage["dec_model"] = dec_model
+                    stage["dec_tt"] = torch.compile(TTDecoder(dec_model), backend="tt")
+                    tt_pkv["pkv"] = cache_to_device(tt_pkv["host"], xla)
+            # Timed from here: the load above is staging, not step time.
+            t0 = time.perf_counter()
             # Consistent self-conditioning (zeros + mask=False on step 1) -> one TT graph.
             bs, canvas = kw["decoder_input_ids"].shape
             if kw.get("self_conditioning_logits") is None:
@@ -408,7 +502,14 @@ class DiffusionGemmaPipeline:
                 to_device(scm, xla),
                 tt_pkv["pkv"],
             )
-            return SimpleNamespace(logits=logits.to("cpu"))  # drive with the TT output
+            out = logits.to("cpu")  # forces sync
+            perf["steps"].append(time.perf_counter() - t0)
+
+            # dict merge, not **kw + kwarg: _denoising_step owns kw and may already
+            # carry self_conditioning_mask, which would be a duplicate-kwarg TypeError.
+            golden_kw = {**kw, "self_conditioning_mask": scm}
+            self._check("decoder", out, lambda: self.cpu_model.forward(**golden_kw))
+            return SimpleNamespace(logits=out)  # drive with the TT output
 
         return encoder_forward, decoder_forward
 
@@ -418,6 +519,7 @@ class DiffusionGemmaPipeline:
         """Generate text with both encoder and decoder on TT (staged); return decoded output."""
         max_new_tokens = max_new_tokens or self.config.max_new_tokens
         seed = self.config.seed if seed is None else seed
+        self._reset_perf()
 
         inputs = self.loader.load_inputs(dtype_override=torch.bfloat16, prompt=prompt)
         # generate()'s extra inputs (e.g. mm_token_type_ids), minus decoder_input_ids.
@@ -430,6 +532,9 @@ class DiffusionGemmaPipeline:
         encoder_forward, decoder_forward = self._staged_forwards(vocab_size)
 
         torch.manual_seed(seed)
+        # _perf["total"] covers exactly the staged run, so it reconciles against
+        # the component/step/staging/synthetic terms; input prep and decode sit outside.
+        t0 = time.perf_counter()
         output = manual_generate(
             self.cpu_model,
             input_ids=inputs["input_ids"],
@@ -439,4 +544,6 @@ class DiffusionGemmaPipeline:
             decoder_forward=decoder_forward,
             **extra_kwargs,
         )
+        self._perf["total"] = time.perf_counter() - t0
+        self.last_new_tokens = int(output.shape[-1] - inputs["input_ids"].shape[-1])
         return self.loader.processor.decode(output[0], skip_special_tokens=True)

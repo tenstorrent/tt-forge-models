@@ -71,9 +71,16 @@ class ModelLoader(ForgeModel):
         "it I'm not going to be silent."
     )
     DEFAULT_LANGUAGE = "en"
-    # Real public reference clip (LibriSpeech, the Whisper loader's asset), since
-    # the model card ships only a placeholder speaker wav.
-    REFERENCE_AUDIO = "test_files/pytorch/whisper/1272-128104-0000.pt"
+    # Real public reference clip, since the model card ships only a placeholder
+    # speaker wav: LibriSpeech utterance 1272-128104-0000, read straight from the
+    # HF dummy set. The same clip also exists as a cached asset
+    # (test_files/pytorch/whisper/1272-128104-0000.pt, the Whisper loader's), but
+    # that one is only reachable where the large-file cache is, which excludes the
+    # bare-metal perf runners. Both sources decode to identical float32 samples.
+    REFERENCE_AUDIO_REPO = "hf-internal-testing/librispeech_asr_dummy"
+    REFERENCE_AUDIO_CONFIG = "clean"
+    REFERENCE_AUDIO_SPLIT = "validation"
+    REFERENCE_AUDIO_INDEX = 0
     # Seconds of reference audio used for the conditioning latents (model-card
     # ``gpt_cond_len=3``).
     GPT_COND_LEN = 3
@@ -132,6 +139,32 @@ class ModelLoader(ForgeModel):
     # Xtts.inference). Each block is memoized so a variant only pays for   #
     # the tensors it needs; the whole chain is deterministic.             #
     # ------------------------------------------------------------------ #
+    @classmethod
+    def load_reference_audio(cls):
+        """The reference clip as float32 samples plus its own sample rate.
+
+        Decoding is done here rather than through ``datasets``' own Audio
+        decoding, which routes via torchcodec and so needs ffmpeg shared
+        libraries that the test images do not carry.
+        """
+        import io
+
+        import soundfile
+        from datasets import Audio, load_dataset
+
+        dataset = load_dataset(
+            cls.REFERENCE_AUDIO_REPO,
+            cls.REFERENCE_AUDIO_CONFIG,
+            split=cls.REFERENCE_AUDIO_SPLIT,
+        ).cast_column("audio", Audio(decode=False))
+        clip = dataset[cls.REFERENCE_AUDIO_INDEX]["audio"]
+        encoded = clip["bytes"]
+        if not encoded:
+            with open(clip["path"], "rb") as handle:
+                encoded = handle.read()
+        array, sample_rate = soundfile.read(io.BytesIO(encoded), dtype="float32")
+        return array, int(sample_rate)
+
     def _reference_audio_22k(self):
         """Load the real reference clip and resample to XTTS's 22.05 kHz rate."""
         if "audio22" in self._cache:
@@ -140,13 +173,8 @@ class ModelLoader(ForgeModel):
         import numpy as np
         import torchaudio
 
-        from ...tools.utils import get_file
-
-        sample = torch.load(get_file(self.REFERENCE_AUDIO), weights_only=False)
-        sr = int(sample["audio"].get("sampling_rate", 16000))  # asset's own rate
-        audio = torch.tensor(
-            np.asarray(sample["audio"]["array"], dtype="float32")
-        ).unsqueeze(0)
+        array, sr = self.load_reference_audio()
+        audio = torch.tensor(np.asarray(array, dtype="float32")).unsqueeze(0)
         if sr != self.XTTS_SR:
             audio = torchaudio.functional.resample(audio, sr, self.XTTS_SR)
         self._cache["audio22"] = audio
