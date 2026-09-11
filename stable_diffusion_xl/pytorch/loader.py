@@ -18,21 +18,67 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from .src.model_utils import load_pipe, stable_diffusion_preprocessing_xl
+from .src.model_utils import (
+    CLIP_G_SUBFOLDER,
+    CLIP_L_SUBFOLDER,
+    CLIPGTextEncoderWrapper,
+    CLIPTextEncoderWrapper,
+    load_clip_text_encoder,
+    load_clip_text_encoder_inputs,
+    load_pipe,
+    stable_diffusion_preprocessing_xl,
+)
 
 
 class ModelVariant(StrEnum):
     """Available Stable Diffusion XL model variants."""
 
     STABLE_DIFFUSION_XL_BASE_1_0 = "Base_1.0"
+    CLIP_TEXT_ENCODER = "ClipTextEncoder"
+    CLIP_G_TEXT_ENCODER = "ClipGTextEncoder"
+
+
+# Subfolder in the SDXL base repo per text-encoder variant. Membership in this
+# dict is what marks a variant as a text-encoder component.
+CLIP_SUBFOLDERS = {
+    ModelVariant.CLIP_TEXT_ENCODER: CLIP_L_SUBFOLDER,
+    ModelVariant.CLIP_G_TEXT_ENCODER: CLIP_G_SUBFOLDER,
+}
+
+# Wrapper per text-encoder variant. CLIP-L returns one consumed tensor, CLIP-G
+# two (see the comment block in ``src/model_utils.py``).
+CLIP_WRAPPERS = {
+    ModelVariant.CLIP_TEXT_ENCODER: CLIPTextEncoderWrapper,
+    ModelVariant.CLIP_G_TEXT_ENCODER: CLIPGTextEncoderWrapper,
+}
 
 
 class ModelLoader(ForgeModel):
-    """Stable Diffusion XL model loader implementation."""
+    """Stable Diffusion XL model loader implementation.
+
+    Three variants are exposed:
+      - ``STABLE_DIFFUSION_XL_BASE_1_0`` (default) -> the UNet, driven with
+        preprocessed conditioning from the full pipeline.
+      - ``CLIP_TEXT_ENCODER``                      -> the CLIP-L tower
+        (``text_encoder``) as an independently compilable TT component.
+      - ``CLIP_G_TEXT_ENCODER``                    -> the CLIP-G tower
+        (``text_encoder_2``), whose projection head also produces SDXL's
+        ``add_text_embeds``.
+
+    With both towers exposed, every text-conditioning input the UNet consumes
+    has a TT component; the VAE decoder already runs on device via
+    :meth:`decode_vae`.
+    """
 
     # Dictionary of available model variants using structured configs
     _VARIANTS = {
         ModelVariant.STABLE_DIFFUSION_XL_BASE_1_0: ModelConfig(
+            pretrained_model_name="stable-diffusion-xl-base-1.0",
+        ),
+        ModelVariant.CLIP_TEXT_ENCODER: ModelConfig(
+            pretrained_model_name="stable-diffusion-xl-base-1.0",
+        ),
+        ModelVariant.CLIP_G_TEXT_ENCODER: ModelConfig(
             pretrained_model_name="stable-diffusion-xl-base-1.0",
         ),
     }
@@ -66,11 +112,16 @@ class ModelLoader(ForgeModel):
         """
         if variant is None:
             variant = cls.DEFAULT_VARIANT
+        task = (
+            ModelTask.NLP_EMBED_GEN
+            if variant in CLIP_SUBFOLDERS
+            else ModelTask.CONDITIONAL_GENERATION
+        )
         return ModelInfo(
             model="Stable Diffusion XL",
             variant=variant,
             group=ModelGroup.RED,
-            task=ModelTask.CONDITIONAL_GENERATION,
+            task=task,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
@@ -83,10 +134,19 @@ class ModelLoader(ForgeModel):
                            If not provided, the model will use its default dtype (typically float32).
 
         Returns:
-            DiffusionPipeline: The Stable Diffusion XL pipeline instance.
+            DiffusionPipeline: the pipeline instance for the default variant, or
+            a ``CLIPTextEncoderWrapper`` / ``CLIPGTextEncoderWrapper`` around one
+            CLIP tower for the text-encoder variants.
         """
         # Get the pretrained model name from the instance's variant config
         pretrained_model_name = self._variant_config.pretrained_model_name
+
+        if self._variant in CLIP_SUBFOLDERS:
+            dtype = dtype_override if dtype_override is not None else torch.float32
+            encoder = load_clip_text_encoder(
+                pretrained_model_name, dtype, CLIP_SUBFOLDERS[self._variant]
+            )
+            return CLIP_WRAPPERS[self._variant](encoder).eval()
 
         # Load the pipeline
         self.pipeline = load_pipe(pretrained_model_name)
@@ -110,7 +170,17 @@ class ModelLoader(ForgeModel):
                 - prompt_embeds (torch.Tensor): Encoded prompt embeddings
                 - added_cond_kwargs (dict): Additional conditioning inputs (e.g., text/image embeddings,
                   time IDs, or other auxiliary information required by the pipeline).
+
+            For the text-encoder variants: ``[input_ids]`` of shape ``(1, 77)``
+            int64, the tokenized prompt at the CLIP context length.
         """
+        if self._variant in CLIP_SUBFOLDERS:
+            return load_clip_text_encoder_inputs(
+                self._variant_config.pretrained_model_name,
+                self.prompt,
+                CLIP_SUBFOLDERS[self._variant],
+            )
+
         # Ensure pipeline is initialized
         if self.pipeline is None:
             self.load_model(dtype_override=dtype_override)

@@ -232,3 +232,140 @@ def stable_diffusion_preprocessing_xl(
         added_cond_kwargs,
         add_time_ids,
     )
+
+
+# --------------------------------------------------------------------------- #
+# CLIP text encoders as independently compilable TT components.
+#
+# SDXL conditions its UNet on TWO CLIP towers (diffusers
+# ``StableDiffusionXLPipeline.encode_prompt``): it walks
+# ``[text_encoder, text_encoder_2]`` and, for each tower, takes
+# ``hidden_states[-2]`` — the penultimate layer, which SDXL always indexes —
+# concatenating the two along the feature axis into ``prompt_embeds``. The
+# pooled embedding is taken from ``prompt_embeds[0]`` only when it is 2-D,
+# which is true for the projection output of ``text_encoder_2`` alone; that
+# tensor becomes ``add_text_embeds`` in ``added_cond_kwargs``. CLIP-L's ``[0]``
+# is its 3-D ``last_hidden_state`` and is never consumed.
+#
+# Hence the asymmetry between the two wrappers below: CLIP-L returns one
+# tensor, CLIP-G returns two.
+# --------------------------------------------------------------------------- #
+
+# CLIP context length (both tokenizers' model_max_length, and both configs'
+# max_position_embeddings) and vocab size — identical for the two towers.
+CLIP_MAX_SEQ_LEN = 77
+CLIP_VOCAB_SIZE = 49408
+
+# Subfolder in the SDXL base repo per CLIP tower.
+CLIP_L_SUBFOLDER = "text_encoder"
+CLIP_G_SUBFOLDER = "text_encoder_2"
+
+# Tokenizer subfolder paired with each encoder subfolder.
+CLIP_TOKENIZER_SUBFOLDERS = {
+    CLIP_L_SUBFOLDER: "tokenizer",
+    CLIP_G_SUBFOLDER: "tokenizer_2",
+}
+
+
+def _repo_id(pretrained_model_name: str) -> str:
+    """``"stable-diffusion-xl-base-1.0"`` -> the HuggingFace repo id."""
+    return f"stabilityai/{pretrained_model_name}"
+
+
+def load_clip_text_encoder(
+    pretrained_model_name: str, dtype: torch.dtype, subfolder: str
+):
+    """Load one CLIP tower from the SDXL base repo.
+
+    Args:
+        pretrained_model_name: variant name, e.g. ``"stable-diffusion-xl-base-1.0"``.
+        dtype: torch dtype for the returned module.
+        subfolder: ``"text_encoder"`` (CLIP-L) or ``"text_encoder_2"`` (CLIP-G).
+
+    The class matches each subfolder's ``config.json`` ``architectures``:
+    ``CLIPTextModel`` for CLIP-L, ``CLIPTextModelWithProjection`` for CLIP-G.
+    CLIP-G must keep its projection head — that head produces SDXL's
+    ``add_text_embeds`` — while CLIP-L's projection is never used, so loading it
+    as the bare model avoids materializing an unused head.
+
+    Only the requested subfolder is loaded, so exercising one tower never
+    materializes the UNet, the VAE or the other tower.
+    """
+    from transformers import CLIPTextModel, CLIPTextModelWithProjection
+
+    cls = (
+        CLIPTextModelWithProjection if subfolder == CLIP_G_SUBFOLDER else CLIPTextModel
+    )
+    return cls.from_pretrained(
+        _repo_id(pretrained_model_name),
+        subfolder=subfolder,
+        torch_dtype=dtype,
+        device_map="cpu",
+    ).eval()
+
+
+def load_clip_text_encoder_inputs(
+    pretrained_model_name: str, prompt: str, subfolder: str
+):
+    """Inputs for a CLIP tower: ``[input_ids]`` of shape ``(1, 77)`` int64.
+
+    Tokenized by the tower's own tokenizer with
+    ``padding="max_length", truncation=True``, i.e. exactly what
+    ``encode_prompt`` feeds the encoder. Token ids are always int64, so there is
+    no dtype argument.
+    """
+    from transformers import CLIPTokenizer
+
+    tokenizer = CLIPTokenizer.from_pretrained(
+        _repo_id(pretrained_model_name),
+        subfolder=CLIP_TOKENIZER_SUBFOLDERS[subfolder],
+    )
+    input_ids = tokenizer(
+        prompt,
+        padding="max_length",
+        max_length=CLIP_MAX_SEQ_LEN,
+        truncation=True,
+        return_tensors="pt",
+    ).input_ids
+    return [input_ids.to(torch.long)]
+
+
+class CLIPTextEncoderWrapper(torch.nn.Module):
+    """Run SDXL's CLIP-L tower as ``(input_ids) -> penultimate_hidden``.
+
+    Returns the single tensor the pipeline consumes from this tower: the
+    penultimate hidden state, which is concatenated with CLIP-G's along the
+    feature axis into ``prompt_embeds``. Returning a plain tensor keeps the
+    ``BaseModelOutputWithPooling`` dataclass out of graph capture.
+    """
+
+    def __init__(self, encoder):
+        super().__init__()
+        self.encoder = encoder
+
+    def forward(self, input_ids):
+        out = self.encoder(
+            input_ids=input_ids, output_hidden_states=True, return_dict=True
+        )
+        return out.hidden_states[-2]
+
+
+class CLIPGTextEncoderWrapper(torch.nn.Module):
+    """Run SDXL's CLIP-G tower as ``(input_ids) -> (penultimate_hidden, pooled)``.
+
+    Returns both tensors the pipeline consumes from this tower, so a compiled
+    run covers both paths through it: the penultimate hidden state (the second
+    half of ``prompt_embeds``) and the projected pooled embedding (SDXL's
+    ``add_text_embeds``). ``pooled`` comes from the projection head, which is
+    why this tower is loaded as ``CLIPTextModelWithProjection``.
+    """
+
+    def __init__(self, encoder):
+        super().__init__()
+        self.encoder = encoder
+
+    def forward(self, input_ids):
+        out = self.encoder(
+            input_ids=input_ids, output_hidden_states=True, return_dict=True
+        )
+        return out.hidden_states[-2], out.text_embeds
