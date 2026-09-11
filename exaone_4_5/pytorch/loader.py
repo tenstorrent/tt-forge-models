@@ -6,8 +6,16 @@ EXAONE 4.5 model loader implementation.
 """
 
 import torch
-from transformers import AutoTokenizer, AutoModelForMultimodalLM, AutoConfig
 from typing import Optional
+
+# NOTE: `transformers` is intentionally NOT imported at module top level.
+# EXAONE 4.5 gained native support in transformers >= 5.8.0 (see requirements.txt;
+# model_type "exaone4_5"). The Hub checkpoint has no auto_map, so
+# trust_remote_code cannot load it on older installs. The test runner upgrades
+# transformers at test time and purges it from sys.modules. A top-level import
+# would bind the Auto* classes to whatever transformers was loaded during pytest
+# collection, leaving stale class objects whose in-memory mappings omit
+# exaone4_5. So the Auto* classes are imported lazily in the methods.
 
 from ...base import ForgeModel
 from ...config import (
@@ -80,6 +88,9 @@ class ModelLoader(ForgeModel):
         Returns:
             The loaded tokenizer instance
         """
+        # Lazy import so it binds to the pinned transformers (see module note).
+        from transformers import AutoTokenizer
+
         self.tokenizer = AutoTokenizer.from_pretrained(
             self._variant_config.pretrained_model_name
         )
@@ -100,12 +111,15 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: The EXAONE 4.5 model for causal language modeling.
         """
+        # Lazy import so it binds to the pinned transformers (see module note).
+        from transformers import AutoModelForMultimodalLM
+
         pretrained_model_name = self._variant_config.pretrained_model_name
 
         if self.tokenizer is None:
             self._load_tokenizer()
 
-        model_kwargs = {"trust_remote_code": True}
+        model_kwargs = {}
         if dtype_override is not None:
             model_kwargs["torch_dtype"] = dtype_override
         model_kwargs |= kwargs
@@ -174,6 +188,9 @@ class ModelLoader(ForgeModel):
 
     def load_config(self):
         """Load and return the configuration for the model variant."""
+        # Lazy import so it binds to the pinned transformers (see module note).
+        from transformers import AutoConfig
+
         self.config = AutoConfig.from_pretrained(
             self._variant_config.pretrained_model_name
         )

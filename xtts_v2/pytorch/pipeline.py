@@ -41,7 +41,6 @@ OUTPUT_SAMPLE_RATE = 24000
 # Audio sample rates (Hz).
 XTTS_SAMPLE_RATE = 22050  # XTTS native rate for conditioning / cloning mels
 SPEAKER_ENCODER_SR = 16000  # speaker-encoder input rate
-DEFAULT_REFERENCE_SR = 16000  # fallback rate of the packaged reference clip
 
 # wav_to_mel_cloning front-end params (reference Xtts.get_gpt_cond_latents).
 MEL_N_FFT = 2048
@@ -183,15 +182,8 @@ class XTTSPipeline:
             audio = audio.mean(0, keepdim=True)  # mono
         else:
             # Same public LibriSpeech reference the component loader uses.
-            from ...tools.utils import get_file
-
-            sample = torch.load(
-                get_file(self._loader.REFERENCE_AUDIO), weights_only=False
-            )
-            sr = int(sample["audio"].get("sampling_rate", DEFAULT_REFERENCE_SR))
-            audio = torch.tensor(
-                np.asarray(sample["audio"]["array"], dtype="float32")
-            ).unsqueeze(0)
+            array, sr = self._loader.load_reference_audio()
+            audio = torch.tensor(np.asarray(array, dtype="float32")).unsqueeze(0)
         if sr != XTTS_SAMPLE_RATE:
             audio = torchaudio.functional.resample(audio, sr, XTTS_SAMPLE_RATE)
         return audio
