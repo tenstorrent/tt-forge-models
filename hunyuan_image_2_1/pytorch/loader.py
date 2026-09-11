@@ -2,12 +2,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-HunyuanImage 2.1 (Distilled) component loader.
+HunyuanImage 2.1 component loader.
 
 Each variant corresponds to one independently loadable component:
   - TextEncoder   → Qwen2.5-VL-7B-Instruct encoder (text_encoder)   params=8.29B
   - TextEncoder2  → ByT5 encoder (text_encoder_2)                    params=0.22B
-  - Transformer   → HunyuanImage21TransformerWrapper (MMDiT)         params=17.45B
+  - Transformer   → HunyuanImage21TransformerWrapper (MMDiT)         params=17.43B
   - Vae           → VAEDecoderWrapper                                params=0.41B
 """
 
@@ -51,7 +51,7 @@ from .src.model_utils import (
     shard_transformer_specs,
 )
 
-_REPO_ID = "hunyuanvideo-community/HunyuanImage-2.1-Distilled-Diffusers"
+_REPO_ID = "hunyuanvideo-community/HunyuanImage-2.1-Diffusers"
 
 
 class ModelVariant(StrEnum):
@@ -152,8 +152,7 @@ class ModelLoader(ForgeModel):
 
         TEXT_ENCODER   → [input_ids (1,1034) int64, attention_mask (1,1034) int64]
         TEXT_ENCODER_2 → [input_ids (1,128) int64,  attention_mask (1,128) float32]
-        TRANSFORMER    → [hidden_states (1,64,64,64), timestep (1,), timestep_r (1,),
-                          guidance (1,),
+        TRANSFORMER    → [hidden_states (1,64,64,64), timestep (1,),
                           encoder_hidden_states (1,1000,3584),
                           encoder_attention_mask (1,1000) int64,
                           encoder_hidden_states_2 (1,128,1472),
@@ -182,10 +181,6 @@ class ModelLoader(ForgeModel):
                 1, TRANSFORMER_IN_CHANNELS, LATENT_H, LATENT_W, dtype=dtype
             )
             timestep = torch.tensor([1000.0], dtype=dtype)
-            timestep_r = torch.tensor([0.0], dtype=dtype)
-            guidance = torch.tensor(
-                [3500.0], dtype=dtype
-            )  # distilled_guidance_scale * 1000
             encoder_hidden_states = torch.randn(
                 1, TRANSFORMER_TEXT_SEQ, TEXT_EMBED_DIM, dtype=dtype
             )
@@ -201,8 +196,6 @@ class ModelLoader(ForgeModel):
             return [
                 hidden_states,
                 timestep,
-                timestep_r,
-                guidance,
                 encoder_hidden_states,
                 encoder_attention_mask,
                 encoder_hidden_states_2,
