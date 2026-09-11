@@ -1,3 +1,6 @@
+[submodule "third_party/LTX-2"]
+	path = third_party/LTX-2
+	url = https://github.com/Lightricks/LTX-2
 [submodule "third_party/VibeVoice"]
 	path = third_party/VibeVoice
 	url = https://github.com/microsoft/VibeVoice
