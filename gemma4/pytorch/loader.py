@@ -14,10 +14,16 @@ vision/audio embedder weights are left replicated (out of the shard map) for
 this bring-up.
 """
 
+import ast
+import inspect
+import linecache
+import textwrap
+import warnings
 from typing import Optional
 
 import numpy as np
 import torch
+import transformers
 from PIL import Image
 from transformers import (
     AutoConfig,
@@ -25,6 +31,7 @@ from transformers import (
     AutoProcessor,
     AutoTokenizer,
 )
+from transformers.video_utils import VideoMetadata
 
 from ...base import ForgeModel
 from ...config import (
@@ -37,6 +44,135 @@ from ...config import (
     StrEnum,
 )
 from ...tools.utils import cast_input_to_type, get_file
+
+# Set once ``_strip_mask_gather_checks`` has rewritten the forward.
+_MASK_GATHER_CHECKS_STRIPPED = False
+
+# One merge assertion per modality (image, audio, video) in the transformers
+# release this loader pins (see requirements.txt). Finding a different number
+# means upstream restructured the checks and the strip has silently stopped
+# covering some modality, so it is warned about rather than passed over.
+_EXPECTED_MASK_GATHER_CHECKS = 3
+
+
+def _strip_mask_gather_checks():
+    """Remove the merge-time shape assertions that force a per-scalar gather.
+
+    ``Gemma4UnifiedModel.forward`` guards each modality merge with::
+
+        torch_compilable_check(
+            inputs_embeds[image_mask].numel() == image_features.numel(), ...)
+
+    ``image_mask`` has already been ``expand_as(inputs_embeds)``-ed, so
+    ``inputs_embeds[image_mask]`` is a boolean-mask advanced index over the
+    whole ``(batch, seq, hidden)`` embedding. Its result shape is data
+    dependent, so TorchDynamo graph-breaks, lowers the index to a *per-scalar*
+    gather and ships the entire result back to host just to read ``.numel()``.
+    On an n300-llmbox that gather is the whole failure:
+
+    * image - gathers 266*3840 = 1,021,440 scalars; the bf16->f32 typecast in
+      its index chain lands width-sharded in L1 at 499 tiles/core, i.e.
+      2,043,904 B/bank against a 1,328,064 B bank -> ``TT_FATAL: Out of Memory``
+      for a 130,809,856 B L1 buffer.
+    * audio - same shape of failure, 72,351,744 B L1.
+    * video - gathers 2016*3840 = 7,741,440 scalars; ``EmbeddingOp``'s
+      ``TilizeWithValPadding`` then asks for a 15,854,469,120 B DRAM buffer.
+
+    The assertions are pure shape checks: they never touch the tensors that
+    ``forward`` returns, so removing them is numerically a no-op. They are
+    stripped from the traced source rather than disabled via
+    ``TRANSFORMERS_DISABLE_TORCH_CHECK=1`` because that env var only makes
+    ``torch_compilable_check`` return early - Python still evaluates the
+    ``inputs_embeds[mask].numel()`` argument, so the gather (and the OOM)
+    would remain.
+
+    Removing them also drops three graph breaks: the failure message is an
+    f-string interpolating ``mask.sum()``, which forces a host sync of its own.
+
+    Idempotent. If upstream ever restructures these checks the strip cannot
+    apply, which would silently reintroduce the OOMs above - so a mismatch
+    against the expected assertion count raises a ``RuntimeWarning`` naming
+    the running transformers version instead of passing over quietly. The
+    pinned version lives in ``gemma4/pytorch/requirements.txt``.
+    """
+    global _MASK_GATHER_CHECKS_STRIPPED
+    if _MASK_GATHER_CHECKS_STRIPPED:
+        return
+
+    from transformers.models.gemma4_unified import modeling_gemma4_unified as mod
+
+    original = mod.Gemma4UnifiedModel.forward
+    tree = ast.parse(textwrap.dedent(inspect.getsource(original)))
+    func = tree.body[0]
+
+    def _callee(node):
+        return node.id if isinstance(node, ast.Name) else getattr(node, "attr", None)
+
+    class _Strip(ast.NodeTransformer):
+        def __init__(self):
+            self.removed = 0
+
+        def visit_Expr(self, node):
+            call = node.value
+            if (
+                isinstance(call, ast.Call)
+                and _callee(call.func) == "torch_compilable_check"
+                and call.args
+                and "inputs_embeds[" in ast.unparse(call.args[0])
+            ):
+                self.removed += 1
+                return None
+            return node
+
+    stripper = _Strip()
+    tree = ast.fix_missing_locations(stripper.visit(tree))
+    if stripper.removed != _EXPECTED_MASK_GATHER_CHECKS:
+        warnings.warn(
+            f"gemma4: expected {_EXPECTED_MASK_GATHER_CHECKS} mask-gather "
+            f"assertions in Gemma4UnifiedModel.forward, matched "
+            f"{stripper.removed} (transformers "
+            f"{getattr(transformers, '__version__', 'unknown')}). The "
+            f"image/audio/video paths are expected to hit the data-dependent "
+            f"gather this strip removes, and to OOM on device. Re-check the "
+            f"assertion pattern against the pinned version in "
+            f"gemma4/pytorch/requirements.txt.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    if stripper.removed == 0:
+        # Nothing matched, so there is nothing to recompile; leave the original
+        # forward in place rather than swapping in an identical copy.
+        _MASK_GATHER_CHECKS_STRIPPED = True
+        return
+
+    # ``auto_docstring`` only rewrites docstrings, and it misidentifies a
+    # function recompiled outside a class body as a class. Drop it; keep
+    # ``merge_with_config_defaults`` / ``can_return_tuple``, which are load
+    # bearing.
+    func.decorator_list = [
+        d for d in func.decorator_list if _callee(d) != "auto_docstring"
+    ]
+
+    # Register the rewritten source with linecache so inspect.getsource still
+    # works on the patched forward (transformers and dynamo both introspect it).
+    filename = "<gemma4_strip_mask_checks>"
+    new_source = ast.unparse(tree)
+    linecache.cache[filename] = (
+        len(new_source),
+        None,
+        [line + "\n" for line in new_source.splitlines()],
+        filename,
+    )
+
+    namespace = {}
+    exec(
+        compile(tree, filename=filename, mode="exec"), mod.__dict__, namespace
+    )  # noqa: S102
+    patched = namespace["forward"]
+    patched.__qualname__ = original.__qualname__
+    patched.__doc__ = original.__doc__
+    mod.Gemma4UnifiedModel.forward = patched
+    _MASK_GATHER_CHECKS_STRIPPED = True
 
 
 class ModelVariant(StrEnum):
@@ -93,6 +229,11 @@ class ModelLoader(ForgeModel):
     # tokens) is the verified, activation-tractable footprint; the full 32-frame
     # clip (2048 tokens) is activation-bound. See load_video_inputs.
     VIDEO_NUM_FRAMES = 4
+    # Frame rate declared for the synthetic clip. The frames are replicas of one
+    # still image, so any rate is equally faithful; 1 fps is chosen so the
+    # prompt's per-frame timestamps stay readable (00:00, 00:01, ...). Only the
+    # timestamp text depends on this — the video token count does not.
+    VIDEO_FPS = 1.0
 
     sample_text = "What is your favorite city?"
     # Used by the optional image+text path of ``load_inputs`` (see ``include_image``).
@@ -184,6 +325,11 @@ class ModelLoader(ForgeModel):
         if self.num_layers is not None:
             config.text_config.num_hidden_layers = self.num_layers
         model_kwargs["config"] = config
+
+        # Drop the merge-time mask-gather assertions before anything traces the
+        # forward. Harmless on the text path (the checks live inside the
+        # per-modality branches), required for image/audio/video.
+        _strip_mask_gather_checks()
 
         model_kwargs |= kwargs
         model = AutoModelForCausalLM.from_pretrained(
@@ -372,9 +518,10 @@ class ModelLoader(ForgeModel):
         base (non-instruct) checkpoint with no chat template, so the prompt is
         the plain ``video_token`` + text (no ``apply_chat_template``).
 
-        No video-decode backend (av/decord) is available, so frames are built
-        by replicating the sample image into ``num_frames`` pre-sampled frames
-        (a static clip). ``do_sample_frames=False`` is passed so the processor
+        No video-decode backend (av/decord) is available, so the clip is
+        synthesized by panning the sample image across ``num_frames``
+        pre-sampled frames, described by an explicit ``VideoMetadata`` at
+        ``VIDEO_FPS``. ``do_sample_frames=False`` is passed so the processor
         consumes exactly the frames given (rather than its default 32-frame
         resampler), which lets ``num_frames`` control the video token count
         directly: each frame contributes 64 video tokens, so the on-device
@@ -394,14 +541,41 @@ class ModelLoader(ForgeModel):
 
         image_file = get_file(image_url or self.sample_image_url)
         frame = np.array(Image.open(image_file).convert("RGB"))
-        frames = np.stack([frame] * num_frames)  # (T, H, W, C)
+        # Pan the still image sideways to synthesize *distinct* frames. Stacking
+        # one frame T times is degenerate for this model: Gemma4 attends
+        # bidirectionally across the whole video block, so identical frames give
+        # near-tied attention logits that bf16 and fp32 resolve differently. On
+        # CPU that alone drops a bf16-vs-fp32 forward to PCC 0.977, against
+        # 0.991 for a panning clip — noise the device path then inherits. A pan
+        # is also closer to real video than a freeze-frame. Frame count, patch
+        # count and video token count are unchanged.
+        pan_step = frame.shape[1] // (num_frames * 4)
+        frames = np.stack(
+            [np.roll(frame, pan_step * i, axis=1) for i in range(num_frames)]
+        )  # (T, H, W, C)
 
         video_token = getattr(self.processor, "video_token", "<|video|>")
         input_text = f"{video_token}{prompt or self.sample_video_text}"
 
+        # Gemma4 interpolates a per-frame ``mm:ss`` timestamp into the prompt,
+        # so the processor needs frame metadata. With pre-sampled frames and no
+        # metadata it cannot infer the frame rate and silently falls back to
+        # ``fps=24``, making the prompt depend on a library default. Declare the
+        # synthetic clip's rate explicitly instead — 1 fps keeps the timestamps
+        # one second apart and the token count unchanged.
+        video_metadata = VideoMetadata(
+            total_num_frames=num_frames,
+            fps=self.VIDEO_FPS,
+            width=frame.shape[1],
+            height=frame.shape[0],
+            duration=num_frames / self.VIDEO_FPS,
+            frames_indices=list(range(num_frames)),
+        )
+
         inputs = self.processor(
             text=input_text,
             videos=frames,
+            video_metadata=[video_metadata],
             do_sample_frames=False,
             return_tensors="pt",
         )
