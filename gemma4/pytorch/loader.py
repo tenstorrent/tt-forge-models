@@ -12,6 +12,11 @@ they reuse the same checkpoint and the verified text shard spec, and route
 ``load_inputs`` to the matching modality (image / audio / video + text). The
 vision/audio embedder weights are left replicated (out of the shard map) for
 this bring-up.
+
+``26B-A4B-it`` is a different checkpoint family: a
+``Gemma4ForConditionalGeneration`` (``model_type: gemma4``) with the MoE block
+enabled (128 experts, top-8) and no audio encoder, hence image/video variants
+but no audio one.
 """
 
 from typing import Optional
@@ -50,6 +55,9 @@ class ModelVariant(StrEnum):
     GEMMA_4_12B_IMAGE = "12B-image"
     GEMMA_4_12B_AUDIO = "12B-audio"
     GEMMA_4_12B_VIDEO = "12B-video"
+    GEMMA_4_26B_A4B_IT = "26B-A4B-it"
+    GEMMA_4_26B_A4B_IT_IMAGE = "26B-A4B-it-image"
+    GEMMA_4_26B_A4B_IT_VIDEO = "26B-A4B-it-video"
 
 
 class ModelLoader(ForgeModel):
@@ -72,6 +80,18 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="google/gemma-4-12B",
             max_length=256,
         ),
+        ModelVariant.GEMMA_4_26B_A4B_IT: LLMModelConfig(
+            pretrained_model_name="google/gemma-4-26B-A4B-it",
+            max_length=256,
+        ),
+        ModelVariant.GEMMA_4_26B_A4B_IT_IMAGE: LLMModelConfig(
+            pretrained_model_name="google/gemma-4-26B-A4B-it",
+            max_length=256,
+        ),
+        ModelVariant.GEMMA_4_26B_A4B_IT_VIDEO: LLMModelConfig(
+            pretrained_model_name="google/gemma-4-26B-A4B-it",
+            max_length=256,
+        ),
     }
 
     DEFAULT_VARIANT = ModelVariant.GEMMA_4_12B
@@ -82,11 +102,17 @@ class ModelLoader(ForgeModel):
         ModelVariant.GEMMA_4_12B_IMAGE: "image",
         ModelVariant.GEMMA_4_12B_AUDIO: "audio",
         ModelVariant.GEMMA_4_12B_VIDEO: "video",
+        # 26B-A4B-it has a vision tower but no audio encoder, so it gets
+        # image/video only.
+        ModelVariant.GEMMA_4_26B_A4B_IT_IMAGE: "image",
+        ModelVariant.GEMMA_4_26B_A4B_IT_VIDEO: "video",
     }
     _TASK_BY_VARIANT = {
         ModelVariant.GEMMA_4_12B_IMAGE: ModelTask.MM_IMAGE_TTT,
         ModelVariant.GEMMA_4_12B_AUDIO: ModelTask.MM_AUDIO_TTT,
         ModelVariant.GEMMA_4_12B_VIDEO: ModelTask.MM_VIDEO_TTT,
+        ModelVariant.GEMMA_4_26B_A4B_IT_IMAGE: ModelTask.MM_IMAGE_TTT,
+        ModelVariant.GEMMA_4_26B_A4B_IT_VIDEO: ModelTask.MM_VIDEO_TTT,
     }
     # Frames in the static video clip when the video variant runs through the
     # runner (which calls load_inputs without num_frames). 4 frames (~256 video
@@ -105,6 +131,12 @@ class ModelLoader(ForgeModel):
     sample_audio_file = "test_files/pytorch/whisper/1272-128104-0000.pt"
     # Used by the optional video+text path of ``load_inputs`` (see ``include_video``).
     sample_video_text = "Describe the video."
+    # Real clip for the instruct video path; base checkpoints replicate a still
+    # instead (see load_video_inputs).
+    sample_video_url = (
+        "https://github.com/bebechien/gemma/raw/refs/heads/main/videos/"
+        "ForBiggerBlazes.mp4"
+    )
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -213,11 +245,9 @@ class ModelLoader(ForgeModel):
         ``model`` axis and the non-sharded tensor dimension is replicated
         (``None`` in the shard specs rather than a second ``batch`` shard axis).
         Query heads (and the MLP) are sharded on the model axis, so
-        ``num_attention_heads`` must be divisible by it. KV projections are
-        left replicated (see ``load_shard_spec``):
-        the 8 global layers carry a single global KV head (``attention_k_eq_v``
-        with ``num_global_key_value_heads == 1``) that cannot be split across
-        the mesh, so no KV-head divisibility constraint is imposed here.
+        ``num_attention_heads`` must be divisible by it. No KV-head constraint
+        is imposed: the global layers' fused KV is too narrow to split on any
+        realistic mesh, so ``load_shard_spec`` replicates it.
         """
         mesh_shape = (1, num_devices)
         text_cfg = getattr(self.config, "text_config", self.config)
@@ -233,18 +263,13 @@ class ModelLoader(ForgeModel):
         Column-parallel (shard out_features on the model axis) for q_proj and
         the MLP gate/up projections; row-parallel for o_proj and down_proj.
 
-        KV projections are intentionally **replicated** (omitted from the map):
-        Gemma4's global ``full_attention`` layers use ``attention_k_eq_v`` so
-        ``v_proj is None`` (value reuses key) and carry only a single global KV
-        head — a single head cannot be sharded across the model axis, and
-        mixing sharded/replicated KV per layer-type is fragile on a first
-        compile. Replicating all KV is the standard GQA-TP fallback and keeps
-        every query head correctly grouped on each chip. ``k_proj``/``v_proj``
-        are therefore skipped (and guarded for absence/None).
+        KV projections are replicated: the global ``full_attention`` layers use
+        ``attention_k_eq_v``, so ``v_proj is None`` and ``k_proj`` holds only
+        ``num_global_key_value_heads`` fused heads -- too few to split. That is
+        the standard GQA-TP fallback and keeps every query head correctly
+        grouped on each chip.
 
-        Per-projection RMSNorms (q_norm/k_norm/v_norm), layernorms, embeddings
-        and lm_head are left replicated. Vision/audio towers are unused on the
-        text-only path and are replicated.
+        Norms, embeddings, lm_head and the vision tower stay replicated.
         """
         shard_specs = {}
         for layer in model.model.language_model.layers:
@@ -253,11 +278,47 @@ class ModelLoader(ForgeModel):
             shard_specs[layer.mlp.down_proj.weight] = (None, "model")
 
             attn = layer.self_attn
-            shard_specs[attn.q_proj.weight] = ("model", None)
-            shard_specs[attn.o_proj.weight] = (None, "model")
-            # k_proj/v_proj replicated (skipped). On Gemma4 global layers
-            # v_proj is None and k_proj holds a single unsharddable KV head.
+            is_moe = hasattr(layer, "experts")
+            # Where k_eq_v fuses KV into too few heads to split (v_proj is
+            # None), feeding a sharded q would need the GQA-expanded activation
+            # resharded, which tt-mlir cannot express inside the
+            # sdy.manual_computation it wraps the whole graph in. Only applied
+            # to the MoE family: the unified checkpoints are unloadable by any
+            # public transformers, so their map is left as it was measured.
+            if not is_moe or getattr(attn, "v_proj", None) is not None:
+                shard_specs[attn.q_proj.weight] = ("model", None)
+                shard_specs[attn.o_proj.weight] = (None, "model")
+
+            # Experts hang off the layer, not layer.mlp, so
+            # get_tt_moe_shard_specs misses them and all 128 would sit
+            # replicated on every device. The router stays replicated so each
+            # device can score every expert before dispatch.
+            if is_moe:
+                shard_specs[layer.experts.gate_up_proj] = ("model", None, None)
+                shard_specs[layer.experts.down_proj] = ("model", None, None)
         return shard_specs
+
+    def _chat_template(self):
+        """The processor's chat template, or None on a base checkpoint."""
+        return getattr(self.processor, "chat_template", None) or getattr(
+            getattr(self.processor, "tokenizer", None), "chat_template", None
+        )
+
+    def _apply_template_if_instruct(self, modality_token: str, text: str) -> str:
+        """Wrap ``modality_token + text`` in the chat template when there is one.
+
+        Without it an instruct checkpoint sees no turn structure and answers
+        off-distribution, which makes its logits a poor golden to compare
+        against. Base checkpoints ship no template and want the bare string.
+        """
+        if self._chat_template() is None:
+            return f"{modality_token}{text}"
+
+        return self.processor.apply_chat_template(
+            [{"role": "user", "content": f"{modality_token}{text}"}],
+            tokenize=False,
+            add_generation_prompt=True,
+        )
 
     def load_image_inputs(
         self,
@@ -272,9 +333,8 @@ class ModelLoader(ForgeModel):
         into the five tensors the forward needs: ``input_ids`` (with the image
         token span), ``attention_mask``, ``mm_token_type_ids`` (0=text/1=image),
         ``pixel_values`` ``(1, 280, 6912)`` merged patches, and
-        ``image_position_ids`` ``(1, 280, 2)``. google/gemma-4-12B is a base
-        (non-instruct) checkpoint with no chat template, so the prompt is the
-        plain ``image_token`` + text (no ``apply_chat_template``).
+        ``image_position_ids`` ``(1, 280, 2)``. The prompt goes through
+        ``_apply_template_if_instruct``.
 
         Only ``pixel_values`` is cast to ``dtype_override``; the id/mask tensors
         stay integer.
@@ -290,7 +350,9 @@ class ModelLoader(ForgeModel):
         image = Image.open(image_file).convert("RGB")
 
         image_token = getattr(self.processor, "image_token", "<|image|>")
-        input_text = f"{image_token}{prompt or self.sample_image_text}"
+        input_text = self._apply_template_if_instruct(
+            image_token, prompt or self.sample_image_text
+        )
 
         inputs = self.processor(text=input_text, images=image, return_tensors="pt")
         inputs = dict(inputs)
@@ -368,19 +430,17 @@ class ModelLoader(ForgeModel):
         stack of frames into ``input_ids`` (with the video token span),
         ``attention_mask``, ``mm_token_type_ids`` (0=text/1=video),
         ``pixel_values_videos`` ``(1, T, patches, 6912)`` merged patches, and
-        ``video_position_ids`` ``(1, T, patches, 2)``. google/gemma-4-12B is a
-        base (non-instruct) checkpoint with no chat template, so the prompt is
-        the plain ``video_token`` + text (no ``apply_chat_template``).
+        ``video_position_ids`` ``(1, T, patches, 2)``.
 
-        No video-decode backend (av/decord) is available, so frames are built
-        by replicating the sample image into ``num_frames`` pre-sampled frames
-        (a static clip). ``do_sample_frames=False`` is passed so the processor
-        consumes exactly the frames given (rather than its default 32-frame
-        resampler), which lets ``num_frames`` control the video token count
-        directly: each frame contributes 64 video tokens, so the on-device
-        sequence is ~ ``64 * num_frames``. The full 32-frame clip emits 2048
-        video tokens (a ~2.3k sequence) and is activation-bound on a single
-        chip; lower ``num_frames`` (e.g. 4) for a tractable first bring-up.
+        Instruct checkpoints sample ``num_frames`` across a real clip. Repeating
+        one still instead makes the model answer "you have only provided a
+        single still image", and a refusal is a poor golden. Base checkpoints
+        have no template to attach a video URL to, so they keep the replicated
+        still and ``do_sample_frames=False``, which is how their recorded PCC
+        baselines were measured.
+
+        Each frame costs 64 video tokens, so the full 32-frame clip is
+        activation-bound on a single chip; hence ``VIDEO_NUM_FRAMES = 4``.
 
         Only ``pixel_values_videos`` is cast to ``dtype_override``; the
         id/mask tensors stay integer.
@@ -392,19 +452,35 @@ class ModelLoader(ForgeModel):
         if self.processor is None:
             self._load_processor()
 
-        image_file = get_file(image_url or self.sample_image_url)
-        frame = np.array(Image.open(image_file).convert("RGB"))
-        frames = np.stack([frame] * num_frames)  # (T, H, W, C)
-
-        video_token = getattr(self.processor, "video_token", "<|video|>")
-        input_text = f"{video_token}{prompt or self.sample_video_text}"
-
-        inputs = self.processor(
-            text=input_text,
-            videos=frames,
-            do_sample_frames=False,
-            return_tensors="pt",
-        )
+        text = prompt or self.sample_video_text
+        if self._chat_template() is not None:
+            inputs = self.processor.apply_chat_template(
+                [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "video", "video": self.sample_video_url},
+                            {"type": "text", "text": text},
+                        ],
+                    }
+                ],
+                tokenize=True,
+                return_dict=True,
+                return_tensors="pt",
+                add_generation_prompt=True,
+                processor_kwargs={"num_frames": num_frames},
+            )
+        else:
+            image_file = get_file(image_url or self.sample_image_url)
+            frame = np.array(Image.open(image_file).convert("RGB"))
+            frames = np.stack([frame] * num_frames)  # (T, H, W, C)
+            video_token = getattr(self.processor, "video_token", "<|video|>")
+            inputs = self.processor(
+                text=f"{video_token}{text}",
+                videos=frames,
+                do_sample_frames=False,
+                return_tensors="pt",
+            )
         inputs = dict(inputs)
         if dtype_override is not None and "pixel_values_videos" in inputs:
             inputs["pixel_values_videos"] = cast_input_to_type(
