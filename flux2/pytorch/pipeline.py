@@ -27,6 +27,7 @@ go into ``self._perf`` after each ``generate()``.
 
 import gc
 import time
+from contextlib import contextmanager
 from typing import Optional
 
 import torch
@@ -56,6 +57,21 @@ from .src.model_utils import (
 NUM_INFERENCE_STEPS = 50
 
 
+@contextmanager
+def _staging(perf):
+    """Accumulate host<->device weight movement into ``perf["staging"]``.
+
+    Placing and evicting is neither a forward nor host bookkeeping, and at
+    ~30 GiB per call it dwarfs both. Billed to ``staging_overhead_s`` so
+    ``cpu_overhead_s`` means the same thing here and on a resident pipeline.
+    """
+    t0 = time.perf_counter()
+    try:
+        yield
+    finally:
+        perf["staging"] = perf.get("staging", 0.0) + (time.perf_counter() - t0)
+
+
 class _DeviceDenoiser:
     """Routes Flux2Pipeline's transformer calls to the TP-sharded model on TT.
 
@@ -68,14 +84,15 @@ class _DeviceDenoiser:
         self.config = transformer.config
         self.dtype = next(transformer.parameters()).dtype
 
-        transformer = transformer.to(self._dev)
-        if hasattr(transformer, "tie_weights"):
-            transformer.tie_weights()
-        specs = shard_transformer_specs(transformer)
-        assert specs, "transformer shard spec is empty — would run replicated/OOM"
-        for tensor, spec in specs.items():
-            xs.mark_sharding(tensor, mesh, spec)
-        self._compiled = torch.compile(transformer, backend="tt")
+        with _staging(perf):
+            transformer = transformer.to(self._dev)
+            if hasattr(transformer, "tie_weights"):
+                transformer.tie_weights()
+            specs = shard_transformer_specs(transformer)
+            assert specs, "transformer shard spec is empty — would run replicated/OOM"
+            for tensor, spec in specs.items():
+                xs.mark_sharding(tensor, mesh, spec)
+            self._compiled = torch.compile(transformer, backend="tt")
 
     def __call__(self, **kwargs):
         moved = {
@@ -104,10 +121,11 @@ class _DeviceVAEDecoder:
     postprocess.
     """
 
-    def __init__(self, vae, perf):
+    def __init__(self, vae, perf, warm_iters=0):
         # No mesh: the VAE runs replicated, so it needs no shard annotations.
         self._dev = torch_xla.device()
         self._perf = perf
+        self._warm_iters = warm_iters
         self.config = vae.config
         self.dtype = next(vae.parameters()).dtype
         self.bn = vae.bn  # stays on CPU; pipeline reads it host-side for denorm
@@ -119,16 +137,30 @@ class _DeviceVAEDecoder:
         # Lazy device placement: keep the VAE off-device during the denoise loop
         # so it does not inflate the denoiser's peak DRAM; place it only now.
         if self._compiled is None:
-            vae = self._vae.to(self._dev)
-            self._compiled = torch.compile(
-                lambda z: vae.decode(z, return_dict=False)[0], backend="tt"
-            )
+            with _staging(self._perf):
+                vae = self._vae.to(self._dev)
+                self._compiled = torch.compile(
+                    lambda z: vae.decode(z, return_dict=False)[0], backend="tt"
+                )
         t0 = time.perf_counter()
         # .cpu() forces the graph to execute and blocks until the result is on
         # host — the compiled lambda always returns a tensor, so no guard needed.
         out = self._compiled(latents.to(self._dev))
         image = out.cpu()
-        self._perf["components"]["vae"] = time.perf_counter() - t0
+        vae_cold = time.perf_counter() - t0
+        self._perf["components"]["vae"] = vae_cold
+        self._perf.setdefault("cold", {})["vae"] = vae_cold
+        # WARM: no natural second decode, so repeat while still resident.
+        # Outputs are discarded, so last_pixels is unchanged.
+        _warm = []
+        for _ in range(self._warm_iters):
+            _t = time.perf_counter()
+            _extra = self._compiled(latents.to(self._dev)).cpu()
+            _warm.append(time.perf_counter() - _t)
+            del _extra
+        if _warm:
+            self._perf.setdefault("warm", {})["vae"] = sum(_warm) / len(_warm)
+            self._perf["synthetic"] = self._perf.get("synthetic", 0.0) + sum(_warm)
         self.last_pixels = image
         return (image,)
 
@@ -139,12 +171,16 @@ class Flux2Config:
         height: int = HEIGHT,
         width: int = WIDTH,
         compile_options: Optional[dict] = None,
+        warm_iters: int = 0,
     ):
         self.repo_id = REPO_ID
         self.height = height
         self.width = width
         # Forwarded for parity with the other imagegen pipelines; unused inline.
         self.compile_options = compile_options or {}
+        # Extra in-residency forwards per one-shot component, to get a warm
+        # number while it is still on device. 0 = inert.
+        self.warm_iters = warm_iters
 
 
 class Flux2TTPipeline:
@@ -158,6 +194,30 @@ class Flux2TTPipeline:
     def __init__(self, config: Flux2Config):
         self.config = config
         self._perf = {}
+
+    # 29.97 GiB of weights alone (94% of the 4-chip budget), so components
+    # cannot stay resident. Eviction discards the compiled graph, so the harness
+    # runs a single call and warm cost is measured in-residency.
+    benchmark_staged_residency = True
+
+    # Swapped by the PCC e2e for checking subclasses; generate() uses these
+    # attributes, not the classes directly.
+    DENOISER_CLS = _DeviceDenoiser
+    VAE_CLS = _DeviceVAEDecoder
+
+    def _pre_place(self, name, wrapper, *inputs):
+        """Hook called with the wrapper still on host, before device placement.
+
+        No-op by default. See the text_encoder stage for why the PCC path needs it.
+        """
+        return None
+
+    def _intercept(self, name, compiled):
+        """Hook on each component's COMPILED callable. Identity by default.
+
+        Keeps a PCC golden comparison OUTSIDE the traced graph.
+        """
+        return compiled
 
     def setup(self):
         # Enables SPMD + shardy annotations; required so tt-mlir gets shardy
@@ -198,6 +258,12 @@ class Flux2TTPipeline:
             "steps": [],
             "step_metric_name": "transformer_step",
             "total": None,
+            "cold": {},
+            "warm": {},
+            # Device work that is not a forward; neither belongs in host
+            # overhead.
+            "staging": 0.0,
+            "synthetic": 0.0,
         }
         t_total_start = time.perf_counter()
 
@@ -207,14 +273,22 @@ class Flux2TTPipeline:
         encoder_wrapper = Mistral3TextEncoderWrapper(text_encoder).eval()
         input_ids, attention_mask = tokenize_prompt(prompt)
 
-        text_encoder = text_encoder.to(dev)
-        if hasattr(text_encoder, "tie_weights"):
-            text_encoder.tie_weights()
-        te_specs = shard_text_encoder_specs(text_encoder)
-        assert te_specs, "text-encoder shard spec is empty — descent failed (would OOM)"
-        for tensor, spec in te_specs.items():
-            xs.mark_sharding(tensor, self.mesh, spec)
-        te_compiled = torch.compile(encoder_wrapper, backend="tt")
+        # Hook while the wrapper is still on HOST: the PCC e2e computes its
+        # golden here, so the check costs no second copy of the 24B encoder.
+        self._pre_place("text_encoder", encoder_wrapper, input_ids, attention_mask)
+        with _staging(self._perf):
+            text_encoder = text_encoder.to(dev)
+            if hasattr(text_encoder, "tie_weights"):
+                text_encoder.tie_weights()
+            te_specs = shard_text_encoder_specs(text_encoder)
+            assert (
+                te_specs
+            ), "text-encoder shard spec is empty — descent failed (would OOM)"
+            for tensor, spec in te_specs.items():
+                xs.mark_sharding(tensor, self.mesh, spec)
+            te_compiled = self._intercept(
+                "text_encoder", torch.compile(encoder_wrapper, backend="tt")
+            )
 
         t0 = time.perf_counter()
         with torch.no_grad():
@@ -222,13 +296,29 @@ class Flux2TTPipeline:
         # .cpu() forces execution and blocks until the embeds are on host, so it
         # is the sync point that ends this component's timer.
         prompt_embeds = prompt_embeds.cpu()
-        self._perf["components"]["text_encoder"] = time.perf_counter() - t0
+        te_cold = time.perf_counter() - t0
+        self._perf["components"]["text_encoder"] = te_cold
+        self._perf.setdefault("cold", {})["text_encoder"] = te_cold
+        # WARM: one forward per residency, then evicted, so the warm number
+        # needs a repeat here. Discarded, so prompt_embeds is unchanged.
+        _warm = []
+        for _ in range(self.config.warm_iters):
+            _t = time.perf_counter()
+            with torch.no_grad():
+                _extra = te_compiled(input_ids.to(dev), attention_mask.to(dev))
+            _extra = _extra.cpu()
+            _warm.append(time.perf_counter() - _t)
+            del _extra
+        if _warm:
+            self._perf.setdefault("warm", {})["text_encoder"] = sum(_warm) / len(_warm)
+            self._perf["synthetic"] = self._perf.get("synthetic", 0.0) + sum(_warm)
 
         # Free the 24B encoder from device before placing the 32B denoiser.
-        self.pipe.text_encoder = text_encoder.to("cpu")
-        del te_compiled, encoder_wrapper
-        gc.collect()
-        torch_xla.sync()
+        with _staging(self._perf):
+            self.pipe.text_encoder = text_encoder.to("cpu")
+            del te_compiled, encoder_wrapper
+            gc.collect()
+            torch_xla.sync()
         logger.info("[STAGE] text_encoder: done")
 
         # ── Stage 2: denoiser (sharded) + VAE (replicated, lazy) → image ─────
@@ -236,10 +326,12 @@ class Flux2TTPipeline:
             "[STAGE] transformer (sharded) + vae: start ({} steps)",
             num_inference_steps,
         )
-        self.pipe.transformer = _DeviceDenoiser(
+        self.pipe.transformer = self.DENOISER_CLS(
             self._raw_transformer, self.mesh, self._perf
         )
-        vae_wrapper = _DeviceVAEDecoder(self._raw_vae, self._perf)
+        vae_wrapper = self.VAE_CLS(
+            self._raw_vae, self._perf, warm_iters=self.config.warm_iters
+        )
         self.pipe.vae = vae_wrapper
 
         generator = torch.Generator().manual_seed(seed) if seed is not None else None

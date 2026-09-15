@@ -10,9 +10,22 @@ transformer forward + multinomial sampling + BSQ-VAE code accumulation per scale
 then a single VAE decode. This reimplements the model's ``autoregressive_infer_cfg``
 with an explicit CPU/TT device split:
 
-  - Transformer on Tenstorrent, tensor-parallel sharded (mesh (1, num_devices),
-    Megatron head-parallel attention from ``loader.load_shard_spec``).
-  - T5-XL text encoder, multinomial sampling and BSQ-VAE decode stay on CPU.
+All three components run on Tenstorrent, tensor-parallel on ONE shared mesh
+((1, num_devices) / (None, "model")), each loaded as its own loader variant and
+each compiled with ``torch.compile(backend="tt")``:
+
+  - TEXT_ENCODER -- T5-XL, Megatron column->row per block.
+  - TRANSFORMER  -- the 2B transformer, head-parallel attention, driven per scale
+    through :class:`InfinityStep`.
+  - VAE          -- the BSQ-VAE decoder, channel-parallel on each ResnetBlock's
+    conv pair.
+
+Left on the host: tokenization, the variable-length text packing, multinomial
+sampling, and the per-scale bit-label bookkeeping (``vae.quantizer``). The last
+one is why this is a per-scale step and not one graph for the whole generation --
+each scale's input comes from sampling the previous scale's logits and running
+them back through the quantizer. ``InfinityConfig`` has a per-component
+``*_on_tt`` flag so any one can be dropped to CPU to bisect a failure.
 """
 
 import os
@@ -31,6 +44,7 @@ from torch_xla.distributed.spmd import Mesh
 
 from ..loader import ModelLoader, ModelVariant
 from . import model as _m
+from . import model_utils as _mu
 
 PROMPT = "A fantasy landscape with mountains and rivers"
 SEED = 42
@@ -137,6 +151,9 @@ class InfinityConfig:
         max_scales: Optional[int] = None,
         shard: bool = True,
         transformer_on_tt: bool = True,
+        text_encoder_on_tt: bool = True,
+        vae_on_tt: bool = True,
+        compile: bool = True,
     ):
         self.cfg = cfg
         self.tau = tau
@@ -153,17 +170,25 @@ class InfinityConfig:
         # Megatron tensor-parallel sharding (needed so the large-scale
         # attention does not OOM).
         self.shard = shard
+        # Per-component placement, so a failure can be bisected without editing
+        # the pipeline. Any component left False runs eager on CPU.
         self.transformer_on_tt = transformer_on_tt
+        self.text_encoder_on_tt = text_encoder_on_tt
+        self.vae_on_tt = vae_on_tt
+        # False places components on TT but leaves them uncompiled, i.e. on the
+        # lazy-tensor path -- for separating a torch.compile/lowering problem
+        # from one in device execution itself.
+        self.compile = compile
 
 
 class InfinityPipeline:
-    """Infinity 2B pipeline: transformer sharded on TT, sampling + VAE on CPU.
+    """Infinity 2B pipeline: three TT components, sampling + code bookkeeping on CPU.
 
-    Built once with ``setup()``; ``generate()`` can be called repeatedly. The
-    sharded transformer is placed and wrapped in a ``torch.compile``d
-    :class:`InfinityStep` in ``setup()``; each scale's graph is compiled lazily on
-    its first forward and reused by the second (uncond) CFG branch and by later
-    ``generate()`` calls.
+    Built once with ``setup()``; ``generate()`` can be called repeatedly. Each
+    component is placed on the shared mesh and ``torch.compile``d in ``setup()``;
+    graphs are compiled lazily on first use, so the transformer's per-scale graphs
+    are reused by the second (uncond) CFG branch and by later ``generate()``
+    calls.
     """
 
     def __init__(self, config: InfinityConfig):
@@ -172,43 +197,83 @@ class InfinityPipeline:
     def setup(self):
         self.scale_schedule = self._build_scale_schedule()
         self.load_models()
-        self.step = InfinityStep(self.model, self.scale_schedule).eval()
-        if not self.config.transformer_on_tt:
-            # CPU-only reference run: no device placement, no compile.
-            return
 
-        if self.config.shard:
-            self.shard_to_tt()
-        else:
-            self.model = self.model.to(xm.xla_device())
-        self._move_rope_cache_to_tt()
-        torch._dynamo.config.recompile_limit = max(
-            torch._dynamo.config.recompile_limit, len(self.scale_schedule) + 8
-        )
-        self.step.forward = torch.compile(
-            self.step.forward, backend="tt", dynamic=False
-        )
+        cfg = self.config
+        any_on_tt = cfg.text_encoder_on_tt or cfg.transformer_on_tt or cfg.vae_on_tt
+        # SPMD has to be enabled before the first device op, so the mesh is built
+        # ahead of any placement -- and it is ONE mesh, shared by all three
+        # components (they all use ``(1, num_devices)`` / ``(None, "model")``).
+        if any_on_tt and cfg.shard:
+            self._init_mesh()
+
+        if cfg.text_encoder_on_tt:
+            self.text_encoder = self._place_on_tt(self.text_encoder, self.te_loader)
+            if cfg.compile:
+                self.text_encoder.forward = torch.compile(
+                    self.text_encoder.forward, backend="tt", dynamic=False
+                )
+
+        if cfg.transformer_on_tt:
+            self.model = self._place_on_tt(self.model, self.tf_loader)
+            self._move_rope_cache_to_tt()
+
+        self.step = InfinityStep(self.model, self.scale_schedule).eval()
+        if cfg.transformer_on_tt and cfg.compile:
+            # One static graph per scale (the packed sequence grows each scale),
+            # so the default recompile limit of 8 would be hit part-way through
+            # the schedule -- and Dynamo would then skip the frame and silently
+            # fall back to eager (i.e. lazy-tensor) execution for the rest.
+            torch._dynamo.config.recompile_limit = max(
+                torch._dynamo.config.recompile_limit, len(self.scale_schedule) + 8
+            )
+            # forward, not the module, so self.step stays an nn.Module.
+            # dynamic=False: the tt backend compiles static shapes and every
+            # scale's length is known, so let each scale specialize instead of
+            # letting automatic_dynamic_shapes produce a dynamic graph on the
+            # second scale.
+            self.step.forward = torch.compile(
+                self.step.forward, backend="tt", dynamic=False
+            )
+
+        if cfg.vae_on_tt:
+            self.vae_decoder = self._place_on_tt(self.vae_decoder, self.vae_loader)
+            if cfg.compile:
+                self.vae_decoder.forward = torch.compile(
+                    self.vae_decoder.forward, backend="tt", dynamic=False
+                )
 
     def load_models(self):
-        # Loading the transformer side-loads the T5-XL tokenizer/encoder and the
-        # BSQ-VAE onto the loader; both stay on CPU.
-        self.loader = ModelLoader(ModelVariant.INFINITY_2B)
-        self.model = self.loader.load_model(dtype_override=DTYPE)
-        self.tokenizer = self.loader.tokenizer
-        self.text_encoder = self.loader.text_encoder
-        self.vae = self.loader.vae
+        # One BSQ-VAE instance, shared three ways: the transformer reads
+        # embed_dim / vocab_size / the bit-label mask off it, ``vae.quantizer``
+        # does the per-scale bookkeeping on CPU, and ``vae.decoder`` is the
+        # component placed on TT (VAEDecoderWrapper holds the decoder alone, so
+        # placing it leaves the quantizer on the host).
+        self.vae_loader = ModelLoader(ModelVariant.VAE)
+        self.vae_decoder = self.vae_loader.load_model(dtype_override=DTYPE)
+        self.vae = self.vae_loader.vae
+
+        self.te_loader = ModelLoader(ModelVariant.TEXT_ENCODER)
+        self.text_encoder = self.te_loader.load_model(dtype_override=DTYPE)
+        self.tokenizer = self.te_loader.tokenizer
+
+        self.tf_loader = ModelLoader(ModelVariant.TRANSFORMER)
+        self.model = self.tf_loader.load_model(dtype_override=DTYPE, vae=self.vae)
         self.model_dtype = self.model.pos_start.dtype
 
-    def shard_to_tt(self):
-        # Enable SPMD, build the (1, num_devices) mesh, move the transformer to the XLA
-        # device, then mark every weight in the Megatron shard spec.
+    def _init_mesh(self):
+        """Enable SPMD and build the mesh every component shares."""
         _enable_spmd()
         num_devices = xr.global_runtime_device_count()
-        mesh_shape, mesh_names = self.loader.get_mesh_config(num_devices)
+        mesh_shape, mesh_names = self.tf_loader.get_mesh_config(num_devices)
         self.mesh = Mesh(np.array(range(num_devices)), mesh_shape, mesh_names)
-        self.model = self.model.to(xm.xla_device())
-        for tensor, spec in self.loader.load_shard_spec(self.model).items():
-            xs.mark_sharding(tensor, self.mesh, spec)
+
+    def _place_on_tt(self, module, loader):
+        """Move one component to the XLA device and mark its shard spec."""
+        module = module.to(xm.xla_device())
+        if self.config.shard:
+            for tensor, spec in loader.load_shard_spec(module).items():
+                xs.mark_sharding(tensor, self.mesh, spec)
+        return module
 
     def _move_rope_cache_to_tt(self):
         """Move this schedule's precomputed rope2d cache onto the device.
@@ -237,8 +302,7 @@ class InfinityPipeline:
         covers: conditioning, word_embed, blocks and the logits head.
         """
         if getattr(self, "_cpu_twin", None) is None:
-            run_args = self.loader._build_run_args()
-            twin = _m.load_transformer(self.loader.vae, run_args)
+            twin = _mu.load_transformer(self.vae, torch.float32)
             self._cpu_twin = InfinityStep(
                 twin.to("cpu").float().eval(), self.scale_schedule
             ).eval()
@@ -261,11 +325,12 @@ class InfinityPipeline:
     ) -> torch.Tensor:
         """Reimplements ``Infinity.autoregressive_infer_cfg`` with a CPU/TT split.
 
-        - T5-XL text encode -> CPU
+        - tokenize -> CPU; T5-XL encode -> TT; variable-length packing -> CPU
         - one :class:`InfinityStep` per scale per CFG branch -> TT
           (``torch.compile(backend="tt")``, one graph per scale)
         - multinomial sampling -> CPU
-        - BSQ-VAE indices->codes, residual accumulation, decode -> CPU
+        - BSQ-VAE indices->codes and residual accumulation -> CPU
+        - BSQ-VAE decode -> TT
 
         Args:
             prompt: text prompt.
@@ -283,9 +348,24 @@ class InfinityPipeline:
         vae = self.vae
         on_tt = self.config.transformer_on_tt
 
-        # CPU <-> TT casts (no-ops when the transformer runs on CPU).
-        tt_cast = lambda x: x.to(device=xm.xla_device()) if on_tt else x
+        # Per-component CPU <-> TT casts (no-ops for a component left on CPU).
+        # tt_cast/cpu_cast are the transformer's; te_* and vae_* bracket the text
+        # encoder and the VAE decoder. The device handle is resolved only when
+        # something actually runs on it, so an all-CPU reference run never
+        # touches the runtime.
+        _dev = (
+            xm.xla_device()
+            if (on_tt or self.config.text_encoder_on_tt or self.config.vae_on_tt)
+            else None
+        )
+        tt_cast = lambda x: x.to(device=_dev) if on_tt else x
         cpu_cast = lambda x: x.to("cpu") if on_tt else x
+        te_on_tt = self.config.text_encoder_on_tt
+        te_tt = lambda x: x.to(device=_dev) if te_on_tt else x
+        te_cpu = lambda x: x.to("cpu") if te_on_tt else x
+        vae_on_tt = self.config.vae_on_tt
+        vae_tt = lambda x: x.to(device=_dev) if vae_on_tt else x
+        vae_cpu = lambda x: x.to("cpu") if vae_on_tt else x
 
         scale_schedule = self.scale_schedule
         num_stages_minus_1 = len(scale_schedule) - 1
@@ -293,12 +373,30 @@ class InfinityPipeline:
         cfg_list = [self.config.cfg] * len(scale_schedule)
         B = 1
 
-        # ── T5-XL text encode (CPU) ───────────────────────────────────
-        logger.info("[STAGE] T5 text encode (CPU): start")
-        kv_compact, lens, cu_seqlens_k, max_seqlen_k = _m.encode_prompt(
-            self.tokenizer, self.text_encoder, prompt
+        # ── T5-XL text encode (TT) ────────────────────────────────────
+        # Mirrors ``model.encode_prompt``, except the encoder forward runs as a
+        # compiled component: tokenize on the host, encode on device, then bring
+        # the features back so the variable-length packing below -- which needs
+        # host-side lengths -- is unchanged. ``_m.encode_prompt`` cannot be reused
+        # as-is because the placed encoder is a wrapper returning a bare tensor.
+        logger.info("[STAGE] T5 text encode: start")
+        tokens = self.tokenizer(
+            text=[prompt],
+            max_length=512,
+            padding="max_length",
+            truncation=True,
+            return_tensors="pt",
         )
-        logger.info("[STAGE] T5 text encode (CPU): done")
+        ids, mask = tokens.input_ids, tokens.attention_mask
+        feats = self.text_encoder(te_tt(ids), te_tt(mask))
+        feats = te_cpu(feats).float()
+        # Padded positions are dropped here, so lens/cu_seqlens come from the
+        # host-side mask (no device sync).
+        lens = mask.sum(dim=-1).tolist()
+        cu_seqlens_k = F.pad(mask.sum(dim=-1).to(torch.int32).cumsum_(0), (1, 0))
+        max_seqlen_k = max(lens)
+        kv_compact = torch.cat([f[:le] for f, le in zip(feats.unbind(0), lens)], dim=0)
+        logger.info("[STAGE] T5 text encode: done")
 
         # Seed the model's (CPU) multinomial sampling generator.
         if seed is not None:
@@ -382,8 +480,8 @@ class InfinityPipeline:
                 # --- fp32 CPU twin on the same inputs -> golden logits ---
                 if pcc_hook is not None:
                     golden = self._golden_logits(
-                        kv_branches[bi].float(),
-                        None if x_cpu is None else x_cpu.float(),
+                        kv_branches[bi].to(self.model_dtype).float(),
+                        None if x_cpu is None else x_cpu.to(self.model_dtype).float(),
                         cu_seqlens_k,
                         bias_cpu,
                         sub_sched,
@@ -438,9 +536,11 @@ class InfinityPipeline:
             else:
                 summed_codes = summed_codes + codes
 
-        # ── BSQ-VAE decode (CPU) -> RGB image in [-1, 1] ───────────────
-        logger.info("[STAGE] BSQ-VAE decode (CPU): start")
-        summed_codes = summed_codes.to("cpu")
-        img = vae.decode(summed_codes.squeeze(-3))
-        logger.info("[STAGE] BSQ-VAE decode (CPU): done")
+        # ── BSQ-VAE decode (TT) -> RGB image in [-1, 1] ────────────────
+        # The compiled decoder component; the clamp to [-1, 1] is inside it, as
+        # in ``AutoEncoder.decode``.
+        logger.info("[STAGE] BSQ-VAE decode: start")
+        z = summed_codes.to("cpu").squeeze(-3)
+        img = vae_cpu(self.vae_decoder(vae_tt(z.to(DTYPE))))
+        logger.info("[STAGE] BSQ-VAE decode: done")
         return img
