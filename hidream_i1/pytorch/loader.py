@@ -139,8 +139,8 @@ class ModelLoader(ForgeModel):
     def get_mesh_config(self, num_devices: int):
         """Return (mesh_shape, mesh_names) for a ("batch", "model") 2D mesh.
 
-        Sharded variants: TEXT_ENCODER_4 and TRANSFORMER. The other four fit on
-        a single chip and always map to (1, 1).
+        Sharded variants: TEXT_ENCODER_3, TEXT_ENCODER_4 and TRANSFORMER. The
+        other three fit on a single chip and always map to (1, 1).
 
         Supported device counts for sharded variants: 1, 2, 4, 8, 32.
         """

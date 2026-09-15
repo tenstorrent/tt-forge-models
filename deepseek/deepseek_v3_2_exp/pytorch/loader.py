@@ -166,28 +166,19 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
+    def _load_tokenizer(self):
         """Load tokenizer for the current variant.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the tokenizer's default dtype.
 
         Returns:
             The loaded tokenizer instance
         """
         pretrained_model_name = self._variant_config.pretrained_model_name
 
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["torch_dtype"] = dtype_override
-
         # AutoTokenizer loads model config to detect tokenizer class; for deepseek_v32
         # (unregistered in transformers 5.5) this triggers a rope_scaling/
         # max_position_embeddings ordering bug. PreTrainedTokenizerFast loads
         # tokenizer.json directly without touching model config.
-        self.tokenizer = PreTrainedTokenizerFast.from_pretrained(
-            pretrained_model_name, **tokenizer_kwargs
-        )
+        self.tokenizer = PreTrainedTokenizerFast.from_pretrained(pretrained_model_name)
 
         return self.tokenizer
 
@@ -283,7 +274,7 @@ class ModelLoader(ForgeModel):
         """
 
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
         if self.config is None or self._args is None:
             self._load_config(**kwargs)

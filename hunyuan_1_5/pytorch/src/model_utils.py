@@ -2,9 +2,9 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Component loaders and wrappers for HunyuanVideo 1.5 (480p t2v distilled).
+Component loaders and wrappers for HunyuanVideo 1.5 (480p t2v base).
 
-Model: hunyuanvideo-community/HunyuanVideo-1.5-Diffusers-480p_t2v_distilled
+Model: hunyuanvideo-community/HunyuanVideo-1.5-Diffusers-480p_t2v
 Components:
   - text_encoder:   Qwen2.5-VL encoder (7.07B)
   - text_encoder_2: ByT5 encoder (0.22B)
@@ -18,7 +18,7 @@ import torch
 # Model identity
 # ---------------------------------------------------------------------------
 
-REPO_ID = "hunyuanvideo-community/HunyuanVideo-1.5-Diffusers-480p_t2v_distilled"
+REPO_ID = "hunyuanvideo-community/HunyuanVideo-1.5-Diffusers-480p_t2v"
 DTYPE = torch.bfloat16
 
 # ---------------------------------------------------------------------------
@@ -37,7 +37,7 @@ TEXT_EMBED_DIM = 3584  # Qwen2.5-VL hidden_state dim
 TEXT_EMBED_2_DIM = 1472  # ByT5 hidden_state dim
 
 IMAGE_EMBED_DIM = 1152  # transformer.config.image_embed_dim
-IMAGE_EMBED_SEQ = 64  # pipeline.vision_num_semantic_tokens default
+IMAGE_EMBED_SEQ = 729  # HunyuanVideo15Pipeline.vision_num_semantic_tokens
 
 TEXT_TOKEN_MAX_LEN = 1108  # Qwen2.5-VL tokenized prompt length
 TEXT_TOKEN_2_MAX_LEN = 256  # ByT5 tokenizer_2_max_length default
@@ -54,15 +54,21 @@ BYT5_VOCAB_SIZE = 384  # ByT5 text_encoder_2
 
 
 def load_text_encoder(dtype: torch.dtype = DTYPE):
-    """Load Qwen2.5-VL text encoder from the text_encoder subfolder."""
+    """Load Qwen2.5-VL text encoder from the text_encoder subfolder.
+
+    The pipeline only feeds input_ids/attention_mask (no pixel_values), so the
+    vision tower never runs. Return `.language_model` when the checkpoint is a
+    full VL model, to avoid uploading an unused tower replicated on every chip.
+    """
     from transformers import AutoModel
 
-    return AutoModel.from_pretrained(
+    encoder = AutoModel.from_pretrained(
         REPO_ID,
         subfolder="text_encoder",
         torch_dtype=dtype,
         device_map="cpu",
     ).eval()
+    return getattr(encoder, "language_model", encoder)
 
 
 def load_text_encoder_2(dtype: torch.dtype = DTYPE):
@@ -126,6 +132,32 @@ class VAEDecoderWrapper(torch.nn.Module):
         return self.vae.decode(z, return_dict=False)[0]
 
 
+class QwenPromptEmbedsWrapper(torch.nn.Module):
+    """Qwen2.5-VL text encoder as (input_ids, attention_mask) -> prompt_embeds.
+
+    Picking the hidden state and dropping the prompt-template prefix inside the
+    forward (mirrors the pipeline's `_get_mllm_prompt_embeds`) keeps all ~29
+    hidden states out of the graph outputs. The mask is only an input here — the
+    encoder attends over the template prefix, and the caller drops that prefix
+    from the copy it passes downstream.
+    """
+
+    def __init__(self, encoder, hidden_state_skip_layer: int, drop_idx: int):
+        super().__init__()
+        self.encoder = encoder
+        self.hidden_state_skip_layer = hidden_state_skip_layer
+        self.drop_idx = drop_idx
+
+    def forward(self, input_ids, attention_mask):
+        out = self.encoder(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            output_hidden_states=True,
+        )
+        skip = self.hidden_state_skip_layer
+        return out.hidden_states[-(skip + 1)][:, self.drop_idx :]
+
+
 class HunyuanVideo15TransformerWrapper(torch.nn.Module):
     """Simplify HunyuanVideo15Transformer3DModel forward to tensor-only inputs/outputs."""
 
@@ -172,12 +204,19 @@ def shard_text_encoder_specs(encoder) -> dict:
     """
     specs = {}
 
+    # Unwrap Qwen2_5_VLModel -> decoder; else embed_tokens/layers aren't found
+    # and every weight stays replicated on each device.
+    encoder = getattr(encoder, "language_model", encoder)
+
     if hasattr(encoder, "embed_tokens"):
         specs[encoder.embed_tokens.weight] = (None, "batch")
 
     layers = getattr(encoder, "layers", None)
-    if layers is None:
-        return specs
+    if not layers:
+        raise ValueError(
+            f"No decoder layers on {type(encoder).__name__}; refusing to run "
+            "fully replicated (expected `.layers` after unwrapping)."
+        )
 
     for layer in layers:
         sa = layer.self_attn

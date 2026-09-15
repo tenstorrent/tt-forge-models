@@ -20,6 +20,7 @@ import torch_xla
 import torch_xla.core.xla_model as xm
 import torch_xla.distributed.spmd as xs
 import torch_xla.runtime as xr
+from diffusers.utils.dynamic_modules_utils import get_cached_module_file
 from diffusers.utils.torch_utils import randn_tensor
 from diffusers.video_processor import VideoProcessor
 from torch_xla.distributed.spmd import Mesh
@@ -125,6 +126,9 @@ class KreaRealtimePipeline:
             WAN_REPO_ID, subfolder="tokenizer"
         )
         self.video_processor = VideoProcessor(vae_scale_factor=VAE_SCALE_FACTOR)
+        # encoders.py is outside the transformer's auto_map import closure, so
+        # trust_remote_code never fetches it — download it explicitly first.
+        get_cached_module_file(KREA_REPO_ID, "encoders.py", trust_remote_code=True)
         enc_mod = importlib.import_module(
             type(self.transformer).__module__.rsplit(".", 1)[0] + ".encoders"
         )

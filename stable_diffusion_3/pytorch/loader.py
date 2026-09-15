@@ -13,6 +13,8 @@ having to dig into the pipeline.
 """
 from typing import Optional
 
+import torch
+
 from ...base import ForgeModel
 from ...config import (
     ModelConfig,
@@ -23,20 +25,47 @@ from ...config import (
     Framework,
     StrEnum,
 )
-from .src.model_utils import load_pipe, stable_diffusion_preprocessing_v3
+from .src.model_utils import (
+    MESH_NAMES,
+    MESH_SHAPES,
+    SD3TransformerWrapper,
+    T5TextEncoderWrapper,
+    VAEDecoderWrapper,
+    load_pipe,
+    load_sd3_vae,
+    load_sd3_vae_inputs,
+    load_t5_text_encoder,
+    load_t5_text_encoder_inputs,
+    shard_t5_text_encoder_specs,
+    stable_diffusion_preprocessing_v3,
+)
 
 
 class ModelVariant(StrEnum):
     """Available Stable Diffusion v3 model variants."""
 
     STABLE_DIFFUSION_3_MEDIUM = "3_Medium"
+    TEXT_ENCODER = "TextEncoder"
+    VAE = "Vae"
 
 
 class ModelLoader(ForgeModel):
-    """Stable Diffusion v3 (SD3 Medium) model loader."""
+    """Stable Diffusion v3 (SD3 Medium) model loader.
+
+    Two variants are exposed:
+      - ``STABLE_DIFFUSION_3_MEDIUM`` (default) → the MMDiT transformer.
+      - ``TEXT_ENCODER``                        → the T5-XXL encoder
+        (``text_encoder_3``) as an independently compilable TT component.
+    """
 
     _VARIANTS = {
         ModelVariant.STABLE_DIFFUSION_3_MEDIUM: ModelConfig(
+            pretrained_model_name="stable-diffusion-3-medium-diffusers",
+        ),
+        ModelVariant.TEXT_ENCODER: ModelConfig(
+            pretrained_model_name="stable-diffusion-3-medium-diffusers",
+        ),
+        ModelVariant.VAE: ModelConfig(
             pretrained_model_name="stable-diffusion-3-medium-diffusers",
         ),
     }
@@ -58,11 +87,16 @@ class ModelLoader(ForgeModel):
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
         if variant is None:
             variant = cls.DEFAULT_VARIANT
+        task = (
+            ModelTask.NLP_EMBED_GEN
+            if variant == ModelVariant.TEXT_ENCODER
+            else ModelTask.CONDITIONAL_GENERATION
+        )
         return ModelInfo(
             model="Stable Diffusion 3",
             variant=variant,
             group=ModelGroup.RED,
-            task=ModelTask.CONDITIONAL_GENERATION,
+            task=task,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
@@ -80,20 +114,53 @@ class ModelLoader(ForgeModel):
         return self.pipeline
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Return the SD3 MMDiT transformer (the TT-compilable ``nn.Module``).
+        """Return the TT-compilable ``nn.Module`` for the active variant.
 
         Args:
             dtype_override: Optional ``torch.dtype`` to cast the model to.
 
         Returns:
-            torch.nn.Module: The SD3 ``SD3Transformer2DModel`` instance.
+            torch.nn.Module: an ``SD3TransformerWrapper`` around the MMDiT
+            transformer for the default variant, a ``T5TextEncoderWrapper``
+            around the T5-XXL encoder for ``TEXT_ENCODER``, or a
+            ``VAEDecoderWrapper`` around the VAE decoder for ``VAE``.
         """
+        if self._variant == ModelVariant.TEXT_ENCODER:
+            dtype = dtype_override if dtype_override is not None else torch.float32
+            return T5TextEncoderWrapper(load_t5_text_encoder(dtype)).eval()
+
+        if self._variant == ModelVariant.VAE:
+            dtype = dtype_override if dtype_override is not None else torch.float32
+            return VAEDecoderWrapper(load_sd3_vae(dtype)).eval()
+
         if self.pipeline is None:
             self._load_pipeline(dtype_override=dtype_override)
         elif dtype_override is not None:
             self.pipeline = self.pipeline.to(dtype_override)
 
-        return self.pipeline.transformer
+        return SD3TransformerWrapper(self.pipeline.transformer).eval()
+
+    def get_mesh_config(self, num_devices: int):
+        """Return ``(mesh_shape, mesh_names)`` for a ("batch", "model") 2D mesh.
+
+        Supported device counts: 1, 2, 4, 8, 32.
+        """
+        if num_devices not in MESH_SHAPES:
+            raise ValueError(
+                f"Unsupported device count: {num_devices}. "
+                f"Expected one of {sorted(MESH_SHAPES)}."
+            )
+        return MESH_SHAPES[num_devices], MESH_NAMES
+
+    def load_shard_spec(self, model):
+        """Return tensor → partition_spec dict for the active component.
+
+        Only ``TEXT_ENCODER`` currently provides shard specs; the model object
+        is the ``T5TextEncoderWrapper`` returned by :meth:`load_model`.
+        """
+        if self._variant == ModelVariant.TEXT_ENCODER:
+            return shard_t5_text_encoder_specs(model.encoder)
+        return None
 
     def load_inputs(self, dtype_override=None):
         """Return sample inputs for the SD3 transformer.
@@ -104,8 +171,15 @@ class ModelLoader(ForgeModel):
         Returns:
             list[torch.Tensor]: ``[latent_model_input, timestep, prompt_embeds,
             pooled_prompt_embeds]`` — the positional args expected by the
-            wrapper around ``SD3Transformer2DModel.forward``.
+            wrapper around ``SD3Transformer2DModel.forward``. For
+            ``TEXT_ENCODER`` returns ``[input_ids]`` for the T5-XXL encoder.
         """
+        if self._variant == ModelVariant.TEXT_ENCODER:
+            return load_t5_text_encoder_inputs(dtype_override)
+
+        if self._variant == ModelVariant.VAE:
+            return load_sd3_vae_inputs(dtype_override)
+
         if self.pipeline is None:
             self._load_pipeline(dtype_override=dtype_override)
 
@@ -123,3 +197,48 @@ class ModelLoader(ForgeModel):
             pooled_prompt_embeds = pooled_prompt_embeds.to(dtype_override)
 
         return [latent_model_input, timestep, prompt_embeds, pooled_prompt_embeds]
+
+    # ------------------------------------------------------------------ #
+    # TAESD3 lightweight VAE decoder on TT.
+    #
+    # SD3's full AutoencoderKL VAE noises out / OOMs on TT. TAESD3
+    # (madebyollin/taesd3) is the tiny AE for SD3's 16-channel latents; its
+    # conv-only decoder (no complex/FFT, no GroupNorm) is the tractable decoder
+    # that runs on TT. See tt-xla #5537.
+    # ------------------------------------------------------------------ #
+
+    TAESD3_REPO = "madebyollin/taesd3"
+
+    def load_taesd3_decoder(self):
+        """Load TAESD3, the tiny AE (tractable VAE decoder) for SD3 latents."""
+        import torch
+        from diffusers import AutoencoderTiny
+
+        self.taesd3 = AutoencoderTiny.from_pretrained(
+            self.TAESD3_REPO, torch_dtype=torch.float32
+        ).eval()
+        return self.taesd3
+
+    def decode_taesd3(self, latents, on_tt=False):
+        """Decode SD3 (16-ch) latents [B, 16, H/8, W/8] -> image [-1, 1] via TAESD3.
+
+        With ``on_tt=True`` the conv decoder runs on TT via
+        ``torch.compile(backend="tt")``. ``AutoencoderTiny.decode(z)`` is
+        ``self.decoder(z)`` directly (no pre-scaling), so raw latents feed the
+        decoder in both modes. ``load_taesd3_decoder`` must run first.
+        """
+        import torch
+
+        vae = getattr(self, "taesd3", None) or self.load_taesd3_decoder()
+        with torch.no_grad():
+            if not on_tt:
+                return vae.decode(latents).sample
+
+            import torch_xla  # noqa: F401
+            import torch_xla.core.xla_model as xm
+
+            dev = xm.xla_device()
+            dec = vae.decoder.to(dtype=torch.bfloat16).to(dev)
+            compiled = torch.compile(lambda z: dec(z), backend="tt")
+            out = compiled(latents.to(dtype=torch.bfloat16).to(dev))
+            return out.to("cpu").to(torch.float32)

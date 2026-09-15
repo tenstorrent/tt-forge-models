@@ -140,13 +140,19 @@ class ModelLoader(ForgeModel):
                          encoder_hidden_states (1,256,2304) bf16,
                          encoder_attention_mask (1,256) int64]
         VAE           → [z (1,16,128,128) bf16]
+
+        TRANSFORMER accepts ``caption_len`` (default 256), the number of real
+        caption tokens in ``encoder_attention_mask``. It is not just a magnitude
+        knob -- it selects whether the refiners' softmax mask has any ``False``
+        entries and whether the joint sequence and slice offsets are
+        tile-aligned; see ``load_transformer_inputs``.
         """
         dtype = dtype_override if dtype_override is not None else DTYPE
 
         if self._variant == ModelVariant.TEXT_ENCODER:
             return load_text_encoder_inputs(dtype)
         if self._variant == ModelVariant.TRANSFORMER:
-            return load_transformer_inputs(dtype)
+            return load_transformer_inputs(dtype, **kwargs)
         if self._variant == ModelVariant.VAE:
             return load_vae_inputs(dtype)
 

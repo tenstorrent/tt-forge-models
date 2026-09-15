@@ -40,6 +40,7 @@ from .src.utils import (
     load_vae_decoder_inputs,
     load_transformer_inputs,
     load_text_encoder_inputs,
+    shard_text_encoder_specs,
     shard_transformer_specs,
     shard_vae_decoder_specs,
 )
@@ -191,12 +192,8 @@ class ModelLoader(ForgeModel):
     def get_mesh_config(self, num_devices: int):
         """Return ((batch, model) mesh shape, mesh names) for the active component.
 
-        transformer and vae use the supported shapes in MESH_SHAPES.
-        text_encoder runs on a single chip.
+        Every component is sharded, so all of them use MESH_SHAPES.
         """
-        if self._subfolder == "text_encoder":
-            return (1, 1), MESH_NAMES
-
         if num_devices not in MESH_SHAPES:
             raise ValueError(
                 f"Unsupported device count: {num_devices}. "
@@ -208,14 +205,16 @@ class ModelLoader(ForgeModel):
         """Return tensor -> partition_spec dict for the active component.
 
         Expects whatever the test passes to run_graph_test:
-          transformer → MochiTransformer3DModel
-          vae         → MochiDecoder3D (vae.decoder)
-          text_encoder → None (single-chip, no sharding)
+          transformer  → MochiTransformer3DModel
+          vae          → MochiDecoder3D (vae.decoder)
+          text_encoder → T5EncoderModel
         """
         if self._subfolder == "transformer":
             return shard_transformer_specs(model)
         if self._subfolder == "vae":
             return shard_vae_decoder_specs(model)
+        if self._subfolder == "text_encoder":
+            return shard_text_encoder_specs(model)
         return None
 
     def unpack_forward_output(self, output: Any) -> torch.Tensor:

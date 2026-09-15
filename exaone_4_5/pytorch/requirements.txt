@@ -1,0 +1,4 @@
+# Native EXAONE 4.5 (model_type "exaone4_5") landed in transformers 5.8.0.
+# The Hub checkpoint has no auto_map, so trust_remote_code cannot load it on older
+# installs (tt-xla defaults to 5.5.1).
+transformers>=5.8.0

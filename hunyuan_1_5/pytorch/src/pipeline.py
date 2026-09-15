@@ -2,13 +2,21 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""HunyuanVideo 1.5 (480p t2v distilled) pipeline: DiT tensor-parallel on TT,
-text encoders/scheduler/VAE on CPU.
+"""HunyuanVideo 1.5 (480p t2v base) pipeline: DiT and both text encoders on
+TT, scheduler/guider combine/VAE on CPU.
 
-guidance_scale=1.0 for this checkpoint -> CFG disabled -> single transformer
-forward per step (no guider object needed). use_meanflow=False -> no
-timestep_r. image_embeds (t2v) is zeros(batch, 729, image_embed_dim) — 729 is
-HunyuanVideo15Pipeline.vision_num_semantic_tokens.
+The Qwen2.5-VL encoder and the DiT are tensor-parallel sharded over one shared
+mesh; ByT5 (0.22B) carries no shard spec, so SPMD replicates it. All three are
+loaded, compiled and uploaded once in `setup()` and stay resident, so repeat
+`generate()` calls reuse both weights and compiled graphs.
+
+Guidance is real CFG from the repo's `guider`, so the DiT runs twice per step
+(cond + uncond) and the guider combines the predictions on the host. Both
+forwards take the same latent_model_input, so batch dim stays 1 and they share
+one compiled graph.
+
+use_meanflow=False -> no timestep_r. image_embeds (t2v) is zeros(batch, 729,
+image_embed_dim) — 729 is HunyuanVideo15Pipeline.vision_num_semantic_tokens.
 """
 
 import os
@@ -22,9 +30,12 @@ import torch_xla.core.xla_model as xm
 import torch_xla.distributed.spmd as xs
 import torch_xla.runtime as xr
 from diffusers import FlowMatchEulerDiscreteScheduler
+from diffusers.guiders import ClassifierFreeGuidance
+from diffusers.pipelines.hunyuan_video1_5.image_processor import (
+    HunyuanVideo15ImageProcessor,
+)
 from diffusers.utils import export_to_video
 from diffusers.utils.torch_utils import randn_tensor
-from diffusers.video_processor import VideoProcessor
 from loguru import logger
 from torch_xla.distributed.spmd import Mesh
 from transformers import ByT5Tokenizer, Qwen2Tokenizer
@@ -33,14 +44,20 @@ from .model_utils import (
     MESH_NAMES,
     MESH_SHAPES,
     REPO_ID,
+    HunyuanVideo15TransformerWrapper,
+    QwenPromptEmbedsWrapper,
     load_text_encoder,
     load_text_encoder_2,
     load_transformer,
     load_vae,
+    shard_text_encoder_specs,
     shard_transformer_specs,
 )
 
-PROMPT = "a cat sitting on a boat"
+# The double-quoted span is what routes text through text_encoder_2 (the ByT5
+# glyph encoder); without it the pipeline feeds the DiT zero glyph embeds.
+PROMPT = 'A girl holding a paper with words "Hello, world!"'
+NEGATIVE_PROMPT = None  # -> "", which gives a zero ByT5 glyph stream
 SEED = 42
 HEIGHT = 480
 WIDTH = 848
@@ -106,6 +123,7 @@ class HunyuanVideo15Config:
         num_frames: int = NUM_FRAMES,
         shard: bool = True,
         transformer_on_tt: bool = True,
+        text_encoders_on_tt: bool = True,
     ):
         self.num_inference_steps = num_inference_steps
         self.height = height
@@ -113,13 +131,15 @@ class HunyuanVideo15Config:
         self.num_frames = num_frames
         self.shard = shard
         self.transformer_on_tt = transformer_on_tt
+        self.text_encoders_on_tt = text_encoders_on_tt
 
 
 class HunyuanVideo15Pipeline:
-    """DiT sharded on TT; text encoders, scheduler, VAE stay on CPU."""
+    """DiT and both text encoders on TT; scheduler, guider and VAE stay on CPU."""
 
     def __init__(self, config: HunyuanVideo15Config):
         self.config = config
+        self.mesh = None  # set when sharded; shared by every TT component
         self.mesh_shape = None  # set when sharded; read by the benchmark harness
         self._perf = None  # per-stage/per-step timings from the last generate()
 
@@ -127,20 +147,31 @@ class HunyuanVideo15Pipeline:
         self.load_models()
         self.load_scheduler()
         self.load_tokenizers()
+        self.load_guider()
         self.vae_scale_factor_temporal = self.vae.config.temporal_compression_ratio
         self.vae_scale_factor_spatial = self.vae.config.spatial_compression_ratio
         self.num_channels_latents = self.vae.config.latent_channels
         self.scaling_factor = self.vae.config.scaling_factor
-        self.image_embed_dim = self.transformer.config.image_embed_dim
-        self.video_processor = VideoProcessor(
+        self.image_embed_dim = self.transformer.transformer.config.image_embed_dim
+        # Same processor the stock pipeline builds (VideoProcessor subclass).
+        self.video_processor = HunyuanVideo15ImageProcessor(
             vae_scale_factor=self.vae_scale_factor_spatial
         )
 
+        # One mesh, shared by every TT component. SPMD has to be enabled before
+        # the first device op, so this runs ahead of any .to(xla_device()).
+        if self.config.shard and (
+            self.config.transformer_on_tt or self.config.text_encoders_on_tt
+        ):
+            self._init_mesh()
+
+        if self.config.text_encoders_on_tt:
+            self.load_text_encoders_to_tt()
+
         if self.config.transformer_on_tt:
-            if self.config.shard:
-                self.shard_to_tt()
-            else:
-                self.transformer = self.transformer.to(xm.xla_device())
+            self.transformer = self._place_on_tt(
+                self.transformer, lambda m: shard_transformer_specs(m.transformer)
+            )
             # forward, not the module, so self.transformer stays an nn.Module and
             # callers can still wrap forward (e.g. the nightly PCC check).
             self.transformer.forward = torch.compile(
@@ -149,13 +180,32 @@ class HunyuanVideo15Pipeline:
 
     def load_models(self):
         logger.info("[load_models] text_encoder (Qwen2.5-VL, ~7.07B) ...")
-        self.text_encoder = load_text_encoder(DTYPE)
+        # Wrapped even on CPU so both paths call it the same way; the wrapper
+        # holds the hidden-state pick and the template-prefix drop.
+        self.text_encoder = QwenPromptEmbedsWrapper(
+            load_text_encoder(DTYPE),
+            HIDDEN_STATE_SKIP_LAYER,
+            PROMPT_TEMPLATE_ENCODE_START_IDX,
+        ).eval()
         logger.info("[load_models] text_encoder_2 (ByT5, ~0.22B) ...")
         self.text_encoder_2 = load_text_encoder_2(DTYPE)
         logger.info("[load_models] transformer (~8.33B) ...")
-        self.transformer = load_transformer(DTYPE)
+        # Same wrapper the loader hands out, so every TT component takes
+        # positional tensors and returns a bare tensor.
+        self.transformer = HunyuanVideo15TransformerWrapper(
+            load_transformer(DTYPE)
+        ).eval()
         logger.info("[load_models] vae (~1.26B) ...")
         self.vae = load_vae(DTYPE, enable_tiling=True)
+
+    def load_text_encoders_to_tt(self):
+        """Qwen sharded, ByT5 (0.22B) replicated — then compile both forwards."""
+        self.text_encoder = self._place_on_tt(
+            self.text_encoder, lambda m: shard_text_encoder_specs(m.encoder)
+        )
+        self.text_encoder_2 = self._place_on_tt(self.text_encoder_2)
+        for module in (self.text_encoder, self.text_encoder_2):
+            module.forward = torch.compile(module.forward, backend="tt")
 
     def load_scheduler(self):
         self.scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
@@ -168,7 +218,19 @@ class HunyuanVideo15Pipeline:
             REPO_ID, subfolder="tokenizer_2"
         )
 
-    def shard_to_tt(self):
+    def load_guider(self):
+        """The repo's CFG config; generate() calls it to combine the two preds."""
+        self.guider = ClassifierFreeGuidance.from_pretrained(
+            REPO_ID, subfolder="guider"
+        )
+        logger.info(
+            "[setup] guider: num_conditions={} guidance_scale={}",
+            self.guider.num_conditions,
+            self.guider.guidance_scale,
+        )
+
+    def _init_mesh(self):
+        """Enable SPMD and build the ("batch", "model") mesh all components share."""
         _enable_spmd()
         num_devices = xr.global_runtime_device_count()
         if num_devices not in MESH_SHAPES:
@@ -179,11 +241,38 @@ class HunyuanVideo15Pipeline:
             np.array(range(num_devices)), MESH_SHAPES[num_devices], MESH_NAMES
         )
         self.mesh_shape = tuple(self.mesh.mesh_shape)
-        self.transformer = self.transformer.to(xm.xla_device())
-        for tensor, spec in shard_transformer_specs(self.transformer).items():
-            xs.mark_sharding(tensor, self.mesh, spec)
+        logger.info("[setup] mesh {} over {} device(s)", self.mesh_shape, num_devices)
 
-    def _get_mllm_prompt_embeds(self, prompt: list):
+    def _place_on_tt(self, module, shard_spec_fn=None):
+        """Move a component to the device and apply its shard spec.
+
+        `shard_spec_fn` maps the moved module to its tensor -> partition_spec
+        dict; omit it to run replicated across the mesh.
+        """
+        module = module.to(xm.xla_device())
+        if self.mesh is not None and shard_spec_fn is not None:
+            specs = shard_spec_fn(module)
+            assert (
+                specs
+            ), f"{type(module).__name__} shard spec is empty — would run replicated"
+            for tensor, spec in specs.items():
+                xs.mark_sharding(tensor, self.mesh, spec)
+        return module
+
+    def _add_component_time(self, name: str, seconds: float) -> None:
+        """Accumulate: CFG encodes twice per generate(), so both passes count."""
+        components = self._perf["components"]
+        components[name] = components.get(name, 0.0) + seconds
+
+    def _to_encoder_device(self, x):
+        """Move a text-encoder input to TT when the encoders run there."""
+        return x.to(xm.xla_device()) if self.config.text_encoders_on_tt else x
+
+    def _from_encoder_device(self, x):
+        """Bring a text-encoder output back to host, forcing the device sync."""
+        return x.to("cpu") if self.config.text_encoders_on_tt else x
+
+    def _get_mllm_prompt_embeds(self, prompt: list, role: str = "cond"):
         text_inputs = self.tokenizer.apply_chat_template(
             format_text_input(prompt, SYSTEM_MESSAGE),
             add_generation_prompt=True,
@@ -194,23 +283,34 @@ class HunyuanVideo15Pipeline:
             truncation=True,
             return_tensors="pt",
         )
-        outputs = self.text_encoder(
-            input_ids=text_inputs.input_ids,
-            attention_mask=text_inputs.attention_mask,
-            output_hidden_states=True,
-        )
-        prompt_embeds = outputs.hidden_states[-(HIDDEN_STATE_SKIP_LAYER + 1)]
+        # The encoder gets the full mask — attention runs over the template
+        # prefix; only the copy going downstream to the DiT drops it. The
+        # embeds' hidden-state pick and prefix drop live in the wrapper's
+        # forward, so they stay inside the graph.
         prompt_attention_mask = text_inputs.attention_mask
-        prompt_embeds = prompt_embeds[:, PROMPT_TEMPLATE_ENCODE_START_IDX:]
-        prompt_attention_mask = prompt_attention_mask[
-            :, PROMPT_TEMPLATE_ENCODE_START_IDX:
-        ]
-        return prompt_embeds, prompt_attention_mask
+
+        logger.info("[STAGE] text_encoder (Qwen, sharded, bf16) [{}]", role)
+        t0 = time.perf_counter()
+        prompt_embeds = self._from_encoder_device(
+            self.text_encoder(
+                self._to_encoder_device(text_inputs.input_ids),
+                self._to_encoder_device(prompt_attention_mask),
+            )
+        )
+        self._add_component_time("text_encoder", time.perf_counter() - t0)
+
+        return (
+            prompt_embeds,
+            prompt_attention_mask[:, PROMPT_TEMPLATE_ENCODE_START_IDX:],
+        )
 
     def _get_byt5_prompt_embeds(self, prompt: list):
         embeds_list, mask_list = [], []
+        elapsed = 0.0
         for glyph_text in [extract_glyph_texts(p) for p in prompt]:
             if glyph_text is None:
+                # No quoted text: the embeds are fabricated zeros, so stay on
+                # host instead of compiling a graph to produce them.
                 embeds = torch.zeros(
                     (1, TOKENIZER_2_MAX_LENGTH, self.text_encoder_2.config.d_model),
                     dtype=self.text_encoder_2.dtype,
@@ -225,25 +325,32 @@ class HunyuanVideo15Pipeline:
                     add_special_tokens=True,
                     return_tensors="pt",
                 )
-                embeds = self.text_encoder_2(
-                    input_ids=txt_tokens.input_ids,
-                    attention_mask=txt_tokens.attention_mask.float(),
-                )[0]
+                logger.info("[STAGE] text_encoder_2 (ByT5, replicated, bf16)")
+                # The encoder takes a float mask; DTYPE keeps it in the dtype the
+                # model itself runs in. The int mask flows downstream.
+                t0 = time.perf_counter()
+                embeds = self._from_encoder_device(
+                    self.text_encoder_2(
+                        self._to_encoder_device(txt_tokens.input_ids),
+                        self._to_encoder_device(txt_tokens.attention_mask.to(DTYPE)),
+                    )[0]
+                )
+                elapsed += time.perf_counter() - t0
                 mask = txt_tokens.attention_mask
             embeds_list.append(embeds)
             mask_list.append(mask)
+        self._add_component_time("text_encoder_2", elapsed)
         return torch.cat(embeds_list, dim=0), torch.cat(mask_list, dim=0)
 
-    def _encode_prompt(self, prompt: str):
+    def _encode_prompt(self, prompt: str, role: str = "cond"):
         prompt = [prompt]
-        prompt_embeds, prompt_embeds_mask = self._get_mllm_prompt_embeds(prompt)
+        prompt_embeds, prompt_embeds_mask = self._get_mllm_prompt_embeds(prompt, role)
         prompt_embeds_2, prompt_embeds_mask_2 = self._get_byt5_prompt_embeds(prompt)
-        dtype = self.transformer.dtype
         return (
-            prompt_embeds.to(dtype=dtype),
-            prompt_embeds_mask.to(dtype=dtype),
-            prompt_embeds_2.to(dtype=dtype),
-            prompt_embeds_mask_2.to(dtype=dtype),
+            prompt_embeds.to(dtype=DTYPE),
+            prompt_embeds_mask.to(dtype=DTYPE),
+            prompt_embeds_2.to(dtype=DTYPE),
+            prompt_embeds_mask_2.to(dtype=DTYPE),
         )
 
     @torch.no_grad()
@@ -253,6 +360,7 @@ class HunyuanVideo15Pipeline:
         seed: Optional[int] = SEED,
         num_inference_steps: Optional[int] = None,
         output_type: str = "pil",
+        negative_prompt: Optional[str] = NEGATIVE_PROMPT,
     ):
         cfg = self.config
         steps = num_inference_steps or cfg.num_inference_steps
@@ -260,8 +368,13 @@ class HunyuanVideo15Pipeline:
         on_tt = cfg.transformer_on_tt
 
         # Per-stage/per-step timings for the benchmark harness (components =
-        # CPU stages, steps = per-DiT-forward device latency, total = wall time).
-        perf = {"components": {}, "steps": [], "step_metric_name": "transformer_step"}
+        # CPU stages, steps = per-denoising-step device latency, total = wall
+        # time). Bound to self up front so the encode helpers can record into it.
+        self._perf = perf = {
+            "components": {},
+            "steps": [],
+            "step_metric_name": "transformer_step",
+        }
         gen_start = time.perf_counter()
 
         def _to_tt(x):
@@ -275,14 +388,22 @@ class HunyuanVideo15Pipeline:
             generator.manual_seed(seed)
 
         logger.info("[generate] encoding prompt ...")
-        t0 = time.perf_counter()
+        # Each encoder records its own component time (device-synced) inside
+        # _encode_prompt.
         (
             prompt_embeds,
             prompt_embeds_mask,
             prompt_embeds_2,
             prompt_embeds_mask_2,
         ) = self._encode_prompt(prompt)
-        perf["components"]["text_encode"] = time.perf_counter() - t0
+
+        # Constant across steps, so encoded once. Same path as the conditional,
+        # so the DiT sees identically-shaped inputs on both forwards.
+        negative = None
+        if self.guider._enabled and self.guider.num_conditions > 1:
+            neg_prompt = negative_prompt if negative_prompt is not None else ""
+            logger.info("[generate] encoding negative prompt {!r} ...", neg_prompt)
+            negative = self._encode_prompt(neg_prompt, role="uncond")
 
         latent_shape = (
             1,
@@ -292,21 +413,17 @@ class HunyuanVideo15Pipeline:
             cfg.width // self.vae_scale_factor_spatial,
         )
         latents = randn_tensor(
-            latent_shape, generator=generator, device=cpu, dtype=self.transformer.dtype
+            latent_shape, generator=generator, device=cpu, dtype=DTYPE
         )
 
         b, c, f, h, w = latents.shape
-        cond_latents_concat = torch.zeros(
-            b, c, f, h, w, dtype=self.transformer.dtype, device=cpu
-        )
-        mask_concat = torch.zeros(
-            b, 1, f, h, w, dtype=self.transformer.dtype, device=cpu
-        )
+        cond_latents_concat = torch.zeros(b, c, f, h, w, dtype=DTYPE, device=cpu)
+        mask_concat = torch.zeros(b, 1, f, h, w, dtype=DTYPE, device=cpu)
         image_embeds = torch.zeros(
             1,
             VISION_NUM_SEMANTIC_TOKENS,
             self.image_embed_dim,
-            dtype=self.transformer.dtype,
+            dtype=DTYPE,
             device=cpu,
         )
 
@@ -319,6 +436,7 @@ class HunyuanVideo15Pipeline:
         mask_tt = _to_tt(prompt_embeds_mask)
         eh2_tt = _to_tt(prompt_embeds_2)
         mask2_tt = _to_tt(prompt_embeds_mask_2)
+        neg_tt = tuple(_to_tt(x) for x in negative) if negative else None
         img_tt = _to_tt(image_embeds)
 
         logger.info("[generate] DiT denoising loop: {} steps", len(timesteps))
@@ -330,21 +448,27 @@ class HunyuanVideo15Pipeline:
             timestep = t.expand(latent_model_input.shape[0]).to(
                 latent_model_input.dtype
             )
+            # Shared by both forwards: CFG only swaps the encoder_* conditioning.
+            latent_tt = _to_tt(latent_model_input)
+            timestep_tt = _to_tt(timestep)
 
+            def _denoise(eh, mask, eh2, mask2):
+                # Positional, in HunyuanVideo15TransformerWrapper.forward's
+                # order; _to_cpu is the sync point that forces the graph to run.
+                return _to_cpu(
+                    self.transformer(
+                        latent_tt, timestep_tt, eh, mask, eh2, mask2, img_tt
+                    )
+                )
+
+            self.guider.set_state(step=i, num_inference_steps=steps, timestep=t)
+
+            # Identical shapes, so both forwards share one compiled graph.
             step_start = time.perf_counter()
-            noise_pred = self.transformer(
-                hidden_states=_to_tt(latent_model_input),
-                timestep=_to_tt(timestep),
-                encoder_hidden_states=eh_tt,
-                encoder_attention_mask=mask_tt,
-                encoder_hidden_states_2=eh2_tt,
-                encoder_attention_mask_2=mask2_tt,
-                image_embeds=img_tt,
-                return_dict=False,
-            )[0]
-            noise_pred = _to_cpu(
-                noise_pred
-            )  # forces the device sync -> real per-step latency
+            pred_cond = _denoise(eh_tt, mask_tt, eh2_tt, mask2_tt)
+            pred_uncond = _denoise(*neg_tt) if self.guider.num_conditions > 1 else None
+            noise_pred = self.guider.forward(pred_cond, pred_uncond).pred
+            # One entry per step, covering both forwards.
             perf["steps"].append(time.perf_counter() - step_start)
 
             latents = self.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
@@ -359,5 +483,4 @@ class HunyuanVideo15Pipeline:
         perf["components"]["vae"] = time.perf_counter() - t0
 
         perf["total"] = time.perf_counter() - gen_start
-        self._perf = perf
         return frames

@@ -428,12 +428,24 @@ class PyramidFluxTransformer(ModelMixin, ConfigMixin):
 
             # prepare text ids
             text_ids = (
-                torch.arange(1, real_batch_size + 1, dtype=encoder_attention_mask.dtype)
+                torch.arange(
+                    1,
+                    real_batch_size + 1,
+                    dtype=encoder_attention_mask.dtype,
+                    device=device,
+                )
                 .unsqueeze(1)
                 .repeat(1, encoder_hidden_length)
             )
-            text_ids = text_ids.to(device)
-            text_ids[encoder_attention_mask == 0] = 0
+            # Zero the padded text positions with torch.where rather than a
+            # boolean-mask assignment. The masked `index_put_` makes the dynamo
+            # bridge split the graph, emitting a standalone two-op module
+            # (`stablehlo.compare EQ` -> `tensor<Bx{seq}xi1>`) that the compiler
+            # rejects with "ValueError: Error code: 13". torch.where keeps this
+            # in the surrounding graph and is equivalent.
+            text_ids = torch.where(
+                encoder_attention_mask == 0, torch.zeros_like(text_ids), text_ids
+            )
 
             # prepare image ids
             image_ids = (

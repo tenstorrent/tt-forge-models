@@ -78,24 +78,16 @@ class ModelLoader(ForgeModel):
             framework=Framework.TORCH,
         )
 
-    def _load_tokenizer(self, dtype_override=None):
+    def _load_tokenizer(self):
         """Load tokenizer for the current variant.
-
-        Args:
-            dtype_override: Optional torch.dtype to override the tokenizer's default dtype.
 
         Returns:
             The loaded tokenizer instance
         """
 
-        # Initialize tokenizer with dtype override if specified
-        tokenizer_kwargs = {}
-        if dtype_override is not None:
-            tokenizer_kwargs["dtype"] = dtype_override
-
         # Load the tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self._variant_config.pretrained_model_name, **tokenizer_kwargs
+            self._variant_config.pretrained_model_name
         )
 
         return self.tokenizer
@@ -115,7 +107,7 @@ class ModelLoader(ForgeModel):
 
         # Ensure tokenizer is loaded
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
         # Load the model with dtype override if specified
         model_kwargs = {}
@@ -147,7 +139,7 @@ class ModelLoader(ForgeModel):
         """
         # Ensure tokenizer is initialized
         if self.tokenizer is None:
-            self._load_tokenizer(dtype_override=dtype_override)
+            self._load_tokenizer()
 
         # Apply chat template
         inputs = self.tokenizer.apply_chat_template(
