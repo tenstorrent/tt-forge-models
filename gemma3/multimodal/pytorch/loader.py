@@ -33,6 +33,7 @@ class ModelVariant(StrEnum):
     GEMMA_3_4B_IT = "google/gemma-3-4b-it"
     GEMMA_3_12B_IT = "google/gemma-3-12b-it"
     GEMMA_3_27B_IT = "google/gemma-3-27b-it"
+    MEDGEMMA_27B_IT = "google/medgemma-27b-it"
 
 
 class ModelLoader(ForgeModel):
@@ -42,6 +43,14 @@ class ModelLoader(ForgeModel):
         ModelVariant.GEMMA_3_4B_IT,
         ModelVariant.GEMMA_3_12B_IT,
         ModelVariant.GEMMA_3_27B_IT,
+        ModelVariant.MEDGEMMA_27B_IT,
+    }
+
+    # Variants large enough to need tensor-parallel weight sharding. Smaller
+    # variants fit on one device and return no shard spec.
+    _TENSOR_PARALLEL_VARIANTS = {
+        ModelVariant.GEMMA_3_27B_IT,
+        ModelVariant.MEDGEMMA_27B_IT,
     }
 
     _VARIANTS = {
@@ -55,6 +64,10 @@ class ModelLoader(ForgeModel):
         ),
         ModelVariant.GEMMA_3_27B_IT: LLMModelConfig(
             pretrained_model_name=str(ModelVariant.GEMMA_3_27B_IT),
+            max_length=512,
+        ),
+        ModelVariant.MEDGEMMA_27B_IT: LLMModelConfig(
+            pretrained_model_name=str(ModelVariant.MEDGEMMA_27B_IT),
             max_length=512,
         ),
     }
@@ -83,7 +96,11 @@ class ModelLoader(ForgeModel):
             group = ModelGroup.GENERALITY
 
         return ModelInfo(
-            model="gemma_3_multimodal",
+            model=(
+                "medgemma_multimodal"
+                if variant == ModelVariant.MEDGEMMA_27B_IT
+                else "gemma_3_multimodal"
+            ),
             variant=variant,
             group=group,
             task=ModelTask.MM_CONDITIONAL_GENERATION,
@@ -228,7 +245,7 @@ class ModelLoader(ForgeModel):
             dict: Dictionary mapping model parameters to their sharding specification,
                   or None if tensor parallelism is not needed for this variant.
         """
-        if self._variant != ModelVariant.GEMMA_3_27B_IT:
+        if self._variant not in self._TENSOR_PARALLEL_VARIANTS:
             return None
 
         shard_specs = {}
