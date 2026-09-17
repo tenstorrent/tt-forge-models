@@ -5,11 +5,13 @@
 
 The transformer runs on TT (bf16), tensor-parallel sharded across the device
 mesh and compiled with ``torch.compile(backend="tt")``; the text-encoder runs
-once on TT then is freed; the VAE runs on CPU.
+once on TT then is freed; the VAE decoder runs on TT (bf16, replicated — no
+shard spec); the VAE encoder (block >= 2 context re-encode) stays on CPU.
 
 This pipeline can be reused by demo / benchmark / test.
 """
 
+import gc
 import importlib
 import os
 from collections import deque
@@ -39,6 +41,7 @@ from .src.model_utils import (
     NUM_FRAMES_PER_BLOCK,
     SEQ_LENGTH,
     WAN_REPO_ID,
+    VAEDecoderWrapper,
     fixed_sinusoidal_embedding_1d,
     load_text_encoder,
     load_transformer,
@@ -92,7 +95,7 @@ def init_crossattn_cache(num_blocks, num_heads, head_dim):
 
 
 class KreaRealtimePipeline:
-    """Krea e2e pipeline: transformer on TT, text-encoder (once) on TT, VAE on CPU."""
+    """Krea e2e pipeline: transformer + VAE decoder on TT, text-encoder (once) on TT."""
 
     def __init__(self, on_forward=None):
         # on_forward(kind, label, inputs, tt_out): optional per-forward validation
@@ -149,6 +152,13 @@ class KreaRealtimePipeline:
         self.mesh_shape = MESH_SHAPES[num_devices]
         self._mesh = Mesh(np.array(range(num_devices)), self.mesh_shape, MESH_NAMES)
         self.transformer.compile(backend="tt")
+
+        # VAE decoder on TT (0.13 B, no shard spec -> SPMD replicates it). Only the
+        # decoder half is uploaded; the encoder (_vae_encode, used from block 2 on)
+        # stays on CPU and will move to TT once num_blocks > 1 is supported.
+        self.vae.decoder.to(xm.xla_device())
+        self.vae.post_quant_conv.to(xm.xla_device())
+        self._vae_decoder = torch.compile(VAEDecoderWrapper(self.vae), backend="tt")
 
     @staticmethod
     def _caches_to(caches, mover):
@@ -225,7 +235,8 @@ class KreaRealtimePipeline:
     # ──── block boundary (block >= 1): VAE-encode context + refill caches ────
 
     def _vae_encode(self, label, frames):
-        # VAE runs on CPU -> no TT output to compare; the hook call is informational only.
+        # VAE encoder runs on CPU -> no TT output to compare; the hook call is
+        # informational only.
         self.vae._enc_feat_map = [None] * 55
         lat = self.vae.encode(frames.to(self.vae.dtype)).latent_dist.mode()
         self._on_forward("vae_encode", label, {"frames": frames}, lat)
@@ -292,7 +303,7 @@ class KreaRealtimePipeline:
             noise_tt,
         )
 
-    # ─────────────────────────── VAE decode (CPU) ────────────────────────────
+    # ──────────────────── VAE decode (TT, bf16, replicated) ──────────────────
 
     def _decode(self, latents, block_idx, decoder_cache, frame_cache_context):
         if frame_cache_context is None:
@@ -313,8 +324,11 @@ class KreaRealtimePipeline:
             self.vae._feat_map = [None] * 55
         else:
             self.vae._feat_map = decoder_cache
-        videos = self.vae.decode(rescaled, return_dict=False)[0]
+        videos = _cpu(self._vae_decoder(_tt(rescaled)))
         decoder_cache = self.vae._feat_map
+        self._on_forward(
+            "vae_decode", f"b{block_idx}_vae_decode", {"z": rescaled}, videos
+        )
 
         frame_cache_context.extend(videos.split(1, dim=2))
         frames = self.video_processor.postprocess_video(videos, output_type="pil")
@@ -460,6 +474,19 @@ class KreaRealtimePipeline:
                             .transpose(1, 2)
                         )
                 current_denoised = latents
+
+                if block_idx == num_blocks - 1:
+                    # The transformer's work is done. Release it and its caches
+                    # (like the text encoder) so the VAE decoder has the DRAM it
+                    # needs: the resident transformer leaves ~27 GB/chip allocated
+                    # and the decoder OOMs. Dropping the dynamo graphs too, since
+                    # they pin device copies of the weights.
+                    # https://github.com/tenstorrent/tt-xla/issues/6047
+                    self.transformer = None
+                    kv_cache = crossattn_cache = None
+                    torch._dynamo.reset()
+                    gc.collect()
+                    torch_xla.sync()
 
                 block_frames, decoder_cache, frame_cache_context = self._decode(
                     current_denoised, block_idx, decoder_cache, frame_cache_context
