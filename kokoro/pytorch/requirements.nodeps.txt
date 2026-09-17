@@ -1,0 +1,6 @@
+# Kokoro acoustic model source, used directly instead of vendoring the code.
+# Installed with --no-deps: KModel only needs huggingface_hub / loguru / numpy /
+# torch / transformers (already present); the kokoro g2p pipeline's misaki[en] +
+# espeak-ng system dependency is not needed and is deliberately skipped.
+# Pinned to match the monkey-patches in tt_patches.py (KOKORO_PINNED_VERSION).
+kokoro==0.9.4
