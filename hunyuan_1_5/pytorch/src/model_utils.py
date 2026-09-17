@@ -25,8 +25,8 @@ DTYPE = torch.bfloat16
 # Inference shape constants
 # ---------------------------------------------------------------------------
 
-NUM_FRAMES = 17  # smallest valid (4k+1) — for smoke
-NUM_LATENT_FRAMES = 5  # (17-1)//4 + 1
+NUM_FRAMES = 121  # model-card default; must be 4k+1
+NUM_LATENT_FRAMES = 31  # (121-1)//4 + 1
 LATENT_H = 30  # 480 // 16
 LATENT_W = 53  # 848 // 16
 
