@@ -70,8 +70,6 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.DIFFUSIONGEMMA_26B_A4B_IT
 
-    # The runner calls load_inputs with only dtype_override/batch_size, so the
-    # variant is the only channel through which it can ask for image inputs.
     _MODALITY_BY_VARIANT = {
         ModelVariant.DIFFUSIONGEMMA_26B_A4B_IT_IMAGE: "image",
         ModelVariant.DIFFUSIONGEMMA_26B_A4B_IT_IMAGE_ONLY: "image_only",
@@ -184,27 +182,14 @@ class ModelLoader(ForgeModel):
     ):
         """Build image+text inputs for the vision path.
 
-        The image occupies a span of soft tokens between ``<boi>``/``<eoi>`` that
-        the encoder replaces with vision-tower features. The span is aspect-ratio
-        dependent, up to ``vision_soft_tokens_per_image`` (280) -- the sample image
-        yields 266 -- so a different image can change the sequence length and thus
-        force a recompile. ``mm_token_type_ids`` marks that span, and the encoder
-        needs it: ``text_config.use_bidirectional_attention == "vision"``, so the
-        span is also what makes attention bidirectional over the image.
+        The image occupies a span of soft tokens that the encoder replaces with
+        vision-tower features. The span is aspect-ratio dependent (the sample image
+        yields 266 of a 280 maximum), so a different image can change the sequence
+        length and force a recompile. ``mm_token_type_ids`` marks the span, which is
+        also what makes attention bidirectional over it.
 
-        ``pixel_values`` is raw 16x16 RGB patches (768 = 16*16*3), zero-padded to
-        the 280-soft-token maximum (280 * pooling_kernel_size^2 = 2520 patches);
-        ``image_position_ids`` gives each patch its 2D coordinate, with (-1, -1)
-        marking the padding. The 3x3 pooling down to soft tokens happens inside
-        the tower, not here.
-
-        Pass ``prompt=""`` for the image-only path -- the message then carries no
-        text part and the template emits just the image span. ``prompt=None``
-        uses ``sample_image_text``.
-
-        Returns:
-            dict: {input_ids, attention_mask, mm_token_type_ids,
-                   pixel_values (B, 2520, 768), image_position_ids (B, 2520, 2)}
+        ``prompt=""`` gives the image-only path; ``prompt=None`` uses
+        ``sample_image_text``.
         """
         if self.processor is None:
             self._load_processor()

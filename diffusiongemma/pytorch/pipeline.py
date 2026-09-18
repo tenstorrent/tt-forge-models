@@ -48,6 +48,9 @@ SEED = 0
 VISION_INPUT_KEYS = ("pixel_values", "image_position_ids")
 
 
+_ACTIVE_MESH = [None]
+
+
 def patch_selfcond_anchor(mesh):
     """Keep the self-conditioning softmax axis replicated -- tt-xla #6075.
 
@@ -63,6 +66,10 @@ def patch_selfcond_anchor(mesh):
     from tt_torch.sharding import sharding_constraint_tensor
     from transformers.models.diffusion_gemma import modeling_diffusion_gemma as _m
 
+    # One process can set up several pipelines (pytest runs the cases in one), so
+    # keep the live mesh in a cell the installed wrapper reads, rather than closing
+    # over the first one.
+    _ACTIVE_MESH[0] = mesh
     if getattr(_m.DiffusionGemmaDecoderModel.forward, "_selfcond_anchored", False):
         return
     original = _m.DiffusionGemmaDecoderModel.forward
@@ -76,9 +83,12 @@ def patch_selfcond_anchor(mesh):
             # Only the self-conditioning softmax spans the vocab axis, and the CPU
             # golden runs this same forward, so leave it alone.
             if out.shape[-1] == vocab and out.device.type == "xla":
-                out = sharding_constraint_tensor(out, mesh, (None,) * out.ndim)
+                out = sharding_constraint_tensor(
+                    out, _ACTIVE_MESH[0], (None,) * out.ndim
+                )
             return out
 
+        # Restored in the finally below, so nothing outside this forward sees it.
         torch.Tensor.softmax = softmax
         try:
             return original(self, *args, **kwargs)
