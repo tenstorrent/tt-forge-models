@@ -175,10 +175,6 @@ def free_tt_graphs():
     gc.collect()
 
 
-# Public name for the staged-residency eviction step.
-evict_component = free_tt_graphs
-
-
 class TTEncoder(torch.nn.Module):
     """torch.compile needs tensor I/O: returns last_hidden_state (cache updated in place).
 
