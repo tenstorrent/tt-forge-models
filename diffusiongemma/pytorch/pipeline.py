@@ -43,36 +43,22 @@ from .loader import ModelLoader, ModelVariant
 PROMPT = "Why is the sky blue?"
 MAX_NEW_TOKENS = 256  # one canvas block
 SEED = 0
-# Encoder-only inputs: the image is consumed during prefill and then lives in the KV
-# cache, so these must not follow the loop into the denoising steps.
+# Consumed during prefill and then held in the KV cache, so they must not follow
+# the loop into the denoising steps.
 VISION_INPUT_KEYS = ("pixel_values", "image_position_ids")
 
 
 def patch_selfcond_anchor(mesh):
     """Keep the self-conditioning softmax axis replicated -- tt-xla #6075.
 
-    The decoder computes (modeling_diffusion_gemma.py:1249)
+    ``embed_tokens.weight`` is vocab-sharded, so Shardy shards the softmax output
+    that feeds the matmul, and the cross-device combine of the per-shard max is
+    emitted as an add -- exp() then underflows and the divide yields +-Inf.
 
-        soft = matmul(logits.softmax(-1).to(bf16), embed_tokens.weight) * embed_scale
-
-    and ``embed_tokens.weight`` is vocab-sharded (load_shard_spec), which is what
-    makes the image path fit in DRAM. Shardy propagates that contracting-dim shard
-    BACKWARDS onto the softmax output, so the softmax's own reduction axis ends up
-    sharded -- and the cross-device combine of the per-shard MAX is emitted as an
-    ADD (ShardyCCLToStableHLOCCLPatterns.cpp:310-314 hardcodes AddOp for every
-    sdy.all_reduce). The shift becomes max0+..+max7 instead of max(max0..max7),
-    exp() underflows to zero, the denominator is zero, and 0/0 gives +-Inf.
-
-    Measured: decoder input embeds PCC 0.359807 -> 0.999954; step-2 logits 0.717;
-    every case converged in 15-18 denoise steps instead of burning all 48, and
-    image_only went from garbage to a correct description.
-
-    Pinning the probabilities replicated costs a transient all-gather
-    ([1,256,262144] bf16 = 0.125 GiB) and no steady-state DRAM -- the weight stays
-    sharded, so the OOM fix is untouched. Peak measured 9.66-10.25 GiB of 11.97.
-
-    Anchoring the INPUT logits instead does NOT work (embeds stays 0.359807): the
-    constraint has to sit on the tensor that feeds the sharded contraction.
+    Pinning the probabilities replicated costs a transient all-gather (0.125 GiB)
+    and no steady-state DRAM; the weight stays sharded, so the OOM fix holds.
+    Anchoring the input logits instead does not work -- the constraint has to sit
+    on the tensor that feeds the sharded contraction.
     """
     from tt_torch.sharding import sharding_constraint_tensor
     from transformers.models.diffusion_gemma import modeling_diffusion_gemma as _m
@@ -87,9 +73,8 @@ def patch_selfcond_anchor(mesh):
 
         def softmax(t, dim=-1, dtype=None):
             out = real(t, dim, dtype=dtype) if dtype is not None else real(t, dim)
-            # Only the self-conditioning softmax spans the vocab axis, and only the
-            # device path is sharded -- the CPU golden runs this same forward and
-            # must be left alone.
+            # Only the self-conditioning softmax spans the vocab axis, and the CPU
+            # golden runs this same forward, so leave it alone.
             if out.shape[-1] == vocab and out.device.type == "xla":
                 out = sharding_constraint_tensor(out, mesh, (None,) * out.ndim)
             return out
@@ -152,24 +137,14 @@ def free_tt_graphs():
             if isinstance(obj, torch.fx.GraphModule):
                 if getattr(obj, "xla_args", None) is not None:
                     obj.xla_args = None
-                # Dynamo LIFTS the traced module's parameters onto the
-                # GraphModule itself (keys "L__self___...") and keeps the
-                # original submodules under it, so nulling xla_args leaves every
-                # weight registered here -- and retain=true on every PJRT buffer
-                # makes a registered weight a live DRAM allocation.
-                #
-                # Measured on 8x WH, image path: without this, eviction left
-                # 2.44 GiB in 366 tensors (the 1.375 GiB replicated embed_tokens
-                # plus ~1.06 GiB of vision tower weights), which then OOMed the
-                # decoder on its 60 MiB KV cache. Text leaks only 0.006 GiB
-                # because its graph lifts no vision tower.
+                # Dynamo lifts the traced parameters onto the GraphModule, and
+                # retain=true makes each one a live DRAM allocation. Without this
+                # the image path left 2.44 GiB resident after eviction.
                 obj._parameters.clear()
                 obj._buffers.clear()
                 obj._modules.clear()
-            # ...and the compiled function's closure holds the same tensors
-            # again, independently. Measured: clearing either holder alone
-            # leaves the other, and DRAM does not move -- both must go in the
-            # same pass.
+            # The compiled function's closure holds the same tensors again;
+            # clearing only one holder frees nothing.
             if isinstance(obj, types.CellType):
                 try:
                     held = obj.cell_contents
@@ -336,9 +311,7 @@ def manual_generate(
         )
         past_key_values = encoder_outputs.past_key_values
         is_prefill = False
-        # Prefill has folded the image into the KV cache. Drop the vision tensors so
-        # the denoiser (and any later block's encoder call, which only sees new
-        # tokens) is never handed an image it has no slot for.
+        # Prefill folded the image into the KV cache; the denoiser has no slot for it.
         for key in VISION_INPUT_KEYS:
             model_kwargs.pop(key, None)
 
@@ -497,11 +470,9 @@ class DiffusionGemmaPipeline:
         # CPU model: host driver only (sampler/stopping/cache/positions); runs no NN forward.
         self.cpu_model = self.loader.load_model(dtype_override=torch.bfloat16)
         self.cpu_model.eval()
-        # The CPU twin stays on the CHECKPOINT'S OWN expert loop. Setting tt_moe here
-        # makes it fall through to HF batched_mm (moe_backend.py:472-476) -- a different
-        # implementation (measured PCC 0.9999923 vs stock at real dims), and ~30x slower
-        # because it materialises gate_up_proj[expert_ids] = [T*K, 1408, 2816], a ~16 GB
-        # gather per layer. The DEVICE model still needs tt_moe (set in _load_sharded).
+        # The CPU twin stays on the checkpoint's own expert loop: tt_moe would fall
+        # through to HF batched_mm, a different implementation and ~30x slower. The
+        # device model still sets it, in _load_sharded.
         self.mesh = make_mesh(
             *self.loader.get_mesh_config(xr.global_runtime_device_count())
         )
@@ -513,10 +484,8 @@ class DiffusionGemmaPipeline:
         vl = ModelLoader(variant)
         model = vl.load_model(dtype_override=torch.bfloat16)
         vl.config._experts_implementation = TT_MOE_BACKEND_NAME
-        # The decoder residency loads the full ForBlockDiffusion, whose encoder carries a
-        # 1.06 GiB vision tower it never uses in the denoising loop -- .to() would place it
-        # on every device for the whole loop. Drop it before the move. The encoder residency
-        # (ENCODER variant) needs it, so only the full-model variants are trimmed.
+        # The decoder never uses the encoder's 1.06 GiB vision tower, so drop it
+        # before .to() places it on every device. The ENCODER variant needs it.
         if variant != ModelVariant.ENCODER:
             enc = getattr(getattr(model, "model", None), "encoder", None)
             if enc is not None:
@@ -603,10 +572,8 @@ class DiffusionGemmaPipeline:
             )
 
         def decoder_forward(**kw):
-            # First decode step: encoder is freed, so load the decoder now and restore
-            # the KV cache from host. The loader's shard spec vocab-shards lm_head/embed
-            # inside _load_sharded, before the device placement, so the head is never
-            # materialised replicated.
+            # First decode step: the encoder is freed, so load the decoder and
+            # restore the KV cache from host.
             if stage["dec_tt"] is None:
                 with self._staging():
                     dec_model = self._load_sharded(

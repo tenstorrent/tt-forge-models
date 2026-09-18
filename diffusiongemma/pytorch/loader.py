@@ -48,10 +48,6 @@ class ModelVariant(StrEnum):
     DIFFUSIONGEMMA_26B_A4B_IT_IMAGE = "26B-A4B-it-image"
     DIFFUSIONGEMMA_26B_A4B_IT_IMAGE_ONLY = "26B-A4B-it-image-only"
     ENCODER = "encoder"
-    EMBED_VISION = "embed-vision"
-    ENCODER_IMAGE = "encoder-image"
-    ENCODER_IMAGE_ONLY = "encoder-image-only"
-    VISION_TOWER = "vision-tower"
 
 
 class ModelLoader(ForgeModel):
@@ -70,48 +66,19 @@ class ModelLoader(ForgeModel):
         ModelVariant.ENCODER: LLMModelConfig(
             pretrained_model_name="google/diffusiongemma-26B-A4B-it",
         ),
-        ModelVariant.EMBED_VISION: LLMModelConfig(
-            pretrained_model_name="google/diffusiongemma-26B-A4B-it",
-        ),
-        ModelVariant.ENCODER_IMAGE: LLMModelConfig(
-            pretrained_model_name="google/diffusiongemma-26B-A4B-it",
-        ),
-        ModelVariant.ENCODER_IMAGE_ONLY: LLMModelConfig(
-            pretrained_model_name="google/diffusiongemma-26B-A4B-it",
-        ),
-        ModelVariant.VISION_TOWER: LLMModelConfig(
-            pretrained_model_name="google/diffusiongemma-26B-A4B-it",
-        ),
     }
-
-    # Variants that return a submodule instead of the whole model, so a runner
-    # entry can PCC one pipeline component at a time.
-    _ENCODER_VARIANTS = (
-        ModelVariant.ENCODER,
-        ModelVariant.ENCODER_IMAGE,
-        ModelVariant.ENCODER_IMAGE_ONLY,
-    )
 
     DEFAULT_VARIANT = ModelVariant.DIFFUSIONGEMMA_26B_A4B_IT
 
-    # Variants that select a non-text input modality in load_inputs. The runner
-    # calls load_inputs with only dtype_override/batch_size, so the variant is
-    # the only channel through which it can ask for image inputs.
+    # The runner calls load_inputs with only dtype_override/batch_size, so the
+    # variant is the only channel through which it can ask for image inputs.
     _MODALITY_BY_VARIANT = {
         ModelVariant.DIFFUSIONGEMMA_26B_A4B_IT_IMAGE: "image",
         ModelVariant.DIFFUSIONGEMMA_26B_A4B_IT_IMAGE_ONLY: "image_only",
-        ModelVariant.ENCODER_IMAGE: "image",
-        ModelVariant.ENCODER_IMAGE_ONLY: "image_only",
-        ModelVariant.VISION_TOWER: "vision_tower",
-        ModelVariant.EMBED_VISION: "embed_vision",
     }
     _TASK_BY_VARIANT = {
         ModelVariant.DIFFUSIONGEMMA_26B_A4B_IT_IMAGE: ModelTask.MM_IMAGE_TTT,
         ModelVariant.DIFFUSIONGEMMA_26B_A4B_IT_IMAGE_ONLY: ModelTask.MM_IMAGE_TTT,
-        ModelVariant.ENCODER_IMAGE: ModelTask.MM_IMAGE_TTT,
-        ModelVariant.ENCODER_IMAGE_ONLY: ModelTask.MM_IMAGE_TTT,
-        ModelVariant.VISION_TOWER: ModelTask.MM_IMAGE_TTT,
-        ModelVariant.EMBED_VISION: ModelTask.MM_IMAGE_TTT,
     }
 
     sample_text = "Why is the sky blue?"
@@ -121,9 +88,6 @@ class ModelLoader(ForgeModel):
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
         self.processor = None
-        # EMBED_VISION consumes the vision tower's output; load_model captures a
-        # real one here so this component is not fed synthetic activations.
-        self._embed_vision_input = None
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -159,32 +123,10 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
         self.config = model.config
-        # ENCODER variant: return the encoder as a standalone model so it can
-        # be freed independently -> staged residency avoids OOM.
-        # See https://github.com/tenstorrent/tt-xla/issues/5538
-        if self._variant in self._ENCODER_VARIANTS:
+        # The encoder is returned standalone so the staged residency can free it
+        # independently. https://github.com/tenstorrent/tt-xla/issues/5538
+        if self._variant == ModelVariant.ENCODER:
             self.model = model.model.encoder
-            return self.model
-        # VISION_TOWER: the tower on its own, so a failing image PCC can be
-        # attributed to the tower vs the text stack that consumes its features.
-        if self._variant == ModelVariant.VISION_TOWER:
-            self.model = model.model.encoder.vision_tower
-            return self.model
-        # EMBED_VISION: the projection that sits between the tower and the text
-        # stack (RMSNorm + Linear 1152->2816, run inside get_image_features). Its
-        # input is the tower's last_hidden_state, so capture a real one while the
-        # full model is still in hand -- synthetic activations would not carry the
-        # right scale for a meaningful PCC.
-        if self._variant == ModelVariant.EMBED_VISION:
-            encoder = model.model.encoder
-            img = self.load_image_inputs(dtype_override=dtype_override)
-            with torch.no_grad():
-                vision_outputs = encoder.vision_tower(
-                    pixel_values=img["pixel_values"],
-                    pixel_position_ids=img["image_position_ids"],
-                )
-            self._embed_vision_input = vision_outputs.last_hidden_state
-            self.model = encoder.embed_vision
             return self.model
         self.model = model
         return model
@@ -213,8 +155,7 @@ class ModelLoader(ForgeModel):
         ``image_position_ids``) stay integer.
         """
         inputs = dict(inputs)
-        # e.g. num_soft_tokens_per_image: the processor uses it to size the
-        # placeholder span, the forward does not take it.
+        # e.g. num_soft_tokens_per_image: sizes the placeholder span, not a forward arg.
         for key in getattr(self.processor, "unused_input_names", []):
             inputs.pop(key, None)
         for key in list(inputs):
@@ -280,21 +221,6 @@ class ModelLoader(ForgeModel):
             self._apply_chat_template(content), dtype_override, batch_size
         )
 
-    def load_vision_tower_inputs(
-        self, dtype_override=None, batch_size=1, image_url: Optional[str] = None
-    ):
-        """Inputs for the vision tower alone: {pixel_values, pixel_position_ids}.
-
-        The tower names the coordinate tensor ``pixel_position_ids``; the encoder
-        that wraps it calls the same tensor ``image_position_ids`` (see
-        ``DiffusionGemmaEncoderModel.get_image_features``), so it is renamed here.
-        """
-        inputs = self.load_image_inputs(dtype_override, batch_size, image_url=image_url)
-        return {
-            "pixel_values": inputs["pixel_values"],
-            "pixel_position_ids": inputs["image_position_ids"],
-        }
-
     def load_inputs(
         self,
         dtype_override=None,
@@ -308,19 +234,6 @@ class ModelLoader(ForgeModel):
         selects image+text (or image-only) over text-only.
         """
         modality = self._MODALITY_BY_VARIANT.get(self._variant)
-        if modality == "embed_vision":
-            assert self._embed_vision_input is not None, (
-                "load_model must run before load_inputs for the embed-vision "
-                "component: it captures the vision tower's real output as this "
-                "module's input."
-            )
-            return {
-                "inputs_embeds": self._embed_vision_input.repeat_interleave(
-                    batch_size, dim=0
-                )
-            }
-        if modality == "vision_tower":
-            return self.load_vision_tower_inputs(dtype_override, batch_size, image_url)
         if modality in ("image", "image_only"):
             # image_only: prompt="" drops the text part of the user turn.
             if modality == "image_only" and prompt is None:
@@ -345,11 +258,7 @@ class ModelLoader(ForgeModel):
         """Layers to shard: the encoder variants' `model` is the encoder submodule, so
         shard its own language_model layers; the vision-tower component shards
         nothing; else shard both encoder+decoder text layers."""
-        # The tower is replicated inside the encoder, so the standalone component
-        # test replicates it too -- keeps the isolation faithful.
-        if self._variant in (ModelVariant.VISION_TOWER, ModelVariant.EMBED_VISION):
-            return []
-        if self._variant in self._ENCODER_VARIANTS:
+        if self._variant == ModelVariant.ENCODER:
             return list(model.language_model.layers)
         return self._text_layers(model)
 
@@ -368,29 +277,11 @@ class ModelLoader(ForgeModel):
                 shard_specs[experts.gate_up_proj] = ("model", None, None)
                 shard_specs[experts.down_proj] = ("model", None, None)
 
-        # Vocab-shard the LM head on the image variants only.
-        #
-        # Measured on n300-llmbox (8 x 11.97 GiB DRAM): this spec leaves 10.01 GiB
-        # of weights per device, so only 1.96 GiB for activations + KV. The image
-        # path needs ~1.68 GiB of that, and tilizing the replicated 1.375 GiB
-        # lm_head on top lands at 13.06 GiB -- 1.09 GiB over. Sharding it drops
-        # weights to 8.80 GiB and the tilize to 0.17 GiB, which fits.
-        #
-        # Applied to every variant that has a head, so the consumer's single
-        # mark_sharding pass covers it. Sharding it later, after the model is already
-        # on device, is too late: the replicated 1.375 GiB placement has happened by
-        # then and is what OOMs the staged decoder residency.
-        #
-        # Earlier this was image-only, on the belief that sharding it cost the text
-        # path pcc 0.9604 -> 0.9487. A control run on unmodified code disproved that:
-        # unmodified measured 0.94887, sharded 0.94870 -- a 0.00017 spread. That entry
-        # is simply nondeterministic around its floor (tt-xla#6054 discussion).
-        # lm_head and embed_tokens are ONE tied nn.Parameter in the checkpoint, but
-        # model.to(device) breaks the tie: afterwards they are two distinct device
-        # tensors, so marking lm_head alone leaves embed_tokens replicated at its full
-        # 262144 x 2816 bf16 = 1.375 GiB. That replicated copy is what OOMs the staged
-        # decoder residency. Shard both, by identity, wherever they exist -- the encoder
-        # variant has embed_tokens but no lm_head.
+        # Vocab-shard the head: replicated it is 1.375 GiB per device, and tilizing
+        # it on top of the weights lands 1.09 GiB over the 11.97 GiB budget.
+        # lm_head and embed_tokens are one tied parameter in the checkpoint, but
+        # model.to(device) breaks the tie, so both must be marked by identity, and
+        # here rather than after placement -- by then the replicated copy exists.
         for holder, attr in (
             (model, "lm_head"),
             (getattr(getattr(model, "model", None), "decoder", None), "embed_tokens"),
