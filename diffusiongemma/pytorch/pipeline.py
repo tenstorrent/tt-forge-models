@@ -176,8 +176,7 @@ def free_tt_graphs():
                 except ValueError:
                     continue  # empty cell
                 if isinstance(held, (list, tuple)) and any(
-                    isinstance(x, torch.Tensor) and x.device.type == "xla"
-                    for x in held
+                    isinstance(x, torch.Tensor) and x.device.type == "xla" for x in held
                 ):
                     obj.cell_contents = None
                 elif isinstance(held, dict) and any(
