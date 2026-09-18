@@ -24,7 +24,6 @@ matching the gemma4 loader.
 
 from typing import Optional
 
-import torch
 from PIL import Image
 from transformers import AutoProcessor
 

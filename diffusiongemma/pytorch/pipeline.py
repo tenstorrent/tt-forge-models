@@ -43,11 +43,6 @@ from .loader import ModelLoader, ModelVariant
 PROMPT = "Why is the sky blue?"
 MAX_NEW_TOKENS = 256  # one canvas block
 SEED = 0
-# Consumed during prefill and then held in the KV cache, so they must not follow
-# the loop into the denoising steps.
-VISION_INPUT_KEYS = ("pixel_values", "image_position_ids")
-
-
 _ACTIVE_MESH = [None]
 
 
@@ -322,7 +317,7 @@ def manual_generate(
         past_key_values = encoder_outputs.past_key_values
         is_prefill = False
         # Prefill folded the image into the KV cache; the denoiser has no slot for it.
-        for key in VISION_INPUT_KEYS:
+        for key in ("pixel_values", "image_position_ids"):
             model_kwargs.pop(key, None)
 
         (
