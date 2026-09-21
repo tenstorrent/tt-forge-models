@@ -925,7 +925,21 @@ def _init_unloaded_statistics(module: torch.nn.Module) -> int:
 class ModelLoader(ForgeModel):
     """LTX-2.3 22B audio-video DiT transformer loader (Fast / Pro variants)."""
 
-    _VARIANTS = {v: ModelConfig(pretrained_model_name=_HF_REPO) for v in ModelVariant}
+    # Spelled out as a dict literal rather than a comprehension over ModelVariant.
+    # tests/runner/validate_test_config.py discovers variants by AST, and only
+    # recognises an ast.Dict -- a DictComp yields no variants at all, so every
+    # test_config entry for this family resolved to "ltx2_3/pytorch-<mode>" and
+    # was rejected as an unknown test id. Keep this literal in step with
+    # ModelVariant above.
+    _VARIANTS = {
+        ModelVariant.LTX2_3_FAST: ModelConfig(pretrained_model_name=_HF_REPO),
+        ModelVariant.LTX2_3_PRO: ModelConfig(pretrained_model_name=_HF_REPO),
+        ModelVariant.VIDEO_VAE_DECODER: ModelConfig(pretrained_model_name=_HF_REPO),
+        ModelVariant.VIDEO_VAE_ENCODER: ModelConfig(pretrained_model_name=_HF_REPO),
+        ModelVariant.AUDIO_VAE_DECODER: ModelConfig(pretrained_model_name=_HF_REPO),
+        ModelVariant.AUDIO_VAE_ENCODER: ModelConfig(pretrained_model_name=_HF_REPO),
+        ModelVariant.VOCODER: ModelConfig(pretrained_model_name=_HF_REPO),
+    }
     DEFAULT_VARIANT = ModelVariant.LTX2_3_FAST
 
     def __init__(self, variant: Optional[ModelVariant] = None):
