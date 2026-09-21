@@ -61,9 +61,6 @@ def patch_selfcond_anchor(mesh):
     from tt_torch.sharding import sharding_constraint_tensor
     from transformers.models.diffusion_gemma import modeling_diffusion_gemma as _m
 
-    # One process can set up several pipelines (pytest runs the cases in one), so
-    # keep the live mesh in a cell the installed wrapper reads, rather than closing
-    # over the first one.
     _ACTIVE_MESH[0] = mesh
     if getattr(_m.DiffusionGemmaDecoderModel.forward, "_selfcond_anchored", False):
         return
