@@ -342,12 +342,37 @@ _HF_REPO = "Lightricks/LTX-2.3"
 # Cached Pro/dev checkpoint (43GB) holding real weights for every in-file
 # component. The video-VAE variants copy their ``vae.{decoder,encoder}.*`` +
 # ``vae.per_channel_statistics.*`` tensors out of it (lazily, via safe_open) so
-# the single-device VAE tests run against REAL weights. If the path is absent
-# (e.g. CI without the cache mount) the VAE falls back to random init.
-_CHECKPOINT_PATH = (
-    "/proj_sw/user_dev/dnikolic/model_cache/ltx-checkpoints/"
-    "ltx-2.3-22b-dev.safetensors"
+# the single-device VAE tests run against REAL weights.
+#
+# The path is RESOLVED AT CALL TIME, env var first, because the original
+# hard-coded location was in another user's cache directory and disappeared --
+# every VAE component then silently fell back to random init, which is how a
+# recorded "real weights, PCC 0.99" result stopped being reproducible without
+# anything failing loudly. Set LTX2_3_CHECKPOINT to point at a local copy.
+_CHECKPOINT_ENV = "LTX2_3_CHECKPOINT"
+_CHECKPOINT_FILENAME = "ltx-2.3-22b-dev.safetensors"
+_CHECKPOINT_SEARCH_PATHS = (
+    "/proj_sw/user_dev/dnikolic/model_cache/ltx-checkpoints",
+    "/proj_sw/user_dev/model_cache/ltx-checkpoints",
+    os.path.expanduser("~/model_cache/ltx-checkpoints"),
 )
+
+
+def checkpoint_path():
+    """Absolute path to the 22B dev checkpoint, or ``None`` if it is not here.
+
+    ``LTX2_3_CHECKPOINT`` (a full file path) wins over the search list so a run
+    on any host can name its own copy.
+    """
+    override = os.environ.get(_CHECKPOINT_ENV)
+    if override:
+        return override if os.path.exists(override) else None
+    for directory in _CHECKPOINT_SEARCH_PATHS:
+        candidate = os.path.join(directory, _CHECKPOINT_FILENAME)
+        if os.path.exists(candidate):
+            return candidate
+    return None
+
 
 # ── Embedded transformer config ─────────────────────────────────────────────
 # Extracted from the LTX-2.3 22B checkpoint's safetensors header (the
@@ -474,10 +499,47 @@ _VAE_CONFIG = {
 #   encoder video (B,3,F,H,W)   -> latent (B,128, 1+(F-1)/8, H/32, W/32)
 #   decoder latent (B,128,F',H',W') -> video (B,3, 8*(F'-1)+1, 32*H', 32*W')
 # The two are exact round-trip inverses at these dims (verified on CPU).
+_VAE_TEMPORAL_COMPRESSION = 8
+_VAE_SPATIAL_COMPRESSION = 32
 _VAE_LATENT_CHANNELS = 128
 _VAE_VIDEO_CHANNELS = 3
+# REDUCED smoke shapes -- the minimum round-trip that exercises both halves,
+# NOT the reference configuration. See REFERENCE_CONFIG below and use
+# ``video_latent_shape`` / ``video_pixel_shape`` to build any other rung.
 _VAE_ENC_VIDEO_SHAPE = (_VAE_VIDEO_CHANNELS, 9, 256, 256)  # -> latent (128,2,8,8)
 _VAE_DEC_LATENT_SHAPE = (_VAE_LATENT_CHANNELS, 2, 8, 8)  # -> video (3,9,256,256)
+
+
+def video_pixel_shape(num_frames: int, height: int, width: int):
+    """Per-sample encoder input shape (C, F, H, W) for a video-space rung."""
+    if (num_frames - 1) % _VAE_TEMPORAL_COMPRESSION:
+        raise ValueError(
+            f"num_frames-1 must be divisible by {_VAE_TEMPORAL_COMPRESSION}, "
+            f"got num_frames={num_frames}"
+        )
+    for name, value in (("height", height), ("width", width)):
+        if value % _VAE_SPATIAL_COMPRESSION:
+            raise ValueError(
+                f"{name} must be divisible by {_VAE_SPATIAL_COMPRESSION}, got {value}"
+            )
+    return (_VAE_VIDEO_CHANNELS, num_frames, height, width)
+
+
+def video_latent_shape(num_frames: int, height: int, width: int):
+    """Per-sample decoder input shape (C, F', H', W') for a video-space rung.
+
+    Both VAE halves are driven from ONE rung spec in video space so the encoder
+    input and the decoder input of a rung stay exact round-trip inverses; the
+    decoder's latent shape is derived here rather than specified separately.
+    """
+    video_pixel_shape(num_frames, height, width)  # validate divisibility
+    return (
+        _VAE_LATENT_CHANNELS,
+        1 + (num_frames - 1) // _VAE_TEMPORAL_COMPRESSION,
+        height // _VAE_SPATIAL_COMPRESSION,
+        width // _VAE_SPATIAL_COMPRESSION,
+    )
+
 
 # ── Embedded audio-VAE config ────────────────────────────────────────────────
 # The "audio_vae" sub-dict of the checkpoint config (stereo mel autoencoder,
@@ -590,6 +652,64 @@ _AUDIO_CTX_DIM = (
 _VIDEO_TOKENS = 4
 _AUDIO_TOKENS = 4
 _CTX_SEQ = 8
+
+# ── Reference (parity) configuration ─────────────────────────────────────────
+# Everything above (_VAE_*_SHAPE, _VIDEO_TOKENS, _AUDIO_TOKENS) is a REDUCED
+# smoke shape: the minimum that produces a valid forward, chosen to get each
+# component through compile -- NOT a representative workload. The configuration
+# the pipeline actually runs is a committed upstream constant, vendored at
+#   third_party/LTX-2/packages/ltx-pipelines/src/ltx_pipelines/utils/constants.py:72-98
+#     LTX_2_3_PARAMS    = replace(LTX_2_PARAMS, num_inference_steps=30, ...)
+#     LTX_2_3_HQ_PARAMS = PipelineParams(num_inference_steps=15,
+#                                        stage_1_height=1088 // 2,   # 544
+#                                        stage_1_width=1920 // 2,    # 960
+#                                        ...)
+# with num_frames=121 / stage_1_height=512 / stage_1_width=768 / frame_rate=24.0
+# inherited from LTX_2_PARAMS (constants.py:33-37).
+#
+# The token counts below are not estimates: they are what upstream's own
+# VideoLatentShape.token_count / AudioLatentShape.token_count return for those
+# params (ltx_core/types.py:66-68 and :114-116, :129-145), so this block cannot
+# drift away from upstream without one of the asserts in the tests moving too.
+_AUDIO_SAMPLE_RATE = 16000  # ltx_core/types.py:136
+_AUDIO_HOP_LENGTH = 160  # ltx_core/types.py:137
+_AUDIO_LATENT_DOWNSAMPLE = 4  # ltx_core/types.py:138
+_AUDIO_LATENTS_PER_SECOND = (
+    _AUDIO_SAMPLE_RATE / _AUDIO_HOP_LENGTH / _AUDIO_LATENT_DOWNSAMPLE
+)  # 25.0
+
+
+def _reference_entry(num_frames, height, width, frame_rate, num_inference_steps):
+    """Build one REFERENCE_CONFIG entry, deriving every count from upstream's
+    own shape arithmetic rather than from a hand-copied number."""
+    _, latent_frames, latent_height, latent_width = video_latent_shape(
+        num_frames, height, width
+    )
+    duration_s = num_frames / frame_rate
+    return {
+        "num_frames": num_frames,
+        "height": height,
+        "width": width,
+        "frame_rate": frame_rate,
+        "num_inference_steps": num_inference_steps,
+        "duration_s": duration_s,
+        # VideoLatentShape(1, 128, F', H', W')
+        "video_latent_grid": (latent_frames, latent_height, latent_width),
+        "video_tokens": latent_frames * latent_height * latent_width,
+        # AudioLatentShape.from_duration -> frames == token_count
+        "audio_tokens": round(duration_s * _AUDIO_LATENTS_PER_SECOND),
+    }
+
+
+REFERENCE_CONFIG = {
+    # LTX_2_3_PARAMS: 121 frames, 512x768, 30 steps -> 16*16*24 = 6144 video
+    # tokens, 126 audio tokens. The committed smoke shape is 4 video tokens,
+    # i.e. 1536x smaller.
+    "standard": _reference_entry(121, 512, 768, 24.0, 30),
+    # LTX_2_3_HQ_PARAMS: same 121 frames at 544x960, 15 steps -> 16*17*30 =
+    # 8160 video tokens.
+    "hq": _reference_entry(121, 544, 960, 24.0, 15),
+}
 
 # variant -> intended checkpoint filename (NOT loaded by this scaffold).
 _VARIANT_CHECKPOINT = {
@@ -709,13 +829,14 @@ def _load_vocoder_weights(module: torch.nn.Module) -> bool:
     key-value operation (``apply_to_key_value``), which ``apply_to_key`` does not
     apply — so this path pre-filters to ``vocoder.*`` keys and runs the kv-op.
     """
-    if not os.path.exists(_CHECKPOINT_PATH):
+    path = checkpoint_path()
+    if path is None:
         return False
 
     from safetensors import safe_open
 
     remapped = {}
-    with safe_open(_CHECKPOINT_PATH, framework="pt", device="cpu") as f:
+    with safe_open(path, framework="pt", device="cpu") as f:
         for k in f.keys():
             if not k.startswith("vocoder."):
                 continue
@@ -735,17 +856,22 @@ def _load_vocoder_weights(module: torch.nn.Module) -> bool:
 def _load_vae_weights(module: torch.nn.Module, key_filter) -> bool:
     """Copy the matching VAE tensors from the cached checkpoint into ``module``.
 
-    Returns True if real weights were loaded, False if the checkpoint is absent
-    (module keeps its random init). Uses ``safe_open`` so only the ~86 matched
-    tensors are materialized, not the full 43GB file.
+    Returns True if real weights were loaded, False if the checkpoint is absent.
+    A False return leaves the module on its random init AND leaves the
+    ``PerChannelStatistics`` buffers uninitialized, so the caller must run
+    ``_init_unloaded_statistics`` -- see that function for why.
+
+    Uses ``safe_open`` so only the ~86 matched tensors are materialized, not the
+    full 43GB file.
     """
-    if not os.path.exists(_CHECKPOINT_PATH):
+    path = checkpoint_path()
+    if path is None:
         return False
 
     from safetensors import safe_open  # local import: optional at scaffold time
 
     remapped = {}
-    with safe_open(_CHECKPOINT_PATH, framework="pt", device="cpu") as f:
+    with safe_open(path, framework="pt", device="cpu") as f:
         for k in f.keys():
             new_k = key_filter.apply_to_key(k)
             if new_k is None:
@@ -759,6 +885,41 @@ def _load_vae_weights(module: torch.nn.Module, key_filter) -> bool:
             f"unexpected={result.unexpected_keys[:5]}"
         )
     return True
+
+
+_STATS_BUFFERS = ("std-of-means", "mean-of-means")
+
+
+def _init_unloaded_statistics(module: torch.nn.Module) -> int:
+    """Identity-initialize every ``PerChannelStatistics`` in ``module``.
+
+    Upstream registers these buffers with ``torch.empty`` and expects the
+    checkpoint to fill them (``video_vae/ops.py:71-72``,
+    ``audio_vae/ops.py:66-67``). Without a checkpoint they hold UNINITIALIZED
+    MEMORY, and both halves use them on the tensor path:
+    ``VideoEncoder.forward`` ends at ``per_channel_statistics.normalize`` --
+    a division by ``std-of-means`` -- and ``VideoDecoder.forward`` opens with
+    ``un_normalize``. Observed on this box with no checkpoint: encoder
+    ``std-of-means`` all zeros, so the encoder output was 96% NaN in bf16 and
+    overflowed to 3.3e38 in fp32, and the decoder's garbage differed per
+    process, making the same rung pass or fail run to run.
+
+    Identity (mean 0, std 1) makes the no-checkpoint path deterministic and
+    finite, so a random-weight run still measures CPU-vs-TT numerics honestly
+    instead of comparing two evaluations of uninitialized memory.
+
+    Returns the number of statistics modules initialized.
+    """
+    count = 0
+    for submodule in module.modules():
+        names = set(dict(submodule.named_buffers(recurse=False)))
+        if not set(_STATS_BUFFERS) <= names:
+            continue
+        with torch.no_grad():
+            submodule.get_buffer("std-of-means").fill_(1.0)
+            submodule.get_buffer("mean-of-means").fill_(0.0)
+        count += 1
+    return count
 
 
 class ModelLoader(ForgeModel):
@@ -793,9 +954,15 @@ class ModelLoader(ForgeModel):
         ``num_layers`` overrides layer count for CPU sanity checks only.
 
         Video-VAE variants build the decoder/encoder from ``_VAE_CONFIG`` and load
-        REAL weights from the cached checkpoint (random fallback if absent).
+        REAL weights from the cached checkpoint. If the checkpoint is not on this
+        host the component keeps its random init, its ``PerChannelStatistics``
+        are identity-initialized (see ``_init_unloaded_statistics``), and
+        ``self.weights_loaded`` / ``model.weights_loaded`` are False -- tests
+        must report that flag rather than presenting the run as a real-weight
+        result.
         """
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
+        self.weights_loaded = None
 
         if self._variant in (
             ModelVariant.VIDEO_VAE_DECODER,
@@ -805,7 +972,8 @@ class ModelLoader(ForgeModel):
             # the checkpoint values are copied cleanly before down-casting.
             if self._variant == ModelVariant.VIDEO_VAE_DECODER:
                 base = VideoDecoderConfigurator.from_config(_VAE_CONFIG).eval()
-                _load_vae_weights(base, VAE_DECODER_COMFY_KEYS_FILTER)
+                loaded = _load_vae_weights(base, VAE_DECODER_COMFY_KEYS_FILTER)
+                self._finish_weights(base, loaded)
                 base = base.to(dtype)
                 # Stamp the weight dtype so the decoder forward skips the
                 # non-traceable ``next(self.parameters())`` dtype lookup.
@@ -813,9 +981,11 @@ class ModelLoader(ForgeModel):
                 self.model = _VideoDecoderWrapper(base)
             else:
                 base = VideoEncoderConfigurator.from_config(_VAE_CONFIG).eval()
-                _load_vae_weights(base, VAE_ENCODER_COMFY_KEYS_FILTER)
+                loaded = _load_vae_weights(base, VAE_ENCODER_COMFY_KEYS_FILTER)
+                self._finish_weights(base, loaded)
                 self.model = _VideoEncoderWrapper(base)
             self.model = self.model.to(dtype)
+            self.model.weights_loaded = self.weights_loaded
             return self.model
 
         if self._variant in (
@@ -825,13 +995,17 @@ class ModelLoader(ForgeModel):
         ):
             if self._variant == ModelVariant.AUDIO_VAE_DECODER:
                 base = AudioDecoderConfigurator.from_config(_AUDIO_VAE_CONFIG).eval()
-                _load_vae_weights(base, AUDIO_VAE_DECODER_COMFY_KEYS_FILTER)
+                self._finish_weights(
+                    base, _load_vae_weights(base, AUDIO_VAE_DECODER_COMFY_KEYS_FILTER)
+                )
             elif self._variant == ModelVariant.AUDIO_VAE_ENCODER:
                 base = AudioEncoderConfigurator.from_config(_AUDIO_VAE_CONFIG).eval()
-                _load_vae_weights(base, AUDIO_VAE_ENCODER_COMFY_KEYS_FILTER)
+                self._finish_weights(
+                    base, _load_vae_weights(base, AUDIO_VAE_ENCODER_COMFY_KEYS_FILTER)
+                )
             else:  # VOCODER
                 base = VocoderConfigurator.from_config(_VOCODER_CONFIG).eval()
-                _load_vocoder_weights(base)
+                self._finish_weights(base, _load_vocoder_weights(base))
                 # The vocoder (BigVGAN-v2 + BWE) upstream runs its whole forward in
                 # fp32 (``mel_spec.float()`` under ``autocast(dtype=float32)``)
                 # because bf16 accumulation over 108 sequential convs degrades
@@ -845,9 +1019,11 @@ class ModelLoader(ForgeModel):
                 base = base.to(dtype)
                 base._forge_compute_dtype = dtype
                 self.model = _TensorForwardWrapper(base)
+                self.model.weights_loaded = self.weights_loaded
                 return self.model
             base = base.to(dtype)
             self.model = _TensorForwardWrapper(base)
+            self.model.weights_loaded = self.weights_loaded
             return self.model
 
         # ── transformer (Fast / Pro) ─────────────────────────────────────────
@@ -861,11 +1037,65 @@ class ModelLoader(ForgeModel):
         self.model = _LTXModelWrapper(base)
         if dtype_override is not None:
             self.model = self.model.to(dtype_override)
+        # The transformer is random-weight BY DESIGN (no 46GB download); the
+        # flag is False for the same reason the VAE fallback sets it, so a
+        # caller can treat both uniformly.
+        self.weights_loaded = False
+        self.model.weights_loaded = False
         return self.model
 
-    def load_inputs(self, dtype_override=None, batch_size=1):
+    def _finish_weights(self, base: torch.nn.Module, loaded: bool) -> None:
+        """Record whether real weights landed, and repair what a miss leaves.
+
+        On a miss the ``PerChannelStatistics`` buffers are uninitialized memory
+        (``torch.empty`` upstream), so they are identity-initialized here --
+        otherwise the encoder divides by whatever was in that memory. This is
+        the only path that makes a no-checkpoint run deterministic.
+        """
+        self.weights_loaded = loaded
+        if loaded:
+            return
+        initialized = _init_unloaded_statistics(base)
+        print(
+            f"[ltx2_3] checkpoint not found (set {_CHECKPOINT_ENV}); "
+            f"{self._variant} runs on RANDOM weights with "
+            f"{initialized} PerChannelStatistics identity-initialized. "
+            "Any PCC from this run is a CPU-vs-TT numerics measurement only, "
+            "NOT a real-weight model result.",
+            flush=True,
+        )
+
+    def load_inputs(
+        self,
+        dtype_override=None,
+        batch_size=1,
+        *,
+        num_frames=None,
+        height=None,
+        width=None,
+        video_tokens=None,
+        audio_tokens=None,
+        ctx_seq=None,
+        video_grid=None,
+    ):
         """Synthetic plain tensors at minimal valid shapes, returned in the
         wrapper's forward-arg order (video block then audio block).
+
+        Shapes default to the reduced smoke values, and every axis a parity rung
+        needs to move is an explicit keyword:
+
+        * video-VAE variants take ``num_frames`` / ``height`` / ``width`` in
+          VIDEO space for BOTH halves; the decoder's latent shape is derived
+          from them (``video_latent_shape``) so the two halves of a rung stay
+          exact round-trip inverses.
+        * transformer variants take ``video_tokens`` / ``audio_tokens`` /
+          ``ctx_seq``, or ``video_grid=(F', H', W')`` which sets
+          ``video_tokens`` from the latent grid AND builds 3-D grid positions
+          instead of a flat arange -- at 1 token per spatial position the
+          spatial RoPE axes are structurally unexercised, so a parity rung must
+          pass the grid, not just the token count.
+
+        See ``REFERENCE_CONFIG`` for the upstream parity values.
 
         Shapes follow ``Modality`` (modality.py) + the args preprocessors
         (transformer_args.py): latent (B, T, D=in_channels); context
@@ -877,10 +1107,26 @@ class ModelLoader(ForgeModel):
         """
         dtype = dtype_override if dtype_override is not None else torch.bfloat16
 
-        if self._variant == ModelVariant.VIDEO_VAE_DECODER:
-            return [torch.randn(batch_size, *_VAE_DEC_LATENT_SHAPE, dtype=dtype)]
-        if self._variant == ModelVariant.VIDEO_VAE_ENCODER:
-            return [torch.randn(batch_size, *_VAE_ENC_VIDEO_SHAPE, dtype=dtype)]
+        if self._variant in _VIDEO_VAE_VARIANTS:
+            rung_given = any(v is not None for v in (num_frames, height, width))
+            if rung_given:
+                # A rung must name all three axes -- a half-specified rung is
+                # how a "parity" run silently keeps a smoke axis.
+                if None in (num_frames, height, width):
+                    raise ValueError(
+                        "video-VAE rung needs num_frames, height and width "
+                        f"together, got ({num_frames}, {height}, {width})"
+                    )
+                shape = (
+                    video_latent_shape(num_frames, height, width)
+                    if self._variant == ModelVariant.VIDEO_VAE_DECODER
+                    else video_pixel_shape(num_frames, height, width)
+                )
+            elif self._variant == ModelVariant.VIDEO_VAE_DECODER:
+                shape = _VAE_DEC_LATENT_SHAPE
+            else:
+                shape = _VAE_ENC_VIDEO_SHAPE
+            return [torch.randn(batch_size, *shape, dtype=dtype)]
         if self._variant == ModelVariant.AUDIO_VAE_DECODER:
             return [torch.randn(batch_size, *_AUDIO_DEC_LATENT_SHAPE, dtype=dtype)]
         if self._variant == ModelVariant.AUDIO_VAE_ENCODER:
@@ -888,25 +1134,60 @@ class ModelLoader(ForgeModel):
         if self._variant == ModelVariant.VOCODER:
             return [torch.randn(batch_size, *_VOCODER_MEL_SHAPE, dtype=dtype)]
 
+        if video_grid is not None:
+            grid_tokens = video_grid[0] * video_grid[1] * video_grid[2]
+            if video_tokens is not None and video_tokens != grid_tokens:
+                raise ValueError(
+                    f"video_tokens={video_tokens} contradicts video_grid="
+                    f"{tuple(video_grid)} ({grid_tokens} tokens)"
+                )
+            video_tokens = grid_tokens
+        n_video = _VIDEO_TOKENS if video_tokens is None else video_tokens
+        n_audio = _AUDIO_TOKENS if audio_tokens is None else audio_tokens
+        n_ctx = _CTX_SEQ if ctx_seq is None else ctx_seq
+
         def _positions(n_pos_dims, tokens):
             # [start, end) integer patch bounds: end = start + 1.
             start = torch.arange(tokens, dtype=dtype).view(1, 1, tokens, 1)
             start = start.expand(batch_size, n_pos_dims, tokens, 1)
             return torch.cat([start, start + 1], dim=-1)
 
+        def _grid_positions(grid):
+            # Real (frame, height, width) latent coordinates, flattened in the
+            # same F-major order patchification uses. A flat arange would give
+            # every token a distinct value on all three axes, which hides
+            # whether the per-axis RoPE is right.
+            frames, rows, cols = grid
+            coords = torch.meshgrid(
+                torch.arange(frames, dtype=dtype),
+                torch.arange(rows, dtype=dtype),
+                torch.arange(cols, dtype=dtype),
+                indexing="ij",
+            )
+            start = torch.stack([c.reshape(-1) for c in coords], dim=0)
+            start = start.view(1, 3, frames * rows * cols, 1)
+            start = start.expand(batch_size, 3, frames * rows * cols, 1)
+            return torch.cat([start, start + 1], dim=-1)
+
+        video_positions = (
+            _grid_positions(video_grid)
+            if video_grid is not None
+            else _positions(3, n_video)
+        )
+
         return [
             # video
-            torch.randn(batch_size, _VIDEO_TOKENS, _IN_CHANNELS, dtype=dtype),
+            torch.randn(batch_size, n_video, _IN_CHANNELS, dtype=dtype),
             torch.full((batch_size,), 0.5, dtype=dtype),
-            torch.full((batch_size, _VIDEO_TOKENS), 0.5, dtype=dtype),
-            _positions(3, _VIDEO_TOKENS),
-            torch.randn(batch_size, _CTX_SEQ, _VIDEO_CTX_DIM, dtype=dtype),
+            torch.full((batch_size, n_video), 0.5, dtype=dtype),
+            video_positions,
+            torch.randn(batch_size, n_ctx, _VIDEO_CTX_DIM, dtype=dtype),
             # audio
-            torch.randn(batch_size, _AUDIO_TOKENS, _AUDIO_IN_CHANNELS, dtype=dtype),
+            torch.randn(batch_size, n_audio, _AUDIO_IN_CHANNELS, dtype=dtype),
             torch.full((batch_size,), 0.5, dtype=dtype),
-            torch.full((batch_size, _AUDIO_TOKENS), 0.5, dtype=dtype),
-            _positions(1, _AUDIO_TOKENS),
-            torch.randn(batch_size, _CTX_SEQ, _AUDIO_CTX_DIM, dtype=dtype),
+            torch.full((batch_size, n_audio), 0.5, dtype=dtype),
+            _positions(1, n_audio),
+            torch.randn(batch_size, n_ctx, _AUDIO_CTX_DIM, dtype=dtype),
         ]
 
     def unpack_forward_output(self, output):
@@ -923,16 +1204,53 @@ class ModelLoader(ForgeModel):
         """Megatron-style TP map over the transformer blocks. Non-sharded dim is
         ``None`` (replicated).
 
-        Module names are taken from the upstream ``BasicAVTransformerBlock``
-        (transformer.py): per-block attentions ``attn1`` / ``attn2`` (video),
-        ``audio_attn1`` / ``audio_attn2`` (audio), and the AV cross-attentions
-        ``audio_to_video_attn`` / ``video_to_audio_attn``; feed-forwards ``ff``
-        / ``audio_ff``. Each ``Attention`` exposes ``to_q`` / ``to_k`` / ``to_v``
-        and an output projection; ``FeedForward`` wraps an ``nn.Sequential``
-        ``net``. The exact submodule names of ``Attention`` / ``FeedForward``
-        were not fully inspected, so this is written DEFENSIVELY: any missing
-        attribute is skipped. Column-parallel q/k/v + row-parallel out is the
-        standard Megatron split.
+        Module names are VERIFIED against the vendored upstream under
+        ``third_party/LTX-2`` (``packages/ltx-core/src/ltx_core/model/transformer/``):
+
+        * ``BasicAVTransformerBlock`` (transformer.py) exposes the video
+          attentions ``attn1`` / ``attn2``, the audio attentions
+          ``audio_attn1`` / ``audio_attn2``, the AV cross-attentions
+          ``audio_to_video_attn`` / ``video_to_audio_attn``, and the
+          feed-forwards ``ff`` / ``audio_ff``.
+        * ``Attention`` (attention.py) exposes ``to_q`` / ``to_k`` / ``to_v``
+          (all ``bias=True``), the optional per-head ``to_gate_logits``,
+          ``q_norm`` / ``k_norm``, and ``to_out`` as an
+          ``nn.Sequential(Linear, Identity)``.
+        * ``FeedForward`` (feed_forward.py) wraps
+          ``net = nn.Sequential(GELUApprox, Identity, Linear)``, and
+          ``GELUApprox`` (gelu_approx.py) holds its Linear under ``.proj``.
+
+        Column-parallel q/k/v + row-parallel out is the standard Megatron
+        split. Sharding the *weights* alone leaves the annotation internally
+        inconsistent, because two more kinds of tensor live on the same
+        sharded feature axis:
+
+        * **Biases of the column-parallel projections.** ``attention_bias`` is
+          True for this checkpoint, so ``to_q`` / ``to_k`` / ``to_v`` /
+          ``to_gate_logits`` and the FF up-projection each carry a bias added
+          to a ``("model", ...)``-sharded output. A replicated bias does not
+          match that output's sharding.
+        * **``q_norm`` / ``k_norm`` scales.** ``qk_norm`` is ``rms_norm`` here
+          and ``Attention.__init__`` builds ``torch.nn.RMSNorm(inner_dim)``
+          with PyTorch's default ``elementwise_affine=True``, so each carries a
+          learnable weight of size ``inner_dim`` that multiplies the
+          column-sharded q/k elementwise. Note ``ops.PytorchPreAttention``
+          applies these at ``(B, T, inner_dim)`` *before* the head reshape, so
+          the RMS reduction itself spans the sharded axis and the partitioner
+          must insert a collective for it — sharding the scale is necessary but
+          does not by itself make that reduction free.
+
+        Deliberately left replicated, and NOT to be "fixed":
+
+        * **Row-parallel biases.** ``to_out[0].bias`` and the FF
+          down-projection bias are added *after* the output all-reduce, so a
+          sharded copy would be wrong.
+        * **The embeddings connector.** ``use_embeddings_connector`` is True
+          with ``connector_num_layers`` blocks, but they live outside
+          ``transformer_blocks`` and are not annotated here.
+
+        Written defensively — any attribute missing upstream is skipped — but
+        the names above are verified, so a skip now means upstream drift.
         """
         shard_specs = {}
         wrapped = getattr(model, "model", model)
@@ -950,36 +1268,66 @@ class ModelLoader(ForgeModel):
         )
         ff_names = ("ff", "audio_ff")
 
-        def _w(module, attr):
-            sub = getattr(module, attr, None)
-            return getattr(sub, "weight", None) if sub is not None else None
+        # Specs are indexed by tensor rank: a 2-D Linear weight is (out, in),
+        # so column-parallel shards dim 0 and row-parallel shards dim 1; a 1-D
+        # bias or norm scale has a single dim to shard.
+        col_weight, row_weight, vector = ("model", None), (None, "model"), ("model",)
+
+        def _add_column(module):
+            """Column-parallel Linear: weight AND bias shard on the output dim."""
+            if module is None:
+                return
+            weight = getattr(module, "weight", None)
+            if weight is not None:
+                shard_specs[weight] = col_weight
+            bias = getattr(module, "bias", None)
+            if bias is not None:
+                shard_specs[bias] = vector
+
+        def _add_row(module):
+            """Row-parallel Linear: shard the weight on its input dim only. The
+            bias is added after the output all-reduce, so it stays replicated."""
+            if module is None:
+                return
+            weight = getattr(module, "weight", None)
+            if weight is not None:
+                shard_specs[weight] = row_weight
+
+        def _add_vector(module):
+            """1-D elementwise scale sitting on a column-sharded feature dim."""
+            if module is None:
+                return
+            weight = getattr(module, "weight", None)
+            if weight is not None:
+                shard_specs[weight] = vector
 
         for block in blocks:
             for attn_name in attn_names:
                 attn = getattr(block, attn_name, None)
                 if attn is None:
                     continue
-                # Column-parallel q/k/v projections. ``to_gate_logits`` is a
-                # per-head gate (out dim == heads, verified shape (heads, dim));
-                # its output is applied per-head to the head-sharded attn output
-                # (see ops.PytorchGatedAttention), so it MUST be sharded on the
-                # head/output dim to match — a replicated gate shape-mismatches.
+                # Column-parallel q/k/v plus the optional per-head gate.
+                # ``to_gate_logits`` has out dim == heads and its output is
+                # applied per-head to the head-sharded attention output (see
+                # ops.PytorchGatedAttention), so it shards on the same axis — a
+                # replicated gate shape-mismatches.
                 for proj in ("to_q", "to_k", "to_v", "to_gate_logits"):
-                    w = _w(attn, proj)
-                    if w is not None:
-                        shard_specs[w] = ("model", None)
+                    _add_column(getattr(attn, proj, None))
+                # qk-norm scales live on the column-sharded inner_dim.
+                for norm in ("q_norm", "k_norm"):
+                    _add_vector(getattr(attn, norm, None))
                 # Row-parallel output projection. ltx_core's Attention may expose
-                # the output projection under one of these names; try each.
+                # it under one of these names; try each.
                 for out_name in ("to_out", "out_proj", "proj_out"):
                     out = getattr(attn, out_name, None)
                     if out is None:
                         continue
                     # to_out is sometimes an nn.Sequential/ModuleList.
                     if hasattr(out, "weight"):
-                        shard_specs[out.weight] = (None, "model")
+                        _add_row(out)
                     elif hasattr(out, "__getitem__"):
                         try:
-                            shard_specs[out[0].weight] = (None, "model")
+                            _add_row(out[0])
                         except (IndexError, AttributeError, TypeError):
                             pass
                     break
@@ -991,10 +1339,6 @@ class ModelLoader(ForgeModel):
                 # net[0] (or its .proj) is the up-projection (column); net[-1] is
                 # the down-projection (row).
                 first = net[0]
-                first_w = getattr(getattr(first, "proj", first), "weight", None)
-                if first_w is not None:
-                    shard_specs[first_w] = ("model", None)
-                last_w = getattr(net[-1], "weight", None)
-                if last_w is not None:
-                    shard_specs[last_w] = (None, "model")
+                _add_column(getattr(first, "proj", first))
+                _add_row(net[-1])
         return shard_specs
