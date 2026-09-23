@@ -13,9 +13,16 @@ Pyramid Flow has no diffusers integration, so the model code is vendored in
 `src/flux_modules/` (verbatim from upstream, with the `trainer_misc` sequence-
 parallel imports replaced by a local stub).
 
+The CausalVideoVAE has no diffusers integration either, so its decode path is
+vendored in `src/video_vae/` on the same terms, with the context-parallel
+`utils` imports replaced by a local stub. Only the modules decode needs are
+vendored; upstream's training-only loss, LPIPS and discriminator modules are
+left out.
+
 Components:
   - miniFLUX_768p  -> PyramidFluxTransformer DiT (1.97B)
   - ClipTextEncoder -> CLIPTextModel pooled embedding (0.12B)
+  - Vae            -> CausalVideoVAE decode, latents -> pixels (0.23B)
 """
 
 from dataclasses import dataclass
@@ -38,6 +45,8 @@ from .src.utils import (
     load_text_encoder_inputs,
     load_transformer,
     load_transformer_inputs,
+    load_vae_decoder,
+    load_vae_decoder_inputs,
 )
 
 
@@ -53,6 +62,7 @@ class ModelVariant(StrEnum):
 
     MINIFLUX_768P = "miniFLUX_768p"
     CLIP_TEXT_ENCODER = "ClipTextEncoder"
+    VAE = "Vae"
 
 
 class ModelLoader(ForgeModel):
@@ -64,10 +74,11 @@ class ModelLoader(ForgeModel):
 
       - MINIFLUX_768P: the PyramidFluxTransformer DiT, the model's compute core.
       - CLIP_TEXT_ENCODER: the CLIP encoder producing the DiT's `pooled_projections`.
+      - VAE: the CausalVideoVAE decode that turns generated latents into pixels.
 
     Not exposed: the T5-XXL encoder (`text_encoder_2`) compiles and runs on
-    device but reaches only PCC 0.86 against CPU, and the CausalVideoVAE and
-    flow-matching scheduler have not been brought up. Those remain CPU-side.
+    device but reaches only PCC 0.86 against CPU, and the flow-matching
+    scheduler has not been brought up. Those remain CPU-side.
     """
 
     _VARIANTS = {
@@ -76,6 +87,10 @@ class ModelLoader(ForgeModel):
             source=ModelSource.HUGGING_FACE,
         ),
         ModelVariant.CLIP_TEXT_ENCODER: PyramidFlowConfig(
+            pretrained_model_name="rain1011/pyramid-flow-miniflux",
+            source=ModelSource.HUGGING_FACE,
+        ),
+        ModelVariant.VAE: PyramidFlowConfig(
             pretrained_model_name="rain1011/pyramid-flow-miniflux",
             source=ModelSource.HUGGING_FACE,
         ),
@@ -108,12 +123,16 @@ class ModelLoader(ForgeModel):
         dtype = dtype_override if dtype_override is not None else torch.float32
         if self._variant == ModelVariant.CLIP_TEXT_ENCODER:
             return load_text_encoder(dtype)
+        if self._variant == ModelVariant.VAE:
+            return load_vae_decoder(dtype)
         return load_transformer(dtype)
 
     def load_inputs(self, dtype_override=None, **kwargs) -> Any:
         dtype = dtype_override if dtype_override is not None else torch.float32
         if self._variant == ModelVariant.CLIP_TEXT_ENCODER:
             return load_text_encoder_inputs(dtype)
+        if self._variant == ModelVariant.VAE:
+            return load_vae_decoder_inputs(dtype)
         return load_transformer_inputs(dtype)
 
     def unpack_forward_output(self, output: Any) -> torch.Tensor:
