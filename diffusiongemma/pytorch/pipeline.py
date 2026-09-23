@@ -3,6 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """DiffusionGemma 26B block-diffusion text-generation pipeline on Tenstorrent.
 
+Drives the checkpoint's two input modalities: text, and image+text (the encoder's
+vision tower turns one image into up to 280 soft tokens that are scattered into
+the prompt embeddings). Output is text either way.
+
 Both the encoder (prefill) and the decoder (denoising loop) run on TT (sharded, SPMD). The
 model can't fit on device twice, so residency is STAGED: the encoder is loaded as an
 independent model, prefills the KV cache, is freed, then the decoder is loaded -- only one
@@ -18,6 +22,7 @@ which this repo can't import); ``setup()`` re-registers tt_moe against that swap
 
 import copy
 import gc
+import types
 import math
 import os
 import time
@@ -38,6 +43,52 @@ from .loader import ModelLoader, ModelVariant
 PROMPT = "Why is the sky blue?"
 MAX_NEW_TOKENS = 256  # one canvas block
 SEED = 0
+_ACTIVE_MESH = [None]
+
+
+def patch_selfcond_anchor(mesh):
+    """Keep the self-conditioning softmax axis replicated -- tt-xla #6075.
+
+    ``embed_tokens.weight`` is vocab-sharded, so Shardy shards the softmax output
+    that feeds the matmul, and the cross-device combine of the per-shard max is
+    emitted as an add -- exp() then underflows and the divide yields +-Inf.
+
+    Pinning the probabilities replicated costs a transient all-gather (0.125 GiB)
+    and no steady-state DRAM; the weight stays sharded, so the OOM fix holds.
+    Anchoring the input logits instead does not work -- the constraint has to sit
+    on the tensor that feeds the sharded contraction.
+    """
+    from tt_torch.sharding import sharding_constraint_tensor
+    from transformers.models.diffusion_gemma import modeling_diffusion_gemma as _m
+
+    _ACTIVE_MESH[0] = mesh
+    if getattr(_m.DiffusionGemmaDecoderModel.forward, "_selfcond_anchored", False):
+        return
+    original = _m.DiffusionGemmaDecoderModel.forward
+
+    def forward(self, *args, **kwargs):
+        vocab = int(self.embed_tokens.weight.shape[0])
+        real = torch.Tensor.softmax
+
+        def softmax(t, dim=-1, dtype=None):
+            out = real(t, dim, dtype=dtype) if dtype is not None else real(t, dim)
+            # Only the self-conditioning softmax spans the vocab axis, and the CPU
+            # golden runs this same forward, so leave it alone.
+            if out.shape[-1] == vocab and out.device.type == "xla":
+                out = sharding_constraint_tensor(
+                    out, _ACTIVE_MESH[0], (None,) * out.ndim
+                )
+            return out
+
+        # Restored in the finally below, so nothing outside this forward sees it.
+        torch.Tensor.softmax = softmax
+        try:
+            return original(self, *args, **kwargs)
+        finally:
+            torch.Tensor.softmax = real
+
+    forward._selfcond_anchored = True
+    _m.DiffusionGemmaDecoderModel.forward = forward
 
 
 def enable_spmd():
@@ -85,11 +136,31 @@ def free_tt_graphs():
     torch._dynamo.reset()
     for obj in gc.get_objects():
         try:
-            if (
-                isinstance(obj, torch.fx.GraphModule)
-                and getattr(obj, "xla_args", None) is not None
-            ):
-                obj.xla_args = None
+            if isinstance(obj, torch.fx.GraphModule):
+                if getattr(obj, "xla_args", None) is not None:
+                    obj.xla_args = None
+                # Dynamo lifts the traced parameters onto the GraphModule, and
+                # retain=true makes each one a live DRAM allocation. Without this
+                # the image path left 2.44 GiB resident after eviction.
+                obj._parameters.clear()
+                obj._buffers.clear()
+                obj._modules.clear()
+            # The compiled function's closure holds the same tensors again;
+            # clearing only one holder frees nothing.
+            if isinstance(obj, types.CellType):
+                try:
+                    held = obj.cell_contents
+                except ValueError:
+                    continue  # empty cell
+                if isinstance(held, (list, tuple)) and any(
+                    isinstance(x, torch.Tensor) and x.device.type == "xla" for x in held
+                ):
+                    obj.cell_contents = None
+                elif isinstance(held, dict) and any(
+                    isinstance(v, torch.Tensor) and v.device.type == "xla"
+                    for v in held.values()
+                ):
+                    held.clear()
             if isinstance(obj, GraphInputMatcher):
                 for ref in gc.get_referrers(obj):
                     if isinstance(ref, tuple):
@@ -101,12 +172,13 @@ def free_tt_graphs():
     gc.collect()
 
 
-# Public name for the staged-residency eviction step.
-evict_component = free_tt_graphs
-
-
 class TTEncoder(torch.nn.Module):
-    """torch.compile needs tensor I/O: returns last_hidden_state (cache updated in place)."""
+    """torch.compile needs tensor I/O: returns last_hidden_state (cache updated in place).
+
+    ``pixel_values``/``image_position_ids`` are None on the text path and carry the
+    image on the vision path, where the encoder runs its vision tower and scatters
+    the soft-token features into the embeddings before the text layers.
+    """
 
     def __init__(self, encoder):
         super().__init__()
@@ -119,6 +191,8 @@ class TTEncoder(torch.nn.Module):
         position_ids,
         past_key_values,
         mm_token_type_ids=None,
+        pixel_values=None,
+        image_position_ids=None,
     ):
         return self.encoder(
             input_ids=input_ids,
@@ -126,6 +200,8 @@ class TTEncoder(torch.nn.Module):
             past_key_values=past_key_values,
             position_ids=position_ids,
             mm_token_type_ids=mm_token_type_ids,
+            pixel_values=pixel_values,
+            image_position_ids=image_position_ids,
         ).last_hidden_state
 
 
@@ -233,6 +309,9 @@ def manual_generate(
         )
         past_key_values = encoder_outputs.past_key_values
         is_prefill = False
+        # Prefill folded the image into the KV cache; the denoiser has no slot for it.
+        for key in ("pixel_values", "image_position_ids"):
+            model_kwargs.pop(key, None)
 
         (
             current_canvas,
@@ -312,12 +391,18 @@ class DiffusionGemmaConfig:
         max_new_tokens: int = MAX_NEW_TOKENS,
         seed: int = SEED,
         warm_iters: int = 0,
+        image: bool = False,
+        image_url: str = None,
     ):
         self.max_new_tokens = max_new_tokens
         self.seed = seed
         # EXTRA in-residency prefills, to get a warm encoder number before the
         # encoder is freed. 0 = inert.
         self.warm_iters = warm_iters
+        # ``image`` runs the vision path with the loader's sample image;
+        # ``image_url`` picks a different one and implies the vision path.
+        self.image = image or image_url is not None
+        self.image_url = image_url
 
 
 class DiffusionGemmaPipeline:
@@ -383,10 +468,13 @@ class DiffusionGemmaPipeline:
         # CPU model: host driver only (sampler/stopping/cache/positions); runs no NN forward.
         self.cpu_model = self.loader.load_model(dtype_override=torch.bfloat16)
         self.cpu_model.eval()
-        self.cpu_model.config._experts_implementation = TT_MOE_BACKEND_NAME
+        # The CPU twin stays on the checkpoint's own expert loop: tt_moe would fall
+        # through to HF batched_mm, a different implementation and ~30x slower. The
+        # device model still sets it, in _load_sharded.
         self.mesh = make_mesh(
             *self.loader.get_mesh_config(xr.global_runtime_device_count())
         )
+        patch_selfcond_anchor(self.mesh)  # tt-xla #6075
         self.xla = xm.xla_device()
 
     def _load_sharded(self, variant):
@@ -394,6 +482,13 @@ class DiffusionGemmaPipeline:
         vl = ModelLoader(variant)
         model = vl.load_model(dtype_override=torch.bfloat16)
         vl.config._experts_implementation = TT_MOE_BACKEND_NAME
+        # The decoder never uses the encoder's 1.06 GiB vision tower, so drop it
+        # before .to() places it on every device. The ENCODER variant needs it.
+        if variant != ModelVariant.ENCODER:
+            enc = getattr(getattr(model, "model", None), "encoder", None)
+            if enc is not None:
+                enc.vision_tower = None
+                enc.embed_vision = None
         model = model.to(self.xla)
         xs.set_global_mesh(self.mesh)  # tt_moe reads get_global_mesh() for the EP axis
         for tensor, spec in vl.load_shard_spec(model).items():
@@ -433,11 +528,16 @@ class DiffusionGemmaPipeline:
                 to_device(kw["attention_mask"], xla),
                 to_device(kw["position_ids"], xla),
             )
-            mm_tokens = to_device(kw.get("mm_token_type_ids"), xla)
+            # Vision tensors are None on the text path; to_device passes None through.
+            enc_mm = (
+                to_device(kw.get("mm_token_type_ids"), xla),
+                to_device(kw.get("pixel_values"), xla),
+                to_device(kw.get("image_position_ids"), xla),
+            )
             # COLD: the real prefill, carrying the build. .to("cpu") forces the sync
             # (XLA is async, so a bare timer would measure tracing).
             t0 = time.perf_counter()
-            lhs = enc_tt(*enc_args, pkv, mm_tokens)
+            lhs = enc_tt(*enc_args, pkv, *enc_mm)
             xm.mark_step()
             lhs_host = lhs.to("cpu")
             cold = time.perf_counter() - t0
@@ -451,7 +551,7 @@ class DiffusionGemmaPipeline:
             warm = []
             for _ in range(max(0, self.config.warm_iters)):
                 t0 = time.perf_counter()
-                warm_lhs = enc_tt(*enc_args, DynamicCache(), mm_tokens)
+                warm_lhs = enc_tt(*enc_args, DynamicCache(), *enc_mm)
                 xm.mark_step()
                 warm_lhs.to("cpu")
                 warm.append(time.perf_counter() - t0)
@@ -470,15 +570,12 @@ class DiffusionGemmaPipeline:
             )
 
         def decoder_forward(**kw):
-            # First decode step: encoder is freed, so load the decoder now (vocab-shard
-            # lm_head/embed so decoder + logits fit) and restore the KV cache from host.
+            # First decode step: the encoder is freed, so load the decoder and
+            # restore the KV cache from host.
             if stage["dec_tt"] is None:
                 with self._staging():
                     dec_model = self._load_sharded(
                         ModelVariant.DIFFUSIONGEMMA_26B_A4B_IT
-                    )
-                    xs.mark_sharding(
-                        dec_model.lm_head.weight, self.mesh, ("model", None)
                     )
                     stage["dec_model"] = dec_model
                     stage["dec_tt"] = torch.compile(TTDecoder(dec_model), backend="tt")
@@ -514,14 +611,36 @@ class DiffusionGemmaPipeline:
         return encoder_forward, decoder_forward
 
     def generate(
-        self, prompt: str = PROMPT, max_new_tokens: int = None, seed: int = None
+        self,
+        prompt: str = None,
+        max_new_tokens: int = None,
+        seed: int = None,
+        image: bool = None,
+        image_url: str = None,
     ) -> str:
-        """Generate text with both encoder and decoder on TT (staged); return decoded output."""
+        """Generate text with both encoder and decoder on TT (staged); return decoded output.
+
+        Text path by default. ``image=True`` (or an ``image_url``, or the same on the
+        config) prepends an image to the user turn and runs the encoder's vision
+        tower; ``prompt=""`` there gives the image-only path. ``prompt=None`` takes
+        the loader's sample text for whichever modality is selected.
+        """
         max_new_tokens = max_new_tokens or self.config.max_new_tokens
         seed = self.config.seed if seed is None else seed
         self._reset_perf()
+        image_url = self.config.image_url if image_url is None else image_url
+        use_image = (
+            (self.config.image or image_url is not None) if image is None else image
+        )
 
-        inputs = self.loader.load_inputs(dtype_override=torch.bfloat16, prompt=prompt)
+        if use_image:
+            inputs = self.loader.load_image_inputs(
+                dtype_override=torch.bfloat16, prompt=prompt, image_url=image_url
+            )
+        else:
+            inputs = self.loader.load_text_inputs(
+                dtype_override=torch.bfloat16, prompt=prompt or PROMPT
+            )
         # generate()'s extra inputs (e.g. mm_token_type_ids), minus decoder_input_ids.
         extra_kwargs = {
             k: v
