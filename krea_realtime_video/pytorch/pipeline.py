@@ -158,6 +158,10 @@ class KreaRealtimePipeline:
         # stays on CPU and will move to TT once num_blocks > 1 is supported.
         self.vae.decoder.to(xm.xla_device())
         self.vae.post_quant_conv.to(xm.xla_device())
+        # Tiled decode splits the sample spatially so the per-tile peak fits next to a
+        # still-resident transformer (nb>1 block-0 decode; tt-xla#6047). Gated in
+        # _decode: active only while the transformer is resident.
+        self.vae.enable_tiling()
         self._vae_decoder = torch.compile(VAEDecoderWrapper(self.vae), backend="tt")
 
     @staticmethod
@@ -318,11 +322,17 @@ class KreaRealtimePipeline:
         )
         rescaled = (latents / std + mean).to(self.vae.dtype)
 
+        # Tile only while the transformer is resident (non-final blocks) — that is
+        # where decode must share DRAM with it (#6047). Tiled decode manages its own
+        # per-tile cache, so the cross-block cache pinning is skipped when tiling.
+        tiling = self.transformer is not None
+        self.vae.use_tiling = tiling
         if block_idx == 0:
             self.vae.clear_cache()
-            self.vae.clear_cache = lambda: None
-            self.vae._feat_map = [None] * 55
-        else:
+            if not tiling:
+                self.vae.clear_cache = lambda: None
+                self.vae._feat_map = [None] * 55
+        elif not tiling:
             self.vae._feat_map = decoder_cache
         videos = _cpu(self._vae_decoder(_tt(rescaled)))
         decoder_cache = self.vae._feat_map
