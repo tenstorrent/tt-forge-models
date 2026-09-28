@@ -89,6 +89,29 @@ DEFAULT_CFG_SCALE = 1.3
 # Per-forward correlation floor against the CPU twin.
 DEFAULT_PCC_THRESHOLD = 0.99
 
+# Upstream's generation budget, which is what ``max_new_tokens=None`` selects.
+#
+# ``None`` is not "unbounded". ``modeling_vibevoice_inference.py:372`` fills it
+# in as ``decoder_config.max_position_embeddings - len(input_ids)``, and :421
+# then takes ``min(that, max_length_times * len(input_ids))`` with
+# ``max_length_times`` defaulting to 2 — so for any prompt short of half the
+# context the *effective* reference budget is twice the prompt length. Both
+# upstream entry points (``demo/inference_from_file.py:405``,
+# ``demo/gradio_demo.py:593``) pass ``max_new_tokens=None``, so that is the
+# reference configuration and :func:`reference_max_new_tokens` is what it means.
+#
+# The practical consequence: **the step budget is not the lever for long-form
+# audio, the script is.** A 13-word script emits EOS at 33 steps whatever the
+# budget; reaching 500 steps means a longer script, which raises this cap with it.
+REFERENCE_MAX_LENGTH_TIMES = 2
+
+
+def reference_max_new_tokens(model, prompt_tokens: int) -> int:
+    """Upstream's own cap for a prompt of ``prompt_tokens``. See above."""
+    max_position = model.config.decoder_config.max_position_embeddings
+    return min(max_position - prompt_tokens, REFERENCE_MAX_LENGTH_TIMES * prompt_tokens)
+
+
 # Stages that run outside the per-frame loop, reported as scalars. Everything
 # else the timer sees — the diffusion head, the connectors, the LM decode — is
 # per-frame work and is accumulated into the open step instead. The two sets are
@@ -344,6 +367,7 @@ class VibeVoiceConfig:
         gate: bool = True,
         pcc_threshold: float = DEFAULT_PCC_THRESHOLD,
         collect_perf: bool = False,
+        measure_streaming_decode: bool = False,
     ):
         self.text = DEFAULT_TEXT if text is None else text
         self.voice_samples = voice_samples
@@ -363,6 +387,10 @@ class VibeVoiceConfig:
         self.pcc_threshold = pcc_threshold
         # Stage/step timing costs a device sync per forward, so it is opt-in.
         self.collect_perf = collect_perf
+        # Keep every streaming acoustic-decode chunk so the run can be compared
+        # against one non-streaming decode of the same latents. Costs one extra
+        # full-length decode plus a copy of the waveform, so it is opt-in.
+        self.measure_streaming_decode = measure_streaming_decode
 
         unknown = set(self.components) - set(AVAILABLE_COMPONENTS)
         if unknown:
@@ -389,6 +417,8 @@ class VibeVoicePipeline:
         self._stage_s = {}
         self._step_open_s = 0.0
         self._head_forwards = 0
+        self._decode_capture = {"on": False, "latents": [], "chunks": []}
+        self._decode_reference = None
 
     # -- setup ------------------------------------------------------------
 
@@ -537,6 +567,32 @@ class VibeVoicePipeline:
 
         self.residencies = out
 
+        if cfg.measure_streaming_decode:
+            self._install_streaming_decode_capture()
+
+    def _install_streaming_decode_capture(self):
+        """Record every streaming acoustic-decode call for :meth:`streaming_decode_pcc`.
+
+        Installed last, so it wraps whatever :func:`cpu_pin_method` and
+        :func:`time_method` already put on ``decode`` and therefore sees exactly
+        the calls the generation loop makes. The pre-wrap callable is kept as
+        ``_decode_reference`` so the one-shot comparison runs down the same
+        chain and differs from the streaming calls only in ``use_cache``.
+        """
+        tokenizer = self.model.model.acoustic_tokenizer
+        inner = tokenizer.decode
+        self._decode_reference = inner
+        capture = self._decode_capture
+
+        def decode(latents, *args, **kwargs):
+            out = inner(latents, *args, **kwargs)
+            if capture["on"]:
+                capture["latents"].append(latents.detach().to("cpu").clone())
+                capture["chunks"].append(out.detach().to("cpu").clone())
+            return out
+
+        tokenizer.decode = decode
+
     # -- run --------------------------------------------------------------
 
     def run(self) -> torch.Tensor:
@@ -546,6 +602,9 @@ class VibeVoicePipeline:
         self._step_open_s = 0.0
         self._head_forwards = 0
         self._perf = {"steps": [], "compile_curve": []}
+        self._decode_capture.update(
+            {"on": cfg.measure_streaming_decode, "latents": [], "chunks": []}
+        )
 
         initial_length = self.inputs["input_ids"].shape[1]
         generate_kwargs = dict(
@@ -555,6 +614,10 @@ class VibeVoicePipeline:
             # generation_config, not off a top-level do_sample= kwarg.
             generation_config={"do_sample": False},
             verbose=False,
+            # Separate from verbose=, and separately defaulted to True upstream.
+            # At reference length the bar writes a carriage-returned line per
+            # step into a CI log that has no terminal to rewrite.
+            show_progress_bar=False,
         )
         generate_kwargs["max_new_tokens"] = cfg.max_new_tokens
 
@@ -563,6 +626,8 @@ class VibeVoicePipeline:
         with torch.no_grad():
             out = self.model.generate(**self.inputs, **generate_kwargs)
         total = time.perf_counter() - started
+
+        self._decode_capture["on"] = False
 
         wav = out.speech_outputs[0]
         if wav is None:
@@ -602,6 +667,47 @@ class VibeVoicePipeline:
         """Lowest PCC across every gated forward, or ``None`` if nothing gated."""
         scores = [s for r in self.residencies for s in r.pccs]
         return min(scores) if scores else None
+
+    def streaming_decode_pcc(self) -> Optional[dict]:
+        """Chunk-boundary error of the streaming acoustic decode.
+
+        The generation loop never decodes the waveform in one pass: it emits one
+        3200-sample chunk per acoustic frame, each carrying upstream's conv cache
+        forward as left context. So the chunk count *is* the step count, and it
+        grows with generation length — which makes chunk-boundary error the thing
+        most likely to break first as the run gets longer.
+
+        This decodes the same latents once, non-streaming, and correlates the two
+        waveforms. The cache is what makes them agree: encoding chunks
+        independently reads PCC 0.9616 with ``max|err| = 126`` spiking at every
+        chunk start (measured on the encoder side — see ``loader._AcousticEncoder``).
+
+        Returns ``None`` unless the config asked for the measurement. Costs one
+        extra full-length CPU decode, whose time lands in the ``audio_decode``
+        stage counter of the *next* run rather than this one's ``stage_totals``.
+        """
+        capture = self._decode_capture
+        if self._decode_reference is None or len(capture["chunks"]) < 2:
+            return None
+
+        # Per-step latents are (batch, 1, vae_dim); concatenate on time and hand
+        # the decoder the (batch, vae_dim, frames) layout directly, so its
+        # "which axis is vae_dim" sniff cannot be fooled by a frame count that
+        # happens to equal vae_dim.
+        latents = torch.cat(capture["latents"], dim=1).permute(0, 2, 1).contiguous()
+        streamed = torch.cat(capture["chunks"], dim=-1)
+        oneshot = self._decode_reference(latents, use_cache=False)
+
+        n = min(streamed.shape[-1], oneshot.shape[-1])
+        return {
+            "chunks": len(capture["chunks"]),
+            "pcc": pcc(streamed[..., :n], oneshot[..., :n]),
+            "max_abs_err": float(
+                (streamed[..., :n] - oneshot[..., :n]).abs().max().item()
+            ),
+            "streamed_samples": int(streamed.shape[-1]),
+            "oneshot_samples": int(oneshot.shape[-1]),
+        }
 
 
 def save_wav(wav: torch.Tensor, filepath: str = "vibevoice_output.wav", processor=None):
