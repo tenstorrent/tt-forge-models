@@ -2,15 +2,31 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-DiffusionGemma loader (text-only path).
+DiffusionGemma loader (text and image+text paths).
 
 google/diffusiongemma-26B-A4B-it: a multimodal block-diffusion LLM on a Gemma 4
 MoE backbone that denoises a block of tokens instead of decoding left-to-right.
 ~25.8B params.
+
+The checkpoint takes text and images only. Its ``vision_config`` is a 27-layer
+``gemma4_vision`` tower (up to 280 soft tokens per image); there is no audio tower and
+no audio/video token in ``config.json``, and the transformers encoder documents
+itself as not supporting audio or video inputs. The shared ``Gemma4Processor``
+does carry an audio feature extractor and a video processor, but those are
+inherited Gemma 4 plumbing that this checkpoint cannot consume.
+
+The ``26B-A4B-it`` variant drives the text-only path, ``26B-A4B-it-image``
+image+text, and ``26B-A4B-it-image-only`` an image with no text part -- all on
+the same checkpoint and the same shard spec. The vision tower and
+``embed_vision`` are left replicated (out of the shard map) for this bring-up,
+matching the gemma4 loader.
 """
 
 from typing import Optional
 
+import torch
+
+from PIL import Image
 from transformers import AutoProcessor
 
 from ...base import ForgeModel
@@ -23,21 +39,29 @@ from ...config import (
     ModelTask,
     StrEnum,
 )
-from ...tools.utils import cast_input_to_type
+from ...tools.utils import cast_input_to_type, get_file
 
 
 class ModelVariant(StrEnum):
     """Available DiffusionGemma model variants."""
 
     DIFFUSIONGEMMA_26B_A4B_IT = "26B-A4B-it"
+    DIFFUSIONGEMMA_26B_A4B_IT_IMAGE = "26B-A4B-it-image"
+    DIFFUSIONGEMMA_26B_A4B_IT_IMAGE_ONLY = "26B-A4B-it-image-only"
     ENCODER = "encoder"
 
 
 class ModelLoader(ForgeModel):
-    """DiffusionGemma loader (text-only block-diffusion path)."""
+    """DiffusionGemma loader for the text and image+text block-diffusion paths."""
 
     _VARIANTS = {
         ModelVariant.DIFFUSIONGEMMA_26B_A4B_IT: LLMModelConfig(
+            pretrained_model_name="google/diffusiongemma-26B-A4B-it",
+        ),
+        ModelVariant.DIFFUSIONGEMMA_26B_A4B_IT_IMAGE: LLMModelConfig(
+            pretrained_model_name="google/diffusiongemma-26B-A4B-it",
+        ),
+        ModelVariant.DIFFUSIONGEMMA_26B_A4B_IT_IMAGE_ONLY: LLMModelConfig(
             pretrained_model_name="google/diffusiongemma-26B-A4B-it",
         ),
         ModelVariant.ENCODER: LLMModelConfig(
@@ -47,7 +71,18 @@ class ModelLoader(ForgeModel):
 
     DEFAULT_VARIANT = ModelVariant.DIFFUSIONGEMMA_26B_A4B_IT
 
+    _MODALITY_BY_VARIANT = {
+        ModelVariant.DIFFUSIONGEMMA_26B_A4B_IT_IMAGE: "image",
+        ModelVariant.DIFFUSIONGEMMA_26B_A4B_IT_IMAGE_ONLY: "image_only",
+    }
+    _TASK_BY_VARIANT = {
+        ModelVariant.DIFFUSIONGEMMA_26B_A4B_IT_IMAGE: ModelTask.MM_IMAGE_TTT,
+        ModelVariant.DIFFUSIONGEMMA_26B_A4B_IT_IMAGE_ONLY: ModelTask.MM_IMAGE_TTT,
+    }
+
     sample_text = "Why is the sky blue?"
+    sample_image_text = "What animal is on the candy?"
+    sample_image_url = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/p-blog/candy.JPG"
 
     def __init__(self, variant: Optional[ModelVariant] = None):
         super().__init__(variant)
@@ -61,7 +96,7 @@ class ModelLoader(ForgeModel):
             model="DiffusionGemma",
             variant=variant,
             group=ModelGroup.GENERALITY,
-            task=ModelTask.NLP_CAUSAL_LM,
+            task=cls._TASK_BY_VARIANT.get(variant, ModelTask.NLP_CAUSAL_LM),
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
@@ -73,7 +108,7 @@ class ModelLoader(ForgeModel):
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
-        """Load the DiffusionGemmaForBlockDiffusion model (text-only path)."""
+        """Load the DiffusionGemmaForBlockDiffusion model (its encoder carries the vision tower)."""
         from transformers import DiffusionGemmaForBlockDiffusion
 
         if self.processor is None:
@@ -87,34 +122,150 @@ class ModelLoader(ForgeModel):
         )
         model.eval()
         self.config = model.config
-        # ENCODER variant: return the encoder as a standalone model so it can
-        # be freed independently -> staged residency avoids OOM.
-        # See https://github.com/tenstorrent/tt-xla/issues/5538
+        # The encoder is returned standalone so the staged residency can free it
+        # independently. https://github.com/tenstorrent/tt-xla/issues/5538
         if self._variant == ModelVariant.ENCODER:
             self.model = model.model.encoder
             return self.model
         self.model = model
         return model
 
-    def load_inputs(
-        self, dtype_override=None, batch_size=1, prompt: Optional[str] = None
-    ):
-        """Build text inputs via the chat template (dict -> keyword-bound)."""
-        if self.processor is None:
-            self._load_processor()
-        inputs = dict(
-            self.processor.apply_chat_template(
-                [{"role": "user", "content": prompt or self.sample_text}],
-                tokenize=True,
-                add_generation_prompt=True,
-                return_dict=True,
-                return_tensors="pt",
-            )
+    def _apply_chat_template(self, content):
+        """Run one user turn through the checkpoint's chat template.
+
+        ``content`` is either a plain string (text-only) or the list-of-parts
+        form; transformers loads any ``{"type": "image", ...}`` part and hands it
+        to the processor, so this one call yields every tensor the forward needs.
+        """
+        return self.processor.apply_chat_template(
+            [{"role": "user", "content": content}],
+            tokenize=True,
+            add_generation_prompt=True,
+            return_dict=True,
+            return_tensors="pt",
         )
+
+    def _finalize_inputs(self, inputs, dtype_override, batch_size):
+        """Drop the processor's non-model keys, batch, and dtype-cast (dict -> keyword-bound).
+
+        ``cast_input_to_type`` only casts within a numeric category, so the float
+        tensors (``pixel_values``) follow ``dtype_override`` while the id/mask
+        tensors (``input_ids``, ``attention_mask``, ``mm_token_type_ids``,
+        ``image_position_ids``) stay integer.
+        """
+        inputs = dict(inputs)
+        # e.g. num_soft_tokens_per_image: sizes the placeholder span, not a forward arg.
+        for key in getattr(self.processor, "unused_input_names", []):
+            inputs.pop(key, None)
         for key in list(inputs):
             value = inputs[key].repeat_interleave(batch_size, dim=0)
             inputs[key] = cast_input_to_type(value, dtype_override)
         return inputs
+
+    def load_text_inputs(
+        self, dtype_override=None, batch_size=1, prompt: Optional[str] = None
+    ):
+        """Build text-only inputs: {input_ids, attention_mask, mm_token_type_ids}."""
+        if self.processor is None:
+            self._load_processor()
+        return self._finalize_inputs(
+            self._apply_chat_template(prompt or self.sample_text),
+            dtype_override,
+            batch_size,
+        )
+
+    def build_prompt(self, target_tokens):
+        """Return ``(prompt, n_tokens)`` for a text prompt of ~``target_tokens``.
+
+        Lets the text path be run at the image cases' length so the two are
+        comparable. Deterministic, and runs no model forward.
+        """
+        if not target_tokens:
+            raise ValueError("target_tokens must be non-zero")
+
+        seed = (
+            "The sky appears blue because molecules in the air scatter blue "
+            "light from the sun more than they scatter red light. "
+        )
+
+        def n_tokens(p):
+            return self.load_text_inputs(dtype_override=torch.bfloat16, prompt=p)[
+                "input_ids"
+            ].shape[-1]
+
+        words, prompt, trial = seed.split(), "", seed.strip()
+        while True:
+            trial = (prompt + " " + " ".join(words)).strip()
+            if n_tokens(trial) >= target_tokens:
+                break
+            prompt = trial
+
+        w = trial.split()
+        while len(w) > 1 and n_tokens(" ".join(w)) > target_tokens:
+            w = w[:-1]
+
+        prompt = " ".join(w)
+        got = n_tokens(prompt)
+        # load_text_inputs does `prompt or self.sample_text`, so an empty prompt
+        # would silently revert to the short default.
+        assert prompt, "built an empty prompt; it would fall back to sample_text"
+        assert (
+            abs(got - target_tokens) <= 8
+        ), f"length control failed: wanted ~{target_tokens}, got {got}"
+        return prompt, got
+
+    def load_image_inputs(
+        self,
+        dtype_override=None,
+        batch_size=1,
+        prompt: Optional[str] = None,
+        image_url: Optional[str] = None,
+    ):
+        """Build image+text inputs for the vision path.
+
+        The image occupies a span of soft tokens that the encoder replaces with
+        vision-tower features. The span is aspect-ratio dependent (the sample image
+        yields 266 of a 280 maximum), so a different image can change the sequence
+        length and force a recompile. ``mm_token_type_ids`` marks the span, which is
+        also what makes attention bidirectional over it.
+
+        ``prompt=""`` gives the image-only path; ``prompt=None`` uses
+        ``sample_image_text``.
+        """
+        if self.processor is None:
+            self._load_processor()
+
+        image_file = get_file(image_url or self.sample_image_url)
+        image = Image.open(image_file).convert("RGB")
+
+        content = [{"type": "image", "image": image}]
+        text = self.sample_image_text if prompt is None else prompt
+        if text:
+            content.append({"type": "text", "text": text})
+
+        return self._finalize_inputs(
+            self._apply_chat_template(content), dtype_override, batch_size
+        )
+
+    def load_inputs(
+        self,
+        dtype_override=None,
+        batch_size=1,
+        prompt: Optional[str] = None,
+        image_url: Optional[str] = None,
+    ):
+        """Build inputs for the variant's modality.
+
+        The runner passes only dtype_override/batch_size, so the variant is what
+        selects image+text (or image-only) over text-only.
+        """
+        modality = self._MODALITY_BY_VARIANT.get(self._variant)
+        if modality in ("image", "image_only"):
+            # image_only: prompt="" drops the text part of the user turn.
+            if modality == "image_only" and prompt is None:
+                prompt = ""
+            return self.load_image_inputs(dtype_override, batch_size, prompt, image_url)
+        return self.load_text_inputs(dtype_override, batch_size, prompt)
 
     def _text_layers(self, model):
         """Encoder then decoder text transformer layers."""
@@ -130,16 +281,17 @@ class ModelLoader(ForgeModel):
         return mesh_shape, ("batch", "model")
 
     def _layers_for_variant(self, model):
-        """Layers to shard: the ENCODER variant's `model` is the encoder submodule, so shard
-        its own language_model layers; else shard both encoder+decoder text layers."""
+        """Layers to shard: the encoder variants' `model` is the encoder submodule, so
+        shard its own language_model layers; the vision-tower component shards
+        nothing; else shard both encoder+decoder text layers."""
         if self._variant == ModelVariant.ENCODER:
             return list(model.language_model.layers)
         return self._text_layers(model)
 
     def load_shard_spec(self, model):
-        """Shard the dense MLP (col->row) and expert-parallel MoE. Attention is
-        replicated: the global layers' 2 KV heads can't shard the model axis,
-        and head-sharding Q crashes the repeat_kv reshard."""
+        """Shard the dense MLP (col->row), expert-parallel MoE, and the LM head.
+        Attention is replicated: the global layers' 2 KV heads can't shard the model
+        axis, and head-sharding Q crashes the repeat_kv reshard."""
         shard_specs = {}
         for layer in self._layers_for_variant(model):
             shard_specs[layer.mlp.gate_proj.weight] = ("model", None)
@@ -150,4 +302,24 @@ class ModelLoader(ForgeModel):
             if experts is not None:
                 shard_specs[experts.gate_up_proj] = ("model", None, None)
                 shard_specs[experts.down_proj] = ("model", None, None)
+
+        # Vocab-shard the head: replicated it is 1.375 GiB per device, and tilizing
+        # it on top of the weights lands 1.09 GiB over the 11.97 GiB budget.
+        # lm_head and embed_tokens are one tied parameter in the checkpoint, but
+        # model.to(device) breaks the tie, so both must be marked by identity, and
+        # here rather than after placement -- by then the replicated copy exists.
+        for holder, attr in (
+            (model, "lm_head"),
+            (getattr(getattr(model, "model", None), "decoder", None), "embed_tokens"),
+            (
+                getattr(getattr(model, "language_model", None), "embed_tokens", None),
+                None,
+            ),
+        ):
+            if holder is None:
+                continue
+            mod = holder if attr is None else getattr(holder, attr, None)
+            w = getattr(mod, "weight", None)
+            if w is not None:
+                shard_specs[w] = ("model", None)
         return shard_specs

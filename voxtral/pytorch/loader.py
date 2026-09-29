@@ -4,9 +4,12 @@
 """
 Voxtral model loader implementation.
 
-Voxtral-Mini-3B-2507 is Mistral's audio+text -> text model: a Whisper-style
-audio encoder + multi-modal projector feeding a 30-layer Ministral-3B causal
-language model (vocab 131072).
+Variants:
+  - ``Voxtral-Mini-3B-2507`` — Ministral-3B language tower
+  - ``Voxtral-Small-24B-2507`` — larger language tower
+
+Both are Mistral audio+text -> text models: Whisper-style audio encoder +
+multi-modal projector feeding a causal LM (tekken / mistral-common tokenizer).
 
 The HF ``VoxtralForConditionalGeneration.forward`` merges the audio embeddings
 into the text-embedding sequence with ``inputs_embeds.masked_scatter(...)``. That
@@ -19,9 +22,13 @@ to the model. With ``inputs_embeds`` supplied and ``input_features`` omitted,
 graph suitable for compilation.
 """
 
-import torch
-from transformers import AutoProcessor, VoxtralForConditionalGeneration
+import sys
+from typing import Optional
 
+import torch
+from transformers import VoxtralForConditionalGeneration
+
+from ...base import ForgeModel
 from ...config import (
     ModelInfo,
     ModelGroup,
@@ -31,8 +38,6 @@ from ...config import (
     StrEnum,
     ModelConfig,
 )
-from ...base import ForgeModel
-from typing import Optional
 
 
 # Default audio prompt used to build the multimodal inputs. Two short clips so
@@ -83,17 +88,21 @@ def _patch_chat_template_guard():
 
 
 class ModelVariant(StrEnum):
-    """Available Voxtral model variants."""
+    """Available Voxtral audio+text model variants."""
 
     VOXTRAL_MINI_3B = "Voxtral-Mini-3B-2507"
+    VOXTRAL_SMALL_24B = "Voxtral-Small-24B-2507"
 
 
 class ModelLoader(ForgeModel):
-    """Voxtral model loader implementation."""
+    """Voxtral audio+text model loader implementation."""
 
     _VARIANTS = {
         ModelVariant.VOXTRAL_MINI_3B: ModelConfig(
             pretrained_model_name="mistralai/Voxtral-Mini-3B-2507",
+        ),
+        ModelVariant.VOXTRAL_SMALL_24B: ModelConfig(
+            pretrained_model_name="mistralai/Voxtral-Small-24B-2507",
         ),
     }
 
@@ -111,19 +120,59 @@ class ModelLoader(ForgeModel):
         """Get model information for dashboard and metrics reporting."""
         if variant is None:
             variant = cls.DEFAULT_VARIANT
+        # Mini is already tracked as RED; Small-24B is generality bring-up.
+        group = (
+            ModelGroup.RED
+            if variant == ModelVariant.VOXTRAL_MINI_3B
+            else ModelGroup.GENERALITY
+        )
         return ModelInfo(
             model="Voxtral",
             variant=variant,
-            group=ModelGroup.RED,
+            group=group,
             task=ModelTask.MM_CONDITIONAL_GENERATION,
             source=ModelSource.HUGGING_FACE,
             framework=Framework.TORCH,
         )
 
+    def _text_config(self):
+        return getattr(self.config, "text_config", self.config)
+
     def _load_processor(self):
+        """Load processor with ``MistralCommonBackend`` (tekken) tokenizer.
+
+        Requires ``mistral-common`` (see requirements.txt).
+
+        ``is_mistral_common_available()`` is ``lru_cache``'d and typically
+        evaluated during pytest collection *before* this test's requirements
+        install. Clear that cache (and any half-imported mistral tokenizer
+        module) so ``SpecialTokens`` is imported correctly, then build the
+        processor explicitly — ``AutoProcessor`` still consults the frozen
+        ``TOKENIZER_MAPPING_NAMES`` and would pick ``TokenizersBackend``.
+        """
         if self.processor is None:
+            try:
+                import mistral_common  # noqa: F401
+            except ImportError as e:
+                raise ImportError(
+                    "Voxtral audio+text path requires mistral-common. "
+                    "Install from voxtral/pytorch/requirements.txt"
+                ) from e
+
+            from transformers.utils.import_utils import is_mistral_common_available
+
+            is_mistral_common_available.cache_clear()
+            sys.modules.pop("transformers.tokenization_mistral_common", None)
+
+            from transformers import VoxtralProcessor, WhisperFeatureExtractor
+            from transformers.tokenization_mistral_common import MistralCommonBackend
+
             _patch_chat_template_guard()
-            self.processor = AutoProcessor.from_pretrained(self._model_name)
+            tokenizer = MistralCommonBackend.from_pretrained(self._model_name)
+            feature_extractor = WhisperFeatureExtractor.from_pretrained(
+                self._model_name
+            )
+            self.processor = VoxtralProcessor(feature_extractor, tokenizer)
         return self.processor
 
     def load_model(self, *, dtype_override=None, **kwargs):
@@ -214,6 +263,7 @@ class ModelLoader(ForgeModel):
         return processor.tokenizer.decode(next_id.tolist())
 
     def get_mesh_config(self, num_devices: int):
+        """Return mesh shape and axis names for tensor parallel."""
         mesh_shape = (1, num_devices)
         return mesh_shape, ("batch", "model")
 
@@ -231,6 +281,7 @@ class ModelLoader(ForgeModel):
 
         Used for multichip bring-up when the model is weight-bound on a single
         device. Column-parallel on q/k/v/gate/up, row-parallel on o/down.
+        Audio tower weights stay out of the map (replicated).
         """
         shard_specs = {}
         language_model = self._get_language_model(model)
