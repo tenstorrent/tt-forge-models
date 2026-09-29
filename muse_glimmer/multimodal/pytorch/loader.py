@@ -175,7 +175,9 @@ class ModelLoader(ForgeModel):
         if getattr(vt, "_tt_static_patch", False):
             return
 
-        def attn_forward(attn, hidden_states, cu_seqlens, position_embeddings=None, **kw):
+        def attn_forward(
+            attn, hidden_states, cu_seqlens, position_embeddings=None, **kw
+        ):
             # ``cu_seqlens`` is a python list of segment lengths here.
             seq_length = hidden_states.shape[0]
             q = attn.q_proj(hidden_states).reshape(1, seq_length, -1, attn.head_dim)
@@ -237,7 +239,11 @@ class ModelLoader(ForgeModel):
                 chunk = hidden[offset : offset + n_tokens]
                 down = chunk[getattr(vt_, f"tt_ds_perm_{i}")]
                 down = down.view(n_out, factor * factor, dim)
-                out.append(down.permute(0, 2, 1).contiguous().view(n_out, dim * factor * factor))
+                out.append(
+                    down.permute(0, 2, 1)
+                    .contiguous()
+                    .view(n_out, dim * factor * factor)
+                )
             return BaseModelOutputWithPooling(last_hidden_state=torch.cat(out, dim=0))
 
         vt.forward = types.MethodType(vision_forward, vt)
@@ -247,7 +253,9 @@ class ModelLoader(ForgeModel):
             feats = m.vision_adapter(out.last_hidden_state)
             feats = m.vision_projection(feats)
             feats = m.perception_emb_norm(feats)
-            out.pooler_output = torch.split(feats, m.vision_tower._tt_static["split_sizes"])
+            out.pooler_output = torch.split(
+                feats, m.vision_tower._tt_static["split_sizes"]
+            )
             return out
 
         inner.get_image_features = types.MethodType(get_image_features, inner)
@@ -269,7 +277,9 @@ class ModelLoader(ForgeModel):
         cfg = vt.config
         factor = cfg.merge_size
 
-        full_lengths = torch.repeat_interleave(grid[:, 1] * grid[:, 2], grid[:, 0]).tolist()
+        full_lengths = torch.repeat_interleave(
+            grid[:, 1] * grid[:, 2], grid[:, 0]
+        ).tolist()
         window_index, cu_window = get_vision_window_index(
             grid,
             spatial_merge_size=1,
@@ -297,7 +307,9 @@ class ModelLoader(ForgeModel):
             offset += n_tokens
 
         vt.register_buffer("tt_window_index", window_index, persistent=False)
-        vt.register_buffer("tt_reverse_indices", torch.argsort(window_index), persistent=False)
+        vt.register_buffer(
+            "tt_reverse_indices", torch.argsort(window_index), persistent=False
+        )
         vt.register_buffer("tt_position_ids", position_ids, persistent=False)
         vt._tt_static = {
             "full_lengths": full_lengths,
