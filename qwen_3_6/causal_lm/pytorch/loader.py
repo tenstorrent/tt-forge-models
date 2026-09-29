@@ -24,8 +24,9 @@ from ....config import (
 
 
 class ModelVariant(StrEnum):
-    """Available Qwen 3.6 MoE model variants for causal language modeling."""
+    """Available Qwen 3.6 model variants for causal language modeling."""
 
+    QWEN_3_6_27B = "27B"
     QWEN_3_6_35B_A3B = "35B_A3B"
 
 
@@ -33,6 +34,10 @@ class ModelLoader(ForgeModel):
     """Qwen 3.6 model loader implementation for causal language modeling tasks."""
 
     _VARIANTS = {
+        ModelVariant.QWEN_3_6_27B: LLMModelConfig(
+            pretrained_model_name="Qwen/Qwen3.6-27B",
+            max_length=128,
+        ),
         ModelVariant.QWEN_3_6_35B_A3B: LLMModelConfig(
             pretrained_model_name="Qwen/Qwen3.6-35B-A3B",
             max_length=128,
@@ -43,9 +48,15 @@ class ModelLoader(ForgeModel):
 
     sample_text = "Give me a short introduction to large language model."
 
-    # Gated DeltaNet conv is 8192 wide; 4096 and 1024 both verified on a
-    # 4-device blackhole mesh. Lower it if the DRAM auto-slice assert returns.
+    # Gated DeltaNet conv width depends on the variant. 35B-A3B is 8192
+    # (4096 verified on a 4-device blackhole mesh). 27B is 10240
+    # (48*128 V + 16*128 Q + 16*128 K); 4096 leaves a 2048 tail, and 2048
+    # does not fit, so 27B uses 2560, which divides 10240.
     CONV_CHANNEL_CHUNK = 4096
+    _CONV_CHANNEL_CHUNK = {
+        ModelVariant.QWEN_3_6_27B: 2560,
+        ModelVariant.QWEN_3_6_35B_A3B: 4096,
+    }
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -54,6 +65,7 @@ class ModelLoader(ForgeModel):
         self.tokenizer = None
         self.config = None
         self.num_layers = num_layers
+        self.CONV_CHANNEL_CHUNK = self._CONV_CHANNEL_CHUNK[self._variant]
 
     @classmethod
     def _get_model_info(cls, variant: Optional[ModelVariant] = None) -> ModelInfo:
@@ -156,16 +168,24 @@ class ModelLoader(ForgeModel):
         shard_specs = {}
 
         for layer in model.model.layers:
-            # Every layer is MoE: the routed experts' fused weights
-            # (mlp.experts.gate_up_proj / down_proj) are sharded on the expert
-            # dimension by get_tt_moe_shard_specs. The router (mlp.gate.weight)
-            # and shared_expert_gate stay replicated so every device can score
-            # all 256 experts before dispatch. The always-on shared expert is a
-            # dense MLP: column-parallel gate/up, row-parallel down.
-            shared = layer.mlp.shared_expert
-            shard_specs[shared.gate_proj.weight] = ("model", "batch")
-            shard_specs[shared.up_proj.weight] = ("model", "batch")
-            shard_specs[shared.down_proj.weight] = ("batch", "model")
+            mlp = layer.mlp
+            if hasattr(mlp, "experts"):
+                # MoE layer (35B-A3B): the routed experts' fused weights
+                # (mlp.experts.gate_up_proj / down_proj) are sharded on the
+                # expert dimension by get_tt_moe_shard_specs. The router
+                # (mlp.gate.weight) and shared_expert_gate stay replicated so
+                # every device can score all 256 experts before dispatch. The
+                # always-on shared expert is a dense MLP: column-parallel
+                # gate/up, row-parallel down.
+                shared = mlp.shared_expert
+                shard_specs[shared.gate_proj.weight] = ("model", "batch")
+                shard_specs[shared.up_proj.weight] = ("model", "batch")
+                shard_specs[shared.down_proj.weight] = ("batch", "model")
+            else:
+                # Dense layer (27B): plain gate/up/down MLP.
+                shard_specs[mlp.gate_proj.weight] = ("model", "batch")
+                shard_specs[mlp.up_proj.weight] = ("model", "batch")
+                shard_specs[mlp.down_proj.weight] = ("batch", "model")
 
             if hasattr(layer, "self_attn"):
                 sa = layer.self_attn
