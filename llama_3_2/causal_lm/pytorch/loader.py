@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Llama 3.2 90B Vision Instruct model loader implementation.
+Llama 3.2 90B Vision model loader implementation.
 """
 
 import torch
@@ -24,13 +24,18 @@ from ....config import (
 class ModelVariant(StrEnum):
     """Available Llama 3.2 model variants for causal language modeling."""
 
+    LLAMA_3_2_90B_VISION = "Llama-3.2-90B-Vision"
     LLAMA_3_2_90B_VISION_INSTRUCT = "Llama-3.2-90B-Vision-Instruct"
 
 
 class ModelLoader(ForgeModel):
-    """Llama 3.2 90B Vision Instruct model loader for causal language modeling."""
+    """Llama 3.2 90B Vision model loader for causal language modeling."""
 
     _VARIANTS = {
+        ModelVariant.LLAMA_3_2_90B_VISION: LLMModelConfig(
+            pretrained_model_name="meta-llama/Llama-3.2-90B-Vision",
+            max_length=256,
+        ),
         ModelVariant.LLAMA_3_2_90B_VISION_INSTRUCT: LLMModelConfig(
             pretrained_model_name="meta-llama/Llama-3.2-90B-Vision-Instruct",
             max_length=256,
