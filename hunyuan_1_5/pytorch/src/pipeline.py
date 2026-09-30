@@ -2,13 +2,13 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""HunyuanVideo 1.5 (480p t2v base) pipeline: DiT and both text encoders on
-TT, scheduler/guider combine/VAE on CPU.
+"""HunyuanVideo 1.5 (480p t2v base) pipeline: DiT, both text encoders and the
+tiled VAE decoder on TT, scheduler/guider combine on CPU.
 
 The Qwen2.5-VL encoder and the DiT are tensor-parallel sharded over one shared
-mesh; ByT5 (0.22B) carries no shard spec, so SPMD replicates it. All three are
-loaded, compiled and uploaded once in `setup()` and stay resident, so repeat
-`generate()` calls reuse both weights and compiled graphs.
+mesh; ByT5 (0.22B) and the VAE decoder carry no shard spec, so SPMD replicates
+them. All four are loaded, compiled and uploaded once in `setup()` and stay
+resident, so repeat `generate()` calls reuse both weights and compiled graphs.
 
 Guidance is real CFG from the repo's `guider`, so the DiT runs twice per step
 (cond + uncond) and the guider combines the predictions on the host. Both
@@ -46,6 +46,7 @@ from .model_utils import (
     REPO_ID,
     HunyuanVideo15TransformerWrapper,
     QwenPromptEmbedsWrapper,
+    VAEDecoderWrapper,
     load_text_encoder,
     load_text_encoder_2,
     load_transformer,
@@ -124,6 +125,7 @@ class HunyuanVideo15Config:
         shard: bool = True,
         transformer_on_tt: bool = True,
         text_encoders_on_tt: bool = True,
+        vae_on_tt: bool = True,
     ):
         self.num_inference_steps = num_inference_steps
         self.height = height
@@ -132,10 +134,12 @@ class HunyuanVideo15Config:
         self.shard = shard
         self.transformer_on_tt = transformer_on_tt
         self.text_encoders_on_tt = text_encoders_on_tt
+        self.vae_on_tt = vae_on_tt
 
 
 class HunyuanVideo15Pipeline:
-    """DiT and both text encoders on TT; scheduler, guider and VAE stay on CPU."""
+    """DiT, both text encoders and the tiled VAE decoder on TT; scheduler and
+    guider stay on CPU."""
 
     def __init__(self, config: HunyuanVideo15Config):
         self.config = config
@@ -161,7 +165,9 @@ class HunyuanVideo15Pipeline:
         # One mesh, shared by every TT component. SPMD has to be enabled before
         # the first device op, so this runs ahead of any .to(xla_device()).
         if self.config.shard and (
-            self.config.transformer_on_tt or self.config.text_encoders_on_tt
+            self.config.transformer_on_tt
+            or self.config.text_encoders_on_tt
+            or self.config.vae_on_tt
         ):
             self._init_mesh()
 
@@ -176,6 +182,14 @@ class HunyuanVideo15Pipeline:
             # callers can still wrap forward (e.g. the nightly PCC check).
             self.transformer.forward = torch.compile(
                 self.transformer.forward, backend="tt"
+            )
+
+        if self.config.vae_on_tt:
+            # No shard spec: the tiled decoder fits one chip, so it runs
+            # replicated like ByT5.
+            self.vae_decoder = self._place_on_tt(self.vae_decoder)
+            self.vae_decoder.forward = torch.compile(
+                self.vae_decoder.forward, backend="tt"
             )
 
     def load_models(self):
@@ -197,6 +211,8 @@ class HunyuanVideo15Pipeline:
         ).eval()
         logger.info("[load_models] vae (~1.26B) ...")
         self.vae = load_vae(DTYPE, enable_tiling=True)
+        # Same wrapper the VAE_TILED component test compiles: (z) -> video.
+        self.vae_decoder = VAEDecoderWrapper(self.vae).eval()
 
     def load_text_encoders_to_tt(self):
         """Qwen sharded, ByT5 (0.22B) replicated — then compile both forwards."""
@@ -476,7 +492,11 @@ class HunyuanVideo15Pipeline:
         logger.info("[generate] VAE decode ...")
         t0 = time.perf_counter()
         latents = latents.to(self.vae.dtype) / self.scaling_factor
-        video = self.vae.decode(latents, return_dict=False)[0]
+        vae_on_tt = cfg.vae_on_tt
+        latents = latents.to(xm.xla_device()) if vae_on_tt else latents
+        # The .to(cpu) cast is the sync point that forces the decode graph to run.
+        video = self.vae_decoder(latents)
+        video = video.to(cpu) if vae_on_tt else video
         frames = self.video_processor.postprocess_video(video, output_type=output_type)[
             0
         ]
