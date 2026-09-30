@@ -14,7 +14,9 @@ This pipeline can be reused by demo / benchmark / test.
 import gc
 import importlib
 import os
+import time
 from collections import deque
+from contextlib import contextmanager
 
 import numpy as np
 import torch
@@ -97,11 +99,43 @@ def init_crossattn_cache(num_blocks, num_heads, head_dim):
 class KreaRealtimePipeline:
     """Krea e2e pipeline: transformer + VAE decoder on TT, text-encoder (once) on TT."""
 
-    def __init__(self, on_forward=None):
+    # Staged: the encoder, transformer and VAE decoder are each evicted before the
+    # next is placed (only one heavy net resident at a time), so a repeat call
+    # rebuilds. Cold and warm both come from the single generate() call, before
+    # eviction -- see tests/benchmark/utils.staged_perf_measurements.
+    benchmark_staged_residency = True
+
+    def __init__(self, on_forward=None, warm_iters=0):
         # on_forward(kind, label, inputs, tt_out): optional per-forward validation
         # hook (default no-op). ``kind`` in {"encoder", "transformer", ...}; a test
         # runs a CPU reference on ``inputs`` and compares against ``tt_out``.
         self._on_forward = on_forward or (lambda *a, **k: None)
+        # >0 only under the perf benchmark: extra in-residency forwards to get a
+        # warm number for the single-shot encoder/decoder. 0 for demo / PCC test.
+        self._warm_iters = warm_iters
+        self._reset_perf()
+
+    def _reset_perf(self):
+        """The schema tests/benchmark/utils.staged_perf_measurements() consumes."""
+        self._perf = {
+            "components": {},  # cold functional-forward seconds, per component
+            "steps": [],  # per denoise-step seconds (steps[0] cold, rest warm)
+            "total": None,  # wall clock of the staged run
+            "cold": {},  # explicit cold seconds, per component
+            "warm": {},  # in-residency warm-repeat seconds, per component
+            "staging": 0.0,  # weight movement / eviction seconds
+            "synthetic": 0.0,  # seconds burned in discarded warm repeats
+        }
+
+    @contextmanager
+    def _staging(self):
+        """Time weight movement / eviction into ``_perf["staging"]`` so a stage's
+        compute seconds are counted once (in components/steps), not with staging."""
+        t0 = time.perf_counter()
+        try:
+            yield
+        finally:
+            self._perf["staging"] += time.perf_counter() - t0
 
     def setup(self):
         self.text_encoder = load_text_encoder(WAN_REPO_ID, DTYPE)
@@ -199,12 +233,30 @@ class KreaRealtimePipeline:
         # Compile a LOCAL wrapper and drop it after use so its compiled device
         # buffers are released (in-place .compile() keeps them resident even after
         # .to("cpu"), which would OOM the transformer). The encoder runs once.
-        self.text_encoder = self.text_encoder.to(xm.xla_device())
-        compiled = torch.compile(self.text_encoder, backend="tt")
+        with self._staging():
+            self.text_encoder = self.text_encoder.to(xm.xla_device())
+            compiled = torch.compile(self.text_encoder, backend="tt")
+
+        t0 = time.perf_counter()
         tt_hidden = _cpu(compiled(_tt(input_ids), _tt(mask)).last_hidden_state)
-        del compiled
-        self.text_encoder = None
-        torch_xla.sync()  # reclaim the encoder before the transformer lands
+        cold = time.perf_counter() - t0
+        self._perf["components"]["encoder"] = cold
+        self._perf["cold"]["encoder"] = cold
+
+        # WARM (benchmark only): reuse the resident compiled graph before eviction.
+        warm = []
+        for _ in range(max(0, self._warm_iters)):
+            t0 = time.perf_counter()
+            _cpu(compiled(_tt(input_ids), _tt(mask)).last_hidden_state)
+            warm.append(time.perf_counter() - t0)
+        if warm:
+            self._perf["warm"]["encoder"] = sum(warm) / len(warm)
+            self._perf["synthetic"] += sum(warm)
+
+        with self._staging():
+            del compiled
+            self.text_encoder = None
+            torch_xla.sync()  # reclaim the encoder before the transformer lands
 
         self._on_forward(
             "encoder", "encoder", {"input_ids": input_ids, "mask": mask}, tt_hidden
@@ -334,8 +386,23 @@ class KreaRealtimePipeline:
                 self.vae._feat_map = [None] * 55
         elif not tiling:
             self.vae._feat_map = decoder_cache
+        t0 = time.perf_counter()
         videos = _cpu(self._vae_decoder(_tt(rescaled)))
+        cold = time.perf_counter() - t0
+        self._perf["components"]["vae_decode"] = cold
+        self._perf["cold"]["vae_decode"] = cold
         decoder_cache = self.vae._feat_map
+
+        # WARM (benchmark only): reuse the resident compiled decoder.
+        warm = []
+        for _ in range(max(0, self._warm_iters)):
+            t0 = time.perf_counter()
+            _cpu(self._vae_decoder(_tt(rescaled)))
+            warm.append(time.perf_counter() - t0)
+        if warm:
+            self._perf["warm"]["vae_decode"] = sum(warm) / len(warm)
+            self._perf["synthetic"] += sum(warm)
+
         self._on_forward(
             "vae_decode", f"b{block_idx}_vae_decode", {"z": rescaled}, videos
         )
@@ -392,6 +459,8 @@ class KreaRealtimePipeline:
 
     def generate(self, prompt, num_blocks, num_inference_steps, seed):
         with torch.no_grad():
+            self._reset_perf()
+            t_total = time.perf_counter()
             generator = torch.Generator(device="cpu").manual_seed(seed)
 
             prompt_embeds = self._encode(prompt)
@@ -410,18 +479,19 @@ class KreaRealtimePipeline:
             current_denoised = None
 
             # Transformer resident on the mesh for the whole run.
-            self.transformer = self.transformer.to(xm.xla_device())
-            for tensor, spec in shard_transformer_specs(self.transformer).items():
-                xs.mark_sharding(tensor, self._mesh, spec)
-            self._caches_to(kv_cache, _tt)
-            self._caches_to(crossattn_cache, _tt)
-            # Shard the caches on the head dim (dim 2) to match the transformer's
-            # tensor-parallel head split; otherwise .to(xla) leaves them replicated
-            # full-size on every chip -> DRAM OOM.
-            head_spec = (None, None, "model", None)
-            for e in (*kv_cache, *crossattn_cache):
-                xs.mark_sharding(e["k"], self._mesh, head_spec)
-                xs.mark_sharding(e["v"], self._mesh, head_spec)
+            with self._staging():
+                self.transformer = self.transformer.to(xm.xla_device())
+                for tensor, spec in shard_transformer_specs(self.transformer).items():
+                    xs.mark_sharding(tensor, self._mesh, spec)
+                self._caches_to(kv_cache, _tt)
+                self._caches_to(crossattn_cache, _tt)
+                # Shard the caches on the head dim (dim 2) to match the transformer's
+                # tensor-parallel head split; otherwise .to(xla) leaves them replicated
+                # full-size on every chip -> DRAM OOM.
+                head_spec = (None, None, "model", None)
+                for e in (*kv_cache, *crossattn_cache):
+                    xs.mark_sharding(e["k"], self._mesh, head_spec)
+                    xs.mark_sharding(e["v"], self._mesh, head_spec)
 
             frames = []
             for block_idx in range(num_blocks):
@@ -450,6 +520,9 @@ class KreaRealtimePipeline:
                 latents = block_latents
                 for i, t in enumerate(timesteps):
                     start_frame = min(current_start_frame, KV_CACHE_NUM_FRAMES)
+                    # steps[0] is cold (first-forward compile); steps[1:] are warm
+                    # cache hits while the transformer stays resident in the loop.
+                    t_step = time.perf_counter()
                     noise = self._transformer_step(
                         f"b{block_idx}_step{i}",
                         latents,
@@ -459,6 +532,7 @@ class KreaRealtimePipeline:
                         crossattn_cache,
                         start_frame * FRAME_SEQ_LENGTH,
                     )
+                    self._perf["steps"].append(time.perf_counter() - t_step)
                     tid = torch.argmin((all_timesteps - t).abs())
                     latents = (
                         latents.double() - sigmas[tid].double() * noise.double()
@@ -492,14 +566,16 @@ class KreaRealtimePipeline:
                     # and the decoder OOMs. Dropping the dynamo graphs too, since
                     # they pin device copies of the weights.
                     # https://github.com/tenstorrent/tt-xla/issues/6047
-                    self.transformer = None
-                    kv_cache = crossattn_cache = None
-                    torch._dynamo.reset()
-                    gc.collect()
-                    torch_xla.sync()
+                    with self._staging():
+                        self.transformer = None
+                        kv_cache = crossattn_cache = None
+                        torch._dynamo.reset()
+                        gc.collect()
+                        torch_xla.sync()
 
                 block_frames, decoder_cache, frame_cache_context = self._decode(
                     current_denoised, block_idx, decoder_cache, frame_cache_context
                 )
                 frames.extend(block_frames)
+            self._perf["total"] = time.perf_counter() - t_total
             return frames
