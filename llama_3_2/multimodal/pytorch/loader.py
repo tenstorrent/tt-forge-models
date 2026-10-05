@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Llama 3.2 90B Vision Instruct multimodal (image + text → text) loader.
+Llama 3.2 90B Vision multimodal (image + text → text) loader.
 """
 
 from typing import Optional
@@ -27,15 +27,20 @@ from ....tools.utils import cast_input_to_type, get_file
 class ModelVariant(StrEnum):
     """Available Llama 3.2 multimodal model variants."""
 
+    LLAMA_3_2_90B_VISION = "Llama-3.2-90B-Vision"
     LLAMA_3_2_90B_VISION_INSTRUCT = "Llama-3.2-90B-Vision-Instruct"
 
 
 class ModelLoader(ForgeModel):
     """
-    Llama 3.2 Vision Instruct loader for image-conditioned generation.
+    Llama 3.2 Vision loader for image-conditioned generation.
     """
 
     _VARIANTS = {
+        ModelVariant.LLAMA_3_2_90B_VISION: LLMModelConfig(
+            pretrained_model_name="meta-llama/Llama-3.2-90B-Vision",
+            max_length=256,
+        ),
         ModelVariant.LLAMA_3_2_90B_VISION_INSTRUCT: LLMModelConfig(
             pretrained_model_name="meta-llama/Llama-3.2-90B-Vision-Instruct",
             max_length=256,
@@ -200,18 +205,23 @@ class ModelLoader(ForgeModel):
         image = Image.open(image_file).convert("RGB")
         text = prompt or self.sample_text
 
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": text},
-                ],
-            }
-        ]
-        input_text = self.processor.apply_chat_template(
-            messages, add_generation_prompt=True
-        )
+        # The base checkpoint has no chat template. It expects the image
+        # special token in a raw prompt, same as Llama-3.2-11B-Vision.
+        if self._variant == ModelVariant.LLAMA_3_2_90B_VISION:
+            input_text = f"<|image|><|begin_of_text|> {text}"
+        else:
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image"},
+                        {"type": "text", "text": text},
+                    ],
+                }
+            ]
+            input_text = self.processor.apply_chat_template(
+                messages, add_generation_prompt=True
+            )
         inputs = self.processor(
             images=image,
             text=input_text,
