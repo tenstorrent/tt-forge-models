@@ -3,17 +3,17 @@
 # SPDX-License-Identifier: Apache-2.0
 """HiDream-I1-Full text-to-image pipeline running on Tenstorrent.
 
-The CLIP-L and CLIP-G text encoders, the Sparse-MoE MM-DiT transformer (~17 B)
-and the VAE decoder run on TT in bf16, the dtype the model ships in. Only the
-transformer is tensor-parallel sharded across the device mesh; the CLIPs and the
-VAE carry no shard spec, so SPMD replicates them. The T5-XXL and Llama-3.1-8B
-encoders stay on CPU for now (see ``load_models``), as do the UniPC scheduler and
-the host-side trajectory.
+The CLIP-L, CLIP-G and Llama-3.1-8B text encoders, the Sparse-MoE MM-DiT
+transformer (~17 B) and the VAE decoder run on TT in bf16, the dtype the model
+ships in. Llama and the transformer are tensor-parallel sharded across the
+device mesh; the CLIPs and the VAE carry no shard spec, so SPMD replicates them.
+The T5-XXL encoder stays on CPU for now (see ``load_models``), as do the UniPC
+scheduler and the host-side trajectory.
 
 Every TT component is loaded, sharded, uploaded and compiled once in ``setup()``
-and stays resident — the sharded DiT plus the replicated CLIPs and VAE are ~10 GB
-of each chip's 32 GB — so ``generate()`` is pure compute and repeat calls reuse
-both the weights and the compiled graphs.
+and stays resident — the sharded Llama/DiT plus the replicated CLIPs and VAE are
+~14 GB of each chip's 32 GB — so ``generate()`` is pure compute and repeat calls
+reuse both the weights and the compiled graphs.
 
 The math mirrors ``HiDreamImagePipeline.__call__`` at batch_size=1, one image per
 prompt: CFG doubles the DiT batch, HiDream predicts the negated flow so the sign
@@ -111,8 +111,8 @@ class HiDreamI1Config:
 
 
 class HiDreamI1Pipeline:
-    """CLIP encoders + transformer + VAE decoder on TT (bf16); T5, Llama and the
-    UniPC scheduler on CPU.
+    """CLIP and Llama encoders + transformer + VAE decoder on TT (bf16); T5 and
+    the UniPC scheduler on CPU.
 
     Built once with ``setup()``; ``generate()`` can be called repeatedly against
     the already-resident models.
@@ -125,7 +125,8 @@ class HiDreamI1Pipeline:
 
     def setup(self):
         # One mesh, shared by every TT component; the transformer's loader
-        # supplies the shape, and it is the only sharded component.
+        # supplies the shape and the other sharded variants report the same for
+        # a given device count.
         enable_spmd()
         self.num_devices = xr.global_runtime_device_count()
         self.mesh_shape, mesh_names = ModelLoader(
@@ -143,27 +144,25 @@ class HiDreamI1Pipeline:
     def load_models(self):
         """Load every component on CPU, then upload and compile the TT ones.
 
-        T5 and Llama stay on the host — see the note below — so they are neither
-        compiled nor uploaded.
+        T5 stays on the host — see the note below — so it is neither compiled
+        nor uploaded.
 
         We wrap ``forward``, not the module, so each TT component stays an
         ``nn.Module`` and callers can wrap ``forward`` again (e.g. the nightly
         PCC check).
 
-        Only the transformer (17 B) carries a shard spec; without one SPMD would
-        replicate it onto every chip and OOM. CLIP-L (0.12 B), CLIP-G (0.70 B)
-        and the VAE (0.08 B) are small enough to replicate.
+        Llama (8 B) and the transformer (17 B) carry shard specs; without one
+        SPMD would replicate them onto every chip and OOM. CLIP-L (0.12 B),
+        CLIP-G (0.70 B) and the VAE (0.08 B) are small enough to replicate.
         """
         self.text_encoder = self._to_tt(ModelVariant.TEXT_ENCODER)
         self.text_encoder_2 = self._to_tt(ModelVariant.TEXT_ENCODER_2)
-        # T5-XXL and Llama stay on CPU. In bf16 on TT both fall well short of the
-        # PCC gate against their own bf16 CPU twins — T5 to 0.761719 on the
-        # prompt, Llama to 0.828125 on the negative one — and fp32 lifts neither
-        # (0.761571 / 0.833107), so this is not a precision drop.
-        # T5:    https://github.com/tenstorrent/tt-xla/issues/6018
-        # Llama: https://github.com/tenstorrent/tt-xla/issues/6019
+        # T5-XXL stays on CPU. In bf16 on TT it falls well short of the PCC gate
+        # against its own bf16 CPU twin (0.761719 on the prompt) and fp32 does
+        # not lift it (0.761571), so this is not a precision drop.
+        # https://github.com/tenstorrent/tt-xla/issues/6018
         self.text_encoder_3 = self._on_cpu(ModelVariant.TEXT_ENCODER_3)
-        self.text_encoder_4 = self._on_cpu(ModelVariant.TEXT_ENCODER_4)
+        self.text_encoder_4 = self._to_tt(ModelVariant.TEXT_ENCODER_4, sharded=True)
         self.transformer = self._to_tt(
             ModelVariant.TRANSFORMER, sharded=True, prepare=self._swap_moe
         )
@@ -285,8 +284,9 @@ class HiDreamI1Pipeline:
         return embeds
 
     def _get_llama3_prompt_embeds(self, prompt: str):
-        """Llama-3.1-8B encoder — CPU (bf16); see load_models for why not on TT."""
+        """Llama-3.1-8B encoder — TT (bf16, sharded)."""
         prompt = [prompt] if isinstance(prompt, str) else prompt
+        dev = torch_xla.device()
 
         text_inputs = self.tokenizer_4(
             prompt,
@@ -299,8 +299,12 @@ class HiDreamI1Pipeline:
             return_tensors="pt",
         )
         # LlamaStackedHiddenWrapper == stack(hidden_states[1:], dim=0) -> (32,1,128,4096).
+        # .cpu() is the sync point: it forces the graph to run and only returns
+        # once the result is on host, so the timer ends there.
         t0 = time.perf_counter()
-        embeds = self.text_encoder_4(text_inputs.input_ids, text_inputs.attention_mask)
+        embeds = self.text_encoder_4(
+            text_inputs.input_ids.to(dev), text_inputs.attention_mask.to(dev)
+        ).cpu()
         self._add_component_time("text_encoder_4", time.perf_counter() - t0)
         return embeds
 
@@ -312,7 +316,8 @@ class HiDreamI1Pipeline:
     ):
         """Mirror HiDreamImagePipeline.encode_prompt at batch_size=1, 1 image/prompt."""
         logger.info(
-            "[STAGE] text encoders (CLIP-L, CLIP-G replicated): TT; (T5, Llama): CPU"
+            "[STAGE] text encoders (CLIP-L, CLIP-G replicated; Llama sharded): TT; "
+            "T5: CPU"
         )
         if do_classifier_free_guidance:
             negative_prompt = negative_prompt or ""
