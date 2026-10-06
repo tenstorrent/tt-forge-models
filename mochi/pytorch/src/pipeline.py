@@ -2,8 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Mochi-1 preview pipeline: DiT (bf16) and T5-XXL text encoder (fp32) both
-tensor-parallel on TT, scheduler and VAE on CPU.
+"""Mochi-1 preview pipeline: DiT (bf16), T5-XXL text encoder (fp32) and VAE
+decoder (bf16) all tensor-parallel on TT, scheduler on CPU.
 
 Mirrors ``MochiPipeline.__call__``. guidance_scale=4.5 for this checkpoint ->
 CFG is enabled, so the DiT sees a batch-2 ``cat([uncond, cond])`` input on
@@ -18,6 +18,7 @@ from typing import Optional
 
 import numpy as np
 import torch
+import torch_xla
 import torch_xla.core.xla_model as xm
 import torch_xla.distributed.spmd as xs
 import torch_xla.runtime as xr
@@ -39,7 +40,9 @@ from .utils import (
     load_vae,
     shard_text_encoder_specs,
     shard_transformer_specs,
+    shard_vae_decoder_specs,
 )
+from .vae_ops import patch_vae_decoder_ops
 
 PROMPT = (
     "Close-up of a chameleon's eye, with its scaly skin changing color. "
@@ -65,6 +68,15 @@ TEXT_ENCODER_DTYPE = torch.float32
 VAE_SPATIAL_SCALE_FACTOR = 8
 VAE_TEMPORAL_SCALE_FACTOR = 6
 THRESHOLD_NOISE = 0.025
+
+# Compile options the VAE decoder needs to fit in DRAM. The decoder's
+# unpatchify permute is padded 2 -> 32 by TILE layout without the DRAM
+# space-saving pass, and const-eval pins hoisted broadcasts in DRAM for the
+# whole execution. See tests/torch/models/mochi/test_vae_decoder.py.
+VAE_COMPILE_OPTIONS = {
+    "experimental-enable-dram-space-saving-optimization": "true",
+    "enable_const_eval": "false",
+}
 
 
 def _enable_spmd() -> None:
@@ -112,6 +124,7 @@ class Mochi1Config:
         shard: bool = True,
         transformer_on_tt: bool = True,
         text_encoder_on_tt: bool = True,
+        vae_on_tt: bool = True,
     ):
         self.num_inference_steps = num_inference_steps
         self.height = height
@@ -121,6 +134,7 @@ class Mochi1Config:
         self.shard = shard
         self.transformer_on_tt = transformer_on_tt
         self.text_encoder_on_tt = text_encoder_on_tt
+        self.vae_on_tt = vae_on_tt
 
 
 class Mochi1Pipeline:
@@ -148,10 +162,19 @@ class Mochi1Pipeline:
         # attention.py.
         patch_static_attn_processor()
 
+        # Value-preserving rewrites of two decoder ops whose stock form blows
+        # up DRAM. Process-wide, so a CPU reference in the same process runs
+        # the same math; harmless when the VAE stays on CPU, but only needed
+        # for the device path.
+        if self.config.vae_on_tt:
+            patch_vae_decoder_ops()
+
         # One mesh, shared by every TT component. SPMD has to be enabled before
         # the first device op, so this runs ahead of any .to(xla_device()).
         if self.config.shard and (
-            self.config.transformer_on_tt or self.config.text_encoder_on_tt
+            self.config.transformer_on_tt
+            or self.config.text_encoder_on_tt
+            or self.config.vae_on_tt
         ):
             self._init_mesh()
 
@@ -172,6 +195,19 @@ class Mochi1Pipeline:
             )
             self.transformer.forward = torch.compile(
                 self.transformer.forward, backend="tt"
+            )
+
+        if self.config.vae_on_tt:
+            # Only the decoder goes to the device; the rest of the VAE (encoder,
+            # config, tiling helpers) is unused here. use_tiling and
+            # use_framewise_decoding are both False by default, so decode()
+            # reaches self.decoder in exactly one call - the same single graph
+            # the component test compiles.
+            self.vae.decoder = self._place_on_tt(
+                self.vae.decoder, shard_vae_decoder_specs
+            )
+            self.vae.decoder.forward = torch.compile(
+                self.vae.decoder.forward, backend="tt"
             )
 
     def load_models(self):
@@ -383,7 +419,23 @@ class Mochi1Pipeline:
         else:
             latents = latents / self.scaling_factor
 
-        video = self.vae.decode(latents.to(self.vae.dtype), return_dict=False)[0]
+        latents = latents.to(self.vae.dtype)
+        if cfg.vae_on_tt:
+            # Set here rather than in setup(): these options are read at compile
+            # time, and the DiT and text encoder must not see them. Both have
+            # already compiled by now - the encoder in _encode_prompt, the DiT
+            # on step 1 - so this only reaches the decoder's compile below.
+            torch_xla.set_custom_compile_options(VAE_COMPILE_OPTIONS)
+            logger.info(
+                "[STAGE] vae decoder (sharded, bf16) compile options: {}",
+                VAE_COMPILE_OPTIONS,
+            )
+            latents = latents.to(xm.xla_device())
+
+        video = self.vae.decode(latents, return_dict=False)[0]
+        if cfg.vae_on_tt:
+            # Sync point; postprocess_video runs on CPU.
+            video = video.to(cpu)
         frames = self.video_processor.postprocess_video(video, output_type=output_type)[
             0
         ]
