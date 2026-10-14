@@ -165,7 +165,7 @@ class ModelLoader(ForgeModel):
         TRANSFORMER         → [hidden_states, timestep, encoder_hidden_states,
                                encoder_attention_mask, encoder_hidden_states_2,
                                encoder_attention_mask_2, image_embeds]
-        VAE / VAE_TILED     → [z (1,32,5,30,53) bfloat16]
+        VAE / VAE_TILED     → [z (1,32,31,30,53) bfloat16]
         """
         dtype = dtype_override if dtype_override is not None else DTYPE
 
