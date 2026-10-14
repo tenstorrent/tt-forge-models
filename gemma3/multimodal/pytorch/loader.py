@@ -7,6 +7,7 @@ Gemma3 model loader implementation for multimodal modeling.
 
 from typing import Optional, Any
 
+import torch
 from transformers import (
     AutoConfig,
     AutoProcessor,
@@ -25,6 +26,57 @@ from ....config import (
 from ....base import ForgeModel
 from ....tools.utils import cast_input_to_type, get_file
 from PIL import Image
+
+EXACT_SOFTMAX_ATTN = "tt_exact_softmax_gemma3"
+
+
+def _exact_softmax_attention(
+    module, query, key, value, attention_mask, scaling, **kwargs
+):
+    """fp32 attention with softmax written as exp * reciprocal(sum).
+
+    The stock exp / sum fuses into ttnn.softmax, which tt-mlir leaves at
+    math_approx_mode=True (rows sum to up to 1.039). This form is not fused
+    and is exact on TT. Remove once tt-mlir disables the approximation.
+
+    ``num_key_value_groups`` defaults to 1 so this also serves the SigLIP
+    vision tower (plain MHA, no grouped-query attention), which gets this
+    implementation when ``set_attn_implementation`` propagates to the tower.
+    """
+    from transformers.models.gemma3.modeling_gemma3 import repeat_kv
+
+    n_rep = getattr(module, "num_key_value_groups", 1)
+    key = repeat_kv(key, n_rep).float()
+    value = repeat_kv(value, n_rep).float()
+    scores = torch.matmul(query.float(), key.transpose(2, 3)) * scaling
+    if attention_mask is not None:
+        scores = scores + attention_mask
+    exp = torch.exp(scores - torch.amax(scores, dim=-1, keepdim=True))
+    probs = exp * torch.reciprocal(torch.sum(exp, dim=-1, keepdim=True))
+    out = torch.matmul(probs, value).to(query.dtype)
+    return out.transpose(1, 2).contiguous(), None
+
+
+def _use_exact_softmax_attention(model):
+    from transformers import AttentionInterface
+    from transformers.masking_utils import AttentionMaskInterface, eager_mask
+
+    AttentionInterface.register(EXACT_SOFTMAX_ATTN, _exact_softmax_attention)
+    AttentionMaskInterface.register(EXACT_SOFTMAX_ATTN, eager_mask)
+    model.set_attn_implementation(EXACT_SOFTMAX_ATTN)
+
+
+def _use_fp32_vision_path(model):
+    """Run the SigLIP vision tower and projector in fp32.
+
+    bf16 rounding in the vision tower carries into the image tokens fed to the
+    language model. Keep the tower, the multi-modal projector and pixel_values
+    in fp32; the model's merge casts the image features back to the text dtype
+    (modeling_gemma3: ``image_features.to(inputs_embeds.device, inputs_embeds.dtype)``),
+    so the language model still runs in its native dtype.
+    """
+    model.model.vision_tower.float()
+    model.model.multi_modal_projector.float()
 
 
 class ModelVariant(StrEnum):
@@ -49,6 +101,18 @@ class ModelLoader(ForgeModel):
     # Variants large enough to need tensor-parallel weight sharding. Smaller
     # variants fit on one device and return no shard spec.
     _TENSOR_PARALLEL_VARIANTS = {
+        ModelVariant.GEMMA_3_27B_IT,
+        ModelVariant.MEDGEMMA_27B_IT,
+    }
+
+    # Multimodal variants show low PCC against the CPU golden from two sources:
+    # the approximate ttnn.softmax (rows sum to ~1.039) and bf16 rounding in the
+    # vision tower. For these variants attention runs exact (fp32 exp*reciprocal)
+    # and the vision tower/projector run in fp32. Mirrors tt-forge-models PR #944
+    # (qwen_3_6 / qwen_3_8) and the gemma4 loader. Applied to all variants.
+    _EXACT_SOFTMAX_VARIANTS = {
+        ModelVariant.GEMMA_3_4B_IT,
+        ModelVariant.GEMMA_3_12B_IT,
         ModelVariant.GEMMA_3_27B_IT,
         ModelVariant.MEDGEMMA_27B_IT,
     }
@@ -143,6 +207,13 @@ class ModelLoader(ForgeModel):
         )
 
         model.eval()
+
+        # 27B variants: exact-softmax attention + fp32 vision tower to recover
+        # multimodal PCC (see _EXACT_SOFTMAX_VARIANTS).
+        if self._variant in self._EXACT_SOFTMAX_VARIANTS:
+            _use_exact_softmax_attention(model)
+            _use_fp32_vision_path(model)
+
         self.model = model
         self.config = model.config
         return model
@@ -184,7 +255,14 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
-        if dtype_override is not None:
+        if self._variant in self._EXACT_SOFTMAX_VARIANTS:
+            # fp32 vision tower: keep pixel_values in fp32 regardless of the
+            # text dtype_override (see _use_fp32_vision_path). The model's merge
+            # casts the resulting image features back to the text dtype.
+            inputs["pixel_values"] = cast_input_to_type(
+                inputs["pixel_values"], torch.float32
+            )
+        elif dtype_override is not None:
             inputs["pixel_values"] = cast_input_to_type(
                 inputs["pixel_values"], dtype_override
             )
