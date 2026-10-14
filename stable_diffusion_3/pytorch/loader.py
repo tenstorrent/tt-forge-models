@@ -26,16 +26,22 @@ from ...config import (
     StrEnum,
 )
 from .src.model_utils import (
+    CLIP_G_SUBFOLDER,
+    CLIP_L_SUBFOLDER,
     MESH_NAMES,
     MESH_SHAPES,
+    CLIPTextEncoderWrapper,
     SD3TransformerWrapper,
     T5TextEncoderWrapper,
     VAEDecoderWrapper,
+    load_clip_text_encoder,
+    load_clip_text_encoder_inputs,
     load_pipe,
     load_sd3_vae,
     load_sd3_vae_inputs,
     load_t5_text_encoder,
     load_t5_text_encoder_inputs,
+    shard_clip_text_encoder_specs,
     shard_t5_text_encoder_specs,
     stable_diffusion_preprocessing_v3,
 )
@@ -46,16 +52,45 @@ class ModelVariant(StrEnum):
 
     STABLE_DIFFUSION_3_MEDIUM = "3_Medium"
     TEXT_ENCODER = "TextEncoder"
+    CLIP_TEXT_ENCODER = "ClipTextEncoder"
+    CLIP_G_TEXT_ENCODER = "ClipGTextEncoder"
     VAE = "Vae"
+
+
+# The text-encoder variants, i.e. every variant whose ``load_model`` returns an
+# encoder tower rather than the transformer or the VAE. ``TEXT_ENCODER`` keeps
+# its original name (it predates the CLIP components) and means the T5-XXL
+# tower; the two CLIP towers are named explicitly.
+TEXT_ENCODER_VARIANTS = (
+    ModelVariant.TEXT_ENCODER,
+    ModelVariant.CLIP_TEXT_ENCODER,
+    ModelVariant.CLIP_G_TEXT_ENCODER,
+)
+
+# Subfolder in the SD3 Medium repo per CLIP variant.
+CLIP_SUBFOLDERS = {
+    ModelVariant.CLIP_TEXT_ENCODER: CLIP_L_SUBFOLDER,
+    ModelVariant.CLIP_G_TEXT_ENCODER: CLIP_G_SUBFOLDER,
+}
 
 
 class ModelLoader(ForgeModel):
     """Stable Diffusion v3 (SD3 Medium) model loader.
 
-    Two variants are exposed:
+    Five variants are exposed, one per pipeline component:
       - ``STABLE_DIFFUSION_3_MEDIUM`` (default) → the MMDiT transformer.
       - ``TEXT_ENCODER``                        → the T5-XXL encoder
         (``text_encoder_3``) as an independently compilable TT component.
+      - ``CLIP_TEXT_ENCODER``                   → the CLIP-L tower
+        (``text_encoder``).
+      - ``CLIP_G_TEXT_ENCODER``                 → the CLIP-G tower
+        (``text_encoder_2``).
+      - ``VAE``                                 → the VAE decoder.
+
+    With the two CLIP towers added, every conditioning input the MMDiT consumes
+    has a TT component: SD3 conditions on ``concat(CLIP-L, CLIP-G)`` padded to
+    the T5 width for ``prompt_embeds``, plus ``concat`` of the two CLIP pooled
+    projections for ``pooled_projections``.
     """
 
     _VARIANTS = {
@@ -63,6 +98,12 @@ class ModelLoader(ForgeModel):
             pretrained_model_name="stable-diffusion-3-medium-diffusers",
         ),
         ModelVariant.TEXT_ENCODER: ModelConfig(
+            pretrained_model_name="stable-diffusion-3-medium-diffusers",
+        ),
+        ModelVariant.CLIP_TEXT_ENCODER: ModelConfig(
+            pretrained_model_name="stable-diffusion-3-medium-diffusers",
+        ),
+        ModelVariant.CLIP_G_TEXT_ENCODER: ModelConfig(
             pretrained_model_name="stable-diffusion-3-medium-diffusers",
         ),
         ModelVariant.VAE: ModelConfig(
@@ -89,7 +130,7 @@ class ModelLoader(ForgeModel):
             variant = cls.DEFAULT_VARIANT
         task = (
             ModelTask.NLP_EMBED_GEN
-            if variant == ModelVariant.TEXT_ENCODER
+            if variant in TEXT_ENCODER_VARIANTS
             else ModelTask.CONDITIONAL_GENERATION
         )
         return ModelInfo(
@@ -122,12 +163,19 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.nn.Module: an ``SD3TransformerWrapper`` around the MMDiT
             transformer for the default variant, a ``T5TextEncoderWrapper``
-            around the T5-XXL encoder for ``TEXT_ENCODER``, or a
+            around the T5-XXL encoder for ``TEXT_ENCODER``, a
+            ``CLIPTextEncoderWrapper`` around the CLIP-L / CLIP-G tower for
+            ``CLIP_TEXT_ENCODER`` / ``CLIP_G_TEXT_ENCODER``, or a
             ``VAEDecoderWrapper`` around the VAE decoder for ``VAE``.
         """
         if self._variant == ModelVariant.TEXT_ENCODER:
             dtype = dtype_override if dtype_override is not None else torch.float32
             return T5TextEncoderWrapper(load_t5_text_encoder(dtype)).eval()
+
+        if self._variant in CLIP_SUBFOLDERS:
+            dtype = dtype_override if dtype_override is not None else torch.float32
+            encoder = load_clip_text_encoder(dtype, CLIP_SUBFOLDERS[self._variant])
+            return CLIPTextEncoderWrapper(encoder).eval()
 
         if self._variant == ModelVariant.VAE:
             dtype = dtype_override if dtype_override is not None else torch.float32
@@ -155,11 +203,14 @@ class ModelLoader(ForgeModel):
     def load_shard_spec(self, model):
         """Return tensor → partition_spec dict for the active component.
 
-        Only ``TEXT_ENCODER`` currently provides shard specs; the model object
-        is the ``T5TextEncoderWrapper`` returned by :meth:`load_model`.
+        Only the text-encoder variants provide shard specs; the model object is
+        the wrapper returned by :meth:`load_model`, whose ``.encoder`` is the
+        raw tower.
         """
         if self._variant == ModelVariant.TEXT_ENCODER:
             return shard_t5_text_encoder_specs(model.encoder)
+        if self._variant in CLIP_SUBFOLDERS:
+            return shard_clip_text_encoder_specs(model.encoder)
         return None
 
     def load_inputs(self, dtype_override=None):
@@ -172,10 +223,14 @@ class ModelLoader(ForgeModel):
             list[torch.Tensor]: ``[latent_model_input, timestep, prompt_embeds,
             pooled_prompt_embeds]`` — the positional args expected by the
             wrapper around ``SD3Transformer2DModel.forward``. For
-            ``TEXT_ENCODER`` returns ``[input_ids]`` for the T5-XXL encoder.
+            ``TEXT_ENCODER`` returns ``[input_ids]`` for the T5-XXL encoder, and
+            for the CLIP variants ``[input_ids]`` at the CLIP context length.
         """
         if self._variant == ModelVariant.TEXT_ENCODER:
             return load_t5_text_encoder_inputs(dtype_override)
+
+        if self._variant in CLIP_SUBFOLDERS:
+            return load_clip_text_encoder_inputs(dtype_override)
 
         if self._variant == ModelVariant.VAE:
             return load_sd3_vae_inputs(dtype_override)
