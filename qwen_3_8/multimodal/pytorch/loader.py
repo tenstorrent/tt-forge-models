@@ -13,6 +13,8 @@ transformers ``qwen3_5`` implementation loads it and the Qwen 3.5 shard map
 applies unchanged. The 27B vision tower is depth 27, hidden 1152, patch 16,
 projecting to the 5120-wide text decoder.
 """
+
+import torch
 from transformers import AutoModelForImageTextToText, AutoProcessor, AutoConfig
 from typing import Optional
 
@@ -26,7 +28,39 @@ from ....config import (
     Framework,
     StrEnum,
 )
-from ....tools.utils import cast_input_to_type
+
+EXACT_SOFTMAX_ATTN = "tt_exact_softmax_qwen3_8"
+
+
+def _exact_softmax_attention(
+    module, query, key, value, attention_mask, scaling, **kwargs
+):
+    """fp32 attention with softmax written as exp * reciprocal(sum).
+
+    The stock exp / sum fuses into ttnn.softmax, which tt-mlir leaves at
+    math_approx_mode=True (rows sum to up to 1.039). This form is not fused
+    and is exact on TT. Remove once tt-mlir disables the approximation.
+    """
+    from transformers.models.qwen3_5.modeling_qwen3_5 import repeat_kv
+
+    key = repeat_kv(key, module.num_key_value_groups).float()
+    value = repeat_kv(value, module.num_key_value_groups).float()
+    scores = torch.matmul(query.float(), key.transpose(2, 3)) * scaling
+    if attention_mask is not None:
+        scores = scores + attention_mask
+    exp = torch.exp(scores - torch.amax(scores, dim=-1, keepdim=True))
+    probs = exp * torch.reciprocal(torch.sum(exp, dim=-1, keepdim=True))
+    out = torch.matmul(probs, value).to(query.dtype)
+    return out.transpose(1, 2).contiguous(), None
+
+
+def _use_exact_softmax_attention(model):
+    from transformers import AttentionInterface
+    from transformers.masking_utils import AttentionMaskInterface, eager_mask
+
+    AttentionInterface.register(EXACT_SOFTMAX_ATTN, _exact_softmax_attention)
+    AttentionMaskInterface.register(EXACT_SOFTMAX_ATTN, eager_mask)
+    model.set_attn_implementation(EXACT_SOFTMAX_ATTN)
 
 
 class ModelVariant(StrEnum):
@@ -50,8 +84,11 @@ class ModelLoader(ForgeModel):
     sample_text = "What animal is on the candy?"
     sample_image_url = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/p-blog/candy.JPG"
 
+    # Smaller image budget (<=256 image tokens), fp32 vision tower, and
+    # exact-softmax attention keep the TT logits close to CPU. One merged image
+    # token covers 32x32 pixels (patch 16, 2x2 spatial merge).
     min_pixels = 56 * 56
-    max_pixels = 14 * 28 * 1280
+    max_pixels = 32 * 32 * 256
 
     def __init__(
         self, variant: Optional[ModelVariant] = None, num_layers: Optional[int] = None
@@ -140,6 +177,10 @@ class ModelLoader(ForgeModel):
         if getattr(model.config, "text_config", None) is not None:
             model.config.text_config.use_cache = False
 
+        _use_exact_softmax_attention(model)
+        # The merge casts image features back to the text dtype.
+        model.model.visual.float()
+
         self.config = model.config
         self.model = model
         return model
@@ -153,8 +194,10 @@ class ModelLoader(ForgeModel):
     ):
         """Build a multimodal (image + text) input dict via the Qwen 3.8 processor.
 
+        pixel_values stay fp32 to feed the fp32 vision tower.
+
         Args:
-            dtype_override: If given, cast pixel_values to this dtype.
+            dtype_override: Forwarded to the processor.
             batch_size: Only batch_size=1 supported; pixel_values shapes are image-specific.
             prompt: Override the default sample text prompt.
             image_url: Override the default sample image URL.
@@ -182,11 +225,6 @@ class ModelLoader(ForgeModel):
             return_dict=True,
             return_tensors="pt",
         )
-
-        if dtype_override is not None and "pixel_values" in inputs:
-            inputs["pixel_values"] = cast_input_to_type(
-                inputs["pixel_values"], dtype_override
-            )
 
         return inputs
 

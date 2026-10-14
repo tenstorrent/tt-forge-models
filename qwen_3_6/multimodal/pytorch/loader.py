@@ -14,6 +14,7 @@ patch 16. 35B-A3B projects into a 2048-wide text decoder; 27B projects into
 5120.
 """
 
+import torch
 from transformers import AutoModelForImageTextToText, AutoProcessor, AutoConfig
 from typing import Optional
 
@@ -29,6 +30,39 @@ from ....config import (
     StrEnum,
 )
 from ....tools.utils import cast_input_to_type
+
+EXACT_SOFTMAX_ATTN = "tt_exact_softmax_qwen3_6"
+
+
+def _exact_softmax_attention(
+    module, query, key, value, attention_mask, scaling, **kwargs
+):
+    """fp32 attention with softmax written as exp * reciprocal(sum).
+
+    The stock exp / sum fuses into ttnn.softmax, which tt-mlir leaves at
+    math_approx_mode=True (rows sum to up to 1.039). This form is not fused
+    and is exact on TT. Remove once tt-mlir disables the approximation.
+    """
+    from transformers.models.qwen3_5.modeling_qwen3_5 import repeat_kv
+
+    key = repeat_kv(key, module.num_key_value_groups).float()
+    value = repeat_kv(value, module.num_key_value_groups).float()
+    scores = torch.matmul(query.float(), key.transpose(2, 3)) * scaling
+    if attention_mask is not None:
+        scores = scores + attention_mask
+    exp = torch.exp(scores - torch.amax(scores, dim=-1, keepdim=True))
+    probs = exp * torch.reciprocal(torch.sum(exp, dim=-1, keepdim=True))
+    out = torch.matmul(probs, value).to(query.dtype)
+    return out.transpose(1, 2).contiguous(), None
+
+
+def _use_exact_softmax_attention(model):
+    from transformers import AttentionInterface
+    from transformers.masking_utils import AttentionMaskInterface, eager_mask
+
+    AttentionInterface.register(EXACT_SOFTMAX_ATTN, _exact_softmax_attention)
+    AttentionMaskInterface.register(EXACT_SOFTMAX_ATTN, eager_mask)
+    model.set_attn_implementation(EXACT_SOFTMAX_ATTN)
 
 
 class ModelVariant(StrEnum):
@@ -59,6 +93,8 @@ class ModelLoader(ForgeModel):
 
     min_pixels = 56 * 56
     max_pixels = 14 * 28 * 1280
+
+    _27B_MAX_PIXELS = 32 * 32 * 256
 
     # Gated DeltaNet conv width depends on the variant. 35B-A3B is 8192
     # (4096 verified on a 4-device blackhole mesh). 27B is 10240
@@ -99,9 +135,12 @@ class ModelLoader(ForgeModel):
         )
 
     def _load_processor(self, dtype_override=None):
+        max_pixels = {
+            ModelVariant.QWEN_3_6_27B: self._27B_MAX_PIXELS,
+        }.get(self._variant, self.max_pixels)
         kwargs = {
             "min_pixels": self.min_pixels,
-            "max_pixels": self.max_pixels,
+            "max_pixels": max_pixels,
         }
         if dtype_override is not None:
             kwargs["torch_dtype"] = dtype_override
@@ -159,6 +198,11 @@ class ModelLoader(ForgeModel):
         if getattr(model.config, "text_config", None) is not None:
             model.config.text_config.use_cache = False
 
+        if self._variant == ModelVariant.QWEN_3_6_27B:
+            _use_exact_softmax_attention(model)
+            # The merge casts image features back to the text dtype.
+            model.model.visual.float()
+
         slice_depthwise_conv1d_channels(model, self.CONV_CHANNEL_CHUNK)
 
         self.config = model.config
@@ -204,7 +248,12 @@ class ModelLoader(ForgeModel):
             return_tensors="pt",
         )
 
-        if dtype_override is not None and "pixel_values" in inputs:
+        # 27B keeps pixel_values fp32 to feed its fp32 vision tower.
+        if (
+            dtype_override is not None
+            and "pixel_values" in inputs
+            and self._variant != ModelVariant.QWEN_3_6_27B
+        ):
             inputs["pixel_values"] = cast_input_to_type(
                 inputs["pixel_values"], dtype_override
             )
