@@ -4,12 +4,11 @@
 
 """Utility functions for Pyramid Flow model loading."""
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import torch
 
 from .flux_modules import PyramidFluxTransformer
-
 
 # HuggingFace repo carrying the real Pyramid Flow miniFLUX weights (ungated).
 _HF_REPO = "rain1011/pyramid-flow-miniflux"
@@ -21,6 +20,12 @@ _DIT_SUBFOLDER = "diffusion_transformer_768p"
 # exposed here - see `load_text_encoder` for why.
 _CLIP_SUBFOLDER = "text_encoder"
 _CLIP_TOKENIZER_SUBFOLDER = "tokenizer"
+# The T5-XXL half (`text_encoder_2` / `tokenizer_2`). It produces the DiT's
+# `encoder_hidden_states`, so the end-to-end pipeline cannot skip it - but it is
+# not exposed as a runnable component (PCC 0.86 on device), so the pipeline runs
+# it on host. See `load_t5_text_encoder`.
+_T5_SUBFOLDER = "text_encoder_2"
+_T5_TOKENIZER_SUBFOLDER = "tokenizer_2"
 # The CausalVideoVAE that decodes miniFLUX latents back to pixels.
 _VAE_SUBFOLDER = "causal_video_vae"
 
@@ -108,7 +113,9 @@ _SMOKE_BATCH = 1
 # ============================================================================
 
 
-def load_transformer(dtype: torch.dtype) -> PyramidFluxTransformer:
+def load_transformer(
+    dtype: torch.dtype, subfolder: Optional[str] = None
+) -> PyramidFluxTransformer:
     """
     Load the real Pyramid Flow miniFLUX DiT with pretrained weights.
 
@@ -120,7 +127,7 @@ def load_transformer(dtype: torch.dtype) -> PyramidFluxTransformer:
     try:
         model = PyramidFluxTransformer.from_pretrained(
             _HF_REPO,
-            subfolder=_DIT_SUBFOLDER,
+            subfolder=subfolder or _DIT_SUBFOLDER,
             torch_dtype=dtype,
         )
     except Exception:
@@ -168,6 +175,43 @@ def load_text_encoder(dtype: torch.dtype) -> ClipTextEncoderWrapper:
     except Exception:
         model = CLIPTextModel(CLIPTextConfig(**CLIP_CONFIG)).to(dtype=dtype)
     return ClipTextEncoderWrapper(model.eval()).eval()
+
+
+def load_t5_text_encoder(dtype: torch.dtype):
+    """
+    Load the T5-XXL half of the miniFLUX text stack (`text_encoder_2`, 4.76B).
+
+    Unlike the other loaders here this one is not backing a runnable component:
+    T5-XXL compiles and executes on device but lands at PCC 0.8598 against CPU,
+    so it is not exposed as a `ModelVariant` and the end-to-end pipeline runs it
+    on host. It is loaded here anyway because the DiT's `encoder_hidden_states`
+    come from it - there is no pipeline without it.
+
+    No random-init fallback: an untrained T5 would produce embeddings that make
+    an end-to-end run meaningless, so a download failure should fail loudly.
+    """
+    from transformers import T5EncoderModel
+
+    model = T5EncoderModel.from_pretrained(
+        _HF_REPO,
+        subfolder=_T5_SUBFOLDER,
+        torch_dtype=dtype,
+    )
+    return model.eval()
+
+
+def load_clip_tokenizer():
+    """Load the CLIP tokenizer (77 tokens, pooled-embedding branch)."""
+    from transformers import CLIPTokenizer
+
+    return CLIPTokenizer.from_pretrained(_HF_REPO, subfolder=_CLIP_TOKENIZER_SUBFOLDER)
+
+
+def load_t5_tokenizer():
+    """Load the T5 tokenizer (the DiT's `encoder_hidden_states` branch)."""
+    from transformers import T5TokenizerFast
+
+    return T5TokenizerFast.from_pretrained(_HF_REPO, subfolder=_T5_TOKENIZER_SUBFOLDER)
 
 
 class CausalVaeDecoderWrapper(torch.nn.Module):
