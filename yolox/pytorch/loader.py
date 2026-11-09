@@ -160,6 +160,7 @@ class ModelLoader(ForgeModel):
         Returns:
             torch.Tensor: Preprocessed input tensor.
         """
+        import cv2
         import numpy as np
         from yolox.data.data_augment import preproc as preprocess
 
@@ -177,6 +178,9 @@ class ModelLoader(ForgeModel):
             img = ds[200]["image"]
         else:
             img = np.array(image)
+
+        # YOLOX is trained on cv2 (BGR) frames; PIL and HF dataset images are RGB.
+        img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
         img_tensor, ratio = preprocess(img, input_shape)
         self.ratio = ratio
