@@ -1315,3 +1315,17 @@ def prepare_inputs_for_sliding_window_attention(
         "use_cache": True,
         "attention_mask": full_attention_mask,
     }
+
+
+# LOCAL SHIM for an upstream bug, not a feature. The yolov8/v10/v11/v12 loaders all do
+#     from ...tools.utils import yolo_postprocess
+# but that symbol is defined nowhere in tt_forge_models, on our checkout or on origin/main,
+# so those four loaders cannot be imported at all. We only need load_model()/load_inputs() to
+# export the graph, and postprocessing plays no part in that, so a stub is enough to unblock
+# the import. Raises if anything actually calls it, rather than returning a wrong answer.
+def yolo_postprocess(*args, **kwargs):
+    raise NotImplementedError(
+        "yolo_postprocess is a local stub: the symbol is missing from tt_forge_models upstream "
+        "(imported by yolov8/v10/v11/v12 loaders, defined nowhere). Model export and execution "
+        "do not need it; if you have reached this, the real implementation is required."
+    )
